@@ -212,11 +212,10 @@ def _gen_ilm_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str) ->
         f"mc admin tier add minio hot COLD-TIER "
         f"--endpoint http://{target_host}:9000 "
         f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-        f"--bucket tiered && "
+        f"--bucket tiered 2>/dev/null; "
         f"mc ilm rule add hot/data "
         f"--transition-days {transition_days} "
-        f"--storage-class COLD-TIER "
-        f"--name {policy_name}"
+        f"--transition-tier COLD-TIER"
     )
 
     return [EdgeInitScript(

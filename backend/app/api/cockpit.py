@@ -57,52 +57,43 @@ async def get_cockpit_data(demo_id: str):
     async def get_cluster_stats(alias: str) -> dict:
         result = {"alias": alias, "buckets": [], "throughput": {"rx_bytes_per_sec": 0, "tx_bytes_per_sec": 0}}
 
-        # Get bucket list with object counts
+        # Single batched exec: list buckets + count objects + get sizes in one shell script
+        # Uses text mc ls (not JSON) for bucket names, then batches counts
+        batch_script = (
+            f'for b in $(mc ls {alias} 2>/dev/null | tr -s " " | cut -d" " -f5 | tr -d "/"); do '
+            f'[ -z "$b" ] && continue; '
+            f'count=$(mc ls {alias}/$b/ --json 2>/dev/null | wc -l); '
+            f'size=$(mc du {alias}/$b --json 2>/dev/null | tail -1); '
+            f'echo "BUCKET:$b:$count:$size"; '
+            f'done'
+        )
         try:
             exit_code, stdout, _ = await exec_in_container(
-                mc_shell,
-                f"mc ls {alias} --json"
+                mc_shell, f"sh -c '{batch_script}'"
             )
             if exit_code == 0:
                 for line in stdout.strip().split("\n"):
-                    line = line.strip()
-                    if not line:
+                    if not line.startswith("BUCKET:"):
                         continue
+                    parts = line.split(":", 3)
+                    if len(parts) < 4:
+                        continue
+                    bucket_name = parts[1]
                     try:
-                        obj = json.loads(line)
-                        if obj.get("type") == "folder":
-                            bucket_name = obj.get("key", "").rstrip("/")
-                            if bucket_name:
-                                # Count objects via mc ls --json (count lines)
-                                ec2, out2, _ = await exec_in_container(
-                                    mc_shell,
-                                    f"sh -c 'mc ls {alias}/{bucket_name}/ --json 2>/dev/null | wc -l'"
-                                )
-                                obj_count = 0
-                                total_size = 0
-                                if ec2 == 0 and out2.strip():
-                                    try:
-                                        obj_count = int(out2.strip())
-                                    except ValueError:
-                                        pass
-                                # Get size via mc du
-                                ec3, out3, _ = await exec_in_container(
-                                    mc_shell,
-                                    f"sh -c 'mc du {alias}/{bucket_name} --json 2>/dev/null'"
-                                )
-                                if ec3 == 0 and out3.strip():
-                                    try:
-                                        du = json.loads(out3.strip().split("\n")[-1])
-                                        total_size = du.get("size", 0)
-                                    except (json.JSONDecodeError, IndexError):
-                                        pass
-                                result["buckets"].append({
-                                    "name": bucket_name,
-                                    "objects": obj_count,
-                                    "size": total_size,
-                                })
-                    except json.JSONDecodeError:
-                        continue
+                        obj_count = int(parts[2])
+                    except ValueError:
+                        obj_count = 0
+                    total_size = 0
+                    try:
+                        du = json.loads(parts[3])
+                        total_size = du.get("size", 0)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                    result["buckets"].append({
+                        "name": bucket_name,
+                        "objects": obj_count,
+                        "size": total_size,
+                    })
         except Exception as e:
             logger.warning(f"Failed to get bucket stats for {alias}: {e}")
 
