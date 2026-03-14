@@ -108,3 +108,13 @@ All frontend design decisions **must** use the **Stitch MCP** and **UI Pro plugi
 - shadcn/ui component customization
 
 Route frontend design work to the `frontend-designer` agent (`.claude/agents/frontend-designer.md`), which has access to Stitch MCP, UI Pro, and Claude's built-in design capabilities.
+
+### MinIO Configuration & Operations
+The `minio-expert` agent (`.claude/agents/minio-expert.md`) **must** be involved in **planning and review** of all MinIO-related work. This includes:
+- MinIO component manifest changes (connections, variants, init scripts, config schemas)
+- Replication, site-replication, and tiering configuration or automation
+- ILM policies and lifecycle rule setup
+- `mc` CLI command sequences and init script ordering
+- MinIO deployment architecture decisions (single vs distributed, multi-node topologies)
+- Credential management for MinIO and remote tier endpoints (S3, GCS)
+- Health check and monitoring configuration

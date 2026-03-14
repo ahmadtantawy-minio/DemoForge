@@ -103,6 +103,7 @@ class ComponentManifest(BaseModel):
     icon: str = ""
     version: str = ""
     image: str                    # Docker image reference
+    build_context: str = ""       # If set, path relative to component dir for docker build (e.g. ".")
     description: str = ""
     resources: ResourceDef = ResourceDef()
     ports: list[PortDef] = []
