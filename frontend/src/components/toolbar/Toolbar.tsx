@@ -289,19 +289,15 @@ export default function Toolbar({ cockpitEnabled, onToggleCockpit }: ToolbarProp
               </TooltipTrigger>
               <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={onToggleCockpit}
-                  variant="ghost"
-                  size="sm"
-                  className={`h-7 w-7 p-0 ${cockpitEnabled ? "text-green-400" : "text-muted-foreground hover:text-foreground"}`}
-                >
-                  <Gauge className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent><p className="text-xs">{cockpitEnabled ? "Cockpit On" : "Cockpit Off"}</p></TooltipContent>
-            </Tooltip>
+            <Button
+              onClick={(e) => { e.stopPropagation(); onToggleCockpit?.(); }}
+              variant="ghost"
+              size="sm"
+              className={`h-7 w-7 p-0 ${cockpitEnabled ? "text-green-400 bg-green-400/10" : "text-muted-foreground hover:text-foreground"}`}
+              title={cockpitEnabled ? "Cockpit On" : "Cockpit Off"}
+            >
+              <Gauge className="w-3.5 h-3.5" />
+            </Button>
           </>
         )}
 

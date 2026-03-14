@@ -103,7 +103,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             </div>
             <div className="text-[10px] text-muted-foreground">
               {nodeCount} nodes × {drivesPerNode} drive
-              {drivesPerNode > 1 ? "s" : ""} • erasure coded
+              {drivesPerNode > 1 ? "s" : ""} • {nodeCount * drivesPerNode >= 4 ? "erasure coded" : "replicated"}
             </div>
           </div>
           {clusterInstances.length > 0 && (

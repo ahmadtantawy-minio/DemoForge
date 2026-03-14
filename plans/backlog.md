@@ -49,17 +49,18 @@
 ## Remaining Fixes
 
 ### MEDIUM
+- [x] **FIX-12**: Site-replication credential mismatch warning added
+- [x] **FIX-17**: Init scripts parallelized per node via asyncio.gather
+- [x] **FIX-18**: Shared docker_client in instances.py stop/start
 - [ ] **FIX-2**: Verify `mc replicate add --remote-bucket URL` syntax works on AIStore image (validated on CE, needs AIStore test)
 - [ ] **FIX-7**: Verify `--sync` and `--bandwidth` flags on AIStore mc (validated on CE)
-- [ ] **FIX-12**: Site-replication credential mismatch not validated (warn if clusters have different credentials)
-- [ ] **FIX-17**: Init scripts run sequentially across all nodes → parallelize with asyncio.gather for independent nodes
-- [ ] **FIX-18**: Duplicate `docker.from_env()` in instances.py stop/start → use shared docker_client
 
 ### BUG FIXES
+- [x] BUG-3: Edge configs recovered on backend restart
+- [x] BUG-4: Node ID counter uses trailing-number regex across all ID types
 - [ ] BUG-9: Cockpit toggle button unstable — takes multiple clicks to enable/show overlay consistently
+- [ ] BUG-10: Cluster node shows "erasure coded" label for 2-node clusters (should show "mirrored" or just "replicated")
 - [ ] BUG-1: NGINX template upstream direction inverted (verify with embedded LB)
-- [ ] BUG-3: State recovery after backend restart — edge configs lost on restart
-- [ ] BUG-4: Node ID counter resets on page reload (collision risk)
 - [ ] BUG-5: Grafana secret keys mismatch environment keys
 - [ ] BUG-8: Terminal panel tab duplication
 
