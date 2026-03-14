@@ -198,6 +198,17 @@ export default function PropertiesPanel() {
       </div>
 
       <div className="mb-3">
+        <label className="text-xs text-muted-foreground block mb-1">Display Name</label>
+        <Input
+          type="text"
+          value={data.displayName ?? ""}
+          onChange={(e) => updateData({ displayName: e.target.value })}
+          placeholder={data.label || data.componentId}
+          className="h-8 text-sm"
+        />
+      </div>
+
+      <div className="mb-3">
         <div className="text-xs text-muted-foreground mb-1">Component</div>
         <div className="text-sm font-medium text-foreground">{data.label}</div>
         <div className="text-xs text-muted-foreground">{data.componentId}</div>

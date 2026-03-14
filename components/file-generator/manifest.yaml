@@ -1,0 +1,98 @@
+id: file-generator
+name: Data Generator
+category: tooling
+icon: file-generator
+version: "1.0"
+image: minio/mc:latest
+description: "Generates synthetic files and pushes to S3-compatible storage. Configure file size, count, format, and rate."
+
+resources:
+  memory: "128m"
+  cpu: 0.25
+
+ports: []
+
+environment:
+  FG_FILE_SIZE: "1MB"
+  FG_FILE_COUNT: "100"
+  FG_FILE_FORMAT: "random"
+  FG_RATE: "10"
+  FG_TARGET_BUCKET: "demo-bucket"
+  FG_TARGET_ACCESS_KEY: "${FG_TARGET_ACCESS_KEY:-minioadmin}"
+  FG_TARGET_SECRET_KEY: "${FG_TARGET_SECRET_KEY:-minioadmin}"
+
+volumes: []
+
+command: ["sleep", "infinity"]
+
+secrets:
+  - key: FG_TARGET_ACCESS_KEY
+    label: "Target Access Key"
+    default: "minioadmin"
+  - key: FG_TARGET_SECRET_KEY
+    label: "Target Secret Key"
+    default: "minioadmin"
+
+web_ui: []
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Data Generator container. Use quick actions or run commands manually."
+  quick_actions:
+    - label: "Start generating"
+      command: "/generate.sh"
+    - label: "Check mc alias"
+      command: "mc alias list"
+    - label: "List buckets"
+      command: "mc ls target/ 2>/dev/null || echo 'No target configured yet'"
+
+connections:
+  provides:
+    - type: file-push
+      port: 0
+      description: "Pushes generated files to an S3 target"
+      config_schema:
+        - key: file_size
+          label: "File Size"
+          type: select
+          options: ["1KB", "10KB", "100KB", "1MB", "10MB", "100MB"]
+          default: "1MB"
+        - key: file_count
+          label: "File Count"
+          type: number
+          default: "100"
+        - key: file_format
+          label: "File Format"
+          type: select
+          options: ["random", "csv", "json"]
+          default: "random"
+        - key: rate
+          label: "Files/Second (0=burst)"
+          type: number
+          default: "10"
+        - key: target_bucket
+          label: "Target Bucket"
+          type: string
+          default: "demo-bucket"
+  accepts: []
+
+variants:
+  burst:
+    description: "Generate all files as fast as possible"
+    command: ["sleep", "infinity"]
+  steady:
+    description: "Continuous generation at configured rate"
+    command: ["sleep", "infinity"]
+
+template_mounts:
+  - template: "generate.sh.j2"
+    mount_path: "/generate.sh"
+
+static_mounts: []
+
+init_scripts:
+  - command: "chmod +x /generate.sh"
+    wait_for_healthy: false
+    timeout: 10
+    order: 0
+    description: "Make generator script executable"

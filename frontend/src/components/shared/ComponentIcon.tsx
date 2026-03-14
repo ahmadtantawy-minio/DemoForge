@@ -55,6 +55,17 @@ function GrafanaIcon({ size }: { size: number }) {
   );
 }
 
+function FileGeneratorIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#0891B2" />
+      <path d="M10 7h8l5 5v13a2 2 0 01-2 2H10a2 2 0 01-2-2V9a2 2 0 012-2z" stroke="white" strokeWidth="1.5" fill="none" />
+      <path d="M18 7v5h5" stroke="white" strokeWidth="1.5" />
+      <path d="M12 18l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -74,6 +85,7 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("nginx")) return <NGINXIcon size={size} />;
     if (id.includes("prometheus")) return <PrometheusIcon size={size} />;
     if (id.includes("grafana")) return <GrafanaIcon size={size} />;
+    if (id.includes("file-generator") || id.includes("data-gen")) return <FileGeneratorIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

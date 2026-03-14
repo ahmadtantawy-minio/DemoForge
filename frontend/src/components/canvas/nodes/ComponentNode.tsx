@@ -36,8 +36,8 @@ export default function ComponentNode({ id, data }: NodeProps) {
       <div className="flex items-center gap-2">
         <ComponentIcon icon={nodeData.componentId} size={28} />
         <div>
-          <div className="font-semibold text-sm text-foreground">{nodeData.label}</div>
-          <div className="text-xs text-muted-foreground">{nodeData.variant}</div>
+          <div className="font-semibold text-sm text-foreground">{nodeData.displayName || nodeData.label}</div>
+          <div className="text-xs text-muted-foreground">{nodeData.displayName ? nodeData.label : ""} {nodeData.variant}</div>
         </div>
         {nodeData.health && (
           <span
