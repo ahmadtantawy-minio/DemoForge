@@ -190,8 +190,12 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
 
         failed_inits = [r for r in init_results if r.get("exit_code", 0) != 0]
         if failed_inits:
-            logger.warning(f"Demo {demo.id}: {len(failed_inits)} init script(s) failed: {failed_inits}")
-            await progress("init_scripts", "warning", f"{len(failed_inits)} init script(s) failed")
+            details = "; ".join(
+                f"{r.get('node_id','?')}: {r.get('stderr','') or r.get('stdout','') or 'exit code ' + str(r.get('exit_code','?'))}"
+                for r in failed_inits
+            )
+            logger.warning(f"Demo {demo.id}: {len(failed_inits)} init script(s) failed: {details}")
+            await progress("init_scripts", "warning", f"{len(failed_inits)} init script(s) failed: {details}")
         else:
             await progress("init_scripts", "done", f"{len(init_results)} init script(s) completed")
 
@@ -200,22 +204,29 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         edge_scripts = generate_edge_scripts(demo, project_name)
         if edge_scripts:
             await progress("edge_config", "running", f"Configuring {len(edge_scripts)} connection(s)...")
+            edge_failures = []
             for script in edge_scripts:
                 try:
                     if script.wait_for_healthy:
                         from .init_runner import wait_for_healthy as wait_healthy
                         healthy = await wait_healthy(script.container_name, script.timeout)
                         if not healthy:
+                            edge_failures.append(f"{script.description}: container not healthy")
                             logger.warning(f"Edge script skipped for {script.edge_id}: container not healthy")
                             continue
                     exit_code, stdout, stderr = await exec_in_container(
                         script.container_name, f"sh -c '{script.command}'"
                     )
                     if exit_code != 0:
+                        edge_failures.append(f"{script.description}: {stderr[:200]}")
                         logger.warning(f"Edge script failed for {script.edge_id}: {stderr}")
                 except Exception as e:
+                    edge_failures.append(f"{script.description}: {str(e)[:200]}")
                     logger.warning(f"Edge script error for {script.edge_id}: {e}")
-            await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) configured")
+            if edge_failures:
+                await progress("edge_config", "warning", f"{len(edge_failures)} failed: {'; '.join(edge_failures)}")
+            else:
+                await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) configured")
 
         running.status = "running"
         state.set_demo(running)

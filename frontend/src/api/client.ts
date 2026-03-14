@@ -54,6 +54,12 @@ export const createDemo = (name: string, description = "") =>
 
 export const fetchDemo = (id: string) => apiFetch<any>(`/api/demos/${id}`);
 
+export const updateDemo = (id: string, patch: { name?: string; description?: string }) =>
+  apiFetch<import("../types").DemoSummary>(`/api/demos/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
 export const fetchGeneratedConfig = (id: string) =>
   apiFetch<{ demo_id: string; configs: Record<string, string> }>(`/api/demos/${id}/generated-config`);
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
-import { deployDemo, stopDemo, fetchDemos } from "../../api/client";
+import { deployDemo, stopDemo, fetchDemos, updateDemo } from "../../api/client";
 import { toast } from "sonner";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
@@ -30,8 +30,23 @@ export default function Toolbar() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [configViewerOpen, setConfigViewerOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameName, setRenameName] = useState("");
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
+
+  const handleRename = async () => {
+    if (!activeDemoId || !renameName.trim()) { setRenaming(false); return; }
+    try {
+      await updateDemo(activeDemoId, { name: renameName.trim() });
+      const res = await fetchDemos();
+      setDemos(res.demos);
+      toast.success("Demo renamed");
+    } catch (err: any) {
+      toast.error("Rename failed", { description: err.message });
+    }
+    setRenaming(false);
+  };
 
   const handleDeploy = async () => {
     if (!activeDemoId) return;
@@ -115,7 +130,24 @@ export default function Toolbar() {
         {/* Demo selector trigger */}
         {activeDemo ? (
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-foreground">{activeDemo.name}</span>
+            {renaming ? (
+              <input
+                autoFocus
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setRenaming(false); }}
+                onBlur={handleRename}
+                className="text-sm font-medium text-foreground bg-transparent border-b border-primary outline-none w-32 px-0"
+              />
+            ) : (
+              <span
+                className="text-sm font-medium text-foreground cursor-pointer hover:underline"
+                onDoubleClick={() => { setRenaming(true); setRenameName(activeDemo.name); }}
+                title="Double-click to rename"
+              >
+                {activeDemo.name}
+              </span>
+            )}
             <span className={`text-xs ${statusColor[activeDemo.status] ?? "text-muted-foreground"}`}>
               {activeDemo.status}
             </span>

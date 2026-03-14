@@ -62,6 +62,21 @@ async def get_demo(demo_id: str):
         raise HTTPException(404, "Demo not found")
     return demo.model_dump()
 
+@router.patch("/api/demos/{demo_id}")
+async def update_demo(demo_id: str, req: dict):
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+    if "name" in req:
+        demo.name = req["name"]
+    if "description" in req:
+        demo.description = req["description"]
+    _save_demo(demo)
+    running = state.get_demo(demo_id)
+    status = running.status if running else "stopped"
+    return DemoSummary(id=demo.id, name=demo.name, description=demo.description,
+                       node_count=len(demo.nodes), status=status)
+
 @router.put("/api/demos/{demo_id}/diagram")
 async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     demo = _load_demo(demo_id)

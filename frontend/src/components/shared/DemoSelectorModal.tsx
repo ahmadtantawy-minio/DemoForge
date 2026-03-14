@@ -147,13 +147,13 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col bg-zinc-950 border-zinc-700">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col bg-popover border-border">
           <DialogHeader>
             <DialogTitle>Demo Manager</DialogTitle>
             <DialogDescription>Select, create, or manage your demos.</DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center gap-2 pb-3 border-b border-zinc-800">
+          <div className="flex items-center gap-2 pb-3 border-b border-border">
             {creating ? (
               <div className="flex items-center gap-2 flex-1">
                 <Input
@@ -211,7 +211,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                     className={`text-left px-4 py-3 rounded-lg border transition-all cursor-pointer group ${
                       activeDemoId === demo.id
                         ? "border-primary bg-primary/5 shadow-md"
-                        : "border-zinc-700 bg-zinc-900 hover:border-zinc-500 hover:bg-zinc-800"
+                        : "border-border bg-card hover:border-primary/50 hover:bg-accent"
                     }`}
                   >
                     <div className="flex items-center gap-3">
