@@ -32,40 +32,34 @@
 - [x] **Lifecycle Script** — demoforge.sh auto-builds component images with build_context on start/build/nuke
 - [x] **Cleanup on partial deploy failure** — rollback in docker_manager.py
 - [x] **Component health on diagram** — pulsing yellow for starting, green/red dots, health updates during deploy
+- [x] **FIX-1**: generate_compose deep-copies DemoDefinition (no in-place mutation)
+- [x] **FIX-3**: Pause executes `mc replicate update --state disable` server-side
+- [x] **FIX-4**: sync_with_docker wrapped in asyncio.to_thread (no event loop blocking)
+- [x] **FIX-5**: Shell injection fixed with shlex.quote wrapping
+- [x] **FIX-6**: Edge ID mapping via _original_edge_id (no more fuzzy matching)
+- [x] **FIX-8**: NGINX S3 block includes proxy_http_version 1.1
+- [x] **FIX-9**: mc admin tier add uses 'minio' type for MinIO-to-MinIO tiering
+- [x] **FIX-10**: _demo_locks cleaned up on stop (no memory leak)
+- [x] **FIX-11**: Erasure-coding minimum validation (node_count × drives ≥ 4)
+- [x] **FIX-13**: Shared connectionMeta.ts (single source of truth for colors/labels)
+- [x] **FIX-14**: ConnectionType includes cluster-replication/site-replication/tiering
+- [x] **FIX-15**: Edge context menu labels dynamic per connection type
+- [x] **FIX-16**: Password fields masked with show/hide eye toggle
 
-## Critical Fixes (from architect + MinIO expert review)
-
-> These must be fixed before adding new features.
-
-### CRITICAL
-- [ ] **FIX-1**: `generate_compose` mutates `DemoDefinition` in-place → double-expansion on redeploy. Fix: work on `demo.model_copy(deep=True)`.
-- [ ] **FIX-2**: `mc replicate add --remote-bucket URL` syntax is wrong — needs alias-based `--remote-bucket target/bucket`. Fix: two-step alias setup + alias-based remote.
-- [ ] **FIX-3**: "Pause" is UI-only — doesn't stop MinIO replication. Fix: execute `mc replicate update --state disable` on pause, `--state enable` on re-activate.
-
-### HIGH
-- [ ] **FIX-4**: `sync_with_docker` blocks event loop. Fix: wrap in `asyncio.to_thread()` in main.py.
-- [ ] **FIX-5**: Shell injection in edge activation `f"sh -c '{cmd}'"`. Fix: pass `["sh", "-c", cmd]` to exec_run.
-- [ ] **FIX-6**: Edge ID mismatch — fragile fuzzy matching. Fix: store canonical edge ID map in `RunningDemo` during cluster expansion.
-- [ ] **FIX-7**: `--sync` and `--bandwidth` flags removed from modern `mc replicate add`. Remove them.
-- [ ] **FIX-8**: NGINX S3 block missing `proxy_http_version 1.1`. Fix: add to nginx.conf.j2 S3 location block.
-- [ ] **FIX-9**: `mc admin tier add s3` should be `minio` for MinIO-to-MinIO tiering.
-- [ ] **FIX-10**: `_demo_locks` dict grows unboundedly. Fix: cleanup on stop.
+## Remaining Fixes
 
 ### MEDIUM
-- [ ] **FIX-11**: No erasure-coding minimum validation (node_count × drives ≥ 4).
-- [ ] **FIX-12**: Site-replication credential mismatch not validated.
-- [ ] **FIX-13**: Duplicated `connectionColors`/`connectionLabels` across 3 files → extract to shared constant.
-- [ ] **FIX-14**: `ConnectionType` TypeScript type missing cluster variants.
-- [ ] **FIX-15**: Edge context menu hard-codes "Activate Replication" for all cluster edge types.
-- [ ] **FIX-16**: Passwords shown in plaintext in PropertiesPanel cluster credentials.
-- [ ] **FIX-17**: Init scripts run sequentially across all nodes → parallelize independent nodes.
-- [ ] **FIX-18**: Duplicate `docker.from_env()` in instances.py stop/start → use shared client.
+- [ ] **FIX-2**: Verify `mc replicate add --remote-bucket URL` syntax works on AIStore image (validated on CE, needs AIStore test)
+- [ ] **FIX-7**: Verify `--sync` and `--bandwidth` flags on AIStore mc (validated on CE)
+- [ ] **FIX-12**: Site-replication credential mismatch not validated (warn if clusters have different credentials)
+- [ ] **FIX-17**: Init scripts run sequentially across all nodes → parallelize with asyncio.gather for independent nodes
+- [ ] **FIX-18**: Duplicate `docker.from_env()` in instances.py stop/start → use shared docker_client
 
-## Bug Fixes (from phase3-and-beyond.md)
-
-- [ ] BUG-1: NGINX template upstream direction inverted
+### BUG FIXES
+- [ ] BUG-9: Cockpit toggle button unstable — takes multiple clicks to enable/show overlay consistently
+- [ ] BUG-1: NGINX template upstream direction inverted (verify with embedded LB)
 - [ ] BUG-3: State recovery after backend restart — edge configs lost on restart
-- [ ] BUG-4: Node ID counter resets on page reload
+- [ ] BUG-4: Node ID counter resets on page reload (collision risk)
 - [ ] BUG-5: Grafana secret keys mismatch environment keys
 - [ ] BUG-8: Terminal panel tab duplication
 
@@ -84,6 +78,18 @@
 - [ ] **Data Generator Web Console**: Lightweight web UI for start/stop, live progress
   - REST API: POST /start, POST /stop, GET /status, GET /files
   - Lower priority — terminal quick actions work for now
+
+## High Priority — Next Up (continued)
+
+- [ ] **Cockpit: Reposition as side-right panel** — Move cockpit overlay from floating card to a proper right-side panel consuming the lower section alongside the terminal (not overlapping the diagram editor)
+- [ ] **Cockpit: Host Resource Utilization**: Show parent container/host CPU & memory utilization in the cockpit overlay
+  - Docker stats API or cgroup metrics for total CPU/memory used by the demo
+  - Display as a summary bar at the top of the cockpit panel
+
+- [ ] **Grafana MinIO Dashboard**: Include default MinIO dashboard (ID 13502) in Grafana by default
+  - Source: https://grafana.com/grafana/dashboards/13502-minio-dashboard/
+  - Auto-provision via Grafana dashboard provisioning config
+  - Should work out-of-box when Prometheus scrapes MinIO metrics
 
 ## Remaining Backlog (lower priority)
 

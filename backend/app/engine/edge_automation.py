@@ -155,6 +155,9 @@ def _gen_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: st
     target_user = _get_credential(target_node, target_manifest, "MINIO_ROOT_USER", "minioadmin")
     target_pass = _get_credential(target_node, target_manifest, "MINIO_ROOT_PASSWORD", "minioadmin")
 
+    if source_user != target_user or source_pass != target_pass:
+        logger.warning(f"site-replication edge {edge.id}: credentials differ between {source_node.id} and {target_node.id}. Site replication requires matching root credentials.")
+
     source_host = f"{project_name}-{source_node.id}"
     target_host = f"{project_name}-{target_node.id}"
 
@@ -393,19 +396,28 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
 
     source_user, source_pass = _get_cluster_credentials(source_cluster)
     target_user, target_pass = _get_cluster_credentials(target_cluster)
+
+    if source_user != target_user or source_pass != target_pass:
+        logger.warning(f"cluster-site-replication edge {edge.id}: credentials differ between {source_cluster.label} and {target_cluster.label}. Site replication requires matching root credentials.")
+
     source_host = _resolve_cluster_endpoint(source_cluster, project_name)
     target_host = _resolve_cluster_endpoint(target_cluster, project_name)
 
+    # Remove all buckets from target cluster before enabling site replication
+    # (MinIO requires at most one cluster to have data)
+    # mc image has cut/tr but no grep/sed/awk
     command = (
         f"mc alias set site1 http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set site2 http://{target_host}:80 {_safe(target_user)} {_safe(target_pass)} && "
+        f"for b in $(mc ls site2 2>/dev/null | tr -s ' ' | cut -d' ' -f5 | tr -d '/'); do "
+        f"[ -n \"$b\" ] && mc rb site2/$b --force 2>/dev/null; done; "
         f"mc admin replicate add site1 site2"
     )
 
     return [EdgeInitScript(
         edge_id=edge.id,
         connection_type="cluster-site-replication",
-        container_name=f"{project_name}-{source_cluster.id}-node-1",
+        container_name=f"{project_name}-mc-shell",
         command=command,
         order=25,
         description=f"Site replication: {source_cluster.label} <-> {target_cluster.label}",
@@ -460,11 +472,10 @@ def _gen_cluster_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str
         f"mc admin tier add minio hot {tier_name} "
         f"--endpoint http://{target_host}:80 "
         f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-        f"--bucket {tier_bucket} && "
+        f"--bucket {tier_bucket} 2>/dev/null; "
         f"mc ilm rule add hot/{source_bucket} "
         f"--transition-days {transition_days} "
-        f"--storage-class {tier_name} "
-        f"--name {policy_name}"
+        f"--transition-tier {tier_name}"
     )
 
     return [EdgeInitScript(

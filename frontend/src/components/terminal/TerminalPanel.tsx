@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { Button } from "@/components/ui/button";
-import { X, Plus, TerminalSquare } from "lucide-react";
+import { X, Plus, TerminalSquare, DollarSign } from "lucide-react";
 import TerminalTab from "./TerminalTab";
 
 interface Tab {
   nodeId: string;
+  /** When true, tab represents the general mc-shell terminal */
+  isMcShell?: boolean;
 }
 
 interface Props {
@@ -64,6 +66,19 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
     addTab();
   };
 
+  const openMcShell = () => {
+    if (!activeDemoId) return;
+    const mcNodeId = "mc-shell";
+    if (tabs.find((t) => t.nodeId === mcNodeId)) {
+      setActiveTab(mcNodeId);
+      return;
+    }
+    closedTabsRef.current.delete(mcNodeId);
+    const newTab: Tab = { nodeId: mcNodeId, isMcShell: true };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTab(mcNodeId);
+  };
+
   const hasTerminalContainers = instances.some((i) => i.has_terminal && !tabs.find((t) => t.nodeId === i.node_id));
 
   return (
@@ -73,11 +88,12 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
           <div
             key={tab.nodeId}
             className={`flex items-center gap-1 px-3 py-1.5 text-xs cursor-pointer border-r border-border whitespace-nowrap transition-colors
-              ${currentTab === tab.nodeId ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              ${currentTab === tab.nodeId ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground"}
+              ${tab.isMcShell ? "border-b-2 border-b-emerald-500" : ""}`}
             onClick={() => setActiveTab(tab.nodeId)}
           >
-            <TerminalSquare className="w-3 h-3" />
-            <span>{tab.nodeId}</span>
+            {tab.isMcShell ? <DollarSign className="w-3 h-3 text-emerald-500" /> : <TerminalSquare className="w-3 h-3" />}
+            <span>{tab.isMcShell ? "mc shell" : tab.nodeId}</span>
             <button
               onClick={(e) => { e.stopPropagation(); closeTab(tab.nodeId); }}
               className="ml-1 text-muted-foreground hover:text-foreground transition-colors"
@@ -96,6 +112,18 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
         >
           <Plus className="w-3.5 h-3.5" />
         </Button>
+        {activeDemoId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+            onClick={openMcShell}
+            title="Open mc shell terminal"
+          >
+            <DollarSign className="w-3.5 h-3.5 mr-0.5" />
+            mc
+          </Button>
+        )}
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">
         {currentTab && activeDemoId ? (
@@ -118,7 +146,7 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
       </div>
       {/* Footer */}
       <div className="flex items-center justify-between px-3 py-1 bg-card border-t border-border text-xs text-muted-foreground flex-shrink-0">
-        <span>{currentTab ? `Container: ${currentTab}` : "No terminal"}</span>
+        <span>{currentTab ? `Container: ${tabs.find((t) => t.nodeId === currentTab)?.isMcShell ? "mc-shell" : currentTab}` : "No terminal"}</span>
         <Button
           variant="ghost"
           size="sm"

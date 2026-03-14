@@ -22,17 +22,10 @@ async def wait_for_healthy(container_name: str, timeout: int = 60) -> bool:
     return False
 
 
-async def run_init_scripts(demo: RunningDemo) -> list[dict]:
+async def _run_node_scripts(node_id: str, container_name: str, scripts: list) -> list[dict]:
+    """Run init scripts for a single node sequentially."""
     results = []
-    tasks = []
-    for node_id, container in demo.containers.items():
-        manifest = get_component(container.component_id)
-        if not manifest or not manifest.init_scripts:
-            continue
-        for script in sorted(manifest.init_scripts, key=lambda s: s.order):
-            tasks.append((node_id, container.container_name, script))
-
-    for node_id, container_name, script in tasks:
+    for script in scripts:
         if script.wait_for_healthy:
             healthy = await wait_for_healthy(container_name, script.timeout)
             if not healthy:
@@ -47,4 +40,27 @@ async def run_init_scripts(demo: RunningDemo) -> list[dict]:
             "node_id": node_id, "script": script.command,
             "exit_code": exit_code, "stdout": stdout, "stderr": stderr,
         })
+    return results
+
+
+async def run_init_scripts(demo: RunningDemo) -> list[dict]:
+    # Group scripts by node_id, keeping intra-node order
+    node_tasks: dict[str, tuple[str, list]] = {}
+    for node_id, container in demo.containers.items():
+        manifest = get_component(container.component_id)
+        if not manifest or not manifest.init_scripts:
+            continue
+        scripts = sorted(manifest.init_scripts, key=lambda s: s.order)
+        node_tasks[node_id] = (container.container_name, scripts)
+
+    # Run each node's scripts in parallel across nodes
+    per_node_results = await asyncio.gather(
+        *[_run_node_scripts(node_id, container_name, scripts)
+          for node_id, (container_name, scripts) in node_tasks.items()]
+    )
+
+    # Flatten results preserving insertion order
+    results = []
+    for node_result in per_node_results:
+        results.extend(node_result)
     return results

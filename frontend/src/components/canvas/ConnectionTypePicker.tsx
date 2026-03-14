@@ -22,17 +22,16 @@ export default function ConnectionTypePicker() {
 
   if (!pendingConnection) return null;
 
-  const { validTypes, sourcePos, targetPos } = pendingConnection;
-  const midX = (sourcePos.x + targetPos.x) / 2 + 70;
-  const midY = (sourcePos.y + targetPos.y) / 2 + 20;
+  const { validTypes } = pendingConnection;
 
+  // Position at center of viewport for reliable placement regardless of zoom/pan
   return (
     <div
       ref={ref}
-      className="absolute z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[140px]"
+      className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[140px]"
       style={{
-        left: midX,
-        top: midY,
+        left: "50%",
+        top: "40%",
         transform: "translate(-50%, -50%)",
       }}
     >

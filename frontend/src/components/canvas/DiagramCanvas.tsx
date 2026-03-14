@@ -167,12 +167,18 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           autoConfigure: e.auto_configure ?? true,
         },
       }));
-      // Derive nodeCounter from existing node IDs to avoid collisions
-      const maxId = rfNodes.reduce((max: number, n: any) => {
-        const num = parseInt(n.id.split("-").pop() || "0", 10);
-        return isNaN(num) ? max : Math.max(max, num);
-      }, 0);
-      nodeCounter = maxId;
+      // Derive nodeCounter from all node/cluster/group IDs to avoid collisions
+      const trailingNum = (id: string): number => {
+        const m = id.match(/(\d+)$/);
+        return m ? parseInt(m[1], 10) : 0;
+      };
+      const allIds = [
+        ...rfNodes.map((n: any) => n.id),
+        ...rfClusters.map((c: any) => c.id),
+        ...rfGroups.map((g: any) => g.id),
+        ...rfStickies.map((s: any) => s.id),
+      ];
+      nodeCounter = allIds.reduce((max: number, id: string) => Math.max(max, trailingNum(id)), 0);
       // Derive groupCounter from existing group IDs
       const maxGroupId = rfGroups.reduce((max: number, g: any) => {
         const num = parseInt(g.id.replace("group-", "") || "0", 10);
@@ -312,7 +318,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           data: {
             label: "MinIO Cluster",
             componentId: "minio",
-            nodeCount: 4,
+            nodeCount: 2,
             drivesPerNode: 1,
             credentials: { root_user: "minioadmin", root_password: "minioadmin" },
             config: {},
@@ -638,6 +644,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             x={contextMenu.x}
             y={contextMenu.y}
             nodeId={contextMenu.nodeId}
+            componentId={(ctxNode?.data as any)?.componentId}
             instance={instance}
             demoId={activeDemoId ?? ""}
             isRunning={isRunning}

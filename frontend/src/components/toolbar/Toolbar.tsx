@@ -19,11 +19,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 
-export default function Toolbar() {
+interface ToolbarProps {
+  cockpitEnabled?: boolean;
+  onToggleCockpit?: () => void;
+}
+
+export default function Toolbar({ cockpitEnabled, onToggleCockpit }: ToolbarProps = {}) {
   const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
@@ -283,6 +288,19 @@ export default function Toolbar() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onToggleCockpit}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 w-7 p-0 ${cockpitEnabled ? "text-green-400" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <Gauge className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">{cockpitEnabled ? "Cockpit On" : "Cockpit Off"}</p></TooltipContent>
             </Tooltip>
           </>
         )}

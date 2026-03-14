@@ -52,12 +52,8 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
     if (!sourceNode || !targetNode) return;
 
-    // Detect cluster-level connections (top/bottom handles)
-    const clusterSourceHandles = ["cluster-out", "cluster-out-bottom"];
-    const clusterTargetHandles = ["cluster-in", "cluster-in-top"];
-    const isClusterHandle = clusterSourceHandles.includes(connection.sourceHandle || "") ||
-      clusterTargetHandles.includes(connection.targetHandle || "");
-    const isClusterToCluster = sourceNode.type === "cluster" && targetNode.type === "cluster" && isClusterHandle;
+    // Detect cluster-to-cluster connections — any handle between two cluster nodes
+    const isClusterToCluster = sourceNode.type === "cluster" && targetNode.type === "cluster";
 
     if (isClusterToCluster) {
       // Cluster-to-cluster: offer cluster-level connection types

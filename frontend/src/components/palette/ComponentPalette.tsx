@@ -160,7 +160,7 @@ export default function ComponentPalette() {
               >
                 <ComponentIcon icon="minio" size={20} />
                 <span className="font-medium text-foreground truncate flex-1">MinIO Cluster</span>
-                <span className="text-[10px] text-muted-foreground shrink-0">4-node</span>
+                <span className="text-[10px] text-muted-foreground shrink-0">cluster</span>
               </div>
             )}
           </div>

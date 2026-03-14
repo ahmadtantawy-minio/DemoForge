@@ -13,12 +13,14 @@ import DemoManager from "./components/admin/DemoManager";
 import TerminalPanel from "./components/terminal/TerminalPanel";
 import DebugPanel from "./components/debug/DebugPanel";
 import WelcomeScreen from "./components/shared/WelcomeScreen";
+import CockpitOverlay from "./components/cockpit/CockpitOverlay";
 
 export default function App() {
   const { setDemos, setInstances, activeDemoId, demos, activeView } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(350);
+  const [cockpitEnabled, setCockpitEnabled] = useState(false);
   const isDragging = useRef(false);
 
   // Initial load + periodic sync of demo status from backend
@@ -114,7 +116,7 @@ export default function App() {
       />
 
       {/* Top bar */}
-      <Toolbar />
+      <Toolbar cockpitEnabled={cockpitEnabled} onToggleCockpit={() => setCockpitEnabled(!cockpitEnabled)} />
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
@@ -130,7 +132,10 @@ export default function App() {
           {showWelcome ? (
             <WelcomeScreen />
           ) : activeView === "diagram" ? (
-            <DiagramCanvas onOpenTerminal={openTerminal} />
+            <div className="relative w-full h-full">
+              <DiagramCanvas onOpenTerminal={openTerminal} />
+              <CockpitOverlay enabled={cockpitEnabled} />
+            </div>
           ) : (
             <ControlPlane onOpenTerminal={openTerminal} />
           )}

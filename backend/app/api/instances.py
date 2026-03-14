@@ -5,7 +5,7 @@ import shlex
 from fastapi import APIRouter, HTTPException
 from ..state.store import state, EdgeConfigResult
 from ..registry.loader import get_component
-from ..engine.docker_manager import get_container_health, restart_container, exec_in_container
+from ..engine.docker_manager import get_container_health, restart_container, exec_in_container, docker_client
 from ..engine.edge_automation import (
     generate_edge_scripts, _get_credential, _safe, _find_cluster,
     _get_cluster_credentials, _resolve_cluster_endpoint,
@@ -182,10 +182,8 @@ async def stop_instance(demo_id: str, node_id: str):
     running = state.get_demo(demo_id)
     if not running or node_id not in running.containers:
         raise HTTPException(404, "Instance not found")
-    import docker
-    client = docker.from_env()
     container_name = running.containers[node_id].container_name
-    c = await asyncio.to_thread(client.containers.get, container_name)
+    c = await asyncio.to_thread(docker_client.containers.get, container_name)
     await asyncio.to_thread(c.stop, timeout=5)
     return {"status": "stopped", "node_id": node_id}
 
@@ -195,10 +193,8 @@ async def start_instance(demo_id: str, node_id: str):
     running = state.get_demo(demo_id)
     if not running or node_id not in running.containers:
         raise HTTPException(404, "Instance not found")
-    import docker
-    client = docker.from_env()
     container_name = running.containers[node_id].container_name
-    c = await asyncio.to_thread(client.containers.get, container_name)
+    c = await asyncio.to_thread(docker_client.containers.get, container_name)
     await asyncio.to_thread(c.start)
     return {"status": "started", "node_id": node_id}
 

@@ -122,6 +122,26 @@ class StateStore:
 
         for demo_id, running in demos_map.items():
             self.running_demos[demo_id] = running
+            # Regenerate edge configs from the demo definition so they survive restarts
+            try:
+                from ..api.demos import _load_demo
+                from ..engine.edge_automation import generate_edge_scripts
+                from ..api.instances import _expand_demo_for_edges
+                demo_def = _load_demo(demo_id)
+                if demo_def:
+                    project_name = f"demoforge-{demo_id}"
+                    expanded = _expand_demo_for_edges(demo_def)
+                    scripts = generate_edge_scripts(expanded, project_name)
+                    for script in scripts:
+                        if script.edge_id not in running.edge_configs:
+                            running.edge_configs[script.edge_id] = EdgeConfigResult(
+                                edge_id=script.edge_id,
+                                connection_type=script.connection_type,
+                                status="paused",
+                                description=script.description,
+                            )
+            except Exception as e:
+                logger.warning(f"Edge config recovery failed for demo {demo_id}: {e}")
 
         if demos_map:
             logger.info(f"Recovered {len(demos_map)} running demo(s) from Docker: {list(demos_map.keys())}")

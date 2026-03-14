@@ -84,15 +84,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         drives = cluster.drives_per_node
         total_drives = cluster.node_count * drives
         if total_drives < 4:
-            raise ValueError(
-                f"Cluster '{cluster.id}' has {cluster.node_count} node(s) x {drives} drive(s) = "
-                f"{total_drives} total drives. MinIO erasure coding requires at least 4 drives."
-            )
+            # Auto-adjust drives_per_node to meet minimum 4-drive EC requirement
+            drives = max(drives, 4 // cluster.node_count)
+            total_drives = cluster.node_count * drives
+            if total_drives < 4:
+                raise ValueError(
+                    f"Cluster '{cluster.id}' needs at least 2 nodes for erasure coding."
+                )
+            logger.info(f"Cluster '{cluster.id}': auto-adjusted to {drives} drive(s) per node for EC minimum")
         cred_user = cluster.credentials.get("root_user", "minioadmin")
         cred_pass = cluster.credentials.get("root_password", "minioadmin")
 
         # Build node IDs and network alias prefix for expansion notation
-        alias_prefix = f"minio-{cluster.id.replace('-', '')[:8]}"
+        alias_prefix = f"minio-{cluster.id.replace('-', '')}"
         for i in range(1, cluster.node_count + 1):
             node_id = f"{cluster.id}-node-{i}"
             generated_ids.append(node_id)
@@ -482,6 +486,68 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             for svc in services.values():
                 svc["cpus"] = round(max(svc.get("cpus", 0.5) * scale, 0.1), 2)
             logger.info(f"Total CPU budget {res.total_cpu}: scaled {len(services)} services by {scale:.2f}")
+
+    # --- mc-shell: lightweight MinIO Client container for every demo ---
+    if demo.clusters:
+        mc_shell_name = f"{project_name}-mc-shell"
+        mc_env = {}
+        for i, cluster in enumerate(demo.clusters):
+            sanitized_label = cluster.label.replace(" ", "_").replace("-", "_")
+            cred_user = cluster.credentials.get("root_user", "minioadmin")
+            cred_pass = cluster.credentials.get("root_password", "minioadmin")
+            mc_env[f"MC_ALIAS_{i}_NAME"] = sanitized_label
+            mc_env[f"MC_ALIAS_{i}_URL"] = f"http://{project_name}-{cluster.id}-lb:80"
+            mc_env[f"MC_ALIAS_{i}_ACCESS_KEY"] = cred_user
+            mc_env[f"MC_ALIAS_{i}_SECRET_KEY"] = cred_pass
+        mc_env["MC_ALIAS_COUNT"] = str(len(demo.clusters))
+
+        # Join ALL demo networks
+        mc_networks = {}
+        for net_key, docker_net_name in network_map.items():
+            mc_networks[docker_net_name] = None
+
+        # Generate init script with explicit mc alias set commands per cluster
+        init_script_dir = os.path.join(output_dir, project_name, "mc-shell")
+        os.makedirs(init_script_dir, exist_ok=True)
+        init_script_path = os.path.join(init_script_dir, "init.sh")
+        lines = ["#!/bin/sh", "# Wait for clusters then configure mc aliases", "sleep 15"]
+        for cluster in demo.clusters:
+            alias_name = cluster.label.replace(" ", "_").replace("-", "_")
+            lb_url = f"http://{project_name}-{cluster.id}-lb:80"
+            cred_user = cluster.credentials.get("root_user", "minioadmin")
+            cred_pass = cluster.credentials.get("root_password", "minioadmin")
+            lines.append(f"# Retry alias setup for {alias_name}")
+            lines.append(f"for attempt in 1 2 3 4 5 6 7 8 9 10; do")
+            lines.append(f"  mc alias set '{alias_name}' '{lb_url}' '{cred_user}' '{cred_pass}' 2>/dev/null && break")
+            lines.append(f"  echo 'Waiting for {alias_name}... attempt $attempt'")
+            lines.append(f"  sleep 10")
+            lines.append(f"done")
+        lines.append("echo 'mc aliases configured.'")
+        lines.append("sleep infinity")
+        with open(init_script_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        os.chmod(init_script_path, 0o755)
+
+        init_host_path = _to_host_path(os.path.abspath(init_script_path), "data")
+
+        services["mc-shell"] = {
+            "image": "minio/mc:latest",
+            "container_name": mc_shell_name,
+            "entrypoint": ["/bin/sh", "-c"],
+            "command": [f"sh /etc/mc-shell/init.sh"],
+            "environment": mc_env,
+            "mem_limit": "256m",
+            "cpus": 0.25,
+            "labels": {
+                "demoforge.demo": demo.id,
+                "demoforge.node": "mc-shell",
+                "demoforge.component": "mc-shell",
+            },
+            "networks": mc_networks,
+            "volumes": [f"{init_host_path}:/etc/mc-shell/init.sh:ro"],
+            "restart": "unless-stopped",
+        }
+        logger.info(f"Added mc-shell service for demo {demo.id} with {len(demo.clusters)} cluster alias(es)")
 
     # Top-level networks block — let Docker auto-assign subnets to avoid conflicts
     compose_networks = {}

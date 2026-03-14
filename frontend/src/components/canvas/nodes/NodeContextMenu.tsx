@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import type { ContainerInstance } from "../../../types";
-import { proxyUrl, restartInstance } from "../../../api/client";
+import { proxyUrl, restartInstance, execCommand } from "../../../api/client";
 
 interface Props {
   x: number;
   y: number;
   nodeId: string;
+  componentId?: string;
   instance: ContainerInstance | undefined;
   demoId: string;
   isRunning: boolean;
@@ -16,7 +17,7 @@ interface Props {
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onClose,
+  x, y, nodeId, componentId, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onClose,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -44,6 +45,28 @@ export default function NodeContextMenu({
       },
       destructive: false,
     }] : []),
+    ...(componentId === "file-generator" && isRunning && instance ? [
+      {
+        label: "Start Generating",
+        action: () => {
+          toast.info("Starting data generation...");
+          execCommand(demoId, nodeId, "sh /app/generate.sh &")
+            .then(() => toast.success("Data generation started"))
+            .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
+        },
+        destructive: false,
+      },
+      {
+        label: "Stop Generating",
+        action: () => {
+          toast.info("Stopping data generation...");
+          execCommand(demoId, nodeId, "pkill -f generate.sh")
+            .then(() => toast.success("Data generation stopped"))
+            .catch((err: any) => toast.error("Failed to stop generation", { description: err.message }));
+        },
+        destructive: false,
+      },
+    ] : []),
   ];
 
   return (

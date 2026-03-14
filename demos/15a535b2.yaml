@@ -13,8 +13,8 @@ nodes:
   component: prometheus
   variant: default
   position:
-    x: 600.6604680363606
-    y: 83.04347538666673
+    x: 683.0132186990395
+    y: 378.91827296576304
   config: {}
   networks: {}
   display_name: ''
@@ -24,8 +24,8 @@ nodes:
   component: grafana
   variant: default
   position:
-    x: 908.3418085600364
-    y: 2.1870950580656014
+    x: 1002.3418085600364
+    y: 352.1870950580656
   config: {}
   networks: {}
   display_name: ''
@@ -35,8 +35,8 @@ nodes:
   component: file-generator
   variant: burst
   position:
-    x: -224.56519899275887
-    y: 52.41851121674833
+    x: -424.56519899275884
+    y: -104.58148878325167
   config: {}
   networks: {}
   display_name: ''
@@ -95,6 +95,51 @@ edges:
   label: ''
   source_handle: data-out
   target_handle: null
+- id: xy-edge__minio-cluster-1-minio-cluster-4-tiering
+  source: minio-cluster-1
+  target: minio-cluster-4
+  connection_type: cluster-tiering
+  network: default
+  connection_config:
+    source_bucket: data
+    tier_bucket: tiered-data
+    tier_name: COLD-TIER
+    transition_days: '1'
+    policy_name: auto-tier
+  auto_configure: true
+  label: ''
+  source_handle: cluster-out-bottom
+  target_handle: cluster-in-top
+- id: xy-edge__minio-cluster-4data-out-prometheus
+  source: minio-cluster-4
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: data-out
+  target_handle: null
+- id: xy-edge__minio-cluster-5data-out-prometheus
+  source: minio-cluster-5
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: data-out
+  target_handle: null
+- id: xy-edge__minio-cluster-3cluster-out-bottom-minio-cluster-5cluster-in-top
+  source: minio-cluster-3
+  target: minio-cluster-5
+  connection_type: cluster-site-replication
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: cluster-out-bottom
+  target_handle: cluster-in-top
 groups: []
 sticky_notes: []
 clusters:
@@ -104,7 +149,7 @@ clusters:
   position:
     x: 123.35640591555793
     y: -103.47178363068778
-  node_count: 6
+  node_count: 2
   drives_per_node: 2
   credentials:
     root_user: minioadmin
@@ -116,9 +161,37 @@ clusters:
   component: minio
   label: MinIO CE Cluster
   position:
-    x: 123.95239818959732
-    y: 233.22067083504655
-  node_count: 4
+    x: 15.786240711425307
+    y: 356.26280402481484
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+- id: minio-cluster-4
+  component: minio
+  label: MinIO CE Site-B
+  position:
+    x: -348.60848733452724
+    y: 195.60611848236493
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+- id: minio-cluster-5
+  component: minio
+  label: MinIO CE Site-C
+  position:
+    x: -174.23767688785563
+    y: 686.2388971509497
+  node_count: 2
   drives_per_node: 1
   credentials:
     root_user: minioadmin
@@ -127,9 +200,9 @@ clusters:
   width: 280.0
   height: 200.0
 resources:
-  default_memory: 4g
-  default_cpu: 2.0
-  max_memory: 8g
-  max_cpu: 2.0
-  total_memory: 10g
-  total_cpu: 3.0
+  default_memory: 2g
+  default_cpu: 1.0
+  max_memory: 4g
+  max_cpu: 4.0
+  total_memory: 12g
+  total_cpu: 10.0

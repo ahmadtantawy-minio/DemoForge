@@ -322,6 +322,7 @@ export default function PropertiesPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="2">2 nodes</SelectItem>
               <SelectItem value="4">4 nodes</SelectItem>
               <SelectItem value="6">6 nodes</SelectItem>
               <SelectItem value="8">8 nodes</SelectItem>
