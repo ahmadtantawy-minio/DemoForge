@@ -16,126 +16,109 @@
 - [x] License Sprint — global license injection, YAML store, settings API, deploy validation, MinIO AIStore component
 - [x] URL-based routing — `/demo/{id}`, `/demo/{id}/instances`, refresh-safe
 - [x] Diagram canvas follows light/dark theme
+- [x] **Phase A: Topology Foundation** — display_name, labels, group_id, connection_config, auto_configure, connection types, type picker, edge properties panel with dynamic config forms
+- [x] **Phase B: Node Grouping** — GroupNode, load/save groups, drag-to-create, multi-select, resize/containment
+- [x] **Phase C: Connection Configuration** — config schemas on manifests, dynamic form renderer, edge config persistence, Jinja2 template enhancements
+- [x] **Phase D: Edge Automation Pipeline** — edge_automation.py framework, load-balance, replication, site-replication, ILM tiering, pipeline integration, generated config viewer
+- [x] **Phase E: File Generator + Templates** — file generator manifest, file-push connection, automation, demo templates
+- [x] **Cluster Component** — DemoCluster with single-drop UX, erasure coding, edge fan-out, cluster resilience (stop/start individual nodes)
+- [x] **Cluster-to-Cluster Replication** — bucket replication, site replication, ILM tiering between clusters via top/bottom handles
+- [x] **Embedded NGINX LB** — auto-generated per cluster, console access, correct S3 proxy
+- [x] **On-demand Edge Activation** — paused → activate → applied → pause lifecycle via edge context menu
+- [x] **Edge Visual Indicators** — animated dot for active, pause icon, dashed line for pending, directional arrows, bidirectional support
+- [x] **Handle Persistence** — sourceHandle/targetHandle saved and restored (top/bottom vs left/right)
+- [x] **Demo Resource Settings** — per-container defaults, per-container caps, total demo budget with proportional scaling
+- [x] **S3 File Browser Component** — custom FastAPI image, Dockerfile, manifest, auto-built via lifecycle script
+- [x] **Lifecycle Script** — demoforge.sh auto-builds component images with build_context on start/build/nuke
+- [x] **Cleanup on partial deploy failure** — rollback in docker_manager.py
+- [x] **Component health on diagram** — pulsing yellow for starting, green/red dots, health updates during deploy
 
-## Pre-Phase: Bug Fixes (~3-4 days)
-> From phase3-and-beyond.md. Must fix before new features.
+## Critical Fixes (from architect + MinIO expert review)
+
+> These must be fixed before adding new features.
+
+### CRITICAL
+- [ ] **FIX-1**: `generate_compose` mutates `DemoDefinition` in-place → double-expansion on redeploy. Fix: work on `demo.model_copy(deep=True)`.
+- [ ] **FIX-2**: `mc replicate add --remote-bucket URL` syntax is wrong — needs alias-based `--remote-bucket target/bucket`. Fix: two-step alias setup + alias-based remote.
+- [ ] **FIX-3**: "Pause" is UI-only — doesn't stop MinIO replication. Fix: execute `mc replicate update --state disable` on pause, `--state enable` on re-activate.
+
+### HIGH
+- [ ] **FIX-4**: `sync_with_docker` blocks event loop. Fix: wrap in `asyncio.to_thread()` in main.py.
+- [ ] **FIX-5**: Shell injection in edge activation `f"sh -c '{cmd}'"`. Fix: pass `["sh", "-c", cmd]` to exec_run.
+- [ ] **FIX-6**: Edge ID mismatch — fragile fuzzy matching. Fix: store canonical edge ID map in `RunningDemo` during cluster expansion.
+- [ ] **FIX-7**: `--sync` and `--bandwidth` flags removed from modern `mc replicate add`. Remove them.
+- [ ] **FIX-8**: NGINX S3 block missing `proxy_http_version 1.1`. Fix: add to nginx.conf.j2 S3 location block.
+- [ ] **FIX-9**: `mc admin tier add s3` should be `minio` for MinIO-to-MinIO tiering.
+- [ ] **FIX-10**: `_demo_locks` dict grows unboundedly. Fix: cleanup on stop.
+
+### MEDIUM
+- [ ] **FIX-11**: No erasure-coding minimum validation (node_count × drives ≥ 4).
+- [ ] **FIX-12**: Site-replication credential mismatch not validated.
+- [ ] **FIX-13**: Duplicated `connectionColors`/`connectionLabels` across 3 files → extract to shared constant.
+- [ ] **FIX-14**: `ConnectionType` TypeScript type missing cluster variants.
+- [ ] **FIX-15**: Edge context menu hard-codes "Activate Replication" for all cluster edge types.
+- [ ] **FIX-16**: Passwords shown in plaintext in PropertiesPanel cluster credentials.
+- [ ] **FIX-17**: Init scripts run sequentially across all nodes → parallelize independent nodes.
+- [ ] **FIX-18**: Duplicate `docker.from_env()` in instances.py stop/start → use shared client.
+
+## Bug Fixes (from phase3-and-beyond.md)
 
 - [ ] BUG-1: NGINX template upstream direction inverted
-- [ ] BUG-2: Init script results discarded, init_status hardcoded
-- [ ] BUG-3: State recovery after backend restart — **Partially done** (recover_from_docker + sync_with_docker exist, verify completeness)
+- [ ] BUG-3: State recovery after backend restart — edge configs lost on restart
 - [ ] BUG-4: Node ID counter resets on page reload
 - [ ] BUG-5: Grafana secret keys mismatch environment keys
-- [ ] BUG-6: Deploy endpoint exception logging — **Partially done** (progress panel catches errors, verify traceback logging)
-- [ ] BUG-7: Cleanup on partial deploy failure — **Done** (rollback in docker_manager.py)
 - [ ] BUG-8: Terminal panel tab duplication
-
-## Phase A: Topology Foundation (1.5 weeks)
-> Data models, connection system, edge properties — foundation for ALL future components
-
-- [ ] **A1**: Add `display_name`, `labels`, `group_id` to DemoNode model + frontend types
-- [ ] **A2**: Add `connection_config`, `auto_configure`, `label` to DemoEdge model + frontend types
-- [ ] **A3**: Add DemoGroup model + `groups` field to DemoDefinition
-- [ ] **A4**: Add `ConnectionConfigField` + `config_schema` to ConnectionProvides/Accepts
-- [ ] **A5**: Update frontend TypeScript types to match all new fields
-- [ ] **A6**: Update saveDiagram/fetchDemo to serialize/deserialize new fields (groups, display_name, connection_config)
-- [ ] **A7**: Connection type picker dialog when creating edges (intersect provides/accepts)
-- [ ] **A8**: Edge selection + edge properties panel with dynamic config forms
-
-## Phase B: Node Grouping (1 week) — parallel with Phase C
-> Visual clusters for multi-cluster topologies
-
-- [ ] **B1**: GroupNode.tsx component (colored rectangle, label, description)
-- [ ] **B2**: Load/save groups as React Flow parent nodes
-- [ ] **B3**: Drag-to-create group from palette
-- [ ] **B4**: Multi-select "Create Group" context menu action
-- [ ] **B5**: Group resize handles and child node containment
-
-## Phase C: Connection Configuration (1.5 weeks) — parallel with Phase B
-> Declarative config schemas on manifests, dynamic forms
-
-- [ ] **C1**: Add `config_schema` to MinIO manifests (replication, tiering, site-replication accepts)
-- [ ] **C2**: Add `config_schema` to NGINX manifest (load-balance algorithm, backend_port)
-- [ ] **C3**: Add tiering, site-replication, file-push connection types
-- [ ] **C4**: Dynamic config form renderer (reads config_schema, renders shadcn form)
-- [ ] **C5**: Edge config persistence through save pipeline
-- [ ] **C6**: Pass connection_config into Jinja2 template context
-- [ ] **C7**: Enhance nginx.conf.j2 to read algorithm/backend_port from edge config
-
-## Phase D: Edge Automation Pipeline (2 weeks)
-> Auto-generate init scripts from edge connections
-
-- [ ] **D1**: `edge_automation.py` framework (registry, ordering, collective edge processing)
-- [ ] **D2**: Load-balance automation (enhance nginx template from edge config)
-- [ ] **D3**: Bucket replication automation (mc replicate commands)
-- [ ] **D4**: Site replication automation (collective mc admin replicate add)
-- [ ] **D5**: ILM tiering automation (mc admin tier + mc ilm rule)
-- [ ] **D6**: Integrate `run_edge_init_scripts()` into deploy pipeline after node init
-- [ ] **D7**: Generated config viewer (API + frontend modal showing nginx.conf, mc commands, etc.)
-
-## Phase E: File Generator + Templates (1 week)
-> Synthetic data generation for demos
-
-- [ ] **E1**: File generator manifest + `generate.sh.j2` template (minio/mc image)
-- [ ] **E2**: `file-push` connection type + config schema (size, count, format, rate, bucket)
-- [ ] **E3**: `file-push` automation in edge_automation.py
-- [ ] **E4**: File generator icon in ComponentIcon.tsx
-- [ ] **E5**: Demo templates: multi-cluster, tiering, site-replication examples
 
 ## High Priority — Next Up
 
 - [ ] **Network Overlay**: After deploy, show container IPs on nodes + port/protocol on edges
-  - Query Docker for container IP assignments via `/api/demos/{id}/network-info`
-  - Show IPs as small badges on diagram nodes (e.g., `172.18.0.3`)
-  - Show port + protocol on edges (e.g., `:9000/S3`, `:80/HTTP`, `:9090/PromQL`)
-  - Toggle-able overlay (button in toolbar) so it doesn't clutter design view
-  - Educational: users see exactly how containers communicate
+  - Query Docker for container IP assignments
+  - Show IPs as small badges on diagram nodes
+  - Toggle-able overlay so it doesn't clutter design view
 
-- [ ] **S3 File Browser Component** (~10-14 hrs): Lightweight web-based S3 browser showing which node responds
-  - Custom Docker image: Python FastAPI + vanilla HTML/JS (~55MB)
-  - Shows per-request "Served by: minio-2" banner via `X-Upstream-Server` header from NGINX
-  - Node distribution histogram (accumulates hits, visualizes load balancing)
+- [ ] **S3 File Browser Enhancement**: Per-request node tracking, node distribution histogram
+  - Shows "Served by: minio-2" banner via `X-Upstream-Server` header
+  - Node distribution histogram for load-balance visualization
   - Operations: list buckets, browse objects, upload, download, delete
-  - Connection types: accepts `s3` + `load-balance`, provides `s3-client`
-  - NGINX template needs: `add_header X-Upstream-Server $upstream_addr always;`
-  - Educational: algorithm comparison, failure demo, direct vs LB side-by-side
-  - Jinja2 config template discovers target from edges (like file-generator)
 
-- [ ] **Data Generator Web Console**: Lightweight web UI for start/stop, live progress, file list
-  - Custom Docker image (python:3.12-slim + mc)
+- [ ] **Data Generator Web Console**: Lightweight web UI for start/stop, live progress
   - REST API: POST /start, POST /stop, GET /status, GET /files
-  - Port 8080 exposed, accessible via proxy
   - Lower priority — terminal quick actions work for now
 
 ## Remaining Backlog (lower priority)
 
-- [ ] Verbose output panel (collapsed) in deploy/stop modals
+- [ ] Verbose output panel in deploy/stop modals
 - [ ] License info display per component (Apache 2.0, MIT, AGPL)
-- [ ] DemoManager container/image tables sorting and filtering
+- [ ] DemoManager sorting/filtering
 - [ ] Keyboard shortcuts (Cmd+N, Cmd+D, Escape)
 - [ ] Dynamic page title with active demo name
 - [ ] Hide minimap when canvas empty
 - [ ] TerminalPanel raw tabs → shadcn Tabs
 - [ ] ComponentCard quick actions clickable
-- [ ] Drag affordance (grip icon) on palette items
+- [ ] Drag affordance on palette items
 - [ ] Log filtering by level in Debug panel
-- [ ] Debug error counter cap/reset
-- [ ] Custom node names editable inline on canvas (double-click to edit)
+- [ ] Custom node names editable inline on canvas
 
-## Future — Cloud Provider Integration (post-plan)
+## Future — Advanced MinIO Features (Phase 4 remainder)
 
-- [ ] **Cloud-1**: AWS S3 component — manifest, icon, connection types (ILM tiering destination)
-- [ ] **Cloud-2**: GCP Cloud Storage component — manifest, icon, connection types (ILM tiering destination)
-- [ ] **Cloud-3**: Credential configuration profiles for AWS (access key, secret key, region, endpoint)
-- [ ] **Cloud-4**: Credential configuration profiles for GCP (service account JSON, project ID)
-- [ ] **Cloud-5**: Credential store UI — manage/select provider profiles per component instance
-- [ ] **Cloud-6**: ILM tiering automation support for S3/GCP destinations (mc admin tier add s3/gcs)
+- [ ] Bucket Policy Presets (mc anonymous, mc policy)
+- [ ] SSE Configuration (Server-Side Encryption with KES)
+- [ ] Versioning Configuration UI
+- [ ] IAM User/Policy Setup automation
+- [ ] KES Component for encryption key management
 
-## Consolidation Notes
+## Future — Cloud Provider Integration
 
-| New Item | Replaces/Consolidates |
-|----------|----------------------|
-| A7 (connection picker) | Phase 3 item 3.11 + backlog "Edge connection type selector" |
-| B1-B5 (grouping) | Phase 5 item 5.6 (annotated diagrams) — pulled forward |
-| D3/D4 (replication) | Phase 4 item 4.2 (site replication) |
-| E1-E4 (file generator) | Related to Phase 4 item 4.10 (traffic generator) — different scope, keep both |
-| License Sprint | Phase 4 item 4.7 (AIStore) + backlog MinIO AIStore item — DONE |
+- [ ] AWS S3 component — manifest, icon, ILM tiering destination
+- [ ] GCP Cloud Storage component — manifest, icon, ILM tiering destination
+- [ ] Credential profiles for AWS/GCP
+- [ ] ILM tiering automation for S3/GCS destinations
+
+## Future — Experience & Sharing (Phase 5)
+
+- [ ] Demo Export/Import as archive
+- [ ] Demo Snapshots (Checkpoint/Restore)
+- [ ] Demo Template Library (5+ pre-built templates)
+- [ ] Walkthrough Engine (guided demo steps)
+- [ ] Settings/Preferences Page
+- [ ] Offline Mode / Pre-Pull Images
