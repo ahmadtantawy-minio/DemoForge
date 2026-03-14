@@ -1,0 +1,21 @@
+id: single-minio
+name: "Single MinIO"
+description: "A single MinIO node for basic storage testing"
+
+networks:
+  - name: default
+    subnet: "172.28.0.0/24"
+    dns_suffix: "default.demo.local"
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 300, y: 200}
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    networks:
+      default: {aliases: ["minio"]}
+
+edges: []

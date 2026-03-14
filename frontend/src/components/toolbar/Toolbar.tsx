@@ -19,7 +19,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, Key } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, Key, FileCode } from "lucide-react";
+import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 
 export default function Toolbar() {
   const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus } = useDemoStore();
@@ -28,6 +29,7 @@ export default function Toolbar() {
   const [deploying, setDeploying] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [licensesOpen, setLicensesOpen] = useState(false);
+  const [configViewerOpen, setConfigViewerOpen] = useState(false);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
 
@@ -203,6 +205,22 @@ export default function Toolbar() {
           </>
         )}
 
+        {activeDemoId && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() => setConfigViewerOpen(true)}
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+              >
+                <FileCode className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent><p className="text-xs">Generated Config</p></TooltipContent>
+          </Tooltip>
+        )}
+
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -259,6 +277,14 @@ export default function Toolbar() {
       </div>
 
       <DemoSelectorModal open={selectorOpen} onOpenChange={setSelectorOpen} />
+
+      {activeDemoId && (
+        <GeneratedConfigViewer
+          open={configViewerOpen}
+          onOpenChange={setConfigViewerOpen}
+          demoId={activeDemoId}
+        />
+      )}
 
       <Dialog open={licensesOpen} onOpenChange={setLicensesOpen}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">

@@ -54,6 +54,9 @@ export const createDemo = (name: string, description = "") =>
 
 export const fetchDemo = (id: string) => apiFetch<any>(`/api/demos/${id}`);
 
+export const fetchGeneratedConfig = (id: string) =>
+  apiFetch<{ demo_id: string; configs: Record<string, string> }>(`/api/demos/${id}/generated-config`);
+
 export const saveDiagram = (id: string, nodes: any[], edges: any[]) =>
   apiFetch<any>(`/api/demos/${id}/diagram`, {
     method: "PUT",

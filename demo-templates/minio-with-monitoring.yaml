@@ -1,0 +1,50 @@
+id: minio-with-monitoring
+name: "MinIO with Monitoring"
+description: "MinIO with Prometheus metrics collection and Grafana dashboards"
+
+networks:
+  - name: default
+    subnet: "172.29.0.0/24"
+    dns_suffix: "default.demo.local"
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 200, y: 200}
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    networks:
+      default: {aliases: ["minio"]}
+
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: {x: 450, y: 200}
+    config: {}
+    networks:
+      default: {aliases: ["prometheus"]}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: {x: 700, y: 200}
+    config: {}
+    networks:
+      default: {aliases: ["grafana"]}
+
+edges:
+  - id: e-minio-prom
+    source: minio-1
+    target: prometheus
+    connection_type: metrics
+    network: default
+    label: "Metrics"
+
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    label: "PromQL"

@@ -177,6 +177,40 @@ async def delete_demo(demo_id: str, destroy_containers: bool = False, remove_ima
 
     return {"status": "deleted"}
 
+@router.get("/api/demos/{demo_id}/generated-config")
+async def get_generated_config(demo_id: str):
+    """Return all generated config files for a demo."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+
+    data_dir = os.environ.get("DEMOFORGE_DATA_DIR", "./data")
+    project_name = f"demoforge-{demo_id}"
+
+    configs = {}
+
+    # Compose file
+    compose_path = os.path.join(data_dir, f"{project_name}.yml")
+    if os.path.isfile(compose_path):
+        with open(compose_path) as f:
+            configs["docker-compose.yml"] = f.read()
+
+    # Generated config files in the data directory
+    demo_data_dir = os.path.join(data_dir, project_name)
+    if os.path.isdir(demo_data_dir):
+        for root, dirs, files in os.walk(demo_data_dir):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                relpath = os.path.relpath(fpath, demo_data_dir)
+                try:
+                    with open(fpath) as f:
+                        configs[relpath] = f.read()
+                except Exception:
+                    pass
+
+    return {"demo_id": demo_id, "configs": configs}
+
+
 @router.get("/api/inventory")
 async def get_inventory():
     """Return all DemoForge-managed containers and images."""
