@@ -57,6 +57,12 @@ export const saveDiagram = (id: string, nodes: any[], edges: any[]) =>
     body: JSON.stringify({ nodes, edges }),
   });
 
+export const saveDiagramWithGroups = (id: string, nodes: any[], edges: any[], groups: any[]) =>
+  apiFetch<any>(`/api/demos/${id}/diagram`, {
+    method: "PUT",
+    body: JSON.stringify({ nodes: [...nodes, ...groups], edges }),
+  });
+
 export const deleteDemo = (id: string, opts?: { destroyContainers?: boolean; removeImages?: boolean }) => {
   const params = new URLSearchParams();
   if (opts?.destroyContainers) params.set("destroy_containers", "true");

@@ -1,64 +1,107 @@
 # DemoForge Backlog
 
-Items to be reviewed and incorporated during each build phase when relevant.
-
 ---
 
 ## Completed
 
-- [x] Consider using the frontend designer skill to identify a nice looking UI library, while maintaining the same functionality — **Done: shadcn/ui with zinc dark theme, all 13 components migrated**
-- [x] In the demo designer, download and use the official logo of each component being used — makes it more indicative — **Done: SVG icons for MinIO, NGINX, Prometheus, Grafana in ComponentIcon.tsx**
-- [x] Easy way to remove connectors (edges) once created — **Done: Backspace key deletion + hover X button on edges**
-- [x] Docker lifecycle management — per-demo locks, timeouts, force-remove fallback, non-blocking stop, background state reconciliation
+- [x] shadcn/ui with zinc dark theme, all components migrated
+- [x] Official SVG icons for MinIO, NGINX, Prometheus, Grafana
+- [x] Easy edge removal (Backspace + hover X)
+- [x] Docker lifecycle management — per-demo locks, timeouts, force-remove, non-blocking stop, background reconciliation
 - [x] Deploy progress panel — 7 real-time steps via polling
-- [x] UI/UX overhaul — demo manager modal, welcome screen, sidebar collapse, toast notifications, theme toggle, shadcn primitives
+- [x] UI/UX overhaul — demo manager modal, welcome screen, sidebar collapse, toasts, theme toggle, shadcn primitives
 - [x] Terminal PTY support — interactive shell with echo via `script` wrapper
-- [x] Web console proxy — X-Frame-Options stripped, base tag injection, WebSocket proxy for MinIO console
+- [x] Web console proxy — X-Frame-Options stripped, base tag injection, WebSocket proxy
 - [x] DemoForge branding — favicon, header logo (#C72C48)
+- [x] License Sprint — global license injection, YAML store, settings API, deploy validation, MinIO AIStore component
+- [x] URL-based routing — `/demo/{id}`, `/demo/{id}/instances`, refresh-safe
+- [x] Diagram canvas follows light/dark theme
 
-## Upcoming: License Sprint (insert between Pre-Phase bugs and Phase 3)
+## Pre-Phase: Bug Fixes (~3-4 days)
+> From phase3-and-beyond.md. Must fix before new features.
 
-> **Goal**: Global license/config injection for enterprise components (MinIO AIStore, Grafana Enterprise, etc.)
-> **Consolidates**: backlog "MinIO AIStore", Phase 4 item 4.7, license management item
+- [ ] BUG-1: NGINX template upstream direction inverted
+- [ ] BUG-2: Init script results discarded, init_status hardcoded
+- [ ] BUG-3: State recovery after backend restart — **Partially done** (recover_from_docker + sync_with_docker exist, verify completeness)
+- [ ] BUG-4: Node ID counter resets on page reload
+- [ ] BUG-5: Grafana secret keys mismatch environment keys
+- [ ] BUG-6: Deploy endpoint exception logging — **Partially done** (progress panel catches errors, verify traceback logging)
+- [ ] BUG-7: Cleanup on partial deploy failure — **Done** (rollback in docker_manager.py)
+- [ ] BUG-8: Terminal panel tab duplication
 
-### Decisions Needed Before Implementation
-- [ ] **Validate MinIO AIStore license mechanism** — confirm it accepts `MINIO_SUBNET_LICENSE` env var (vs file mount)
-- [ ] **AIStore as separate component vs variant** — separate `components/minio-aistore/` (recommended) or variant of existing MinIO
-- [ ] **Settings API namespace** — use `/api/settings/licenses` (shared with future Phase 5 settings page) in a single `settings.py` router
-- [ ] **License store location** — `data/licenses.yaml` (mounted volume, persists across rebuilds)
+## Phase A: Topology Foundation (1.5 weeks)
+> Data models, connection system, edge properties — foundation for ALL future components
 
-### License Sprint Tasks (sequential)
-- [ ] **L1**: Add `LicenseRequirement` model to `component.py` (license_id, injection_type, env_var/mount_path, required) — 30 min
-- [ ] **L2**: Create `LicenseStore` with YAML persistence at `data/licenses.yaml` — 1-2 hrs
-- [ ] **L3**: Create settings API router `/api/settings/licenses` (CRUD, masked values in GET) — 1-2 hrs
-- [ ] **L4**: Modify compose generator to inject licenses after secret defaults, before node.config overrides — 1 hr
-- [ ] **L5**: Deploy-time validation — block deploy if required license missing (HTTP 400 with clear message) — 30 min
-- [ ] **L6**: Rename MinIO CE + create MinIO AIStore manifest with `license_requirements` — 30 min
-- [ ] **L7**: Frontend: License settings UI (embeddable section, not standalone page — Phase 5 settings page will wrap it) — 2-3 hrs
-- [ ] **L8**: Frontend: Palette warnings for components with unmet license requirements — 1 hr
+- [ ] **A1**: Add `display_name`, `labels`, `group_id` to DemoNode model + frontend types
+- [ ] **A2**: Add `connection_config`, `auto_configure`, `label` to DemoEdge model + frontend types
+- [ ] **A3**: Add DemoGroup model + `groups` field to DemoDefinition
+- [ ] **A4**: Add `ConnectionConfigField` + `config_schema` to ConnectionProvides/Accepts
+- [ ] **A5**: Update frontend TypeScript types to match all new fields
+- [ ] **A6**: Update saveDiagram/fetchDemo to serialize/deserialize new fields (groups, display_name, connection_config)
+- [ ] **A7**: Connection type picker dialog when creating edges (intersect provides/accepts)
+- [ ] **A8**: Edge selection + edge properties panel with dynamic config forms
 
-### Conflict Notes
-- **L3 creates `backend/app/api/settings.py`** — Phase 5 item 5.8 (Settings Page) must extend this file, not replace it
-- **L6 consolidates** backlog "MinIO AIStore" item + Phase 4 item 4.7 — remove duplicates
-- **L7 should be an embeddable component** so Phase 5 settings page can incorporate it
-- **L8 depends on toast system** (already done via sonner)
-- **Phase 4 new components** (KES, mc-client, traffic-gen) must include `license_requirements` fields if applicable
+## Phase B: Node Grouping (1 week) — parallel with Phase C
+> Visual clusters for multi-cluster topologies
 
-## Remaining Backlog
+- [ ] **B1**: GroupNode.tsx component (colored rectangle, label, description)
+- [ ] **B2**: Load/save groups as React Flow parent nodes
+- [ ] **B3**: Drag-to-create group from palette
+- [ ] **B4**: Multi-select "Create Group" context menu action
+- [ ] **B5**: Group resize handles and child node containment
 
-- [ ] Add verbose output panel (collapsed by default) to deploy, start & stop modals — show raw Docker/compose output for debugging
-- [ ] License management for components — track and display license info per component (Apache 2.0, MIT, AGPL, etc.), show in manifests and UI
-- [ ] DemoManager container/image tables need sorting and filtering
-- [ ] Keyboard shortcuts (Cmd+N new demo, Cmd+D deploy, Escape deselect)
-- [ ] Edge connection type selector (currently all default to "data")
+## Phase C: Connection Configuration (1.5 weeks) — parallel with Phase B
+> Declarative config schemas on manifests, dynamic forms
+
+- [ ] **C1**: Add `config_schema` to MinIO manifests (replication, tiering, site-replication accepts)
+- [ ] **C2**: Add `config_schema` to NGINX manifest (load-balance algorithm, backend_port)
+- [ ] **C3**: Add tiering, site-replication, file-push connection types
+- [ ] **C4**: Dynamic config form renderer (reads config_schema, renders shadcn form)
+- [ ] **C5**: Edge config persistence through save pipeline
+- [ ] **C6**: Pass connection_config into Jinja2 template context
+- [ ] **C7**: Enhance nginx.conf.j2 to read algorithm/backend_port from edge config
+
+## Phase D: Edge Automation Pipeline (2 weeks)
+> Auto-generate init scripts from edge connections
+
+- [ ] **D1**: `edge_automation.py` framework (registry, ordering, collective edge processing)
+- [ ] **D2**: Load-balance automation (enhance nginx template from edge config)
+- [ ] **D3**: Bucket replication automation (mc replicate commands)
+- [ ] **D4**: Site replication automation (collective mc admin replicate add)
+- [ ] **D5**: ILM tiering automation (mc admin tier + mc ilm rule)
+- [ ] **D6**: Integrate `run_edge_init_scripts()` into deploy pipeline after node init
+- [ ] **D7**: Generated config viewer (API + frontend modal showing nginx.conf, mc commands, etc.)
+
+## Phase E: File Generator + Templates (1 week)
+> Synthetic data generation for demos
+
+- [ ] **E1**: File generator manifest + `generate.sh.j2` template (minio/mc image)
+- [ ] **E2**: `file-push` connection type + config schema (size, count, format, rate, bucket)
+- [ ] **E3**: `file-push` automation in edge_automation.py
+- [ ] **E4**: File generator icon in ComponentIcon.tsx
+- [ ] **E5**: Demo templates: multi-cluster, tiering, site-replication examples
+
+## Remaining Backlog (lower priority)
+
+- [ ] Verbose output panel (collapsed) in deploy/stop modals
+- [ ] License info display per component (Apache 2.0, MIT, AGPL)
+- [ ] DemoManager container/image tables sorting and filtering
+- [ ] Keyboard shortcuts (Cmd+N, Cmd+D, Escape)
 - [ ] Dynamic page title with active demo name
-- [ ] Hide React Flow minimap when canvas is empty
-
-## Phase 3 Additions (from UI/UX review)
-> These should be folded into Phase 3 Stream 2 (Frontend) alongside existing items
-
-- [ ] Replace TerminalPanel raw tab buttons with shadcn Tabs
-- [ ] Make ComponentCard quick actions clickable (currently static spans)
-- [ ] Add drag affordance (grip icon) to palette items
+- [ ] Hide minimap when canvas empty
+- [ ] TerminalPanel raw tabs → shadcn Tabs
+- [ ] ComponentCard quick actions clickable
+- [ ] Drag affordance (grip icon) on palette items
 - [ ] Log filtering by level in Debug panel
-- [ ] Debug error counter should cap/reset when panel is open
+- [ ] Debug error counter cap/reset
+- [ ] Custom node names editable inline on canvas (double-click to edit)
+
+## Consolidation Notes
+
+| New Item | Replaces/Consolidates |
+|----------|----------------------|
+| A7 (connection picker) | Phase 3 item 3.11 + backlog "Edge connection type selector" |
+| B1-B5 (grouping) | Phase 5 item 5.6 (annotated diagrams) — pulled forward |
+| D3/D4 (replication) | Phase 4 item 4.2 (site replication) |
+| E1-E4 (file generator) | Related to Phase 4 item 4.10 (traffic generator) — different scope, keep both |
+| License Sprint | Phase 4 item 4.7 (AIStore) + backlog MinIO AIStore item — DONE |

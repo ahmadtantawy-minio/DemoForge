@@ -1,4 +1,5 @@
 """Pydantic models for demo definitions (saved/loaded as YAML)."""
+from typing import Any
 from pydantic import BaseModel
 
 class NodePosition(BaseModel):
@@ -16,6 +17,9 @@ class DemoNode(BaseModel):
     position: NodePosition
     config: dict[str, str] = {}   # Override environment variables
     networks: dict[str, NodeNetworkConfig] = {}
+    display_name: str = ""          # User-editable label
+    labels: dict[str, str] = {}     # Key-value annotations
+    group_id: str | None = None     # References a DemoGroup.id
 
 class DemoEdge(BaseModel):
     id: str
@@ -23,7 +27,19 @@ class DemoEdge(BaseModel):
     target: str                   # Node ID
     connection_type: str = "data" # Connection type (s3, jdbc, etc.)
     network: str = "default"      # Which network this edge traverses
+    connection_config: dict[str, Any] = {}  # Type-specific config
+    auto_configure: bool = True             # Auto-generate init scripts
     label: str = ""
+
+class DemoGroup(BaseModel):
+    id: str
+    label: str
+    description: str = ""
+    color: str = "#3b82f6"
+    style: str = "solid"        # solid | dashed | dotted
+    position: NodePosition
+    width: float = 400
+    height: float = 300
 
 class DemoNetwork(BaseModel):
     name: str
@@ -39,3 +55,4 @@ class DemoDefinition(BaseModel):
     networks: list[DemoNetwork] = [DemoNetwork(name="default")]
     nodes: list[DemoNode] = []
     edges: list[DemoEdge] = []
+    groups: list[DemoGroup] = []

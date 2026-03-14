@@ -1,5 +1,5 @@
 // --- Connection types ---
-export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "load-balance" | "data" | "metrics-query";
+export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push";
 
 // --- Edge data ---
 export interface ComponentEdgeData {
@@ -7,6 +7,8 @@ export interface ComponentEdgeData {
   network: string;
   label: string;
   status?: "active" | "idle" | "error";
+  connectionConfig?: Record<string, any>;
+  autoConfigure?: boolean;
 }
 
 // --- Network ---
@@ -87,4 +89,18 @@ export interface ComponentNodeData {
   config: Record<string, string>;
   health?: HealthStatus;
   networks?: string[];
+  displayName?: string;
+  labels?: Record<string, string>;
+  groupId?: string | null;
+}
+
+export interface DemoGroup {
+  id: string;
+  label: string;
+  description?: string;
+  color?: string;
+  style?: string;
+  position: { x: number; y: number };
+  width?: number;
+  height?: number;
 }

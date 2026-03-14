@@ -42,14 +42,25 @@ class TerminalDef(BaseModel):
     welcome_message: str = ""
     quick_actions: list[QuickActionDef] = []
 
+class ConnectionConfigField(BaseModel):
+    key: str
+    label: str
+    type: str = "string"        # string | number | boolean | select
+    default: str = ""
+    required: bool = False
+    options: list[str] = []
+    description: str = ""
+
 class ConnectionProvides(BaseModel):
     type: str                     # "s3", "metrics", "jdbc"
     port: int
     description: str = ""
     path: str = ""
+    config_schema: list[ConnectionConfigField] = []
 
 class ConnectionAccepts(BaseModel):
     type: str
+    config_schema: list[ConnectionConfigField] = []
 
 class ConnectionsDef(BaseModel):
     provides: list[ConnectionProvides] = []

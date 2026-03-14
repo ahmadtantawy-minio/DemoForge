@@ -2,7 +2,7 @@ import os
 import uuid
 import yaml
 from fastapi import APIRouter, HTTPException
-from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, NodePosition
+from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, NodePosition
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
@@ -68,9 +68,26 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     if not demo:
         raise HTTPException(404, "Demo not found")
 
-    # Convert React Flow nodes → DemoNodes
+    # Convert React Flow nodes → DemoNodes (skip group-type nodes)
     demo.nodes = []
+    demo.groups = []
     for rf_node in req.nodes:
+        # Group nodes are stored separately
+        if rf_node.get("type") == "group":
+            grp_data = rf_node.get("data", {})
+            demo.groups.append(DemoGroup(
+                id=rf_node["id"],
+                label=grp_data.get("label", ""),
+                description=grp_data.get("description", ""),
+                color=grp_data.get("color", "#3b82f6"),
+                style=grp_data.get("style", "solid"),
+                position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
+                                       y=rf_node.get("position", {}).get("y", 0)),
+                width=rf_node.get("style", {}).get("width", rf_node.get("width", 400)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 400),
+                height=rf_node.get("style", {}).get("height", rf_node.get("height", 300)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 300),
+            ))
+            continue
+
         data = rf_node.get("data", {})
         # Preserve networks config from React Flow node data
         raw_networks = data.get("networks", {})
@@ -89,17 +106,23 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                                    y=rf_node.get("position", {}).get("y", 0)),
             config=data.get("config", {}),
             networks=networks,
+            display_name=data.get("displayName", ""),
+            labels=data.get("labels", {}),
+            group_id=data.get("groupId") or rf_node.get("parentId"),
         ))
 
     demo.edges = []
     for rf_edge in req.edges:
+        edge_data = rf_edge.get("data", {})
         demo.edges.append(DemoEdge(
             id=rf_edge["id"],
             source=rf_edge["source"],
             target=rf_edge["target"],
-            connection_type=rf_edge.get("data", {}).get("connectionType", "data"),
-            network=rf_edge.get("data", {}).get("network", "default"),
-            label=rf_edge.get("data", {}).get("label", rf_edge.get("label", "")),
+            connection_type=edge_data.get("connectionType", "data"),
+            network=edge_data.get("network", "default"),
+            connection_config=edge_data.get("connectionConfig", {}),
+            auto_configure=edge_data.get("autoConfigure", True),
+            label=edge_data.get("label", rf_edge.get("label", "")),
         ))
 
     _save_demo(demo)

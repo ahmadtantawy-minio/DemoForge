@@ -8,9 +8,12 @@ const connectionColors: Record<ConnectionType, string> = {
   http: "#6b7280",
   metrics: "#22c55e",
   replication: "#a855f7",
+  "site-replication": "#d946ef",
   "load-balance": "#f97316",
   data: "#6b7280",
   "metrics-query": "#22c55e",
+  tiering: "#eab308",
+  "file-push": "#06b6d4",
 };
 
 const connectionLabels: Record<ConnectionType, string> = {
@@ -18,9 +21,12 @@ const connectionLabels: Record<ConnectionType, string> = {
   http: "HTTP",
   metrics: "Metrics",
   replication: "Replication",
+  "site-replication": "Site Replication",
   "load-balance": "Load Balance",
   data: "Data",
   "metrics-query": "PromQL",
+  tiering: "Tiering",
+  "file-push": "File Push",
 };
 
 export default function AnimatedDataEdge({

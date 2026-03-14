@@ -61,18 +61,43 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     if (!activeDemoId) return;
     fetchDemo(activeDemoId).then((demo) => {
       if (!demo) return;
+      // Load groups as React Flow group nodes
+      const rfGroups = (demo.groups || []).map((g: any) => ({
+        id: g.id,
+        type: "group",
+        position: g.position || { x: 0, y: 0 },
+        style: { width: g.width || 400, height: g.height || 300 },
+        data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid" },
+      }));
       const rfNodes = (demo.nodes || []).map((n: any) => ({
         id: n.id,
         type: "component",
         position: n.position || { x: 0, y: 0 },
-        data: { label: n.component, componentId: n.component, variant: n.variant, config: n.config || {}, networks: n.networks || {} },
+        ...(n.group_id ? { parentId: n.group_id } : {}),
+        data: {
+          label: n.component,
+          componentId: n.component,
+          variant: n.variant,
+          config: n.config || {},
+          networks: n.networks || {},
+          displayName: n.display_name || "",
+          labels: n.labels || {},
+          groupId: n.group_id || null,
+        },
       }));
       const rfEdges = (demo.edges || []).map((e: any) => ({
         id: e.id,
         source: e.source,
         target: e.target,
         type: "animated",
-        data: { connectionType: e.connection_type, network: e.network, label: e.label || "", status: "idle" },
+        data: {
+          connectionType: e.connection_type,
+          network: e.network,
+          label: e.label || "",
+          status: "idle",
+          connectionConfig: e.connection_config || {},
+          autoConfigure: e.auto_configure ?? true,
+        },
       }));
       // Derive nodeCounter from existing node IDs to avoid collisions
       const maxId = rfNodes.reduce((max: number, n: any) => {
@@ -80,7 +105,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return isNaN(num) ? max : Math.max(max, num);
       }, 0);
       nodeCounter = maxId;
-      setNodes(rfNodes);
+      setNodes([...rfGroups, ...rfNodes]);
       setEdges(rfEdges);
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges]);
