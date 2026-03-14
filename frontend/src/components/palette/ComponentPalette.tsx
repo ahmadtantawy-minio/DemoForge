@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchComponents, fetchLicenseStatus } from "../../api/client";
 import type { ComponentSummary } from "../../types";
 import ComponentIcon from "../shared/ComponentIcon";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, LayoutGrid } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -62,6 +62,11 @@ export default function ComponentPalette() {
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const onGroupDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("isGroup", "true");
+    e.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <TooltipProvider delayDuration={400}>
       <div className="w-full h-full overflow-y-auto bg-card border-r border-border p-2">
@@ -77,6 +82,21 @@ export default function ComponentPalette() {
         {!loading && components.length === 0 && !error && (
           <div className="text-xs text-muted-foreground px-1 py-4 text-center">No components available</div>
         )}
+        {/* Group layout item */}
+        <div className="mb-3">
+          <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">
+            layout
+          </div>
+          <div
+            draggable
+            onDragStart={onGroupDragStart}
+            className="flex items-center gap-2 px-2 py-2 mb-1 bg-background border border-border rounded cursor-grab hover:border-primary/50 hover:shadow-sm transition-all text-sm"
+            title="Drag to create a visual group on the canvas"
+          >
+            <LayoutGrid className="w-5 h-5 text-muted-foreground shrink-0" />
+            <span className="font-medium text-foreground truncate flex-1">Group</span>
+          </div>
+        </div>
         {Object.entries(grouped).map(([category, items]) => (
           <div key={category} className="mb-3">
             <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">

@@ -39,6 +39,9 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export const fetchComponents = () =>
   apiFetch<{ components: import("../types").ComponentSummary[] }>("/api/registry/components");
 
+export const fetchComponentManifest = (componentId: string) =>
+  apiFetch<any>(`/api/registry/components/${componentId}`);
+
 // Demos
 export const fetchDemos = () =>
   apiFetch<{ demos: import("../types").DemoSummary[] }>("/api/demos");

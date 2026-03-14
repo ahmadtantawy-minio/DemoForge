@@ -33,6 +33,35 @@ export interface DemoTemplate {
   node_count: number;
 }
 
+// --- Connection schema ---
+export interface ConnectionConfigField {
+  key: string;
+  label: string;
+  type: string; // "string" | "number" | "boolean" | "select"
+  default: string;
+  required: boolean;
+  options: string[];
+  description: string;
+}
+
+export interface ConnectionProvides {
+  type: string;
+  port: number;
+  description: string;
+  path: string;
+  config_schema: ConnectionConfigField[];
+}
+
+export interface ConnectionAccepts {
+  type: string;
+  config_schema: ConnectionConfigField[];
+}
+
+export interface ConnectionsDef {
+  provides: ConnectionProvides[];
+  accepts: ConnectionAccepts[];
+}
+
 // --- Registry ---
 export interface ComponentSummary {
   id: string;
@@ -42,6 +71,7 @@ export interface ComponentSummary {
   description: string;
   image: string;
   variants: string[];
+  connections: ConnectionsDef;
 }
 
 // --- Demo ---

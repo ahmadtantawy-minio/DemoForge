@@ -6,13 +6,16 @@ import {
   Background,
   useReactFlow,
   type Node,
+  type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
-import { saveDiagram, fetchDemo } from "../../api/client";
+import { saveDiagram, fetchDemo, fetchComponents } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
+import GroupNode from "./nodes/GroupNode";
 import AnimatedDataEdge from "./edges/AnimatedDataEdge";
+import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,10 +24,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MousePointerClick } from "lucide-react";
 
-const nodeTypes = { component: ComponentNode };
+const nodeTypes = { component: ComponentNode, group: GroupNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge };
 
 let nodeCounter = 0;
+let groupCounter = 0;
 
 function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
   let timer: ReturnType<typeof setTimeout>;
@@ -39,7 +43,7 @@ interface DiagramCanvasProps {
 }
 
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } = useDiagramStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests } = useDiagramStore();
   const { activeDemoId, instances, demos } = useDemoStore();
   const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
 
@@ -52,6 +56,22 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
+
+  // Fetch component manifests for connection validation
+  useEffect(() => {
+    fetchComponents()
+      .then((res) => {
+        const manifests: Record<string, any> = {};
+        for (const c of res.components) {
+          if (c.connections) {
+            manifests[c.id] = c.connections;
+          }
+        }
+        setComponentManifests(manifests);
+      })
+      .catch(() => {});
+  }, [setComponentManifests]);
+
   const { deleteElements } = useReactFlow();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
@@ -105,14 +125,23 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return isNaN(num) ? max : Math.max(max, num);
       }, 0);
       nodeCounter = maxId;
+      // Derive groupCounter from existing group IDs
+      const maxGroupId = rfGroups.reduce((max: number, g: any) => {
+        const num = parseInt(g.id.replace("group-", "") || "0", 10);
+        return isNaN(num) ? max : Math.max(max, num);
+      }, 0);
+      groupCounter = maxGroupId;
       setNodes([...rfGroups, ...rfNodes]);
       setEdges(rfEdges);
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges]);
 
   const debouncedSave = useRef(
-    debounce((demoId: string, ns: Node[], es: any[]) => {
-      saveDiagram(demoId, ns, es).catch(() => {});
+    debounce((demoId: string, ns: Node[], es: Edge[]) => {
+      // Separate groups from component nodes for saving
+      const groups = ns.filter((n) => n.type === "group");
+      const componentNodes = ns.filter((n) => n.type !== "group");
+      saveDiagram(demoId, [...componentNodes, ...groups], es).catch(() => {});
     }, 500)
   ).current;
 
@@ -136,18 +165,50 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     [onEdgesChange, activeDemoId, debouncedSave]
   );
 
+  const handleEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      setSelectedEdge(edge.id);
+    },
+    [setSelectedEdge]
+  );
+
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       if (isRunning) return;
+
+      const isGroup = e.dataTransfer.getData("isGroup") === "true";
       const componentId = e.dataTransfer.getData("componentId");
       const variant = e.dataTransfer.getData("variant") || "single";
       const label = e.dataTransfer.getData("label") || componentId;
-      if (!componentId) return;
+
+      if (!componentId && !isGroup) return;
 
       const bounds = (e.target as HTMLDivElement).closest(".react-flow")?.getBoundingClientRect();
       const x = bounds ? e.clientX - bounds.left - 70 : e.clientX;
       const y = bounds ? e.clientY - bounds.top - 30 : e.clientY;
+
+      if (isGroup) {
+        groupCounter += 1;
+        const newGroup: Node = {
+          id: `group-${groupCounter}`,
+          type: "group",
+          position: { x, y },
+          style: { width: 400, height: 300 },
+          data: {
+            label: "New Group",
+            description: "",
+            color: "#3b82f6",
+            style: "solid",
+          },
+        };
+        addNode(newGroup);
+        if (activeDemoId) {
+          const state = useDiagramStore.getState();
+          debouncedSave(activeDemoId, [...state.nodes, newGroup], state.edges);
+        }
+        return;
+      }
 
       nodeCounter += 1;
       const newNode: Node = {
@@ -240,6 +301,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onEdgeClick={handleEdgeClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeContextMenu={onNodeContextMenu}
@@ -251,6 +313,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         <Controls />
         <Background />
       </ReactFlow>
+
+      {/* Connection type picker overlay */}
+      <ConnectionTypePicker />
 
       {/* Empty canvas guidance */}
       {nodes.length === 0 && (

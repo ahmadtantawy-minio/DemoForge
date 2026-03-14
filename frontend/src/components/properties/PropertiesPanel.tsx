@@ -3,7 +3,7 @@ import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import HealthBadge from "../control-plane/HealthBadge";
 import { proxyUrl, fetchComponents } from "../../api/client";
-import type { ComponentNodeData, ComponentSummary } from "../../types";
+import type { ComponentNodeData, ComponentSummary, ComponentEdgeData, ConnectionType, ConnectionConfigField } from "../../types";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,9 +12,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import ConfigSchemaForm from "./ConfigSchemaForm";
+
+const connectionColors: Record<string, string> = {
+  s3: "#3b82f6",
+  http: "#6b7280",
+  metrics: "#22c55e",
+  replication: "#a855f7",
+  "site-replication": "#d946ef",
+  "load-balance": "#f97316",
+  data: "#6b7280",
+  "metrics-query": "#22c55e",
+  tiering: "#eab308",
+  "file-push": "#06b6d4",
+};
+
+const connectionLabels: Record<string, string> = {
+  s3: "S3",
+  http: "HTTP",
+  metrics: "Metrics",
+  replication: "Replication",
+  "site-replication": "Site Replication",
+  "load-balance": "Load Balance",
+  data: "Data",
+  "metrics-query": "PromQL",
+  tiering: "Tiering",
+  "file-push": "File Push",
+};
 
 export default function PropertiesPanel() {
-  const { selectedNodeId, nodes, setNodes } = useDiagramStore();
+  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes, setEdges, componentManifests } = useDiagramStore();
   const { instances } = useDemoStore();
   const [components, setComponents] = useState<ComponentSummary[]>([]);
 
@@ -24,11 +51,125 @@ export default function PropertiesPanel() {
       .catch(() => {});
   }, []);
 
+  // --- Edge properties view ---
+  if (selectedEdgeId && !selectedNodeId) {
+    const selectedEdge = edges.find((e) => e.id === selectedEdgeId);
+    if (!selectedEdge) {
+      return (
+        <div className="w-full h-full bg-card border-l border-border p-3 flex items-center justify-center">
+          <p className="text-xs text-muted-foreground">Edge not found</p>
+        </div>
+      );
+    }
+
+    const edgeData = (selectedEdge.data ?? {}) as unknown as ComponentEdgeData;
+    const connType = edgeData.connectionType ?? "data";
+    const color = connectionColors[connType] ?? "#6b7280";
+    const label = connectionLabels[connType] ?? connType;
+
+    const sourceNode = nodes.find((n) => n.id === selectedEdge.source);
+    const targetNode = nodes.find((n) => n.id === selectedEdge.target);
+
+    // Get config schema fields for this connection type
+    const sourceComponentId = (sourceNode?.data as any)?.componentId;
+    const targetComponentId = (targetNode?.data as any)?.componentId;
+    const sourceConns = sourceComponentId ? componentManifests[sourceComponentId] : null;
+    const targetConns = targetComponentId ? componentManifests[targetComponentId] : null;
+
+    const configFields: ConnectionConfigField[] = [];
+    if (sourceConns) {
+      const provides = sourceConns.provides.find((p) => p.type === connType);
+      if (provides?.config_schema) configFields.push(...provides.config_schema);
+    }
+    if (targetConns) {
+      const accepts = targetConns.accepts.find((a) => a.type === connType);
+      if (accepts?.config_schema) configFields.push(...accepts.config_schema);
+    }
+
+    const updateEdgeData = (patch: Partial<ComponentEdgeData>) => {
+      setEdges(
+        edges.map((e) =>
+          e.id === selectedEdgeId ? { ...e, data: { ...e.data, ...patch } } : e
+        )
+      );
+    };
+
+    return (
+      <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          Connection Properties
+        </div>
+
+        <div className="mb-3">
+          <div className="text-xs text-muted-foreground mb-1">Type</div>
+          <div className="flex items-center gap-2">
+            <span
+              className="w-3 h-3 rounded-full shrink-0"
+              style={{ backgroundColor: color }}
+            />
+            <span className="text-sm font-medium text-foreground">{label}</span>
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <div className="text-xs text-muted-foreground mb-1">Direction</div>
+          <div className="text-sm text-foreground">
+            {(sourceNode?.data as any)?.label ?? selectedEdge.source}
+            <span className="text-muted-foreground mx-1">&rarr;</span>
+            {(targetNode?.data as any)?.label ?? selectedEdge.target}
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Label</label>
+          <Input
+            type="text"
+            value={edgeData.label ?? ""}
+            onChange={(e) => updateEdgeData({ label: e.target.value })}
+            placeholder="Optional label"
+            className="h-8 text-sm"
+          />
+        </div>
+
+        <div className="mb-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={edgeData.autoConfigure ?? true}
+              onChange={(e) => updateEdgeData({ autoConfigure: e.target.checked })}
+              className="rounded border-border"
+            />
+            <span className="text-xs text-foreground">Auto-configure</span>
+          </label>
+          <p className="text-[10px] text-muted-foreground mt-0.5 ml-5">
+            Automatically configure connection environment variables on deploy
+          </p>
+        </div>
+
+        {configFields.length > 0 && (
+          <div className="mb-3 pt-2 border-t border-border">
+            <div className="text-xs text-muted-foreground mb-2">Configuration</div>
+            <ConfigSchemaForm
+              fields={configFields}
+              values={edgeData.connectionConfig ?? {}}
+              onChange={(key, value) =>
+                updateEdgeData({
+                  connectionConfig: { ...(edgeData.connectionConfig ?? {}), [key]: value },
+                })
+              }
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- Node properties view ---
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   if (!selectedNode) {
     return (
       <div className="w-full h-full bg-card border-l border-border p-3 flex items-center justify-center">
-        <p className="text-xs text-muted-foreground">Select a node to view properties</p>
+        <p className="text-xs text-muted-foreground">Select a node or edge to view properties</p>
       </div>
     );
   }
