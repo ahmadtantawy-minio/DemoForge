@@ -403,15 +403,21 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     source_host = _resolve_cluster_endpoint(source_cluster, project_name)
     target_host = _resolve_cluster_endpoint(target_cluster, project_name)
 
-    # Remove all buckets from target cluster before enabling site replication
-    # (MinIO requires at most one cluster to have data)
-    # mc image has cut/tr but no grep/sed/awk
+    # Smart site-replication activation:
+    # 1. Check if already configured via mc admin replicate info
+    # 2. If "enabled" found → already active, report success
+    # 3. If not → clean target buckets, then add
     command = (
         f"mc alias set site1 http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set site2 http://{target_host}:80 {_safe(target_user)} {_safe(target_pass)} && "
+        f"STATUS=$(mc admin replicate info site1 2>&1 | head -1) && "
+        f"case \"$STATUS\" in "
+        f"*enabled*) echo \"Site replication already active\"; mc admin replicate info site1;; "
+        f"*) echo \"Setting up site replication...\"; "
         f"for b in $(mc ls site2 2>/dev/null | tr -s ' ' | cut -d' ' -f5 | tr -d '/'); do "
         f"[ -n \"$b\" ] && mc rb site2/$b --force 2>/dev/null; done; "
-        f"mc admin replicate add site1 site2"
+        f"mc admin replicate add site1 site2;; "
+        f"esac"
     )
 
     return [EdgeInitScript(
