@@ -140,6 +140,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if command:
             service["command"] = command
 
+        if manifest.entrypoint:
+            service["entrypoint"] = manifest.entrypoint
+
         # Healthcheck
         if manifest.health_check:
             hc = manifest.health_check

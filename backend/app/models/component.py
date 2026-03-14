@@ -109,6 +109,7 @@ class ComponentManifest(BaseModel):
     environment: dict[str, str] = {}
     volumes: list[VolumeDef] = []
     command: list[str] = []
+    entrypoint: list[str] = []
     health_check: HealthCheckDef | None = None
     secrets: list[SecretDef] = []
     web_ui: list[WebUIDef] = []

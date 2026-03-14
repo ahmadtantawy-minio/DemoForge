@@ -23,7 +23,8 @@ environment:
 
 volumes: []
 
-command: ["sleep", "infinity"]
+entrypoint: ["/bin/bash", "-c"]
+command: ["sleep infinity"]
 
 secrets:
   - key: FG_TARGET_ACCESS_KEY
@@ -79,10 +80,10 @@ connections:
 variants:
   burst:
     description: "Generate all files as fast as possible"
-    command: ["sleep", "infinity"]
+    command: ["sleep infinity"]
   steady:
     description: "Continuous generation at configured rate"
-    command: ["sleep", "infinity"]
+    command: ["sleep infinity"]
 
 template_mounts:
   - template: "generate.sh.j2"
