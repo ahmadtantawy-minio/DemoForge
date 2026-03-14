@@ -15,17 +15,20 @@ scrape_configs:
 {% set scrape_interval = edge.connection_config.scrape_interval|default('15s') if edge.connection_config else '15s' %}
   - job_name: '{{ source_node.id }}'
     scrape_interval: {{ scrape_interval }}
-{% if source_node.component == 'minio' %}
+{% if source_node.component == 'minio' or source_node.component == 'minio-aistore' %}
     metrics_path: '/minio/v2/metrics/cluster'
     static_configs:
       - targets: ['{{ project_name }}-{{ source_node.id }}:9000']
+        labels:
+          instance: '{{ source_node.id }}'
+          component: '{{ source_node.component }}'
 {% else %}
     static_configs:
       - targets: ['{{ project_name }}-{{ source_node.id }}:9090']
+        labels:
+          instance: '{{ source_node.id }}'
+          component: '{{ source_node.component }}'
 {% endif %}
-    labels:
-      instance: '{{ source_node.id }}'
-      component: '{{ source_node.component }}'
 {% endif %}
 {% endif %}
 {% endfor %}
