@@ -7,6 +7,7 @@ import {
   useReactFlow,
   type Node,
   type Edge,
+  type OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
@@ -22,7 +23,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MousePointerClick } from "lucide-react";
+import { MousePointerClick, Group } from "lucide-react";
 
 const nodeTypes = { component: ComponentNode, group: GroupNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge };
@@ -72,9 +73,29 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       .catch(() => {});
   }, [setComponentManifests]);
 
-  const { deleteElements } = useReactFlow();
+  const reactFlowInstance = useReactFlow();
+  const { deleteElements } = reactFlowInstance;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+  const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
+
+  // Track selected nodes for multi-select grouping
+  const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
+    setSelectedNodeIds(selectedNodes.filter((n) => n.type !== "group").map((n) => n.id));
+  }, []);
+
+  // Right-click on a multi-selection to show "Create Group" option
+  const onSelectionContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    const componentSelection = selectedNodeIds.filter((id) => {
+      const n = useDiagramStore.getState().nodes.find((node) => node.id === id);
+      return n && n.type !== "group";
+    });
+    if (componentSelection.length >= 2) {
+      setSelectionMenu({ x: event.clientX, y: event.clientY });
+    }
+  }, [selectedNodeIds]);
 
   // Load diagram from backend when active demo changes
   useEffect(() => {
@@ -236,6 +257,182 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     e.dataTransfer.dropEffect = "move";
   };
 
+  // Create a group from selected nodes
+  const handleCreateGroupFromSelection = useCallback(() => {
+    const state = useDiagramStore.getState();
+    const selectedNodes = state.nodes.filter(
+      (n) => selectedNodeIds.includes(n.id) && n.type !== "group"
+    );
+    if (selectedNodes.length < 2) return;
+
+    // Compute bounding box of selected nodes
+    const NODE_WIDTH = 140;
+    const NODE_HEIGHT = 60;
+    const PADDING = 40;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of selectedNodes) {
+      let absX = n.position.x;
+      let absY = n.position.y;
+      if (n.parentId) {
+        const parent = state.nodes.find((p) => p.id === n.parentId);
+        if (parent) {
+          absX += parent.position.x;
+          absY += parent.position.y;
+        }
+      }
+      minX = Math.min(minX, absX);
+      minY = Math.min(minY, absY);
+      maxX = Math.max(maxX, absX + NODE_WIDTH);
+      maxY = Math.max(maxY, absY + NODE_HEIGHT);
+    }
+
+    const groupX = minX - PADDING;
+    const groupY = minY - PADDING - 20;
+    const groupW = maxX - minX + PADDING * 2;
+    const groupH = maxY - minY + PADDING * 2 + 20;
+
+    groupCounter += 1;
+    const groupId = `group-${groupCounter}`;
+
+    const newGroup: Node = {
+      id: groupId,
+      type: "group",
+      position: { x: groupX, y: groupY },
+      style: { width: Math.max(groupW, 200), height: Math.max(groupH, 150) },
+      data: {
+        label: "New Group",
+        description: "",
+        color: "#3b82f6",
+        style: "solid",
+      },
+    };
+
+    // Update child nodes: set parentId and convert positions to relative
+    const updatedNodes = state.nodes.map((n) => {
+      if (!selectedNodeIds.includes(n.id) || n.type === "group") return n;
+      let absX = n.position.x;
+      let absY = n.position.y;
+      if (n.parentId) {
+        const parent = state.nodes.find((p) => p.id === n.parentId);
+        if (parent) {
+          absX += parent.position.x;
+          absY += parent.position.y;
+        }
+      }
+      return {
+        ...n,
+        parentId: groupId,
+        position: { x: absX - groupX, y: absY - groupY },
+        extent: "parent" as const,
+        data: { ...n.data, groupId },
+      };
+    });
+
+    // Insert group before its children (React Flow requirement)
+    const childIds = new Set(selectedNodeIds);
+    const nonChildren = updatedNodes.filter((n) => !childIds.has(n.id));
+    const children = updatedNodes.filter((n) => childIds.has(n.id));
+    const finalNodes = [
+      ...nonChildren.filter((n) => n.type === "group"),
+      newGroup,
+      ...nonChildren.filter((n) => n.type !== "group"),
+      ...children,
+    ];
+
+    setNodes(finalNodes);
+    setSelectionMenu(null);
+
+    if (activeDemoId) {
+      debouncedSave(activeDemoId, finalNodes, state.edges);
+    }
+  }, [selectedNodeIds, setNodes, activeDemoId, debouncedSave]);
+
+  // B5: Handle node drag stop — detect drag into/out of groups
+  const onNodeDragStop = useCallback((_event: React.MouseEvent, draggedNode: Node) => {
+    if (draggedNode.type === "group") return;
+
+    const state = useDiagramStore.getState();
+    const groups = state.nodes.filter((n) => n.type === "group");
+    if (groups.length === 0) return;
+
+    // Get absolute position of dragged node
+    let absX = draggedNode.position.x;
+    let absY = draggedNode.position.y;
+    if (draggedNode.parentId) {
+      const parent = state.nodes.find((p) => p.id === draggedNode.parentId);
+      if (parent) {
+        absX += parent.position.x;
+        absY += parent.position.y;
+      }
+    }
+
+    const NODE_WIDTH = 140;
+    const NODE_HEIGHT = 60;
+    const nodeCenterX = absX + NODE_WIDTH / 2;
+    const nodeCenterY = absY + NODE_HEIGHT / 2;
+
+    // Check if node center is inside any group
+    let targetGroup: Node | null = null;
+    for (const g of groups) {
+      const gw = (g.style?.width as number) || 400;
+      const gh = (g.style?.height as number) || 300;
+      if (
+        nodeCenterX >= g.position.x &&
+        nodeCenterX <= g.position.x + gw &&
+        nodeCenterY >= g.position.y &&
+        nodeCenterY <= g.position.y + gh
+      ) {
+        targetGroup = g;
+        break;
+      }
+    }
+
+    const currentParent = draggedNode.parentId || null;
+
+    if (targetGroup && currentParent === targetGroup.id) {
+      // Node is still in same group — no change needed
+      return;
+    }
+
+    if (targetGroup && currentParent !== targetGroup.id) {
+      // Node dragged INTO a (different) group
+      const updatedNodes = state.nodes.map((n) => {
+        if (n.id !== draggedNode.id) return n;
+        return {
+          ...n,
+          parentId: targetGroup!.id,
+          extent: "parent" as const,
+          position: { x: absX - targetGroup!.position.x, y: absY - targetGroup!.position.y },
+          data: { ...n.data, groupId: targetGroup!.id },
+        };
+      });
+      // Ensure group appears before its children
+      const reordered = [
+        ...updatedNodes.filter((n) => n.type === "group"),
+        ...updatedNodes.filter((n) => n.type !== "group"),
+      ];
+      setNodes(reordered);
+      if (activeDemoId) debouncedSave(activeDemoId, reordered, state.edges);
+      return;
+    }
+
+    if (!targetGroup && currentParent) {
+      // Node dragged OUT of a group
+      const updatedNodes = state.nodes.map((n) => {
+        if (n.id !== draggedNode.id) return n;
+        const { parentId, extent, ...rest } = n as any;
+        return {
+          ...rest,
+          position: { x: absX, y: absY },
+          data: { ...n.data, groupId: null },
+        };
+      });
+      setNodes(updatedNodes);
+      if (activeDemoId) debouncedSave(activeDemoId, updatedNodes, state.edges);
+    }
+  }, [setNodes, activeDemoId, debouncedSave]);
+
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
@@ -288,10 +485,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   }, [isRunning]);
 
   useEffect(() => {
-    const handler = () => setContextMenu(null);
-    if (contextMenu) window.addEventListener("click", handler);
+    const handler = () => {
+      setContextMenu(null);
+      setSelectionMenu(null);
+    };
+    if (contextMenu || selectionMenu) window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
-  }, [contextMenu]);
+  }, [contextMenu, selectionMenu]);
 
   return (
     <div className="w-full h-full relative" onDrop={onDrop} onDragOver={onDragOver}>
@@ -305,6 +505,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeContextMenu={onNodeContextMenu}
+        onSelectionContextMenu={onSelectionContextMenu}
+        onSelectionChange={onSelectionChange}
+        onNodeDragStop={onNodeDragStop}
         colorMode={isDark ? "dark" : "light"}
         deleteKeyCode={null}
         fitView
@@ -339,6 +542,28 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           onDeleteNode={handleDeleteNode}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Selection context menu for multi-select grouping */}
+      {selectionMenu && (
+        <div
+          className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
+          style={{
+            top: Math.min(selectionMenu.y, window.innerHeight - 100),
+            left: Math.min(selectionMenu.x, window.innerWidth - 200),
+          }}
+        >
+          <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">
+            {selectedNodeIds.length} nodes selected
+          </div>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
+            onClick={() => handleCreateGroupFromSelection()}
+          >
+            <Group className="w-4 h-4" />
+            Create Group
+          </button>
+        </div>
       )}
 
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
