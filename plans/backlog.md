@@ -81,6 +81,21 @@
 - [ ] **E4**: File generator icon in ComponentIcon.tsx
 - [ ] **E5**: Demo templates: multi-cluster, tiering, site-replication examples
 
+## High Priority — Next Up
+
+- [ ] **Network Overlay**: After deploy, show container IPs on nodes + port/protocol on edges
+  - Query Docker for container IP assignments via `/api/demos/{id}/network-info`
+  - Show IPs as small badges on diagram nodes (e.g., `172.18.0.3`)
+  - Show port + protocol on edges (e.g., `:9000/S3`, `:80/HTTP`, `:9090/PromQL`)
+  - Toggle-able overlay (button in toolbar) so it doesn't clutter design view
+  - Educational: users see exactly how containers communicate
+
+- [ ] **Data Generator Web Console**: Lightweight web UI for start/stop, live progress, file list
+  - Custom Docker image (python:3.12-slim + mc)
+  - REST API: POST /start, POST /stop, GET /status, GET /files
+  - Port 8080 exposed, accessible via proxy
+  - Lower priority — terminal quick actions work for now
+
 ## Remaining Backlog (lower priority)
 
 - [ ] Verbose output panel (collapsed) in deploy/stop modals
