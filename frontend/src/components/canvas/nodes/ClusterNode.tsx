@@ -31,7 +31,8 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const handleNodeRightClick = (e: React.MouseEvent, idx: number) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextNode({ idx, x: e.clientX, y: e.clientY });
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setContextNode({ idx, x: rect.right + 4, y: rect.top });
   };
 
   const handleStopNode = async (nodeId: string) => {
