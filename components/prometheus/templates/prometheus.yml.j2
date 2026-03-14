@@ -12,7 +12,9 @@ scrape_configs:
 {% if edge.target == node.id and edge.connection_type == 'metrics' %}
 {% set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
 {% if source_node %}
+{% set scrape_interval = edge.connection_config.scrape_interval|default('15s') if edge.connection_config else '15s' %}
   - job_name: '{{ source_node.id }}'
+    scrape_interval: {{ scrape_interval }}
 {% if source_node.component == 'minio' %}
     metrics_path: '/minio/v2/metrics/cluster'
     static_configs:

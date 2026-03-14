@@ -76,15 +76,21 @@ export default function PropertiesPanel() {
     const sourceConns = sourceComponentId ? componentManifests[sourceComponentId] : null;
     const targetConns = targetComponentId ? componentManifests[targetComponentId] : null;
 
-    const configFields: ConnectionConfigField[] = [];
+    const configFieldMap = new Map<string, ConnectionConfigField>();
     if (sourceConns) {
       const provides = sourceConns.provides.find((p) => p.type === connType);
-      if (provides?.config_schema) configFields.push(...provides.config_schema);
+      if (provides?.config_schema) {
+        for (const f of provides.config_schema) configFieldMap.set(f.key, f);
+      }
     }
     if (targetConns) {
       const accepts = targetConns.accepts.find((a) => a.type === connType);
-      if (accepts?.config_schema) configFields.push(...accepts.config_schema);
+      if (accepts?.config_schema) {
+        // accepts side takes precedence on duplicate keys
+        for (const f of accepts.config_schema) configFieldMap.set(f.key, f);
+      }
     }
+    const configFields = Array.from(configFieldMap.values());
 
     const updateEdgeData = (patch: Partial<ComponentEdgeData>) => {
       setEdges(
