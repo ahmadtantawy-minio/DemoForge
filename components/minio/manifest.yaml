@@ -81,6 +81,8 @@ connections:
       port: 9000
       description: "ILM tiering source (hot tier)"
   accepts:
+    - type: load-balance
+      config_schema: []
     - type: replication
       config_schema:
         - key: source_bucket

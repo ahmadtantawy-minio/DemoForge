@@ -76,6 +76,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const reactFlowInstance = useReactFlow();
   const { deleteElements } = reactFlowInstance;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+  const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string; confirm: boolean } | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
@@ -191,6 +192,29 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       setSelectedEdge(edge.id);
     },
     [setSelectedEdge]
+  );
+
+  const handleEdgeContextMenu = useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.preventDefault();
+      if (isRunning) return;
+      setEdgeContextMenu({ x: event.clientX, y: event.clientY, edgeId: edge.id, confirm: false });
+      setContextMenu(null);
+      setSelectionMenu(null);
+    },
+    [isRunning]
+  );
+
+  const handleDeleteEdge = useCallback(
+    (edgeId: string) => {
+      deleteElements({ edges: [{ id: edgeId }] });
+      setEdgeContextMenu(null);
+      if (activeDemoId) {
+        const state = useDiagramStore.getState();
+        debouncedSave(activeDemoId, state.nodes, state.edges);
+      }
+    },
+    [deleteElements, activeDemoId, debouncedSave]
   );
 
   const onDrop = useCallback(
@@ -475,20 +499,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         }
         return;
       }
-      if (e.key === "Backspace" || e.key === "Delete") {
-        const selected = useDiagramStore.getState();
-        const selectedNodes = selected.nodes.filter((n: any) => n.selected);
-        const selectedEdges = selected.edges.filter((edge: any) => edge.selected);
-        if (selectedNodes.length > 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          setPendingDelete({ type: "node", ids: selectedNodes.map((n: any) => n.id) });
-        } else if (selectedEdges.length > 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          setPendingDelete({ type: "edge", ids: selectedEdges.map((edge: any) => edge.id) });
-        }
-      }
+      // Backspace/Delete disabled — use context menu instead (avoids conflict with text inputs)
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
@@ -497,6 +508,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   useEffect(() => {
     const handler = () => {
       setContextMenu(null);
+      setEdgeContextMenu(null);
       setSelectionMenu(null);
     };
     if (contextMenu || selectionMenu) window.addEventListener("click", handler);
@@ -512,6 +524,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onEdgeClick={handleEdgeClick}
+        onEdgeContextMenu={handleEdgeContextMenu}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeContextMenu={onNodeContextMenu}
@@ -552,6 +565,45 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           onDeleteNode={handleDeleteNode}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* Edge context menu */}
+      {edgeContextMenu && (
+        <div
+          className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
+          style={{
+            top: Math.min(edgeContextMenu.y, window.innerHeight - 100),
+            left: Math.min(edgeContextMenu.x, window.innerWidth - 200),
+          }}
+        >
+          <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">
+            Connection
+          </div>
+          {!edgeContextMenu.confirm ? (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              onClick={() => setEdgeContextMenu({ ...edgeContextMenu, confirm: true })}
+            >
+              Delete Connection
+            </button>
+          ) : (
+            <div className="px-3 py-1.5 flex items-center gap-2">
+              <span className="text-xs text-destructive">Delete?</span>
+              <button
+                className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
+                onClick={() => handleDeleteEdge(edgeContextMenu.edgeId)}
+              >
+                Yes
+              </button>
+              <button
+                className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
+                onClick={() => setEdgeContextMenu(null)}
+              >
+                No
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Selection context menu for multi-select grouping */}
