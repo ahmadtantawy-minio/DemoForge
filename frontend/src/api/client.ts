@@ -121,6 +121,18 @@ export const restartInstance = (demoId: string, nodeId: string) =>
     { method: "POST" }
   );
 
+export const stopInstance = (demoId: string, nodeId: string) =>
+  apiFetch<{ status: string; node_id: string }>(
+    `/api/demos/${demoId}/instances/${nodeId}/stop`,
+    { method: "POST" }
+  );
+
+export const startInstance = (demoId: string, nodeId: string) =>
+  apiFetch<{ status: string; node_id: string }>(
+    `/api/demos/${demoId}/instances/${nodeId}/start`,
+    { method: "POST" }
+  );
+
 export const getInstanceHealth = (demoId: string, nodeId: string) =>
   apiFetch<{ node_id: string; health: string }>(
     `/api/demos/${demoId}/instances/${nodeId}/health`

@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from ..state.store import state
 from ..registry.loader import get_component
@@ -95,6 +96,32 @@ async def restart_instance(demo_id: str, node_id: str):
         raise HTTPException(404, "Instance not found")
     await restart_container(running.containers[node_id].container_name)
     return {"status": "restarted"}
+
+@router.post("/api/demos/{demo_id}/instances/{node_id}/stop")
+async def stop_instance(demo_id: str, node_id: str):
+    """Stop a single container (for resilience demos)."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    import docker
+    client = docker.from_env()
+    container_name = running.containers[node_id].container_name
+    c = await asyncio.to_thread(client.containers.get, container_name)
+    await asyncio.to_thread(c.stop, timeout=5)
+    return {"status": "stopped", "node_id": node_id}
+
+@router.post("/api/demos/{demo_id}/instances/{node_id}/start")
+async def start_instance(demo_id: str, node_id: str):
+    """Start a previously stopped container."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    import docker
+    client = docker.from_env()
+    container_name = running.containers[node_id].container_name
+    c = await asyncio.to_thread(client.containers.get, container_name)
+    await asyncio.to_thread(c.start)
+    return {"status": "started", "node_id": node_id}
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/exec", response_model=ExecResponse)
 async def exec_command(demo_id: str, node_id: str, req: ExecRequest):

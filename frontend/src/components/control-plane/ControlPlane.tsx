@@ -54,7 +54,7 @@ export default function ControlPlane({ onOpenTerminal }: Props) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 bg-background">
+    <div className="h-full overflow-y-auto p-4 bg-background">
       {instances.map((inst) => (
         <ComponentCard
           key={inst.node_id}

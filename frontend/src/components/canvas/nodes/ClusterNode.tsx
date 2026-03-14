@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
+import { stopInstance, startInstance } from "../../../api/client";
+import { toast } from "sonner";
 import ComponentIcon from "../../shared/ComponentIcon";
 
 interface ClusterNodeData {
@@ -16,17 +19,43 @@ interface ClusterNodeData {
 export default function ClusterNode({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ClusterNodeData;
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
-  const { instances, setActiveView } = useDemoStore();
+  const { instances, activeDemoId, setActiveView } = useDemoStore();
   const nodeCount = nodeData.nodeCount || 4;
   const drivesPerNode = nodeData.drivesPerNode || 1;
+  const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
 
   // Find running instances matching this cluster's synthetic nodes
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
   const healthyCount = clusterInstances.filter((i) => i.health === "healthy").length;
 
-  const handleNodeClick = (e: React.MouseEvent) => {
+  const handleNodeRightClick = (e: React.MouseEvent, idx: number) => {
+    e.preventDefault();
     e.stopPropagation();
-    setActiveView("control-plane");
+    setContextNode({ idx, x: e.clientX, y: e.clientY });
+  };
+
+  const handleStopNode = async (nodeId: string) => {
+    if (!activeDemoId) return;
+    toast.info(`Stopping ${nodeId}...`);
+    try {
+      await stopInstance(activeDemoId, nodeId);
+      toast.success(`${nodeId} stopped`);
+    } catch (err: any) {
+      toast.error(`Failed to stop ${nodeId}`, { description: err.message });
+    }
+    setContextNode(null);
+  };
+
+  const handleStartNode = async (nodeId: string) => {
+    if (!activeDemoId) return;
+    toast.info(`Starting ${nodeId}...`);
+    try {
+      await startInstance(activeDemoId, nodeId);
+      toast.success(`${nodeId} started`);
+    } catch (err: any) {
+      toast.error(`Failed to start ${nodeId}`, { description: err.message });
+    }
+    setContextNode(null);
   };
 
   return (
@@ -34,7 +63,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
       <NodeResizer isVisible={selected} minWidth={240} minHeight={160} />
       <div
         className="w-full h-full rounded-xl p-4 cursor-pointer border-2 border-primary/30 bg-primary/5"
-        onClick={() => setSelectedNode(id)}
+        onClick={() => { setSelectedNode(id); setContextNode(null); }}
       >
         <Handle type="target" position={Position.Left} />
         <div className="flex items-center gap-2 mb-3">
@@ -60,11 +89,13 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             </div>
           )}
         </div>
-        {/* Internal node visualization — clickable to go to Instances view */}
+        {/* Internal node visualization */}
         <div className="flex flex-wrap gap-1.5">
           {Array.from({ length: nodeCount }).map((_, i) => {
-            const inst = clusterInstances.find((c) => c.node_id === `${id}-node-${i + 1}`);
+            const nodeId = `${id}-node-${i + 1}`;
+            const inst = clusterInstances.find((c) => c.node_id === nodeId);
             const isHealthy = inst?.health === "healthy";
+            const isStopped = inst?.health === "stopped";
             return (
               <div
                 key={i}
@@ -72,11 +103,14 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                   inst
                     ? isHealthy
                       ? "bg-green-500/10 border-green-500/30"
+                      : isStopped
+                      ? "bg-zinc-500/10 border-zinc-500/30 opacity-50"
                       : "bg-red-500/10 border-red-500/30"
                     : "bg-card border-border"
                 }`}
-                title={inst ? `${inst.node_id} (${inst.health}) — click for details` : `Node ${i + 1} (not deployed)`}
-                onClick={handleNodeClick}
+                title={inst ? `${nodeId} (${inst.health}) — right-click for actions` : `Node ${i + 1}`}
+                onClick={(e) => { e.stopPropagation(); handleNodeRightClick(e, i); }}
+                onContextMenu={(e) => handleNodeRightClick(e, i)}
               >
                 <ComponentIcon
                   icon={nodeData.componentId || "minio"}
@@ -88,6 +122,51 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         </div>
         <Handle type="source" position={Position.Right} />
       </div>
+
+      {/* Per-node context menu */}
+      {contextNode && (() => {
+        const nodeId = `${id}-node-${contextNode.idx + 1}`;
+        const inst = clusterInstances.find((c) => c.node_id === nodeId);
+        const isStopped = inst?.health === "stopped";
+        return (
+          <div
+            className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px] text-popover-foreground"
+            style={{ top: contextNode.y, left: contextNode.x }}
+          >
+            <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
+              {nodeId}
+            </div>
+            {inst && !isStopped && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                onClick={() => handleStopNode(nodeId)}
+              >
+                Stop Node
+              </button>
+            )}
+            {inst && isStopped && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-green-400 hover:bg-green-500/10 transition-colors"
+                onClick={() => handleStartNode(nodeId)}
+              >
+                Start Node
+              </button>
+            )}
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+              onClick={() => { setActiveView("control-plane"); setContextNode(null); }}
+            >
+              View in Instances
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
+              onClick={() => setContextNode(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        );
+      })()}
     </>
   );
 }
