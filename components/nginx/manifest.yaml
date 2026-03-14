@@ -14,6 +14,9 @@ ports:
   - name: http
     container: 80
     protocol: tcp
+  - name: console
+    container: 9001
+    protocol: tcp
   - name: status
     container: 8080
     protocol: tcp
@@ -32,6 +35,10 @@ health_check:
 secrets: []
 
 web_ui:
+  - name: console
+    port: 9001
+    path: "/"
+    description: "MinIO Console (load-balanced across cluster nodes)"
   - name: status
     port: 80
     path: "/"
