@@ -59,10 +59,11 @@
 - [x] BUG-3: Edge configs recovered on backend restart
 - [x] BUG-4: Node ID counter uses trailing-number regex across all ID types
 - [ ] BUG-9: Cockpit toggle button unstable — takes multiple clicks to enable/show overlay consistently
+- [ ] BUG-11: Cockpit not showing file counts or traffic data when data is being generated/replicated
 - [ ] BUG-10: Cluster node shows "erasure coded" label for 2-node clusters (should show "mirrored" or just "replicated")
-- [ ] BUG-1: NGINX template upstream direction inverted (verify with embedded LB)
-- [ ] BUG-5: Grafana secret keys mismatch environment keys
-- [ ] BUG-8: Terminal panel tab duplication
+- [x] BUG-1: NGINX upstream direction — verified correct with embedded LB
+- [x] BUG-5: Grafana secret keys — verified matching (GF_SECURITY_ADMIN_USER/PASSWORD)
+- [x] BUG-8: Terminal tab duplication — already fixed with closedTabsRef
 
 ## High Priority — Next Up
 
