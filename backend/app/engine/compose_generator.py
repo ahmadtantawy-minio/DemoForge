@@ -186,28 +186,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         services[service_name] = service
 
-    # Top-level networks block with IPAM config
-    # Auto-assign unique subnets when multiple networks share the same default
+    # Top-level networks block — let Docker auto-assign subnets to avoid conflicts
     compose_networks = {}
-    used_subnets: set[str] = set()
-    subnet_counter = 20  # Start at 172.20.x.0/24
     for net in demo.networks:
         docker_net_name = network_map[net.name]
-        subnet = net.subnet
-        # If this subnet is already used by another network, auto-increment
-        while subnet in used_subnets:
-            subnet_counter += 1
-            subnet = f"172.{subnet_counter}.0.0/16"
-        used_subnets.add(subnet)
-        net_def: dict = {
+        compose_networks[docker_net_name] = {
             "driver": net.driver,
             "name": docker_net_name,
         }
-        if subnet:
-            net_def["ipam"] = {
-                "config": [{"subnet": subnet}]
-            }
-        compose_networks[docker_net_name] = net_def
 
     # Compose file structure
     compose = {

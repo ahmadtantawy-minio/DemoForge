@@ -43,8 +43,19 @@ class LicenseStore:
 
     def _save(self, data: dict[str, dict]):
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
-        with open(self._path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        # Atomic write: write to temp file then rename
+        tmp_path = self._path + ".tmp"
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+            os.rename(tmp_path, self._path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get(self, license_id: str) -> LicenseEntry | None:
         data = self._load()

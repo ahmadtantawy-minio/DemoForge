@@ -16,7 +16,7 @@ class LicenseBody(BaseModel):
 def _mask(value: str) -> str:
     if len(value) <= 4:
         return "****"
-    return value[:4] + "****"
+    return "****" + value[-4:]
 
 
 @router.get("/api/settings/licenses")

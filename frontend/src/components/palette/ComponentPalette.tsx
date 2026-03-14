@@ -14,7 +14,9 @@ interface LicenseEntry {
   license_id: string;
   label: string;
   description: string;
-  components: string[];
+  component_id: string;
+  component_name: string;
+  required: boolean;
   configured: boolean;
 }
 
@@ -46,7 +48,7 @@ export default function ComponentPalette() {
   // Returns the missing license label for a component, or null if all met
   const getMissingLicense = (componentId: string): LicenseEntry | null => {
     for (const entry of licenses) {
-      if (!entry.configured && entry.components.includes(componentId)) {
+      if (!entry.configured && entry.component_id === componentId) {
         return entry;
       }
     }
