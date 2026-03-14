@@ -86,7 +86,7 @@ async def list_instances(demo_id: str):
             init_status="completed",
         ))
 
-    return InstancesResponse(demo_id=demo_id, status=running.status, instances=instances)
+    return InstancesResponse(demo_id=demo_id, status=running.status, instances=instances, init_results=running.init_results)
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/restart")
 async def restart_instance(demo_id: str, node_id: str):

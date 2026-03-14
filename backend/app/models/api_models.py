@@ -90,6 +90,7 @@ class InstancesResponse(BaseModel):
     demo_id: str
     status: str
     instances: list[ContainerInstance]
+    init_results: list[dict] = []
 
 # --- Exec ---
 class ExecRequest(BaseModel):
