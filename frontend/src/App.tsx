@@ -16,11 +16,10 @@ import WelcomeScreen from "./components/shared/WelcomeScreen";
 import CockpitOverlay from "./components/cockpit/CockpitOverlay";
 
 export default function App() {
-  const { setDemos, setInstances, activeDemoId, demos, activeView } = useDemoStore();
+  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(350);
-  const [cockpitEnabled, setCockpitEnabled] = useState(false);
   const isDragging = useRef(false);
 
   // Initial load + periodic sync of demo status from backend
@@ -116,7 +115,7 @@ export default function App() {
       />
 
       {/* Top bar */}
-      <Toolbar cockpitEnabled={cockpitEnabled} onToggleCockpit={() => setCockpitEnabled(!cockpitEnabled)} />
+      <Toolbar />
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
@@ -134,17 +133,16 @@ export default function App() {
           ) : activeView === "diagram" ? (
             <div className="relative w-full h-full">
               <DiagramCanvas onOpenTerminal={openTerminal} />
-              <CockpitOverlay enabled={cockpitEnabled} />
             </div>
           ) : (
             <ControlPlane onOpenTerminal={openTerminal} />
           )}
         </div>
 
-        {/* Right sidebar - Properties Panel (only in diagram view with active demo) */}
+        {/* Right sidebar - Properties Panel or Cockpit (only in diagram view with active demo) */}
         {showSidebars && (
           <div className="w-72 flex-shrink-0 h-full">
-            <PropertiesPanel />
+            {cockpitEnabled ? <CockpitOverlay /> : <PropertiesPanel />}
           </div>
         )}
       </div>

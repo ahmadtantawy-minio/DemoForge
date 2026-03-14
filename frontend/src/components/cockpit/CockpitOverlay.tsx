@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from "react";
 import { useDemoStore } from "../../stores/demoStore";
-import { useDiagramStore } from "../../stores/diagramStore";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -42,9 +41,8 @@ function formatRate(bytesPerSec: number): string {
   return `${(bytesPerSec / (k * k)).toFixed(1)} MB/s`;
 }
 
-export default function CockpitOverlay({ enabled }: { enabled: boolean }) {
-  const { activeDemoId, demos } = useDemoStore();
-  const nodes = useDiagramStore((s) => s.nodes);
+export default function CockpitOverlay() {
+  const { activeDemoId, demos, cockpitEnabled: enabled } = useDemoStore();
   const [data, setData] = useState<CockpitData | null>(null);
   const prevThroughput = useRef<Record<string, { rx: number; tx: number; ts: number }>>({});
 
@@ -92,88 +90,55 @@ export default function CockpitOverlay({ enabled }: { enabled: boolean }) {
     return () => clearInterval(interval);
   }, [enabled, activeDemoId, isRunning]);
 
-  if (!enabled || !data || data.clusters.length === 0) return null;
-
-  // Map cluster aliases to cluster node positions
-  // Aliases follow the pattern: cluster label → sanitized alias name
-  // We match by checking if the cluster node's ID is in the alias
-  const clusterNodes = nodes.filter((n) => n.type === "cluster");
-
+  // Render as a right-side panel (replaces PropertiesPanel when cockpit is on)
   return (
-    <>
-      {data.clusters.map((cluster) => {
-        // Find matching cluster node
-        const matchNode = clusterNodes.find((n) =>
-          cluster.alias.includes(n.id.replace(/-/g, "").slice(0, 8))
-        );
-        if (!matchNode) return null;
-
-        const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
-        const totalSize = cluster.buckets.reduce((sum, b) => sum + b.size, 0);
-        const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
-        const txRate = cluster.throughput.tx_bytes_per_sec || 0;
-
-        return (
-          <div
-            key={cluster.alias}
-            className="absolute pointer-events-none z-20"
-            style={{
-              // Position relative to the React Flow viewport — this will be
-              // overlaid on the canvas. The exact positioning depends on the
-              // React Flow transform, so we use a simplified approach:
-              // render as a floating panel anchored to the cluster node.
-              left: 0,
-              top: 0,
-            }}
-          >
-            {/* We render as a fixed overlay panel instead of trying to match
-                React Flow coordinates (which require transform context) */}
-          </div>
-        );
-      })}
-
-      {/* Fixed cockpit panel at bottom-right */}
-      <div className="absolute bottom-2 right-2 z-30 bg-card/95 backdrop-blur border border-border rounded-lg shadow-lg p-3 max-w-xs pointer-events-auto">
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+    <div className="h-full bg-card border-l border-border overflow-y-auto">
+      <div className="p-3">
+        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           Cockpit
         </div>
-        {data.clusters.map((cluster) => {
-          const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
-          const totalSize = cluster.buckets.reduce((sum, b) => sum + b.size, 0);
-          const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
-          const txRate = cluster.throughput.tx_bytes_per_sec || 0;
+        {!data || data.clusters.length === 0 ? (
+          <div className="text-xs text-muted-foreground">
+            {!isRunning ? "Deploy a demo to see cockpit data" : "Loading cluster data..."}
+          </div>
+        ) : (
+          data.clusters.map((cluster) => {
+            const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
+            const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
+            const txRate = cluster.throughput.tx_bytes_per_sec || 0;
 
-          return (
-            <div key={cluster.alias} className="mb-2 last:mb-0">
-              <div className="text-xs font-medium text-foreground mb-1">{cluster.alias}</div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                {cluster.buckets.map((b) => (
-                  <div key={b.name} className="flex justify-between col-span-2">
-                    <span className="text-muted-foreground truncate">{b.name}</span>
-                    <span className="text-foreground font-mono">
-                      {b.objects.toLocaleString()} obj ({formatBytes(b.size)})
+            return (
+              <div key={cluster.alias} className="mb-3 last:mb-0">
+                <div className="text-xs font-medium text-foreground mb-1">{cluster.alias}</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                  {cluster.buckets.map((b) => (
+                    <div key={b.name} className="flex justify-between col-span-2">
+                      <span className="text-muted-foreground truncate">{b.name}</span>
+                      <span className="text-foreground font-mono">
+                        {b.objects.toLocaleString()} obj ({formatBytes(b.size)})
+                      </span>
+                    </div>
+                  ))}
+                  {cluster.buckets.length === 0 && (
+                    <div className="text-muted-foreground col-span-2">No buckets</div>
+                  )}
+                  <div className="col-span-2 flex gap-3 mt-1 pt-1 border-t border-border/50">
+                    <span className="text-green-400">
+                      ↑ {formatRate(txRate)}
+                    </span>
+                    <span className="text-blue-400">
+                      ↓ {formatRate(rxRate)}
+                    </span>
+                    <span className="text-muted-foreground ml-auto">
+                      {totalObjects.toLocaleString()} total
                     </span>
                   </div>
-                ))}
-                {cluster.buckets.length === 0 && (
-                  <div className="text-muted-foreground col-span-2">No buckets</div>
-                )}
-                <div className="col-span-2 flex gap-3 mt-1 pt-1 border-t border-border/50">
-                  <span className="text-green-400">
-                    ↑ {formatRate(txRate)}
-                  </span>
-                  <span className="text-blue-400">
-                    ↓ {formatRate(rxRate)}
-                  </span>
-                  <span className="text-muted-foreground ml-auto">
-                    {totalObjects.toLocaleString()} total
-                  </span>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
-    </>
+    </div>
   );
 }

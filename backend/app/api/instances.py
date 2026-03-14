@@ -111,13 +111,30 @@ async def list_instances(demo_id: str):
             if demo_node:
                 node_networks = demo_node.networks
         project_prefix = f"demoforge-{demo_id}-"
+
+        # Fetch live Docker network IPs for this container
+        docker_network_ips: dict[str, str] = {}
+        try:
+            docker_container = await asyncio.to_thread(docker_client.containers.get, container.container_name)
+            docker_networks = docker_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            for net_key, net_info in docker_networks.items():
+                ip = net_info.get("IPAddress", "")
+                if ip:
+                    # Index by both full and logical name for lookup below
+                    docker_network_ips[net_key] = ip
+                    logical = net_key.replace(project_prefix, "") if net_key.startswith(project_prefix) else net_key
+                    docker_network_ips[logical] = ip
+        except Exception:
+            pass  # Container may not be running; fall back to static config
+
         for net_name in container.networks:
             # Strip project prefix to get logical name for node.networks lookup
             logical_name = net_name.replace(project_prefix, "") if net_name.startswith(project_prefix) else net_name
             net_cfg = node_networks.get(logical_name)
+            live_ip = docker_network_ips.get(net_name) or docker_network_ips.get(logical_name)
             membership = NetworkMembership(
                 network_name=logical_name,
-                ip_address=net_cfg.ip if net_cfg else None,
+                ip_address=live_ip or (net_cfg.ip if net_cfg else None),
                 aliases=net_cfg.aliases if net_cfg else [],
             )
             network_memberships.append(membership)

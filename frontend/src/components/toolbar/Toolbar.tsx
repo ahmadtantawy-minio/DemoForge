@@ -23,13 +23,8 @@ import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge } from "lucid
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 
-interface ToolbarProps {
-  cockpitEnabled?: boolean;
-  onToggleCockpit?: () => void;
-}
-
-export default function Toolbar({ cockpitEnabled, onToggleCockpit }: ToolbarProps = {}) {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus } = useDemoStore();
+export default function Toolbar() {
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -290,7 +285,7 @@ export default function Toolbar({ cockpitEnabled, onToggleCockpit }: ToolbarProp
               <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
             </Tooltip>
             <Button
-              onClick={(e) => { e.stopPropagation(); onToggleCockpit?.(); }}
+              onClick={(e) => { e.stopPropagation(); toggleCockpit(); }}
               variant="ghost"
               size="sm"
               className={`h-7 w-7 p-0 ${cockpitEnabled ? "text-green-400 bg-green-400/10" : "text-muted-foreground hover:text-foreground"}`}

@@ -123,6 +123,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           const lbId = `${id}-lb`;
           const lbInst = instances.find((i) => i.node_id === lbId);
           const lbHealthy = lbInst?.health === "healthy";
+          const lbIp = lbInst?.networks?.find((n) => n.ip_address)?.ip_address ?? null;
           // Console URL points through the backend proxy to the LB's console port
           const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
           const consoleUrl = lbInst ? `${apiBase}/proxy/${activeDemoId}/${lbId}/console/` : null;
@@ -143,6 +144,11 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                 <span className="font-bold">N</span>
                 <span>LB</span>
               </div>
+              {lbIp && (
+                <span className="font-mono text-[10px] text-muted-foreground bg-muted/50 border border-border/50 rounded px-1.5 py-0.5 leading-none">
+                  {lbIp}
+                </span>
+              )}
               {consoleUrl && activeDemoId && (
                 <button
                   className="px-2 py-0.5 rounded border border-border bg-card text-[10px] text-foreground hover:bg-accent transition-colors"

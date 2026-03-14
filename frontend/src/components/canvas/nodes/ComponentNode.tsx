@@ -26,6 +26,9 @@ export default function ComponentNode({ id, data }: NodeProps) {
     }
   };
 
+  const instance = instances.find((i) => i.node_id === id);
+  const nodeIp = instance?.networks?.find((n) => n.ip_address)?.ip_address ?? null;
+
   return (
     <div
       className="bg-card border-2 border-border rounded-lg shadow-sm px-4 py-3 min-w-[140px] cursor-pointer hover:border-primary/50 transition-colors"
@@ -46,6 +49,13 @@ export default function ComponentNode({ id, data }: NodeProps) {
           />
         )}
       </div>
+      {nodeIp && (
+        <div className="mt-1.5 flex justify-center">
+          <span className="font-mono text-[10px] text-muted-foreground bg-muted/50 border border-border/50 rounded px-1.5 py-0.5 leading-none">
+            {nodeIp}
+          </span>
+        </div>
+      )}
       <Handle type="source" position={Position.Right} />
     </div>
   );
