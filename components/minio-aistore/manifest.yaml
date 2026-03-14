@@ -71,6 +71,15 @@ connections:
       port: 9000
       path: "/minio/v2/metrics/cluster"
       description: "Prometheus metrics endpoint"
+    - type: replication
+      port: 9000
+      description: "Bucket replication source"
+    - type: site-replication
+      port: 9000
+      description: "Site replication peer"
+    - type: tiering
+      port: 9000
+      description: "ILM tiering source (hot tier)"
   accepts:
     - type: replication
       config_schema:

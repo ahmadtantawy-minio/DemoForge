@@ -50,15 +50,6 @@ class ContainerHealthStatus(str, Enum):
     ERROR = "error"
     STOPPED = "stopped"
 
-class ConnectionType(str, Enum):
-    S3 = "s3"
-    HTTP = "http"
-    METRICS = "metrics"
-    REPLICATION = "replication"
-    LOAD_BALANCE = "load-balance"
-    DATA = "data"
-    METRICS_QUERY = "metrics-query"
-
 class NetworkMembership(BaseModel):
     network_name: str
     ip_address: str | None = None
