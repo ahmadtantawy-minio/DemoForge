@@ -50,7 +50,7 @@ export default function NodeContextMenu({
         label: "Start Generating",
         action: () => {
           toast.info("Starting data generation...");
-          execCommand(demoId, nodeId, "sh /app/generate.sh &")
+          execCommand(demoId, nodeId, "sh /generate.sh &")
             .then(() => toast.success("Data generation started"))
             .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
         },
@@ -60,7 +60,7 @@ export default function NodeContextMenu({
         label: "Stop Generating",
         action: () => {
           toast.info("Stopping data generation...");
-          execCommand(demoId, nodeId, "pkill -f generate.sh")
+          execCommand(demoId, nodeId, "pkill -f generate")
             .then(() => toast.success("Data generation stopped"))
             .catch((err: any) => toast.error("Failed to stop generation", { description: err.message }));
         },
