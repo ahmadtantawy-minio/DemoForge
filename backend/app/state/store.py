@@ -70,6 +70,7 @@ class StateStore:
         try:
             client = docker.from_env()
             containers = client.containers.list(
+                all=True,
                 filters={"label": "demoforge.demo"}
             )
         except (APIError, Exception) as e:
@@ -147,16 +148,18 @@ class StateStore:
 
             docker_containers = docker_demos.get(demo_id, [])
             running_containers = [c for c in docker_containers if c.status == "running"]
+            all_containers = docker_containers  # includes stopped
 
-            if running.status == "running" and len(running_containers) == 0:
-                logger.warning(f"Sync: demo {demo_id} marked running but has 0 running containers — marking stopped")
+            if running.status == "running" and len(running_containers) == 0 and len(all_containers) == 0:
+                logger.warning(f"Sync: demo {demo_id} marked running but has 0 containers — marking stopped")
                 running.status = "stopped"
                 running.containers.clear()
 
             elif running.status == "running":
-                # Update container list to match reality
+                # Update container list — include ALL containers (running + stopped)
+                # so stopped nodes can be started back via the UI
                 current_nodes = set()
-                for c in running_containers:
+                for c in all_containers:
                     node_id = c.labels.get("demoforge.node", "")
                     component_id = c.labels.get("demoforge.component", "")
                     if node_id:
@@ -169,7 +172,7 @@ class StateStore:
                                 container_name=c.name,
                                 networks=container_nets,
                             )
-                # Remove containers that no longer exist
+                # Remove containers that are completely gone (deleted, not just stopped)
                 for node_id in list(running.containers.keys()):
                     if node_id not in current_nodes:
                         del running.containers[node_id]
