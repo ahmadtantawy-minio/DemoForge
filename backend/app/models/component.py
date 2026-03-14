@@ -60,6 +60,15 @@ class VariantDef(BaseModel):
     command: list[str] | None = None
     replicas: int = 1
 
+class LicenseRequirement(BaseModel):
+    license_id: str           # Global key, e.g. "minio-enterprise"
+    label: str                # Human-readable: "MinIO Enterprise License"
+    description: str = ""     # Help text
+    injection_type: str = "env_var"  # "env_var" | "file_mount"
+    env_var: str | None = None       # e.g. "MINIO_SUBNET_LICENSE"
+    mount_path: str | None = None    # e.g. "/etc/minio/license.key"
+    required: bool = True
+
 class InitScriptDef(BaseModel):
     command: str
     wait_for_healthy: bool = True
@@ -98,3 +107,4 @@ class ComponentManifest(BaseModel):
     template_mounts: list[TemplateMountDef] = []
     static_mounts: list[StaticMountDef] = []
     init_scripts: list[InitScriptDef] = []
+    license_requirements: list[LicenseRequirement] = []

@@ -8,7 +8,7 @@ from .registry.loader import load_registry
 from .engine.health_monitor import health_monitor_loop
 from .engine.network_manager import join_network
 from .state.store import state
-from .api import registry, demos, deploy, instances, proxy, terminal, health
+from .api import registry, demos, deploy, instances, proxy, terminal, health, settings
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,7 @@ app.include_router(deploy.router)
 app.include_router(instances.router)
 app.include_router(health.router)
 app.include_router(terminal.router)
+app.include_router(settings.router)
 
 # Proxy routes (must be last — catch-all pattern)
 app.include_router(proxy.router)

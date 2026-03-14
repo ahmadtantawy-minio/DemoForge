@@ -134,3 +134,16 @@ export const createFromTemplate = (templateId: string) =>
   apiFetch<import("../types").DemoSummary>(`/api/demos/from-template/${templateId}`, {
     method: "POST",
   });
+
+// Licenses
+export const fetchLicenseStatus = () =>
+  apiFetch<Array<{ license_id: string; label: string; description: string; components: string[]; configured: boolean; component_id: string; component_name: string; required: boolean }>>("/api/settings/licenses/status");
+
+export const setLicense = (licenseId: string, value: string, label: string) =>
+  apiFetch<{ status: string }>("/api/settings/licenses", {
+    method: "POST",
+    body: JSON.stringify({ license_id: licenseId, value, label }),
+  });
+
+export const deleteLicense = (licenseId: string) =>
+  apiFetch<{ status: string }>(`/api/settings/licenses/${licenseId}`, { method: "DELETE" });

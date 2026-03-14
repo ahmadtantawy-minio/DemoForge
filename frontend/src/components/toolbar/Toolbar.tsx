@@ -5,14 +5,21 @@ import { deployDemo, stopDemo, fetchDemos } from "../../api/client";
 import { toast } from "sonner";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
+import LicenseSettings from "../admin/LicenseSettings";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, Key } from "lucide-react";
 
 export default function Toolbar() {
   const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus } = useDemoStore();
@@ -20,6 +27,7 @@ export default function Toolbar() {
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [licensesOpen, setLicensesOpen] = useState(false);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
 
@@ -198,6 +206,20 @@ export default function Toolbar() {
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
+              onClick={() => setLicensesOpen(true)}
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            >
+              <Key className="w-3.5 h-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p className="text-xs">Licenses</p></TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
               onClick={() => {
                 const html = document.documentElement;
                 const isDark = html.classList.contains("dark");
@@ -237,6 +259,15 @@ export default function Toolbar() {
       </div>
 
       <DemoSelectorModal open={selectorOpen} onOpenChange={setSelectorOpen} />
+
+      <Dialog open={licensesOpen} onOpenChange={setLicensesOpen}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base">Licenses</DialogTitle>
+          </DialogHeader>
+          <LicenseSettings />
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }

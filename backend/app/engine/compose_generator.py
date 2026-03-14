@@ -5,6 +5,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 from ..models.demo import DemoDefinition
 from ..registry.loader import get_component
+from ..config.license_store import license_store
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 if placeholder2 in val and secret.default:
                     resolved = secret.default
             env[key] = resolved
+
+        # Inject license keys (before node.config overrides)
+        for lic_req in manifest.license_requirements:
+            entry = license_store.get(lic_req.license_id)
+            if entry and lic_req.injection_type == "env_var" and lic_req.env_var:
+                env[lic_req.env_var] = entry.value
+            elif entry and lic_req.injection_type == "file_mount" and lic_req.mount_path:
+                lic_file = os.path.join(output_dir, project_name, node.id, "license.key")
+                os.makedirs(os.path.dirname(lic_file), exist_ok=True)
+                with open(lic_file, "w") as f:
+                    f.write(entry.value)
+                # Volume added later after service_volumes is built
+
         env.update(node.config)
 
         # Determine which networks this node joins
@@ -158,6 +172,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             host_path = os.path.abspath(os.path.join(component_dir, sm.host_path))
             bind_path = _to_host_path(host_path, "components")
             service_volumes.append(f"{bind_path}:{sm.mount_path}:ro")
+
+        # License file mounts
+        for lic_req in manifest.license_requirements:
+            entry = license_store.get(lic_req.license_id)
+            if entry and lic_req.injection_type == "file_mount" and lic_req.mount_path:
+                lic_file = os.path.join(output_dir, project_name, node.id, "license.key")
+                bind_path = _to_host_path(os.path.abspath(lic_file), "data")
+                service_volumes.append(f"{bind_path}:{lic_req.mount_path}:ro")
 
         if service_volumes:
             service["volumes"] = service_volumes

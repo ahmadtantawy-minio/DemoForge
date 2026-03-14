@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException
 from ..models.api_models import DeployResponse
 from ..engine.docker_manager import deploy_demo, stop_demo
 from ..state.store import state, DeployProgress
+from ..config.license_store import license_store
+from ..registry.loader import get_component
 from .demos import _load_demo
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,16 @@ async def deploy(demo_id: str):
     existing = state.get_demo(demo_id)
     if existing and existing.status == "running":
         raise HTTPException(409, "Demo is already running")
+
+    # Validate required licenses
+    for node in demo.nodes:
+        manifest = get_component(node.component)
+        if manifest:
+            for lic_req in manifest.license_requirements:
+                if lic_req.required and not license_store.get(lic_req.license_id):
+                    raise HTTPException(400,
+                        f"Component '{manifest.name}' requires license '{lic_req.label}'. "
+                        f"Configure it in Settings > Licenses.")
 
     # Create progress tracker
     progress = DeployProgress()

@@ -1,10 +1,10 @@
-id: minio
-name: MinIO CE
+id: minio-aistore
+name: MinIO AIStore
 category: storage
 icon: minio
 version: "latest"
-image: minio/minio:latest
-description: "S3-compatible high-performance object storage"
+image: quay.io/minio/aistor/minio:latest
+description: "S3-compatible object storage with enterprise AIStor features (S3 Select, Lambda Compute, Observability). Requires a MinIO SUBNET license."
 
 resources:
   memory: "256m"
@@ -22,6 +22,7 @@ environment:
   MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
   MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
   MINIO_BROWSER_REDIRECT_URL: ""
+  MINIO_CALLHOME_ENABLE: "on"
 
 volumes:
   - name: data
@@ -52,7 +53,7 @@ web_ui:
 
 terminal:
   shell: /bin/sh
-  welcome_message: "MinIO container. 'mc' is available at /usr/bin/mc."
+  welcome_message: "MinIO AIStore container. 'mc' is available at /usr/bin/mc."
   quick_actions:
     - label: "mc admin info"
       command: "mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD && mc admin info local"
@@ -94,3 +95,11 @@ init_scripts:
     timeout: 60
     order: 1
     description: "Create default buckets"
+
+license_requirements:
+  - license_id: minio-enterprise
+    label: "MinIO Enterprise License"
+    description: "Required for AIStore features (S3 Select, Lambda, Observability)"
+    injection_type: env_var
+    env_var: MINIO_LICENSE
+    required: true
