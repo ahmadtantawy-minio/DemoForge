@@ -60,7 +60,8 @@
 - [x] BUG-4: Node ID counter uses trailing-number regex across all ID types
 - [ ] BUG-9: Cockpit toggle button unstable — takes multiple clicks to enable/show overlay consistently
 - [ ] BUG-11: Cockpit not showing file counts or traffic data when data is being generated/replicated
-- [ ] BUG-10: Cluster node shows "erasure coded" label for 2-node clusters (should show "mirrored" or just "replicated")
+- [ ] BUG-12: Pausing site-replication returns 400 error instead of removing it gracefully
+- [x] BUG-10: Cluster node shows "replicated" for < 4 drives, "erasure coded" otherwise
 - [x] BUG-1: NGINX upstream direction — verified correct with embedded LB
 - [x] BUG-5: Grafana secret keys — verified matching (GF_SECURITY_ADMIN_USER/PASSWORD)
 - [x] BUG-8: Terminal tab duplication — already fixed with closedTabsRef
@@ -88,10 +89,7 @@
   - Docker stats API or cgroup metrics for total CPU/memory used by the demo
   - Display as a summary bar at the top of the cockpit panel
 
-- [ ] **Grafana MinIO Dashboard**: Include default MinIO dashboard (ID 13502) in Grafana by default
-  - Source: https://grafana.com/grafana/dashboards/13502-minio-dashboard/
-  - Auto-provision via Grafana dashboard provisioning config
-  - Should work out-of-box when Prometheus scrapes MinIO metrics
+- [x] **Grafana MinIO Dashboard**: Official 37-panel dashboard (ID 13502) auto-provisioned
 
 ## Remaining Backlog (lower priority)
 

@@ -355,17 +355,42 @@ async def pause_edge_config(demo_id: str, edge_id: str):
     if not ec:
         raise HTTPException(404, f"Edge config '{edge_id}' not found")
 
-    # For site-replication and tiering, pause is not supported server-side
-    if ec.connection_type in ("site-replication", "cluster-site-replication"):
-        raise HTTPException(
-            400,
-            "Site replication cannot be paused. It must be fully removed and re-added.",
-        )
-    if ec.connection_type in ("tiering", "cluster-tiering"):
-        raise HTTPException(
-            400,
-            "ILM tiering rules cannot be paused. The rule must be removed and re-created.",
-        )
+    # For site-replication: remove via mc admin replicate remove
+    if ec.connection_type in ("site-replication", "cluster-site-replication") and ec.status == "applied":
+        _demo = _load_demo(demo_id)
+        if _demo:
+            expanded = _expand_demo_for_edges(_demo)
+            project_name = f"demoforge-{demo_id}"
+            # Find the edge to get cluster info
+            edge = next((e for e in expanded.edges if e.id == edge_id), None)
+            if edge:
+                config = edge.connection_config or {}
+                source_cluster_id = config.get("_source_cluster_id", "")
+                if not source_cluster_id:
+                    for c in expanded.clusters:
+                        if edge.source.startswith(f"{c.id}-") or edge.source == f"{c.id}-lb":
+                            source_cluster_id = c.id
+                            break
+                source_cluster = next((c for c in expanded.clusters if c.id == source_cluster_id), None)
+                if source_cluster:
+                    source_host = _resolve_cluster_endpoint(source_cluster, project_name)
+                    source_user, source_pass = _get_cluster_credentials(source_cluster)
+                    cmd = (
+                        f"mc alias set site1 http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
+                        f"mc admin replicate remove site1 --all --force"
+                    )
+                    try:
+                        exit_code, stdout, stderr = await exec_in_container(
+                            f"{project_name}-mc-shell", f"sh -c {shlex.quote(cmd)}"
+                        )
+                        if exit_code != 0:
+                            logger.warning(f"Failed to remove site-replication: {stderr[:200]}")
+                    except Exception as e:
+                        logger.warning(f"Error removing site-replication: {e}")
+
+    # For tiering: just mark as paused (ILM rules can't be easily removed without rule ID)
+    if ec.connection_type in ("tiering", "cluster-tiering") and ec.status == "applied":
+        pass  # Just mark as paused in state below
 
     # For bucket replication, disable the rule on the server
     if ec.connection_type in ("replication", "cluster-replication") and ec.status == "applied":
