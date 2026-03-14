@@ -215,6 +215,52 @@ export default function PropertiesPanel() {
             ))}
           </div>
         </div>
+        <div className="mb-3 pt-2 border-t border-border">
+          <label className="text-xs text-muted-foreground block mb-1">Mode</label>
+          <Select value={gData.mode || "visual"} onValueChange={(v) => updateGroup({ mode: v })}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="visual">Visual (grouping only)</SelectItem>
+              <SelectItem value="cluster">Cluster (coordinated deployment)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {(gData.mode === "cluster") && (
+          <>
+            <div className="mb-3">
+              <label className="text-xs text-muted-foreground block mb-1">Drives per Node</label>
+              <Input
+                type="number"
+                value={gData.cluster_config?.drives_per_node ?? 1}
+                onChange={(e) => updateGroup({ cluster_config: { ...(gData.cluster_config || {}), drives_per_node: parseInt(e.target.value) || 1 } })}
+                className="h-8 text-sm"
+                min={1}
+                max={4}
+              />
+            </div>
+            <div className="mb-3">
+              <label className="text-xs text-muted-foreground block mb-1">Root User</label>
+              <Input
+                type="text"
+                value={gData.cluster_config?.root_user ?? "minioadmin"}
+                onChange={(e) => updateGroup({ cluster_config: { ...(gData.cluster_config || {}), root_user: e.target.value } })}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="mb-3">
+              <label className="text-xs text-muted-foreground block mb-1">Root Password</label>
+              <Input
+                type="text"
+                value={gData.cluster_config?.root_password ?? "minioadmin"}
+                onChange={(e) => updateGroup({ cluster_config: { ...(gData.cluster_config || {}), root_password: e.target.value } })}
+                className="h-8 text-sm"
+              />
+            </div>
+          </>
+        )}
       </div>
     );
   }

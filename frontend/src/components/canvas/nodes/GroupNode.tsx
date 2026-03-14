@@ -7,6 +7,7 @@ interface GroupNodeData {
   description?: string;
   color?: string;
   style?: string;
+  mode?: string;
 }
 
 export default function GroupNode({ id, data, selected }: NodeProps) {
@@ -38,6 +39,11 @@ export default function GroupNode({ id, data, selected }: NodeProps) {
         <div className="font-semibold text-xs uppercase tracking-wider" style={{ color: `${color}cc` }}>
           {nodeData.label || "Group"}
         </div>
+        {nodeData.mode === "cluster" && (
+          <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+            Cluster
+          </div>
+        )}
         {nodeData.description && (
           <div className="text-[10px] text-muted-foreground mt-0.5">{nodeData.description}</div>
         )}

@@ -116,6 +116,8 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                                        y=rf_node.get("position", {}).get("y", 0)),
                 width=rf_node.get("style", {}).get("width", rf_node.get("width", 400)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 400),
                 height=rf_node.get("style", {}).get("height", rf_node.get("height", 300)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 300),
+                mode=grp_data.get("mode", "visual"),
+                cluster_config=grp_data.get("cluster_config", {}),
             ))
             continue
 

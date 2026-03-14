@@ -133,4 +133,6 @@ export interface DemoGroup {
   position: { x: number; y: number };
   width?: number;
   height?: number;
+  mode?: "visual" | "cluster";
+  cluster_config?: Record<string, any>;
 }

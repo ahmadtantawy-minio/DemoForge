@@ -1,0 +1,101 @@
+name: "MinIO Cluster (4-Node)"
+description: "4-node erasure-coded MinIO cluster behind NGINX load balancer with Prometheus monitoring. Demonstrates cluster resilience — stop any node and the cluster continues serving data."
+
+networks:
+  - name: default
+
+groups:
+  - id: cluster-1
+    label: "MinIO Cluster"
+    description: "4-node erasure-coded cluster"
+    color: "#3b82f6"
+    style: "solid"
+    position: { x: 200, y: 50 }
+    width: 500
+    height: 400
+    mode: cluster
+    cluster_config:
+      drives_per_node: 1
+      root_user: minioadmin
+      root_password: minioadmin
+
+nodes:
+  - id: nginx-lb
+    component: nginx
+    variant: single
+    position: { x: 50, y: 200 }
+    display_name: "Load Balancer"
+  - id: minio-1
+    component: minio
+    variant: cluster
+    position: { x: 50, y: 50 }
+    group_id: cluster-1
+    display_name: "Node 1"
+  - id: minio-2
+    component: minio
+    variant: cluster
+    position: { x: 250, y: 50 }
+    group_id: cluster-1
+    display_name: "Node 2"
+  - id: minio-3
+    component: minio
+    variant: cluster
+    position: { x: 50, y: 200 }
+    group_id: cluster-1
+    display_name: "Node 3"
+  - id: minio-4
+    component: minio
+    variant: cluster
+    position: { x: 250, y: 200 }
+    group_id: cluster-1
+    display_name: "Node 4"
+  - id: prometheus
+    component: prometheus
+    variant: single
+    position: { x: 800, y: 150 }
+  - id: grafana
+    component: grafana
+    variant: single
+    position: { x: 1000, y: 150 }
+
+edges:
+  - id: e-lb-1
+    source: nginx-lb
+    target: minio-1
+    connection_type: load-balance
+    connection_config: { algorithm: least-conn, backend_port: "9000" }
+  - id: e-lb-2
+    source: nginx-lb
+    target: minio-2
+    connection_type: load-balance
+    connection_config: { algorithm: least-conn, backend_port: "9000" }
+  - id: e-lb-3
+    source: nginx-lb
+    target: minio-3
+    connection_type: load-balance
+    connection_config: { algorithm: least-conn, backend_port: "9000" }
+  - id: e-lb-4
+    source: nginx-lb
+    target: minio-4
+    connection_type: load-balance
+    connection_config: { algorithm: least-conn, backend_port: "9000" }
+  - id: e-m1
+    source: minio-1
+    target: prometheus
+    connection_type: metrics
+  - id: e-m2
+    source: minio-2
+    target: prometheus
+    connection_type: metrics
+  - id: e-m3
+    source: minio-3
+    target: prometheus
+    connection_type: metrics
+  - id: e-m4
+    source: minio-4
+    target: prometheus
+    connection_type: metrics
+  - id: e-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query

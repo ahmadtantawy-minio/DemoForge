@@ -57,7 +57,46 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     # Build network map from demo.networks list
     network_map = {net.name: f"{project_name}-{net.name}" for net in demo.networks}
 
+    # Cluster coordination: build coordinated commands for cluster group members
+    cluster_commands: dict[str, list[str]] = {}
+    cluster_health_override: dict[str, str] = {}
+    cluster_credentials: dict[str, dict[str, str]] = {}
+    cluster_drives: dict[str, int] = {}
+
+    for group in demo.groups:
+        if group.mode != "cluster":
+            continue
+        member_nodes = [n for n in demo.nodes if n.group_id == group.id]
+        if len(member_nodes) < 2:
+            continue
+
+        # Build MinIO distributed server command with explicit URLs
+        drives = int(group.cluster_config.get("drives_per_node", 1))
+        peer_urls = []
+        for n in member_nodes:
+            svc_name = f"{project_name}-{n.id}"
+            if drives > 1:
+                peer_urls.append(f"http://{svc_name}:9000/data{{1...{drives}}}")
+            else:
+                peer_urls.append(f"http://{svc_name}:9000/data")
+
+        server_cmd = ["server"] + peer_urls + ["--console-address", ":9001"]
+
+        # Get cluster credentials from group config or first node
+        cluster_user = group.cluster_config.get("root_user", "minioadmin")
+        cluster_pass = group.cluster_config.get("root_password", "minioadmin")
+
+        for n in member_nodes:
+            cluster_commands[n.id] = server_cmd
+            cluster_health_override[n.id] = "/minio/health/cluster"
+            cluster_credentials[n.id] = {
+                "MINIO_ROOT_USER": cluster_user,
+                "MINIO_ROOT_PASSWORD": cluster_pass,
+            }
+            cluster_drives[n.id] = drives
+
     services = {}
+    compose_volumes = {}
     for node in demo.nodes:
         manifest = get_component(node.component)
         if manifest is None:
@@ -66,9 +105,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         service_name = node.id
         container_name = f"{project_name}-{node.id}"
 
-        # Determine command from variant
-        variant = manifest.variants.get(node.variant)
-        command = variant.command if variant and variant.command else manifest.command
+        # Check cluster coordination first
+        if node.id in cluster_commands:
+            command = cluster_commands[node.id]
+        else:
+            variant = manifest.variants.get(node.variant)
+            command = variant.command if variant and variant.command else manifest.command
 
         # Merge environment: manifest defaults → node overrides
         env = {}
@@ -95,6 +137,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 with open(lic_file, "w") as f:
                     f.write(entry.value)
                 # Volume added later after service_volumes is built
+
+        if node.id in cluster_credentials:
+            env.update(cluster_credentials[node.id])
 
         env.update(node.config)
 
@@ -146,8 +191,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         # Healthcheck
         if manifest.health_check:
             hc = manifest.health_check
+            if node.id in cluster_health_override:
+                endpoint = cluster_health_override[node.id]
+            else:
+                endpoint = hc.endpoint
             service["healthcheck"] = {
-                "test": ["CMD", "curl", "-sf", f"http://localhost:{hc.port}{hc.endpoint}"],
+                "test": ["CMD", "curl", "-sf", f"http://localhost:{hc.port}{endpoint}"],
                 "interval": hc.interval,
                 "timeout": hc.timeout,
                 "retries": 3,
@@ -160,6 +209,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             for vol in manifest.volumes:
                 vol_name = f"{project_name}-{node.id}-{vol.name}"
                 service_volumes.append(f"{vol_name}:{vol.path}")
+
+        # Extra volumes for cluster nodes with multiple drives
+        if node.id in cluster_drives and cluster_drives[node.id] > 1:
+            for d in range(1, cluster_drives[node.id] + 1):
+                vol_name = f"{project_name}-{node.id}-data{d}"
+                service_volumes.append(f"{vol_name}:/data{d}")
+                compose_volumes[vol_name] = None
 
         # Template mounts: render Jinja2 templates and add as bind-mounts
         component_dir = os.path.join(components_dir, node.component)
@@ -213,6 +269,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             for vol in manifest.volumes:
                 vol_name = f"{project_name}-{node.id}-{vol.name}"
                 volumes[vol_name] = {"driver": "local"}
+    # Add cluster-specific extra volumes
+    for vol_name, vol_val in compose_volumes.items():
+        volumes[vol_name] = {"driver": "local"} if vol_val is None else vol_val
     if volumes:
         compose["volumes"] = volumes
 

@@ -40,6 +40,8 @@ class DemoGroup(BaseModel):
     position: NodePosition
     width: float = 400
     height: float = 300
+    mode: str = "visual"           # "visual" | "cluster"
+    cluster_config: dict[str, Any] = {}  # e.g. {"drives_per_node": 1}
 
 class DemoStickyNote(BaseModel):
     id: str

@@ -110,7 +110,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         type: "group",
         position: g.position || { x: 0, y: 0 },
         style: { width: g.width || 400, height: g.height || 300 },
-        data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid" },
+        data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid", mode: g.mode || "visual", cluster_config: g.cluster_config || {} },
       }));
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
         id: s.id,

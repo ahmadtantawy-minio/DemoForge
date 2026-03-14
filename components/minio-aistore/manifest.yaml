@@ -135,9 +135,12 @@ variants:
   single:
     description: "Single node, single drive"
     command: ["server", "/data", "--console-address", ":9001"]
-  distributed:
-    description: "4-drive erasure coding (simulated)"
+  multi-drive:
+    description: "Single node, 4-drive erasure coding (simulated)"
     command: ["server", "/data{1...4}", "--console-address", ":9001"]
+  cluster:
+    description: "Multi-node erasure-coded cluster (command auto-generated)"
+    command: []
   replication-source:
     description: "Replication source node"
     command: ["server", "/data", "--console-address", ":9001"]
