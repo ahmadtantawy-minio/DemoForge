@@ -195,6 +195,28 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         else:
             await progress("init_scripts", "done", f"{len(init_results)} init script(s) completed")
 
+        # Run edge automation scripts (connection-driven init)
+        from .edge_automation import generate_edge_scripts
+        edge_scripts = generate_edge_scripts(demo, project_name)
+        if edge_scripts:
+            await progress("edge_config", "running", f"Configuring {len(edge_scripts)} connection(s)...")
+            for script in edge_scripts:
+                try:
+                    if script.wait_for_healthy:
+                        from .init_runner import wait_for_healthy as wait_healthy
+                        healthy = await wait_healthy(script.container_name, script.timeout)
+                        if not healthy:
+                            logger.warning(f"Edge script skipped for {script.edge_id}: container not healthy")
+                            continue
+                    exit_code, stdout, stderr = await exec_in_container(
+                        script.container_name, f"sh -c '{script.command}'"
+                    )
+                    if exit_code != 0:
+                        logger.warning(f"Edge script failed for {script.edge_id}: {stderr}")
+                except Exception as e:
+                    logger.warning(f"Edge script error for {script.edge_id}: {e}")
+            await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) configured")
+
         running.status = "running"
         state.set_demo(running)
         await progress("complete", "done", "Demo is running")

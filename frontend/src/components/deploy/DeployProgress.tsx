@@ -16,6 +16,7 @@ const STEP_LABELS: Record<string, string> = {
   networks: "Connect Networks",
   discovery: "Discover Containers",
   init_scripts: "Init Scripts",
+  edge_config: "Configure Connections",
   complete: "Complete",
   rollback: "Rollback",
   error: "Error",
