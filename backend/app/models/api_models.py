@@ -92,6 +92,12 @@ class InstancesResponse(BaseModel):
     init_results: list[dict] = []
     edge_configs: list[EdgeConfigStatus] = []
 
+# --- Errors ---
+class ErrorDetail(BaseModel):
+    code: str        # e.g. "DOCKER_NOT_RUNNING", "COMPONENT_NOT_FOUND", "COMPOSE_FAILED"
+    message: str
+    details: str = ""
+
 # --- Exec ---
 class ExecRequest(BaseModel):
     command: str

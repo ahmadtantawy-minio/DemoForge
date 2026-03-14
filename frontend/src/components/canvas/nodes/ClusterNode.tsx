@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance } from "../../../api/client";
+import { stopInstance, startInstance, setBucketPolicy } from "../../../api/client";
 import { toast } from "sonner";
 import ComponentIcon from "../../shared/ComponentIcon";
 
@@ -24,6 +24,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const nodeCount = nodeData.nodeCount || 4;
   const drivesPerNode = nodeData.drivesPerNode || 1;
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
+  const [showPolicyMenu, setShowPolicyMenu] = useState(false);
 
   // Find running instances matching this cluster's synthetic nodes
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
@@ -57,6 +58,20 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
     } catch (err: any) {
       toast.error(`Failed to start ${nodeId}`, { description: err.message });
     }
+    setContextNode(null);
+  };
+
+  const handleSetBucketPolicy = async (policy: string) => {
+    if (!activeDemoId) return;
+    const bucket = "demo-bucket";
+    toast.info(`Setting policy '${policy}' on ${bucket}...`);
+    try {
+      await setBucketPolicy(activeDemoId, id, bucket, policy);
+      toast.success(`Bucket policy set to '${policy}'`);
+    } catch (err: any) {
+      toast.error(`Failed to set bucket policy`, { description: err.message });
+    }
+    setShowPolicyMenu(false);
     setContextNode(null);
   };
 
@@ -252,9 +267,32 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             >
               View in Instances
             </button>
+            {activeDemoId && (
+              <div className="relative">
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
+                  onClick={() => setShowPolicyMenu((v) => !v)}
+                >
+                  Set Bucket Policy ▸
+                </button>
+                {showPolicyMenu && (
+                  <div className="absolute left-full top-0 ml-1 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[120px] z-[10000]">
+                    {(["none", "public", "download", "upload"] as const).map((p) => (
+                      <button
+                        key={p}
+                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors capitalize"
+                        onClick={() => handleSetBucketPolicy(p)}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <button
               className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
-              onClick={() => setContextNode(null)}
+              onClick={() => { setShowPolicyMenu(false); setContextNode(null); }}
             >
               Cancel
             </button>

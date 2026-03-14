@@ -20,9 +20,17 @@ interface ClusterStats {
   };
 }
 
+interface HostStats {
+  cpu_percent: number;
+  memory_mb: number;
+  memory_limit_mb: number;
+  container_count: number;
+}
+
 interface CockpitData {
   demo_id: string;
   clusters: ClusterStats[];
+  host_stats?: HostStats;
 }
 
 function formatBytes(bytes: number): string {
@@ -97,6 +105,28 @@ export default function CockpitOverlay() {
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           Cockpit
         </div>
+        {data?.host_stats && (
+          <div className="mb-3 pb-3 border-b border-border">
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+              Host Resources ({data.host_stats.container_count} containers)
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+              <div className="flex justify-between col-span-2">
+                <span className="text-muted-foreground">CPU</span>
+                <span className="text-foreground font-mono">{data.host_stats.cpu_percent.toFixed(1)}%</span>
+              </div>
+              <div className="flex justify-between col-span-2">
+                <span className="text-muted-foreground">Memory</span>
+                <span className="text-foreground font-mono">
+                  {data.host_stats.memory_mb.toFixed(0)} MB
+                  {data.host_stats.memory_limit_mb > 0 && (
+                    <span className="text-muted-foreground"> / {data.host_stats.memory_limit_mb.toFixed(0)} MB</span>
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
         {!data || data.clusters.length === 0 ? (
           <div className="text-xs text-muted-foreground">
             {!isRunning ? "Deploy a demo to see cockpit data" : "Loading cluster data..."}

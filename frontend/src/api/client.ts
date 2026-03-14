@@ -190,3 +190,22 @@ export const setLicense = (licenseId: string, value: string, label: string) =>
 
 export const deleteLicense = (licenseId: string) =>
   apiFetch<{ status: string }>(`/api/settings/licenses/${licenseId}`, { method: "DELETE" });
+
+// MinIO Actions (Phase 4)
+export const setBucketPolicy = (demoId: string, clusterId: string, bucket: string, policy: string) =>
+  apiFetch<{ status: string; cluster_id: string; bucket: string; policy: string }>(
+    `/api/demos/${demoId}/minio/${clusterId}/policy`,
+    { method: "POST", body: JSON.stringify({ bucket, policy }) }
+  );
+
+export const setBucketVersioning = (demoId: string, clusterId: string, bucket: string, enabled: boolean) =>
+  apiFetch<{ status: string; cluster_id: string; bucket: string; versioning: boolean }>(
+    `/api/demos/${demoId}/minio/${clusterId}/versioning`,
+    { method: "POST", body: JSON.stringify({ bucket, enabled }) }
+  );
+
+export const setupIAMUser = (demoId: string, clusterId: string, username: string, password: string, policy: string) =>
+  apiFetch<{ status: string; cluster_id: string; username: string; policy: string }>(
+    `/api/demos/${demoId}/minio/${clusterId}/iam`,
+    { method: "POST", body: JSON.stringify({ username, password, policy }) }
+  );

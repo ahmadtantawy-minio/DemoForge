@@ -186,13 +186,25 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     return {"status": "saved"}
 
 @router.delete("/api/demos/{demo_id}")
-async def delete_demo(demo_id: str, destroy_containers: bool = False, remove_images: bool = False):
-    """Delete a demo. Optionally destroy running containers and/or remove images."""
+async def delete_demo(demo_id: str, destroy_containers: bool = False, remove_images: bool = False, force: bool = False):
+    """Delete a demo. Optionally destroy running containers and/or remove images.
+
+    Returns 409 if the demo is running unless ?force=true is passed, which stops it first.
+    """
     from ..engine.docker_manager import stop_demo
     import docker as docker_lib
 
-    # Stop containers if requested (or if running)
     running = state.get_demo(demo_id)
+
+    # Safety check: refuse deletion of a running demo unless force=true
+    if running and running.status == "running":
+        if not force:
+            raise HTTPException(409, "Demo is running. Stop it first before deleting.")
+        # force=true: stop the demo first
+        await stop_demo(demo_id)
+        running = None
+
+    # Stop containers if requested (or if running)
     if destroy_containers and running:
         await stop_demo(demo_id)
 

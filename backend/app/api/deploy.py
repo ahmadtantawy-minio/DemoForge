@@ -2,7 +2,8 @@ import os
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
-from ..models.api_models import DeployResponse
+from fastapi.responses import JSONResponse
+from ..models.api_models import DeployResponse, ErrorDetail
 from ..engine.docker_manager import deploy_demo, stop_demo
 from ..state.store import state, DeployProgress
 from ..config.license_store import license_store
@@ -53,7 +54,22 @@ async def deploy(demo_id: str):
         progress.add("error", "error", str(e))
         progress.finished = True
         logger.exception(f"Deploy failed for demo {demo_id}")
-        return DeployResponse(demo_id=demo_id, status="error", message=str(e))
+
+        err_str = str(e).lower()
+        if any(kw in err_str for kw in ("connection refused", "cannot connect", "docker daemon", "error while fetching server api")):
+            error = ErrorDetail(code="DOCKER_NOT_RUNNING", message="Docker is not running or not reachable", details=str(e))
+            status_code = 503
+        elif "component" in err_str and ("not found" in err_str or "unknown" in err_str):
+            error = ErrorDetail(code="COMPONENT_NOT_FOUND", message="One or more components could not be found", details=str(e))
+            status_code = 400
+        elif any(kw in err_str for kw in ("compose", "exit code", "exited with")):
+            error = ErrorDetail(code="COMPOSE_FAILED", message="Docker Compose failed to start containers", details=str(e))
+            status_code = 500
+        else:
+            error = ErrorDetail(code="UNKNOWN_ERROR", message="Deploy failed with an unexpected error", details=str(e))
+            status_code = 500
+
+        return JSONResponse(status_code=status_code, content=error.model_dump())
 
 @router.get("/api/demos/{demo_id}/deploy/progress")
 async def deploy_progress(demo_id: str):

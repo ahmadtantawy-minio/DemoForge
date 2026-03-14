@@ -2,12 +2,76 @@
 import asyncio
 import json
 import logging
+import time
 from fastapi import APIRouter, HTTPException
 from ..state.store import state
-from ..engine.docker_manager import exec_in_container
+from ..engine.docker_manager import exec_in_container, docker_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Cache for host stats: {demo_id: (timestamp, result)}
+_host_stats_cache: dict[str, tuple[float, dict]] = {}
+_HOST_STATS_TTL = 5.0  # seconds
+
+
+async def _get_host_stats(demo_id: str) -> dict:
+    """Return aggregated CPU% and memory usage for all demo containers.
+
+    Cached for 5 seconds to avoid hammering Docker stats API.
+    """
+    now = time.monotonic()
+    cached = _host_stats_cache.get(demo_id)
+    if cached and (now - cached[0]) < _HOST_STATS_TTL:
+        return cached[1]
+
+    def _collect():
+        containers = docker_client.containers.list(
+            filters={"label": f"demoforge.demo={demo_id}"}
+        )
+        total_cpu = 0.0
+        total_mem_bytes = 0
+        mem_limit_bytes = 0
+        count = 0
+        for c in containers:
+            try:
+                s = c.stats(stream=False)
+                # CPU %
+                cpu_delta = (
+                    s["cpu_stats"]["cpu_usage"]["total_usage"]
+                    - s["precpu_stats"]["cpu_usage"]["total_usage"]
+                )
+                system_delta = (
+                    s["cpu_stats"].get("system_cpu_usage", 0)
+                    - s["precpu_stats"].get("system_cpu_usage", 0)
+                )
+                num_cpus = s["cpu_stats"].get("online_cpus") or len(
+                    s["cpu_stats"]["cpu_usage"].get("percpu_usage", [1])
+                )
+                if system_delta > 0 and cpu_delta >= 0:
+                    total_cpu += (cpu_delta / system_delta) * num_cpus * 100.0
+                # Memory
+                mem = s.get("memory_stats", {})
+                total_mem_bytes += mem.get("usage", 0)
+                mem_limit_bytes = max(mem_limit_bytes, mem.get("limit", 0))
+                count += 1
+            except Exception:
+                pass
+        return {
+            "cpu_percent": round(total_cpu, 1),
+            "memory_mb": round(total_mem_bytes / 1024 / 1024, 1),
+            "memory_limit_mb": round(mem_limit_bytes / 1024 / 1024, 1),
+            "container_count": count,
+        }
+
+    try:
+        result = await asyncio.to_thread(_collect)
+    except Exception as e:
+        logger.warning(f"Failed to collect host stats for {demo_id}: {e}")
+        result = {"cpu_percent": 0.0, "memory_mb": 0.0, "memory_limit_mb": 0.0, "container_count": 0}
+
+    _host_stats_cache[demo_id] = (now, result)
+    return result
 
 
 @router.get("/api/demos/{demo_id}/cockpit")
@@ -126,9 +190,12 @@ async def get_cockpit_data(demo_id: str):
 
         return result
 
-    # Run all cluster stats in parallel
+    # Run all cluster stats and host stats in parallel
     tasks = [get_cluster_stats(alias) for alias in aliases]
-    cluster_results = await asyncio.gather(*tasks, return_exceptions=True)
+    cluster_results, host_stats = await asyncio.gather(
+        asyncio.gather(*tasks, return_exceptions=True),
+        _get_host_stats(demo_id),
+    )
 
     clusters = []
     for r in cluster_results:
@@ -137,4 +204,4 @@ async def get_cockpit_data(demo_id: str):
         elif isinstance(r, dict):
             clusters.append(r)
 
-    return {"demo_id": demo_id, "clusters": clusters}
+    return {"demo_id": demo_id, "clusters": clusters, "host_stats": host_stats}
