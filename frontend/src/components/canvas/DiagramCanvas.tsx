@@ -16,6 +16,7 @@ import { saveDiagram, fetchDemo, fetchComponents } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
 import StickyNoteNode from "./nodes/StickyNoteNode";
+import ClusterNode from "./nodes/ClusterNode";
 import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MousePointerClick, Group } from "lucide-react";
 
-const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode };
+const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge };
 
 let nodeCounter = 0;
@@ -112,6 +113,20 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         style: { width: g.width || 400, height: g.height || 300 },
         data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid", mode: g.mode || "visual", cluster_config: g.cluster_config || {} },
       }));
+      const rfClusters = (demo.clusters || []).map((c: any) => ({
+        id: c.id,
+        type: "cluster",
+        position: c.position || { x: 0, y: 0 },
+        style: { width: c.width || 280, height: c.height || 200 },
+        data: {
+          label: c.label || "MinIO Cluster",
+          componentId: c.component || "minio",
+          nodeCount: c.node_count || 4,
+          drivesPerNode: c.drives_per_node || 1,
+          credentials: c.credentials || {},
+          config: c.config || {},
+        },
+      }));
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
         id: s.id,
         type: "sticky",
@@ -161,7 +176,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return isNaN(num) ? max : Math.max(max, num);
       }, 0);
       groupCounter = maxGroupId;
-      setNodes([...rfGroups, ...rfStickies, ...rfNodes]);
+      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfNodes]);
       setEdges(rfEdges);
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges]);
@@ -232,11 +247,12 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
 
       const isGroup = e.dataTransfer.getData("isGroup") === "true";
       const isSticky = e.dataTransfer.getData("isSticky") === "true";
+      const isCluster = e.dataTransfer.getData("isCluster") === "true";
       const componentId = e.dataTransfer.getData("componentId");
       const variant = e.dataTransfer.getData("variant") || "single";
       const label = e.dataTransfer.getData("label") || componentId;
 
-      if (!componentId && !isGroup && !isSticky) return;
+      if (!componentId && !isGroup && !isSticky && !isCluster) return;
 
       const bounds = (e.target as HTMLDivElement).closest(".react-flow")?.getBoundingClientRect();
       const x = bounds ? e.clientX - bounds.left - 70 : e.clientX;
@@ -280,6 +296,30 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         if (activeDemoId) {
           const state = useDiagramStore.getState();
           debouncedSave(activeDemoId, [...state.nodes, newSticky], state.edges);
+        }
+        return;
+      }
+
+      if (isCluster) {
+        nodeCounter += 1;
+        const newCluster: Node = {
+          id: `minio-cluster-${nodeCounter}`,
+          type: "cluster",
+          position: { x, y },
+          style: { width: 280, height: 200 },
+          data: {
+            label: "MinIO Cluster",
+            componentId: "minio",
+            nodeCount: 4,
+            drivesPerNode: 1,
+            credentials: { root_user: "minioadmin", root_password: "minioadmin" },
+            config: {},
+          },
+        };
+        addNode(newCluster);
+        if (activeDemoId) {
+          const state = useDiagramStore.getState();
+          debouncedSave(activeDemoId, [...state.nodes, newCluster], state.edges);
         }
         return;
       }

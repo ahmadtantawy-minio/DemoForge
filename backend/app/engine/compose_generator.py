@@ -3,7 +3,7 @@ import os
 import logging
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from ..models.demo import DemoDefinition
+from ..models.demo import DemoDefinition, DemoNode, DemoEdge, NodePosition
 from ..registry.loader import get_component
 from ..config.license_store import license_store
 
@@ -57,12 +57,95 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     # Build network map from demo.networks list
     network_map = {net.name: f"{project_name}-{net.name}" for net in demo.networks}
 
-    # Cluster coordination: build coordinated commands for cluster group members
+    # Cluster coordination dicts (used by both DemoCluster and group-based clusters)
     cluster_commands: dict[str, list[str]] = {}
     cluster_health_override: dict[str, str] = {}
     cluster_credentials: dict[str, dict[str, str]] = {}
     cluster_drives: dict[str, int] = {}
 
+    # --- DemoCluster expansion: inject synthetic nodes & edges ---
+    cluster_edge_expansion: dict[str, list[str]] = {}
+    for cluster in demo.clusters:
+        generated_ids = []
+        drives = cluster.drives_per_node
+        cred_user = cluster.credentials.get("root_user", "minioadmin")
+        cred_pass = cluster.credentials.get("root_password", "minioadmin")
+
+        # Build peer URLs for all nodes in the cluster
+        peer_urls = []
+        for i in range(1, cluster.node_count + 1):
+            node_id = f"{cluster.id}-node-{i}"
+            svc_name = f"{project_name}-{node_id}"
+            if drives > 1:
+                peer_urls.append(f"http://{svc_name}:9000/data{{1...{drives}}}")
+            else:
+                peer_urls.append(f"http://{svc_name}:9000/data")
+            generated_ids.append(node_id)
+
+        cluster_edge_expansion[cluster.id] = generated_ids
+
+        # Create synthetic DemoNode entries
+        for i, node_id in enumerate(generated_ids):
+            synthetic_node = DemoNode(
+                id=node_id,
+                component=cluster.component,
+                variant="cluster",
+                position=NodePosition(x=cluster.position.x + (i % 2) * 200,
+                                      y=cluster.position.y + (i // 2) * 150),
+                config={
+                    "MINIO_ROOT_USER": cred_user,
+                    "MINIO_ROOT_PASSWORD": cred_pass,
+                    **cluster.config,
+                },
+                display_name=f"Node {i + 1}",
+            )
+            demo.nodes.append(synthetic_node)
+
+        # Expand edges: any edge referencing the cluster ID fans out
+        original_edges = list(demo.edges)
+        new_edges = []
+        edges_to_remove = []
+        for edge in original_edges:
+            if edge.source == cluster.id:
+                edges_to_remove.append(edge.id)
+                for j, gen_id in enumerate(generated_ids):
+                    new_edges.append(DemoEdge(
+                        id=f"{edge.id}-{j+1}",
+                        source=gen_id,
+                        target=edge.target,
+                        connection_type=edge.connection_type,
+                        network=edge.network,
+                        connection_config=edge.connection_config,
+                        auto_configure=edge.auto_configure,
+                        label=edge.label,
+                    ))
+            elif edge.target == cluster.id:
+                edges_to_remove.append(edge.id)
+                for j, gen_id in enumerate(generated_ids):
+                    new_edges.append(DemoEdge(
+                        id=f"{edge.id}-{j+1}",
+                        source=edge.source,
+                        target=gen_id,
+                        connection_type=edge.connection_type,
+                        network=edge.network,
+                        connection_config=edge.connection_config,
+                        auto_configure=edge.auto_configure,
+                        label=edge.label,
+                    ))
+        demo.edges = [e for e in demo.edges if e.id not in edges_to_remove] + new_edges
+
+        # Register cluster commands for the synthetic nodes
+        server_cmd = ["server"] + peer_urls + ["--console-address", ":9001"]
+        for node_id in generated_ids:
+            cluster_commands[node_id] = server_cmd
+            cluster_health_override[node_id] = "/minio/health/cluster"
+            cluster_credentials[node_id] = {
+                "MINIO_ROOT_USER": cred_user,
+                "MINIO_ROOT_PASSWORD": cred_pass,
+            }
+            cluster_drives[node_id] = drives
+
+    # Cluster coordination: build coordinated commands for cluster group members
     for group in demo.groups:
         if group.mode != "cluster":
             continue

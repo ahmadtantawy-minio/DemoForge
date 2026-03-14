@@ -2,7 +2,7 @@ import os
 import uuid
 import yaml
 from fastapi import APIRouter, HTTPException
-from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, NodePosition
+from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, NodePosition
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
@@ -87,6 +87,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     demo.nodes = []
     demo.groups = []
     demo.sticky_notes = []
+    demo.clusters = []
     for rf_node in req.nodes:
         # Sticky note nodes are stored separately
         if rf_node.get("type") == "sticky":
@@ -118,6 +119,24 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 height=rf_node.get("style", {}).get("height", rf_node.get("height", 300)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 300),
                 mode=grp_data.get("mode", "visual"),
                 cluster_config=grp_data.get("cluster_config", {}),
+            ))
+            continue
+
+        # Cluster nodes are stored separately
+        if rf_node.get("type") == "cluster":
+            c_data = rf_node.get("data", {})
+            demo.clusters.append(DemoCluster(
+                id=rf_node["id"],
+                component=c_data.get("componentId", "minio"),
+                label=c_data.get("label", "MinIO Cluster"),
+                position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
+                                       y=rf_node.get("position", {}).get("y", 0)),
+                node_count=c_data.get("nodeCount", 4),
+                drives_per_node=c_data.get("drivesPerNode", 1),
+                credentials=c_data.get("credentials", {}),
+                config=c_data.get("config", {}),
+                width=rf_node.get("style", {}).get("width", rf_node.get("width", 280)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 280),
+                height=rf_node.get("style", {}).get("height", rf_node.get("height", 200)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 200),
             ))
             continue
 

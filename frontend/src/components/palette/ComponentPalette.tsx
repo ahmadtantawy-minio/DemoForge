@@ -72,6 +72,12 @@ export default function ComponentPalette() {
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const onClusterDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("isCluster", "true");
+    e.dataTransfer.setData("componentId", "minio");
+    e.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <TooltipProvider delayDuration={400}>
       <div className="w-full h-full overflow-y-auto bg-card border-r border-border p-2">
@@ -145,6 +151,18 @@ export default function ComponentPalette() {
                 </div>
               );
             })}
+            {category.toLowerCase() === "storage" && (
+              <div
+                draggable
+                onDragStart={onClusterDragStart}
+                className="flex items-center gap-2 px-2 py-2 mb-1 bg-background border border-dashed border-primary/40 rounded cursor-grab hover:border-primary/60 hover:shadow-sm transition-all text-sm"
+                title="Drag to create a self-contained MinIO erasure-coded cluster"
+              >
+                <ComponentIcon icon="minio" size={20} />
+                <span className="font-medium text-foreground truncate flex-1">MinIO Cluster</span>
+                <span className="text-[10px] text-muted-foreground shrink-0">4-node</span>
+              </div>
+            )}
           </div>
         ))}
       </div>

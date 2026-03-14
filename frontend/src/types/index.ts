@@ -124,6 +124,16 @@ export interface ComponentNodeData {
   groupId?: string | null;
 }
 
+export interface ClusterNodeData {
+  label: string;
+  componentId: string;
+  nodeCount: number;
+  drivesPerNode: number;
+  credentials: Record<string, string>;
+  config: Record<string, string>;
+  health?: HealthStatus;
+}
+
 export interface DemoGroup {
   id: string;
   label: string;

@@ -43,6 +43,18 @@ class DemoGroup(BaseModel):
     mode: str = "visual"           # "visual" | "cluster"
     cluster_config: dict[str, Any] = {}  # e.g. {"drives_per_node": 1}
 
+class DemoCluster(BaseModel):
+    id: str
+    component: str = "minio"          # "minio" or "minio-aistore"
+    label: str = "MinIO Cluster"
+    position: NodePosition
+    node_count: int = 4
+    drives_per_node: int = 1
+    credentials: dict[str, str] = {}  # root_user, root_password
+    config: dict[str, str] = {}
+    width: float = 280
+    height: float = 200
+
 class DemoStickyNote(BaseModel):
     id: str
     text: str = ""
@@ -67,3 +79,4 @@ class DemoDefinition(BaseModel):
     edges: list[DemoEdge] = []
     groups: list[DemoGroup] = []
     sticky_notes: list[DemoStickyNote] = []
+    clusters: list[DemoCluster] = []

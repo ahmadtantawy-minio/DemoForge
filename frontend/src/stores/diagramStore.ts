@@ -52,6 +52,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
     if (!sourceNode || !targetNode) return;
 
+    // For cluster nodes, use the underlying componentId for manifest lookup
     const sourceComponentId = (sourceNode.data as any)?.componentId;
     const targetComponentId = (targetNode.data as any)?.componentId;
 

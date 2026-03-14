@@ -265,6 +265,87 @@ export default function PropertiesPanel() {
     );
   }
 
+  // --- Cluster properties ---
+  if (selectedNode.type === "cluster") {
+    const cData = selectedNode.data as any;
+    const updateCluster = (patch: Record<string, any>) => {
+      setNodes(nodes.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+    };
+    const cNodeCount = cData.nodeCount || 4;
+    const cDrivesPerNode = cData.drivesPerNode || 1;
+    const totalDrives = cNodeCount * cDrivesPerNode;
+    return (
+      <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Cluster</div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Label</label>
+          <Input type="text" value={cData.label ?? ""} onChange={(e) => updateCluster({ label: e.target.value })} className="h-8 text-sm" />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Flavor</label>
+          <Select value={cData.componentId || "minio"} onValueChange={(v) => updateCluster({ componentId: v })}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="minio">MinIO CE</SelectItem>
+              <SelectItem value="minio-aistore">MinIO AIStore</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Node Count</label>
+          <Select value={String(cNodeCount)} onValueChange={(v) => updateCluster({ nodeCount: parseInt(v) })}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="4">4 nodes</SelectItem>
+              <SelectItem value="6">6 nodes</SelectItem>
+              <SelectItem value="8">8 nodes</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Drives per Node</label>
+          <Select value={String(cDrivesPerNode)} onValueChange={(v) => updateCluster({ drivesPerNode: parseInt(v) })}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">1 drive</SelectItem>
+              <SelectItem value="2">2 drives</SelectItem>
+              <SelectItem value="4">4 drives</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Root User</label>
+          <Input
+            type="text"
+            value={cData.credentials?.root_user ?? "minioadmin"}
+            onChange={(e) => updateCluster({ credentials: { ...(cData.credentials || {}), root_user: e.target.value } })}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Root Password</label>
+          <Input
+            type="text"
+            value={cData.credentials?.root_password ?? "minioadmin"}
+            onChange={(e) => updateCluster({ credentials: { ...(cData.credentials || {}), root_password: e.target.value } })}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="text-xs text-muted-foreground">
+            Total drives: {totalDrives} &bull; Parity: 50%
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- Sticky note properties ---
   if (selectedNode.type === "sticky") {
     const sData = selectedNode.data as any;
