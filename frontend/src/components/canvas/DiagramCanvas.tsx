@@ -15,6 +15,7 @@ import { useDemoStore } from "../../stores/demoStore";
 import { saveDiagram, fetchDemo, fetchComponents } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
+import StickyNoteNode from "./nodes/StickyNoteNode";
 import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
@@ -25,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MousePointerClick, Group } from "lucide-react";
 
-const nodeTypes = { component: ComponentNode, group: GroupNode };
+const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge };
 
 let nodeCounter = 0;
@@ -223,11 +224,12 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       if (isRunning) return;
 
       const isGroup = e.dataTransfer.getData("isGroup") === "true";
+      const isSticky = e.dataTransfer.getData("isSticky") === "true";
       const componentId = e.dataTransfer.getData("componentId");
       const variant = e.dataTransfer.getData("variant") || "single";
       const label = e.dataTransfer.getData("label") || componentId;
 
-      if (!componentId && !isGroup) return;
+      if (!componentId && !isGroup && !isSticky) return;
 
       const bounds = (e.target as HTMLDivElement).closest(".react-flow")?.getBoundingClientRect();
       const x = bounds ? e.clientX - bounds.left - 70 : e.clientX;
@@ -251,6 +253,26 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         if (activeDemoId) {
           const state = useDiagramStore.getState();
           debouncedSave(activeDemoId, [...state.nodes, newGroup], state.edges);
+        }
+        return;
+      }
+
+      if (isSticky) {
+        nodeCounter += 1;
+        const newSticky: Node = {
+          id: `note-${nodeCounter}`,
+          type: "sticky",
+          position: { x, y },
+          style: { width: 200, height: 120 },
+          data: {
+            text: "",
+            color: "#eab308",
+          },
+        };
+        addNode(newSticky);
+        if (activeDemoId) {
+          const state = useDiagramStore.getState();
+          debouncedSave(activeDemoId, [...state.nodes, newSticky], state.edges);
         }
         return;
       }

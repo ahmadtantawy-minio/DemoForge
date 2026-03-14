@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchComponents, fetchLicenseStatus } from "../../api/client";
 import type { ComponentSummary } from "../../types";
 import ComponentIcon from "../shared/ComponentIcon";
-import { Loader2, AlertTriangle, LayoutGrid } from "lucide-react";
+import { Loader2, AlertTriangle, LayoutGrid, StickyNote } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -67,6 +67,11 @@ export default function ComponentPalette() {
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const onStickyDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("isSticky", "true");
+    e.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <TooltipProvider delayDuration={400}>
       <div className="w-full h-full overflow-y-auto bg-card border-r border-border p-2">
@@ -95,6 +100,15 @@ export default function ComponentPalette() {
           >
             <LayoutGrid className="w-5 h-5 text-muted-foreground shrink-0" />
             <span className="font-medium text-foreground truncate flex-1">Group</span>
+          </div>
+          <div
+            draggable
+            onDragStart={onStickyDragStart}
+            className="flex items-center gap-2 px-2 py-2 mb-1 bg-background border border-border rounded cursor-grab hover:border-yellow-500/50 hover:shadow-sm transition-all text-sm"
+            title="Drag to add a sticky note"
+          >
+            <StickyNote className="w-5 h-5 text-yellow-500 shrink-0" />
+            <span className="font-medium text-foreground truncate flex-1">Note</span>
           </div>
         </div>
         {Object.entries(grouped).map(([category, items]) => (
