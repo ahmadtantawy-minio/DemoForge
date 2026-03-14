@@ -90,6 +90,16 @@
   - Toggle-able overlay (button in toolbar) so it doesn't clutter design view
   - Educational: users see exactly how containers communicate
 
+- [ ] **S3 File Browser Component** (~10-14 hrs): Lightweight web-based S3 browser showing which node responds
+  - Custom Docker image: Python FastAPI + vanilla HTML/JS (~55MB)
+  - Shows per-request "Served by: minio-2" banner via `X-Upstream-Server` header from NGINX
+  - Node distribution histogram (accumulates hits, visualizes load balancing)
+  - Operations: list buckets, browse objects, upload, download, delete
+  - Connection types: accepts `s3` + `load-balance`, provides `s3-client`
+  - NGINX template needs: `add_header X-Upstream-Server $upstream_addr always;`
+  - Educational: algorithm comparison, failure demo, direct vs LB side-by-side
+  - Jinja2 config template discovers target from edges (like file-generator)
+
 - [ ] **Data Generator Web Console**: Lightweight web UI for start/stop, live progress, file list
   - Custom Docker image (python:3.12-slim + mc)
   - REST API: POST /start, POST /stop, GET /status, GET /files
@@ -110,6 +120,15 @@
 - [ ] Log filtering by level in Debug panel
 - [ ] Debug error counter cap/reset
 - [ ] Custom node names editable inline on canvas (double-click to edit)
+
+## Future — Cloud Provider Integration (post-plan)
+
+- [ ] **Cloud-1**: AWS S3 component — manifest, icon, connection types (ILM tiering destination)
+- [ ] **Cloud-2**: GCP Cloud Storage component — manifest, icon, connection types (ILM tiering destination)
+- [ ] **Cloud-3**: Credential configuration profiles for AWS (access key, secret key, region, endpoint)
+- [ ] **Cloud-4**: Credential configuration profiles for GCP (service account JSON, project ID)
+- [ ] **Cloud-5**: Credential store UI — manage/select provider profiles per component instance
+- [ ] **Cloud-6**: ILM tiering automation support for S3/GCP destinations (mc admin tier add s3/gcs)
 
 ## Consolidation Notes
 
