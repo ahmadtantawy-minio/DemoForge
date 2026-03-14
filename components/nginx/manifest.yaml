@@ -71,6 +71,8 @@ connections:
       config_schema: []
     - type: http
       config_schema: []
+    - type: file-push
+      config_schema: []
 
 variants:
   load-balancer:

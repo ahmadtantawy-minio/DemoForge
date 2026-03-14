@@ -1,0 +1,77 @@
+name: "Multi-Node MinIO Cluster"
+description: "4 MinIO nodes behind NGINX load balancer with Prometheus monitoring"
+
+networks:
+  - name: default
+
+nodes:
+  - id: nginx-lb
+    component: nginx
+    variant: single
+    position: { x: 100, y: 250 }
+  - id: minio-1
+    component: minio
+    variant: single
+    position: { x: 400, y: 100 }
+  - id: minio-2
+    component: minio
+    variant: single
+    position: { x: 400, y: 250 }
+  - id: minio-3
+    component: minio
+    variant: single
+    position: { x: 400, y: 400 }
+  - id: minio-4
+    component: minio
+    variant: single
+    position: { x: 400, y: 550 }
+  - id: prometheus
+    component: prometheus
+    variant: single
+    position: { x: 700, y: 250 }
+
+edges:
+  - id: e-lb-1
+    source: nginx-lb
+    target: minio-1
+    connection_type: load-balance
+    connection_config:
+      algorithm: round-robin
+      backend_port: "9000"
+  - id: e-lb-2
+    source: nginx-lb
+    target: minio-2
+    connection_type: load-balance
+    connection_config:
+      algorithm: round-robin
+      backend_port: "9000"
+  - id: e-lb-3
+    source: nginx-lb
+    target: minio-3
+    connection_type: load-balance
+    connection_config:
+      algorithm: round-robin
+      backend_port: "9000"
+  - id: e-lb-4
+    source: nginx-lb
+    target: minio-4
+    connection_type: load-balance
+    connection_config:
+      algorithm: round-robin
+      backend_port: "9000"
+  - id: e-metrics-1
+    source: minio-1
+    target: prometheus
+    connection_type: metrics
+  - id: e-metrics-2
+    source: minio-2
+    target: prometheus
+    connection_type: metrics
+  - id: e-metrics-3
+    source: minio-3
+    target: prometheus
+    connection_type: metrics
+  - id: e-metrics-4
+    source: minio-4
+    target: prometheus
+    connection_type: metrics

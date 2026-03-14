@@ -1,0 +1,105 @@
+name: "Site Replication (Bidirectional)"
+description: "Two MinIO sites with full bidirectional site replication. Each site has its own NGINX load balancer. Changes on either site replicate to the other."
+
+networks:
+  - name: default
+
+nodes:
+  # Site 1
+  - id: nginx-site1
+    component: nginx
+    variant: single
+    position: { x: 100, y: 150 }
+    display_name: "Site 1 LB"
+  - id: minio-site1-a
+    component: minio
+    variant: single
+    position: { x: 400, y: 50 }
+    display_name: "Site 1 - Node A"
+  - id: minio-site1-b
+    component: minio
+    variant: single
+    position: { x: 400, y: 250 }
+    display_name: "Site 1 - Node B"
+
+  # Site 2
+  - id: nginx-site2
+    component: nginx
+    variant: single
+    position: { x: 100, y: 550 }
+    display_name: "Site 2 LB"
+  - id: minio-site2-a
+    component: minio
+    variant: single
+    position: { x: 400, y: 450 }
+    display_name: "Site 2 - Node A"
+  - id: minio-site2-b
+    component: minio
+    variant: single
+    position: { x: 400, y: 650 }
+    display_name: "Site 2 - Node B"
+
+  # Monitoring
+  - id: prometheus
+    component: prometheus
+    variant: single
+    position: { x: 700, y: 350 }
+  - id: grafana
+    component: grafana
+    variant: single
+    position: { x: 900, y: 350 }
+
+edges:
+  # Site 1 load balancing
+  - id: e-lb-s1a
+    source: nginx-site1
+    target: minio-site1-a
+    connection_type: load-balance
+    connection_config: { algorithm: round-robin, backend_port: "9000" }
+  - id: e-lb-s1b
+    source: nginx-site1
+    target: minio-site1-b
+    connection_type: load-balance
+    connection_config: { algorithm: round-robin, backend_port: "9000" }
+
+  # Site 2 load balancing
+  - id: e-lb-s2a
+    source: nginx-site2
+    target: minio-site2-a
+    connection_type: load-balance
+    connection_config: { algorithm: round-robin, backend_port: "9000" }
+  - id: e-lb-s2b
+    source: nginx-site2
+    target: minio-site2-b
+    connection_type: load-balance
+    connection_config: { algorithm: round-robin, backend_port: "9000" }
+
+  # Site replication (bidirectional between one node from each site)
+  - id: e-site-repl
+    source: minio-site1-a
+    target: minio-site2-a
+    connection_type: site-replication
+    connection_config:
+      replication_mode: two-way
+
+  # Metrics from all MinIO nodes
+  - id: e-m-s1a
+    source: minio-site1-a
+    target: prometheus
+    connection_type: metrics
+  - id: e-m-s1b
+    source: minio-site1-b
+    target: prometheus
+    connection_type: metrics
+  - id: e-m-s2a
+    source: minio-site2-a
+    target: prometheus
+    connection_type: metrics
+  - id: e-m-s2b
+    source: minio-site2-b
+    target: prometheus
+    connection_type: metrics
+  - id: e-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query

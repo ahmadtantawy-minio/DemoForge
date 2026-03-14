@@ -1,0 +1,109 @@
+name: "ILM Tiered Storage (Hot → Cold)"
+description: "Two MinIO clusters with ILM tiering: hot tier (NVMe, fast access) automatically moves aging data to cold tier (HDD, cost-efficient). Data Generator pushes files through the hot tier load balancer."
+
+networks:
+  - name: default
+
+nodes:
+  # Data Generator
+  - id: data-gen
+    component: file-generator
+    variant: steady
+    position: { x: 100, y: 100 }
+    display_name: "Data Generator"
+
+  # Hot Tier (NVMe)
+  - id: nginx-hot
+    component: nginx
+    variant: single
+    position: { x: 100, y: 350 }
+    display_name: "Hot Tier LB"
+  - id: minio-hot-1
+    component: minio
+    variant: single
+    position: { x: 400, y: 250 }
+    display_name: "Hot NVMe Node 1"
+  - id: minio-hot-2
+    component: minio
+    variant: single
+    position: { x: 400, y: 450 }
+    display_name: "Hot NVMe Node 2"
+
+  # Cold Tier (HDD)
+  - id: minio-cold-1
+    component: minio
+    variant: single
+    position: { x: 750, y: 250 }
+    display_name: "Cold HDD Node 1"
+  - id: minio-cold-2
+    component: minio
+    variant: single
+    position: { x: 750, y: 450 }
+    display_name: "Cold HDD Node 2"
+
+  # Monitoring
+  - id: prometheus
+    component: prometheus
+    variant: single
+    position: { x: 550, y: 650 }
+  - id: grafana
+    component: grafana
+    variant: single
+    position: { x: 750, y: 650 }
+
+edges:
+  # Data Generator → Hot Tier LB
+  - id: e-gen-hot
+    source: data-gen
+    target: nginx-hot
+    connection_type: file-push
+    connection_config:
+      file_size: "1MB"
+      file_count: "50"
+      file_format: random
+      rate: "5"
+      target_bucket: "ingest"
+
+  # Hot Tier load balancing
+  - id: e-lb-hot1
+    source: nginx-hot
+    target: minio-hot-1
+    connection_type: load-balance
+    connection_config: { algorithm: least-conn, backend_port: "9000" }
+  - id: e-lb-hot2
+    source: nginx-hot
+    target: minio-hot-2
+    connection_type: load-balance
+    connection_config: { algorithm: least-conn, backend_port: "9000" }
+
+  # ILM Tiering: Hot → Cold
+  - id: e-tier-1
+    source: minio-hot-1
+    target: minio-cold-1
+    connection_type: tiering
+    connection_config:
+      policy_name: "auto-archive"
+      transition_days: "7"
+      storage_class: STANDARD
+
+  # Metrics
+  - id: e-m-hot1
+    source: minio-hot-1
+    target: prometheus
+    connection_type: metrics
+  - id: e-m-hot2
+    source: minio-hot-2
+    target: prometheus
+    connection_type: metrics
+  - id: e-m-cold1
+    source: minio-cold-1
+    target: prometheus
+    connection_type: metrics
+  - id: e-m-cold2
+    source: minio-cold-2
+    target: prometheus
+    connection_type: metrics
+  - id: e-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
