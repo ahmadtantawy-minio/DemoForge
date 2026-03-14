@@ -36,7 +36,6 @@ edges:
     network: default
     label: "Hot -> Cold"
     connection_config:
-      ilm_policy: "transition-after-30d"
-      transition_days: 30
-      storage_class: "COLD"
-      prefix: ""
+      policy_name: "transition-after-30d"
+      transition_days: "30"
+      storage_class: "STANDARD"
