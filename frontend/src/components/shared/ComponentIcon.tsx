@@ -66,6 +66,19 @@ function FileGeneratorIcon({ size }: { size: number }) {
   );
 }
 
+function S3FileBrowserIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#7C3AED" />
+      {/* Folder body */}
+      <path d="M5 12a2 2 0 012-2h5l2 2h11a2 2 0 012 2v9a2 2 0 01-2 2H7a2 2 0 01-2-2V12z" fill="none" stroke="white" strokeWidth="1.5" />
+      {/* Magnifying glass */}
+      <circle cx="20" cy="19" r="3.5" stroke="white" strokeWidth="1.5" fill="none" />
+      <line x1="22.5" y1="21.5" x2="25" y2="24" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -86,6 +99,7 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("prometheus")) return <PrometheusIcon size={size} />;
     if (id.includes("grafana")) return <GrafanaIcon size={size} />;
     if (id.includes("file-generator") || id.includes("data-gen")) return <FileGeneratorIcon size={size} />;
+    if (id.includes("s3-file-browser") || id.includes("s3-browser")) return <S3FileBrowserIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

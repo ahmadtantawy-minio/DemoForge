@@ -13,6 +13,9 @@ const connectionColors: Record<string, string> = {
   "metrics-query": "#22c55e",
   tiering: "#eab308",
   "file-push": "#06b6d4",
+  "cluster-replication": "#a855f7",
+  "cluster-site-replication": "#d946ef",
+  "cluster-tiering": "#eab308",
 };
 
 const connectionLabels: Record<string, string> = {
@@ -26,6 +29,9 @@ const connectionLabels: Record<string, string> = {
   "metrics-query": "PromQL",
   tiering: "Tiering",
   "file-push": "File Push",
+  "cluster-replication": "Bucket Replication",
+  "cluster-site-replication": "Site Replication",
+  "cluster-tiering": "ILM Tiering",
 };
 
 export default function ConnectionTypePicker() {

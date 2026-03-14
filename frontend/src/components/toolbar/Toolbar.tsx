@@ -19,7 +19,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, Key, FileCode } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 
 export default function Toolbar() {
@@ -30,6 +31,8 @@ export default function Toolbar() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [configViewerOpen, setConfigViewerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [resourceSettings, setResourceSettings] = useState({ default_memory: "", default_cpu: 0, max_memory: "", max_cpu: 0, total_memory: "", total_cpu: 0 });
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
 
@@ -238,19 +241,50 @@ export default function Toolbar() {
         )}
 
         {activeDemoId && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={() => setConfigViewerOpen(true)}
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-              >
-                <FileCode className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent><p className="text-xs">Generated Config</p></TooltipContent>
-          </Tooltip>
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setConfigViewerOpen(true)}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                >
+                  <FileCode className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Generated Config</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => {
+                    // Load current resource settings from demo
+                    import("../../api/client").then(({ fetchDemo }) =>
+                      fetchDemo(activeDemoId!).then((demo: any) => {
+                        const r = demo.resources || {};
+                        setResourceSettings({
+                          default_memory: r.default_memory || "",
+                          default_cpu: r.default_cpu || 0,
+                          max_memory: r.max_memory || "",
+                          max_cpu: r.max_cpu || 0,
+                          total_memory: r.total_memory || "",
+                          total_cpu: r.total_cpu || 0,
+                        });
+                        setSettingsOpen(true);
+                      })
+                    );
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
+            </Tooltip>
+          </>
         )}
 
         <Tooltip>
@@ -324,6 +358,105 @@ export default function Toolbar() {
             <DialogTitle className="text-base">Licenses</DialogTitle>
           </DialogHeader>
           <LicenseSettings />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Demo Resource Settings</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-muted-foreground">
+              Set default resource limits for all containers in this demo. Leave empty to use each component's manifest defaults.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Default Memory</label>
+                <Input
+                  value={resourceSettings.default_memory}
+                  onChange={(e) => setResourceSettings({ ...resourceSettings, default_memory: e.target.value })}
+                  placeholder="e.g. 512m, 1g"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Default CPU</label>
+                <Input
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  value={resourceSettings.default_cpu || ""}
+                  onChange={(e) => setResourceSettings({ ...resourceSettings, default_cpu: parseFloat(e.target.value) || 0 })}
+                  placeholder="e.g. 0.5, 1.0"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Max Memory (cap)</label>
+                <Input
+                  value={resourceSettings.max_memory}
+                  onChange={(e) => setResourceSettings({ ...resourceSettings, max_memory: e.target.value })}
+                  placeholder="e.g. 2g"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Max CPU (cap)</label>
+                <Input
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  value={resourceSettings.max_cpu || ""}
+                  onChange={(e) => setResourceSettings({ ...resourceSettings, max_cpu: parseFloat(e.target.value) || 0 })}
+                  placeholder="e.g. 2.0"
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+            <div className="border-t border-border pt-3 mt-1">
+              <p className="text-xs text-muted-foreground mb-2">
+                Total demo budget — if set, per-container resources are scaled down proportionally to fit within this cap.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Total Memory Budget</label>
+                  <Input
+                    value={resourceSettings.total_memory}
+                    onChange={(e) => setResourceSettings({ ...resourceSettings, total_memory: e.target.value })}
+                    placeholder="e.g. 32g"
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Total CPU Budget</label>
+                  <Input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={resourceSettings.total_cpu || ""}
+                    onChange={(e) => setResourceSettings({ ...resourceSettings, total_cpu: parseFloat(e.target.value) || 0 })}
+                    placeholder="e.g. 16"
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(false)}>Cancel</Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (!activeDemoId) return;
+                  updateDemo(activeDemoId, { resources: resourceSettings } as any)
+                    .then(() => { toast.success("Resource settings saved"); setSettingsOpen(false); })
+                    .catch((e: any) => toast.error("Failed to save", { description: e.message }));
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </TooltipProvider>

@@ -25,6 +25,9 @@ const connectionColors: Record<string, string> = {
   "metrics-query": "#22c55e",
   tiering: "#eab308",
   "file-push": "#06b6d4",
+  "cluster-replication": "#a855f7",
+  "cluster-site-replication": "#d946ef",
+  "cluster-tiering": "#eab308",
 };
 
 const connectionLabels: Record<string, string> = {
@@ -38,6 +41,28 @@ const connectionLabels: Record<string, string> = {
   "metrics-query": "PromQL",
   tiering: "Tiering",
   "file-push": "File Push",
+  "cluster-replication": "Bucket Replication",
+  "cluster-site-replication": "Site Replication",
+  "cluster-tiering": "ILM Tiering",
+};
+
+// Config schemas for cluster-level connection types (not in component manifests)
+const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
+  "cluster-replication": [
+    { key: "source_bucket", label: "Source Bucket", type: "string", default: "demo-bucket", required: false, options: [], description: "" },
+    { key: "target_bucket", label: "Target Bucket", type: "string", default: "demo-bucket", required: false, options: [], description: "" },
+    { key: "replication_mode", label: "Mode", type: "select", default: "async", required: false, options: ["async", "sync"], description: "async = eventually consistent, sync = write-through" },
+    { key: "direction", label: "Direction", type: "select", default: "one-way", required: false, options: ["one-way", "bidirectional"], description: "" },
+    { key: "bandwidth_limit", label: "Bandwidth Limit (MB/s)", type: "string", default: "0", required: false, options: [], description: "0 = unlimited" },
+  ],
+  "cluster-site-replication": [],
+  "cluster-tiering": [
+    { key: "source_bucket", label: "Source Bucket (Hot)", type: "string", default: "data", required: false, options: [], description: "" },
+    { key: "tier_bucket", label: "Tier Bucket (Cold)", type: "string", default: "tiered", required: false, options: [], description: "" },
+    { key: "tier_name", label: "Tier Name", type: "string", default: "COLD-TIER", required: false, options: [], description: "" },
+    { key: "transition_days", label: "Transition After (days)", type: "string", default: "30", required: false, options: [], description: "" },
+    { key: "policy_name", label: "Policy Name", type: "string", default: "auto-tier", required: false, options: [], description: "" },
+  ],
 };
 
 export default function PropertiesPanel() {
@@ -77,17 +102,23 @@ export default function PropertiesPanel() {
     const targetConns = targetComponentId ? componentManifests[targetComponentId] : null;
 
     const configFieldMap = new Map<string, ConnectionConfigField>();
-    if (sourceConns) {
-      const provides = sourceConns.provides.find((p) => p.type === connType);
-      if (provides?.config_schema) {
-        for (const f of provides.config_schema) configFieldMap.set(f.key, f);
+    // Check cluster-level config schemas first
+    const clusterSchema = clusterConfigSchemas[connType];
+    if (clusterSchema) {
+      for (const f of clusterSchema) configFieldMap.set(f.key, f);
+    } else {
+      if (sourceConns) {
+        const provides = sourceConns.provides.find((p) => p.type === connType);
+        if (provides?.config_schema) {
+          for (const f of provides.config_schema) configFieldMap.set(f.key, f);
+        }
       }
-    }
-    if (targetConns) {
-      const accepts = targetConns.accepts.find((a) => a.type === connType);
-      if (accepts?.config_schema) {
-        // accepts side takes precedence on duplicate keys
-        for (const f of accepts.config_schema) configFieldMap.set(f.key, f);
+      if (targetConns) {
+        const accepts = targetConns.accepts.find((a) => a.type === connType);
+        if (accepts?.config_schema) {
+          // accepts side takes precedence on duplicate keys
+          for (const f of accepts.config_schema) configFieldMap.set(f.key, f);
+        }
       }
     }
     const configFields = Array.from(configFieldMap.values());

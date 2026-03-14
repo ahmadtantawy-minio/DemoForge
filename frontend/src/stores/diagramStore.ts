@@ -52,6 +52,29 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
     if (!sourceNode || !targetNode) return;
 
+    // Detect cluster-level connections (top/bottom handles)
+    const clusterSourceHandles = ["cluster-out", "cluster-out-bottom"];
+    const clusterTargetHandles = ["cluster-in", "cluster-in-top"];
+    const isClusterHandle = clusterSourceHandles.includes(connection.sourceHandle || "") ||
+      clusterTargetHandles.includes(connection.targetHandle || "");
+    const isClusterToCluster = sourceNode.type === "cluster" && targetNode.type === "cluster" && isClusterHandle;
+
+    if (isClusterToCluster) {
+      // Cluster-to-cluster: offer cluster-level connection types
+      const clusterTypes = ["cluster-replication", "cluster-site-replication", "cluster-tiering"];
+      const sourceNodePos = sourceNode.position;
+      const targetNodePos = targetNode.position;
+      set({
+        pendingConnection: {
+          connection,
+          validTypes: clusterTypes,
+          sourcePos: sourceNodePos,
+          targetPos: targetNodePos,
+        },
+      });
+      return;
+    }
+
     // For cluster nodes, use the underlying componentId for manifest lookup
     const sourceComponentId = (sourceNode.data as any)?.componentId;
     const targetComponentId = (targetNode.data as any)?.componentId;

@@ -113,7 +113,20 @@ export const fetchInstances = (demoId: string) =>
     demo_id: string;
     status: string;
     instances: import("../types").ContainerInstance[];
+    edge_configs?: { edge_id: string; connection_type: string; status: string; description: string; error: string }[];
   }>(`/api/demos/${demoId}/instances`);
+
+export const activateEdgeConfig = (demoId: string, edgeId: string) =>
+  apiFetch<{ status: string; edge_id: string; error?: string }>(
+    `/api/demos/${demoId}/edges/${edgeId}/activate`,
+    { method: "POST" }
+  );
+
+export const pauseEdgeConfig = (demoId: string, edgeId: string) =>
+  apiFetch<{ status: string; edge_id: string }>(
+    `/api/demos/${demoId}/edges/${edgeId}/pause`,
+    { method: "POST" }
+  );
 
 export const restartInstance = (demoId: string, nodeId: string) =>
   apiFetch<{ demo_id: string; node_id: string; status: string }>(

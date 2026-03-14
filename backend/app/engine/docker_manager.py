@@ -1,6 +1,7 @@
 """Docker operations: compose up/down, container inspection."""
 import asyncio
 import logging
+import os
 import docker
 from docker.errors import NotFound, APIError
 from ..models.demo import DemoDefinition
@@ -8,6 +9,7 @@ from ..state.store import state, RunningDemo, RunningContainer
 from ..models.api_models import ContainerHealthStatus
 from .compose_generator import generate_compose
 from .network_manager import join_network, leave_all_networks
+from ..registry.loader import get_component
 
 logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
@@ -94,6 +96,44 @@ async def _cleanup_demo(demo_id: str, compose_path: str | None, project_name: st
         pass
 
 
+async def _build_custom_images(demo: DemoDefinition, components_dir: str, progress) -> int:
+    """Pre-build Docker images for components that have build_context set.
+
+    Uses the Docker SDK to build images directly, avoiding the need for
+    docker compose buildx. Returns the number of images built.
+    """
+    built = set()
+    for node in demo.nodes:
+        manifest = get_component(node.component)
+        if not manifest or not manifest.build_context or manifest.image in built:
+            continue
+
+        component_dir = os.path.join(components_dir, node.component)
+        build_path = os.path.abspath(os.path.join(component_dir, manifest.build_context))
+
+        if not os.path.isdir(build_path):
+            logger.warning(f"Build context not found: {build_path}")
+            continue
+
+        await progress("images", "running", f"Building {manifest.image}...")
+        logger.info(f"Building image {manifest.image} from {build_path}")
+
+        try:
+            image, build_logs = await asyncio.to_thread(
+                docker_client.images.build,
+                path=build_path,
+                tag=manifest.image,
+                rm=True,
+            )
+            built.add(manifest.image)
+            logger.info(f"Built image {manifest.image} ({image.short_id})")
+        except Exception as e:
+            logger.error(f"Failed to build {manifest.image}: {e}")
+            raise RuntimeError(f"Failed to build image {manifest.image}: {e}")
+
+    return len(built)
+
+
 async def deploy_demo(demo: DemoDefinition, data_dir: str, components_dir: str = "./components", on_progress=None) -> RunningDemo:
     """Generate compose file, bring up containers, join networks.
 
@@ -125,6 +165,14 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         compose_file_path=compose_path,
     )
     state.set_demo(running)
+
+    # Pre-build custom images (components with build_context)
+    await progress("images", "running", "Checking for custom images to build...")
+    images_built = await _build_custom_images(demo, components_dir, progress)
+    if images_built:
+        await progress("images", "done", f"Built {images_built} custom image(s)")
+    else:
+        await progress("images", "done", "No custom images needed")
 
     # Clean up leftover containers (preserve volumes on redeploy)
     await progress("cleanup", "running", "Cleaning up previous containers...")
@@ -199,34 +247,20 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         else:
             await progress("init_scripts", "done", f"{len(init_results)} init script(s) completed")
 
-        # Run edge automation scripts (connection-driven init)
+        # Register edge automation scripts as "paused" — applied on demand via API
         from .edge_automation import generate_edge_scripts
+        from ..state.store import EdgeConfigResult
         edge_scripts = generate_edge_scripts(demo, project_name)
         if edge_scripts:
-            await progress("edge_config", "running", f"Configuring {len(edge_scripts)} connection(s)...")
-            edge_failures = []
             for script in edge_scripts:
-                try:
-                    if script.wait_for_healthy:
-                        from .init_runner import wait_for_healthy as wait_healthy
-                        healthy = await wait_healthy(script.container_name, script.timeout)
-                        if not healthy:
-                            edge_failures.append(f"{script.description}: container not healthy")
-                            logger.warning(f"Edge script skipped for {script.edge_id}: container not healthy")
-                            continue
-                    exit_code, stdout, stderr = await exec_in_container(
-                        script.container_name, f"sh -c '{script.command}'"
-                    )
-                    if exit_code != 0:
-                        edge_failures.append(f"{script.description}: {stderr[:200]}")
-                        logger.warning(f"Edge script failed for {script.edge_id}: {stderr}")
-                except Exception as e:
-                    edge_failures.append(f"{script.description}: {str(e)[:200]}")
-                    logger.warning(f"Edge script error for {script.edge_id}: {e}")
-            if edge_failures:
-                await progress("edge_config", "warning", f"{len(edge_failures)} failed: {'; '.join(edge_failures)}")
-            else:
-                await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) configured")
+                running.edge_configs[script.edge_id] = EdgeConfigResult(
+                    edge_id=script.edge_id,
+                    connection_type=script.connection_type,
+                    status="paused",
+                    description=script.description,
+                )
+            state.set_demo(running)
+            await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) ready — activate via edge context menu")
 
         running.status = "running"
         state.set_demo(running)

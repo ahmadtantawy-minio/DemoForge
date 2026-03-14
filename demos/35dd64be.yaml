@@ -63,8 +63,8 @@ nodes:
   component: minio
   variant: single
   position:
-    x: 162.83107484418687
-    y: 174.61397063808275
+    x: 119.83107484418687
+    y: 140.61397063808275
   config: {}
   networks: {}
   display_name: node2
@@ -74,8 +74,8 @@ nodes:
   component: minio
   variant: single
   position:
-    x: 160.76496603139367
-    y: 92.00627002590785
+    x: 117.76496603139367
+    y: 58.00627002590785
   config: {}
   networks: {}
   display_name: node1
@@ -137,16 +137,18 @@ groups:
   color: '#3b82f6'
   style: solid
   position:
-    x: -62.22116535008709
-    y: -143.8162851396649
+    x: -19.22116535008709
+    y: -109.8162851396649
   width: 400.0
   height: 300.0
+  mode: visual
+  cluster_config: {}
 sticky_notes:
 - id: note-8
-  text: "We have our first HDD based cluster here, round robin load balancing"
+  text: First multi node setup, node defined yet as a cluster
   color: '#eab308'
   position:
-    x: -342.6933153656837
-    y: -225.90475023745694
+    x: -332.9253795188945
+    y: -162.77840352013277
   width: 220.0
   height: 120.0

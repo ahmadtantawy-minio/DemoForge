@@ -12,7 +12,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
-import { saveDiagram, fetchDemo, fetchComponents } from "../../api/client";
+import { toast } from "sonner";
+import { saveDiagram, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
 import StickyNoteNode from "./nodes/StickyNoteNode";
@@ -154,6 +155,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: e.id,
         source: e.source,
         target: e.target,
+        sourceHandle: e.source_handle || undefined,
+        targetHandle: e.target_handle || undefined,
         type: "animated",
         data: {
           connectionType: e.connection_type,
@@ -220,12 +223,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const handleEdgeContextMenu = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.preventDefault();
-      if (isRunning) return;
       setEdgeContextMenu({ x: event.clientX, y: event.clientY, edgeId: edge.id, confirm: false });
       setContextMenu(null);
       setSelectionMenu(null);
     },
-    [isRunning]
+    []
   );
 
   const handleDeleteEdge = useCallback(
@@ -622,58 +624,115 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         </div>
       )}
 
-      {contextMenu && (
-        <NodeContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          nodeId={contextMenu.nodeId}
-          instance={instances.find((i) => i.node_id === contextMenu.nodeId)}
-          demoId={activeDemoId ?? ""}
-          isRunning={isRunning}
-          onOpenTerminal={onOpenTerminal}
-          onDeleteNode={handleDeleteNode}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+      {contextMenu && (() => {
+        // For cluster nodes, use the embedded LB for web UIs, but node-1 for terminal
+        const ctxNode = nodes.find((n) => n.id === contextMenu.nodeId);
+        const isCluster = ctxNode?.type === "cluster";
+        let instance = instances.find((i) => i.node_id === contextMenu.nodeId);
+        if (!instance && isCluster) {
+          instance = instances.find((i) => i.node_id === `${contextMenu.nodeId}-lb`);
+        }
+        const terminalNodeId = isCluster ? `${contextMenu.nodeId}-node-1` : contextMenu.nodeId;
+        return (
+          <NodeContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            nodeId={contextMenu.nodeId}
+            instance={instance}
+            demoId={activeDemoId ?? ""}
+            isRunning={isRunning}
+            onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
+            onDeleteNode={handleDeleteNode}
+            onClose={() => setContextMenu(null)}
+          />
+        );
+      })()}
 
       {/* Edge context menu */}
-      {edgeContextMenu && (
-        <div
-          className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
-          style={{
-            top: Math.min(edgeContextMenu.y, window.innerHeight - 100),
-            left: Math.min(edgeContextMenu.x, window.innerWidth - 200),
-          }}
-        >
-          <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">
-            Connection
-          </div>
-          {!edgeContextMenu.confirm ? (
-            <button
-              className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-              onClick={() => setEdgeContextMenu({ ...edgeContextMenu, confirm: true })}
-            >
-              Delete Connection
-            </button>
-          ) : (
-            <div className="px-3 py-1.5 flex items-center gap-2">
-              <span className="text-xs text-destructive">Delete?</span>
-              <button
-                className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
-                onClick={() => handleDeleteEdge(edgeContextMenu.edgeId)}
-              >
-                Yes
-              </button>
-              <button
-                className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
-                onClick={() => setEdgeContextMenu(null)}
-              >
-                No
-              </button>
+      {edgeContextMenu && (() => {
+        const edge = edges.find((e) => e.id === edgeContextMenu.edgeId);
+        const edgeData = edge?.data as any;
+        const configStatus = edgeData?.configStatus;
+        const connType = edgeData?.connectionType || "";
+        const isClusterEdge = connType.startsWith("cluster-");
+        return (
+          <div
+            className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
+            style={{
+              top: Math.min(edgeContextMenu.y, window.innerHeight - 150),
+              left: Math.min(edgeContextMenu.x, window.innerWidth - 200),
+            }}
+          >
+            <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">
+              {edgeData?.label || connType || "Connection"}
+              {configStatus && (
+                <span className={`ml-2 text-[10px] ${
+                  configStatus === "applied" ? "text-green-400" :
+                  configStatus === "failed" ? "text-red-400" :
+                  configStatus === "pending" ? "text-yellow-400" :
+                  "text-muted-foreground"
+                }`}>
+                  ({configStatus})
+                </span>
+              )}
             </div>
-          )}
-        </div>
-      )}
+            {isClusterEdge && activeDemoId && isRunning && configStatus !== "applied" && configStatus !== "pending" && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-green-400 hover:bg-green-500/10 transition-colors"
+                onClick={() => {
+                  toast.info("Activating connection...");
+                  activateEdgeConfig(activeDemoId, edgeContextMenu.edgeId)
+                    .then((r) => {
+                      if (r.status === "applied") toast.success("Connection activated");
+                      else toast.error("Activation failed", { description: r.error });
+                    })
+                    .catch((e: any) => toast.error("Activation failed", { description: e.message }));
+                  setEdgeContextMenu(null);
+                }}
+              >
+                Activate Replication
+              </button>
+            )}
+            {isClusterEdge && activeDemoId && configStatus === "applied" && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-yellow-400 hover:bg-yellow-500/10 transition-colors"
+                onClick={() => {
+                  pauseEdgeConfig(activeDemoId, edgeContextMenu.edgeId)
+                    .then(() => toast.info("Connection paused"))
+                    .catch((e: any) => toast.error("Failed", { description: e.message }));
+                  setEdgeContextMenu(null);
+                }}
+              >
+                Pause Replication
+              </button>
+            )}
+            {!edgeContextMenu.confirm ? (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                onClick={() => setEdgeContextMenu({ ...edgeContextMenu, confirm: true })}
+              >
+                Delete Connection
+              </button>
+            ) : (
+              <div className="px-3 py-1.5 flex items-center gap-2">
+                <span className="text-xs text-destructive">Delete?</span>
+                <button
+                  className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
+                  onClick={() => handleDeleteEdge(edgeContextMenu.edgeId)}
+                >
+                  Yes
+                </button>
+                <button
+                  className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
+                  onClick={() => setEdgeContextMenu(null)}
+                >
+                  No
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Selection context menu for multi-select grouping */}
       {selectionMenu && (

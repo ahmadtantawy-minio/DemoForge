@@ -100,6 +100,37 @@ ensure_dirs() {
     mkdir -p demos data components
 }
 
+build_component_images() {
+    log "Checking for component images to build..."
+    local count=0
+    for manifest in components/*/manifest.yaml; do
+        [ -f "$manifest" ] || continue
+        local build_ctx
+        build_ctx=$(grep -E '^build_context:' "$manifest" 2>/dev/null | sed 's/build_context:[[:space:]]*//' | tr -d '"' || true)
+        [ -z "$build_ctx" ] && continue
+
+        local comp_dir
+        comp_dir=$(dirname "$manifest")
+        local image
+        image=$(grep -E '^image:' "$manifest" 2>/dev/null | sed 's/image:[[:space:]]*//' | tr -d '"' || true)
+        [ -z "$image" ] && continue
+
+        local build_path="$comp_dir/$build_ctx"
+        if [ ! -d "$build_path" ]; then
+            warn "Build context not found: $build_path (skipping)"
+            continue
+        fi
+
+        log "Building component image: $image from $build_path"
+        docker build -t "$image" "$build_path"
+        count=$((count + 1))
+    done
+
+    if [ $count -gt 0 ]; then
+        ok "Built $count component image(s)."
+    fi
+}
+
 wait_for_service() {
     local url=$1
     local name=$2
@@ -131,6 +162,9 @@ cmd_start() {
     stop_services
 
     ensure_dirs
+
+    # Build component images (custom Dockerfiles in components/)
+    build_component_images
 
     # Build and start
     log "Building images..."
@@ -232,6 +266,7 @@ cmd_logs_fe() {
 cmd_build() {
     check_deps
     log "Building DemoForge images..."
+    build_component_images
     docker compose -f "$COMPOSE_FILE" build
     docker image prune -f --filter "until=1h" &>/dev/null || true
     ok "Build complete."
@@ -260,6 +295,17 @@ cmd_nuke() {
     # Remove built images
     log "Removing DemoForge images..."
     docker compose -f "$COMPOSE_FILE" down --rmi local 2>/dev/null || true
+
+    # Remove component-built images
+    for manifest in components/*/manifest.yaml; do
+        [ -f "$manifest" ] || continue
+        local build_ctx
+        build_ctx=$(grep -E '^build_context:' "$manifest" 2>/dev/null | sed 's/build_context:[[:space:]]*//' | tr -d '"' || true)
+        [ -z "$build_ctx" ] && continue
+        local image
+        image=$(grep -E '^image:' "$manifest" 2>/dev/null | sed 's/image:[[:space:]]*//' | tr -d '"' || true)
+        [ -n "$image" ] && docker rmi -f "$image" 2>/dev/null || true
+    done
 
     # Remove any dangling demoforge images
     docker images --filter "reference=*demoforge*" -q 2>/dev/null | xargs docker rmi -f 2>/dev/null || true

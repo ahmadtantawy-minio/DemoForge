@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoStore } from "./stores/demoStore";
+import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
 import { fetchDemos, fetchInstances } from "./api/client";
 import { Toaster } from "sonner";
@@ -28,15 +29,47 @@ export default function App() {
     return () => clearInterval(interval);
   }, [setDemos]);
 
-  // Poll instances when active demo is running
+  // Poll instances when active demo is running or deploying
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   useEffect(() => {
-    if (!activeDemoId || activeDemo?.status !== "running") {
+    if (!activeDemoId || !["running", "deploying"].includes(activeDemo?.status || "")) {
       setInstances([]);
       return;
     }
     const syncInstances = () =>
-      fetchInstances(activeDemoId).then((res) => setInstances(res.instances)).catch(() => {});
+      fetchInstances(activeDemoId).then((res) => {
+        setInstances(res.instances);
+        // Push health updates to diagram nodes
+        const { updateNodeHealth } = useDiagramStore.getState();
+        for (const inst of res.instances) {
+          updateNodeHealth(inst.node_id, inst.health);
+        }
+        // Update edge config status on diagram edges
+        if (res.edge_configs && res.edge_configs.length > 0) {
+          const { edges, setEdges } = useDiagramStore.getState();
+          // Build lookup: backend edge IDs may have "-cluster" suffix from compose_generator
+          const edgeConfigMap = new Map<string, string>();
+          for (const ec of res.edge_configs) {
+            edgeConfigMap.set(ec.edge_id, ec.status);
+            // Strip trailing "-cluster" suffix(es) so frontend edge IDs match
+            let stripped = ec.edge_id;
+            while (stripped.endsWith("-cluster")) {
+              stripped = stripped.slice(0, -8);
+              edgeConfigMap.set(stripped, ec.status);
+            }
+          }
+          const updated = edges.map((e) => {
+            const configStatus = edgeConfigMap.get(e.id) || (e.data as any)?.configStatus;
+            if (configStatus && configStatus !== (e.data as any)?.configStatus) {
+              return { ...e, data: { ...e.data, configStatus } };
+            }
+            return e;
+          });
+          if (updated.some((e, i) => e !== edges[i])) {
+            setEdges(updated);
+          }
+        }
+      }).catch(() => {});
     syncInstances();
     const interval = setInterval(syncInstances, 5000);
     return () => clearInterval(interval);

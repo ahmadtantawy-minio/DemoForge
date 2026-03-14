@@ -71,6 +71,9 @@ async def update_demo(demo_id: str, req: dict):
         demo.name = req["name"]
     if "description" in req:
         demo.description = req["description"]
+    if "resources" in req:
+        from ..models.demo import DemoResourceSettings
+        demo.resources = DemoResourceSettings(**req["resources"])
     _save_demo(demo)
     running = state.get_demo(demo_id)
     status = running.status if running else "stopped"
@@ -175,6 +178,8 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
             connection_config=edge_data.get("connectionConfig", {}),
             auto_configure=edge_data.get("autoConfigure", True),
             label=edge_data.get("label", rf_edge.get("label", "")),
+            source_handle=rf_edge.get("sourceHandle"),
+            target_handle=rf_edge.get("targetHandle"),
         ))
 
     _save_demo(demo)

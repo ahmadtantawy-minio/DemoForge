@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S3 File Browser</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #18181b; color: #fafafa; min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* Top bar */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #27272a; border-bottom: 1px solid #3f3f46; }
+  .topbar h1 { font-size: 16px; font-weight: 600; }
+  .badge { padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .badge-direct { background: #16a34a22; color: #22c55e; border: 1px solid #22c55e44; }
+  .badge-lb { background: #2563eb22; color: #60a5fa; border: 1px solid #2563eb44; }
+  .badge-none { background: #ef444422; color: #f87171; border: 1px solid #ef444444; }
+
+  /* Served-by banner */
+  .served-banner { padding: 8px 20px; background: #1e1e22; border-bottom: 1px solid #3f3f46; font-size: 12px; display: flex; align-items: center; gap: 8px; min-height: 36px; }
+  .served-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .served-label { color: #a1a1aa; }
+
+  /* Main layout */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar { width: 240px; background: #27272a; border-right: 1px solid #3f3f46; display: flex; flex-direction: column; overflow-y: auto; }
+  .sidebar-header { padding: 12px 16px; font-size: 12px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #3f3f46; }
+  .bucket-item { padding: 10px 16px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #3f3f4633; transition: background 0.15s; }
+  .bucket-item:hover { background: #3f3f46; }
+  .bucket-item.active { background: #3f3f46; border-left: 2px solid #60a5fa; }
+
+  /* Content */
+  .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Breadcrumb + actions */
+  .content-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid #3f3f46; min-height: 44px; }
+  .breadcrumb { display: flex; align-items: center; gap: 4px; font-size: 13px; flex-wrap: wrap; }
+  .breadcrumb a { color: #60a5fa; cursor: pointer; text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb span.sep { color: #52525b; }
+  .actions { display: flex; gap: 8px; }
+
+  /* Buttons */
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid #3f3f46; background: #27272a; color: #fafafa; font-size: 12px; cursor: pointer; transition: background 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: #3f3f46; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; border-color: #2563eb; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-danger { color: #f87171; }
+  .btn-danger:hover { background: #7f1d1d33; }
+  .btn-success { background: #16a34a; border-color: #16a34a; }
+  .btn-success:hover { background: #15803d; }
+
+  /* Table */
+  .table-wrap { flex: 1; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 20px; font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; background: #1e1e22; border-bottom: 1px solid #3f3f46; position: sticky; top: 0; }
+  td { padding: 8px 20px; font-size: 13px; border-bottom: 1px solid #3f3f4633; }
+  tr:hover td { background: #27272a; }
+  .folder-icon { color: #60a5fa; cursor: pointer; }
+  .file-icon { color: #a1a1aa; }
+  .size { color: #a1a1aa; font-variant-numeric: tabular-nums; }
+  .date { color: #71717a; }
+  .empty-state { padding: 40px 20px; text-align: center; color: #71717a; font-size: 13px; }
+
+  /* Bottom panel — tabs */
+  .bottom-panel { border-top: 1px solid #3f3f46; background: #27272a; }
+  .bottom-tabs { display: flex; border-bottom: 1px solid #3f3f46; }
+  .bottom-tab { padding: 8px 16px; font-size: 12px; cursor: pointer; color: #a1a1aa; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .bottom-tab:hover { color: #fafafa; }
+  .bottom-tab.active { color: #fafafa; border-bottom-color: #60a5fa; }
+  .bottom-content { padding: 16px 20px; max-height: 220px; overflow-y: auto; }
+
+  /* Histogram */
+  .histogram { display: flex; flex-direction: column; gap: 8px; }
+  .hist-row { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+  .hist-label { width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 11px; }
+  .hist-bar-wrap { flex: 1; height: 20px; background: #3f3f46; border-radius: 4px; overflow: hidden; }
+  .hist-bar { height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px; }
+  .hist-pct { width: 50px; text-align: right; font-variant-numeric: tabular-nums; color: #a1a1aa; }
+  .hist-count { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  .hist-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .hist-header span { font-size: 12px; color: #a1a1aa; }
+
+  /* Health check panel */
+  .health-scenarios { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .health-result { font-size: 12px; line-height: 1.6; }
+  .health-result pre { background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 11px; font-family: monospace; max-height: 140px; overflow-y: auto; margin-top: 8px; }
+  .health-status { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .health-ok { background: #16a34a22; color: #22c55e; }
+  .health-fail { background: #ef444422; color: #f87171; }
+  .health-running { background: #eab30822; color: #facc15; }
+
+  /* Upload modal */
+  .modal-overlay { position: fixed; inset: 0; background: #000000aa; display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: #27272a; border: 1px solid #3f3f46; border-radius: 12px; padding: 24px; width: 400px; }
+  .modal h3 { margin-bottom: 16px; font-size: 15px; }
+  .modal input[type="file"] { margin-bottom: 12px; font-size: 13px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  /* Loading */
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #3f3f46; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Hidden */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <h1>S3 File Browser</h1>
+  <div>
+    <span id="connBadge" class="badge badge-none">Not Connected</span>
+  </div>
+</div>
+
+<!-- Served-by banner -->
+<div class="served-banner">
+  <span class="served-label">Last served by:</span>
+  <span id="servedBy" style="color:#71717a">—</span>
+</div>
+
+<!-- Main layout -->
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">Buckets</div>
+    <div id="bucketList"><div class="empty-state">Loading...</div></div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+    <div class="content-header">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="uploadBtn" disabled>Upload</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Size</th><th>Last Modified</th><th style="width:100px">Actions</th></tr>
+        </thead>
+        <tbody id="objectTable">
+          <tr><td colspan="4" class="empty-state">Select a bucket to browse</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom panel -->
+<div class="bottom-panel">
+  <div class="bottom-tabs">
+    <div class="bottom-tab active" data-tab="histogram">Node Distribution</div>
+    <div class="bottom-tab" data-tab="health">Cluster Health</div>
+  </div>
+
+  <!-- Histogram tab -->
+  <div class="bottom-content" id="tab-histogram">
+    <div class="hist-header">
+      <span id="totalHits">0 requests tracked</span>
+      <button class="btn" onclick="resetStats()">Reset</button>
+    </div>
+    <div class="histogram" id="histogram">
+      <div style="color:#71717a; font-size:12px;">No requests yet</div>
+    </div>
+  </div>
+
+  <!-- Health tab -->
+  <div class="bottom-content hidden" id="tab-health">
+    <div class="health-scenarios">
+      <button class="btn btn-success" onclick="runHealthCheck('read-all')">Read All Objects</button>
+      <button class="btn btn-success" onclick="runHealthCheck('write-read-verify')">Write-Read-Verify</button>
+      <button class="btn btn-success" onclick="runHealthCheck('latency-probe')">Latency Probe</button>
+      <button class="btn btn-success" onclick="runHealthCheck('consistency')">Consistency Check</button>
+    </div>
+    <div id="healthResult" class="health-result">
+      <div style="color:#71717a; font-size:12px;">Run a health check scenario to validate your cluster.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload modal -->
+<div class="modal-overlay hidden" id="uploadModal">
+  <div class="modal">
+    <h3>Upload File</h3>
+    <input type="file" id="uploadFile">
+    <div style="font-size:12px;color:#a1a1aa;margin-top:4px" id="uploadTarget"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeUpload()">Cancel</button>
+      <button class="btn btn-primary" onclick="doUpload()">Upload</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Base path detection — works both standalone and behind DemoForge proxy
+// The proxy injects <base href="/proxy/{demo}/{node}/{ui}/">, so we derive
+// the base from <base> tag or default to '' for standalone.
+const BASE = (() => {
+  const baseEl = document.querySelector('base');
+  if (baseEl && baseEl.href) {
+    // baseEl.href is absolute, extract pathname and strip trailing slash
+    try { return new URL(baseEl.href).pathname.replace(/\/$/, ''); } catch(e) {}
+  }
+  return '';
+})();
+
+// State
+let currentBucket = null;
+let currentPrefix = '';
+const nodeColors = {};
+const palette = ['#60a5fa','#f472b6','#34d399','#fbbf24','#a78bfa','#fb923c','#22d3ee','#e879f9'];
+let colorIdx = 0;
+
+function getNodeColor(node) {
+  if (!node) return '#71717a';
+  if (!nodeColors[node]) { nodeColors[node] = palette[colorIdx % palette.length]; colorIdx++; }
+  return nodeColors[node];
+}
+
+function formatSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024, sizes = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+// Update served-by banner
+function updateServedBy(servedBy) {
+  const el = document.getElementById('servedBy');
+  if (servedBy) {
+    const color = getNodeColor(servedBy);
+    el.innerHTML = `<span class="served-dot" style="background:${color}"></span> ${servedBy}`;
+    el.style.color = '#fafafa';
+  } else {
+    el.textContent = '— (direct / no LB header)';
+    el.style.color = '#71717a';
+  }
+}
+
+// API helper — all paths are prefixed with BASE for proxy compatibility
+async function api(method, path, body) {
+  const opts = { method };
+  if (body instanceof FormData) { opts.body = body; }
+  else if (body) { opts.body = JSON.stringify(body); opts.headers = {'Content-Type':'application/json'}; }
+  const resp = await fetch(BASE + path, opts);
+  const data = await resp.json();
+  if (data.served_by !== undefined) updateServedBy(data.served_by);
+  updateHistogram();
+  return data;
+}
+
+// Init
+async function init() {
+  try {
+    const cfg = await (await fetch(BASE + '/api/config')).json();
+    const badge = document.getElementById('connBadge');
+    if (!cfg.endpoint) {
+      badge.className = 'badge badge-none'; badge.textContent = 'Not Connected';
+    } else if (cfg.via_loadbalancer) {
+      badge.className = 'badge badge-lb'; badge.textContent = 'Load Balanced';
+    } else {
+      badge.className = 'badge badge-direct'; badge.textContent = 'Direct S3';
+    }
+  } catch(e) {}
+  loadBuckets();
+}
+
+// Buckets
+async function loadBuckets() {
+  try {
+    const data = await api('GET', '/api/buckets');
+    const el = document.getElementById('bucketList');
+    if (!data.buckets || !data.buckets.length) {
+      el.innerHTML = '<div class="empty-state">No buckets found</div>';
+      return;
+    }
+    el.innerHTML = data.buckets.map(b =>
+      `<div class="bucket-item" onclick="selectBucket('${b.name}')">${b.name}</div>`
+    ).join('');
+  } catch(e) {
+    document.getElementById('bucketList').innerHTML = '<div class="empty-state" style="color:#f87171">Connection error</div>';
+  }
+}
+
+function selectBucket(name) {
+  currentBucket = name;
+  currentPrefix = '';
+  document.querySelectorAll('.bucket-item').forEach(el => el.classList.toggle('active', el.textContent === name));
+  document.getElementById('uploadBtn').disabled = false;
+  loadObjects();
+}
+
+// Objects
+async function loadObjects() {
+  const tbody = document.getElementById('objectTable');
+  tbody.innerHTML = '<tr><td colspan="4" class="empty-state"><span class="spinner"></span> Loading...</td></tr>';
+  updateBreadcrumb();
+
+  try {
+    const data = await api('GET', `/api/objects?bucket=${encodeURIComponent(currentBucket)}&prefix=${encodeURIComponent(currentPrefix)}`);
+    let html = '';
+
+    // Prefixes (folders)
+    for (const p of (data.prefixes || [])) {
+      const name = p.prefix.replace(currentPrefix, '').replace(/\/$/, '');
+      html += `<tr><td class="folder-icon" onclick="navigateTo('${p.prefix}')">📁 ${name}/</td><td></td><td></td><td></td></tr>`;
+    }
+
+    // Objects
+    for (const o of (data.objects || [])) {
+      const name = o.key.replace(currentPrefix, '');
+      if (name.endsWith('/')) continue; // skip prefix markers
+      html += `<tr>
+        <td class="file-icon">📄 ${name}</td>
+        <td class="size">${formatSize(o.size)}</td>
+        <td class="date">${formatDate(o.last_modified)}</td>
+        <td>
+          <button class="btn" style="padding:2px 8px;font-size:11px" onclick="downloadFile('${o.key}')">↓</button>
+          <button class="btn btn-danger" style="padding:2px 8px;font-size:11px" onclick="deleteFile('${o.key}')">✕</button>
+        </td>
+      </tr>`;
+    }
+
+    if (!html) html = '<tr><td colspan="4" class="empty-state">Empty</td></tr>';
+    tbody.innerHTML = html;
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:#f87171">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function navigateTo(prefix) { currentPrefix = prefix; loadObjects(); }
+
+function updateBreadcrumb() {
+  const el = document.getElementById('breadcrumb');
+  if (!currentBucket) { el.innerHTML = ''; return; }
+  let html = `<a onclick="currentPrefix='';loadObjects()">${currentBucket}</a>`;
+  if (currentPrefix) {
+    const parts = currentPrefix.replace(/\/$/, '').split('/');
+    let path = '';
+    for (const p of parts) {
+      path += p + '/';
+      const pp = path;
+      html += `<span class="sep">/</span><a onclick="navigateTo('${pp}')">${p}</a>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+// Download
+function downloadFile(key) {
+  window.open(`${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`, '_blank');
+}
+
+// Delete
+async function deleteFile(key) {
+  if (!confirm(`Delete ${key}?`)) return;
+  await api('DELETE', `/api/delete?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`);
+  loadObjects();
+}
+
+// Upload
+document.getElementById('uploadBtn').onclick = () => {
+  document.getElementById('uploadTarget').textContent = `Bucket: ${currentBucket}/${currentPrefix}`;
+  document.getElementById('uploadModal').classList.remove('hidden');
+};
+
+function closeUpload() { document.getElementById('uploadModal').classList.add('hidden'); }
+
+async function doUpload() {
+  const fileInput = document.getElementById('uploadFile');
+  if (!fileInput.files.length) return;
+  const file = fileInput.files[0];
+  const key = currentPrefix + file.name;
+  const form = new FormData();
+  form.append('file', file);
+  await fetch(`${BASE}/api/upload?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`, {
+    method: 'POST', body: form
+  });
+  closeUpload();
+  fileInput.value = '';
+  loadObjects();
+  updateHistogram();
+}
+
+// Histogram
+async function updateHistogram() {
+  try {
+    const data = await (await fetch(BASE + '/api/stats')).json();
+    const el = document.getElementById('histogram');
+    document.getElementById('totalHits').textContent = `${data.total} requests tracked`;
+    if (!data.total) { el.innerHTML = '<div style="color:#71717a;font-size:12px">No requests yet</div>'; return; }
+    const maxPct = Math.max(...Object.values(data.percentages), 1);
+    el.innerHTML = Object.entries(data.node_hits).map(([node, count]) => {
+      const pct = data.percentages[node];
+      const color = getNodeColor(node);
+      return `<div class="hist-row">
+        <div class="hist-label"><span class="served-dot" style="background:${color}"></span> ${node}</div>
+        <div class="hist-bar-wrap"><div class="hist-bar" style="width:${pct/maxPct*100}%;background:${color}"></div></div>
+        <div class="hist-pct">${pct}%</div>
+        <div class="hist-count">${count}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+async function resetStats() {
+  await fetch(BASE + '/api/stats/reset', {method:'POST'});
+  updateHistogram();
+}
+
+// Bottom tabs
+document.querySelectorAll('.bottom-tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.bottom-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.bottom-content').forEach(c => c.classList.add('hidden'));
+    document.getElementById('tab-' + tab.dataset.tab).classList.remove('hidden');
+  };
+});
+
+// Health checks
+async function runHealthCheck(scenario) {
+  const el = document.getElementById('healthResult');
+  const bucket = currentBucket || 'demo-bucket';
+  el.innerHTML = `<span class="health-status health-running"><span class="spinner"></span> Running ${scenario}...</span>`;
+
+  try {
+    const resp = await fetch(`${BASE}/api/health-check/${scenario}?bucket=${encodeURIComponent(bucket)}`, {method:'POST'});
+    const data = await resp.json();
+    updateHistogram();
+
+    const status = data.healthy
+      ? '<span class="health-status health-ok">HEALTHY</span>'
+      : '<span class="health-status health-fail">ISSUES DETECTED</span>';
+
+    let summary = '';
+    if (scenario === 'read-all') {
+      summary = `Read ${data.total_objects} objects: ${data.successful_reads} ok, ${data.failed_reads} failed`;
+    } else if (scenario === 'write-read-verify') {
+      summary = `Tested ${data.test_count} write-read cycles: ${data.successful} ok, ${data.failed} failed`;
+    } else if (scenario === 'latency-probe') {
+      const nodes = Object.entries(data.per_node_summary || {}).map(([n,s]) =>
+        `${n}: avg ${s.avg_ms}ms (${s.min_ms}-${s.max_ms}ms, ${s.count} hits)`
+      ).join('\n  ');
+      summary = `Latency across ${data.iterations} probes:\n  ${nodes}`;
+    } else if (scenario === 'consistency') {
+      summary = `${data.requests} listing requests: ${data.consistent ? 'all consistent' : 'INCONSISTENT listings detected'}`;
+    }
+
+    el.innerHTML = `${status} <span style="color:#a1a1aa;font-size:12px;margin-left:8px">${scenario} on ${bucket}</span>
+      <div style="margin-top:6px;font-size:12px">${summary}</div>
+      <pre>${JSON.stringify(data, null, 2)}</pre>`;
+  } catch(e) {
+    el.innerHTML = `<span class="health-status health-fail">ERROR</span> <span style="color:#f87171;font-size:12px">${e.message}</span>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

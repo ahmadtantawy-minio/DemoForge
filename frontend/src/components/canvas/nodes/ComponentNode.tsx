@@ -41,7 +41,7 @@ export default function ComponentNode({ id, data }: NodeProps) {
         </div>
         {nodeData.health && (
           <span
-            className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"}`}
+            className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" ? "animate-pulse" : ""}`}
             title={nodeData.health}
           />
         )}

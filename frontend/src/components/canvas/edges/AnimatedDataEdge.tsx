@@ -3,7 +3,7 @@ import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, useStoreApi, 
 import { X } from "lucide-react";
 import type { ComponentEdgeData, ConnectionType } from "../../../types";
 
-const connectionColors: Record<ConnectionType, string> = {
+const connectionColors: Record<string, string> = {
   s3: "#3b82f6",
   http: "#6b7280",
   metrics: "#22c55e",
@@ -14,9 +14,12 @@ const connectionColors: Record<ConnectionType, string> = {
   "metrics-query": "#22c55e",
   tiering: "#eab308",
   "file-push": "#06b6d4",
+  "cluster-replication": "#a855f7",
+  "cluster-site-replication": "#d946ef",
+  "cluster-tiering": "#eab308",
 };
 
-const connectionLabels: Record<ConnectionType, string> = {
+const connectionLabels: Record<string, string> = {
   s3: "S3",
   http: "HTTP",
   metrics: "Metrics",
@@ -27,6 +30,9 @@ const connectionLabels: Record<ConnectionType, string> = {
   "metrics-query": "PromQL",
   tiering: "Tiering",
   "file-push": "File Push",
+  "cluster-replication": "Bucket Replication",
+  "cluster-site-replication": "Site Replication",
+  "cluster-tiering": "ILM Tiering",
 };
 
 export default function AnimatedDataEdge({
@@ -37,10 +43,16 @@ export default function AnimatedDataEdge({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const edgeData = data as ComponentEdgeData | undefined;
-  const connectionType = (edgeData?.connectionType ?? "data") as ConnectionType;
+  const connectionType = (edgeData?.connectionType ?? "data") as string;
   const status = edgeData?.status ?? "idle";
+  const configStatus = (edgeData as any)?.configStatus as string | undefined; // "pending" | "applied" | "failed" | undefined
   const color = connectionColors[connectionType] ?? "#6b7280";
   const label = edgeData?.label || connectionLabels[connectionType] || "";
+
+  const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
+    connectionType === "cluster-site-replication";
+  const markerId = `arrow-${id}`;
+  const markerStartId = `arrow-start-${id}`;
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition,
@@ -48,6 +60,33 @@ export default function AnimatedDataEdge({
 
   return (
     <>
+      {/* Arrow marker definitions */}
+      <defs>
+        <marker
+          id={markerId}
+          markerWidth="8"
+          markerHeight="8"
+          refX="8"
+          refY="4"
+          orient="auto"
+          markerUnits="userSpaceOnUse"
+        >
+          <path d="M0,0 L8,4 L0,8" fill="none" stroke={color} strokeWidth="1.5" />
+        </marker>
+        {isBidirectional && (
+          <marker
+            id={markerStartId}
+            markerWidth="8"
+            markerHeight="8"
+            refX="0"
+            refY="4"
+            orient="auto-start-reverse"
+            markerUnits="userSpaceOnUse"
+          >
+            <path d="M8,0 L0,4 L8,8" fill="none" stroke={color} strokeWidth="1.5" />
+          </marker>
+        )}
+      </defs>
       {/* Invisible wide hit area for hover detection */}
       <path
         d={edgePath}
@@ -61,13 +100,40 @@ export default function AnimatedDataEdge({
       <BaseEdge
         id={id}
         path={edgePath}
-        style={{ stroke: color, strokeWidth: 2, strokeOpacity: 0.8 }}
-        markerEnd={markerEnd}
+        style={{
+          stroke: color,
+          strokeWidth: 2,
+          strokeOpacity: configStatus === "pending" || configStatus === "paused" ? 0.4 : 0.8,
+          strokeDasharray: configStatus === "pending" || configStatus === "paused" ? "6 4" : undefined,
+          markerEnd: `url(#${markerId})`,
+          markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
+        }}
       />
-      {status === "active" && (
-        <circle r="4" fill={color}>
-          <animateMotion dur="2s" repeatCount="indefinite" path={edgePath} />
-        </circle>
+      {(status === "active" || configStatus === "applied") && (
+        <>
+          <circle r="3" fill={color} opacity={0.8}>
+            <animateMotion
+              dur="2.5s"
+              repeatCount="indefinite"
+              path={edgePath}
+              keyPoints="0;1"
+              keyTimes="0;1"
+              calcMode="linear"
+            />
+          </circle>
+          {isBidirectional && (
+            <circle r="3" fill={color} opacity={0.6}>
+              <animateMotion
+                dur="2.5s"
+                repeatCount="indefinite"
+                path={edgePath}
+                keyPoints="1;0"
+                keyTimes="0;1"
+                calcMode="linear"
+              />
+            </circle>
+          )}
+        </>
       )}
       <EdgeLabelRenderer>
         {label && (
@@ -80,8 +146,23 @@ export default function AnimatedDataEdge({
               border: `1px solid ${color}40`,
               color: color,
             }}
-            className="nodrag nopan px-1.5 py-0.5 text-[10px] font-medium rounded"
+            className="nodrag nopan px-1.5 py-0.5 text-[10px] font-medium rounded flex items-center gap-1"
           >
+            {configStatus === "applied" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="Config applied — right-click to pause" />
+            )}
+            {configStatus === "failed" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="Config failed — right-click to retry" />
+            )}
+            {configStatus === "pending" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse shrink-0" title="Applying config..." />
+            )}
+            {configStatus === "paused" && (
+              <svg width="8" height="8" viewBox="0 0 8 8" className="shrink-0" title="Paused — right-click to activate">
+                <rect x="1" y="1" width="2" height="6" fill="#eab308" />
+                <rect x="5" y="1" width="2" height="6" fill="#eab308" />
+              </svg>
+            )}
             {label}
           </div>
         )}

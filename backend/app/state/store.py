@@ -19,6 +19,14 @@ class RunningContainer:
     health: ContainerHealthStatus = ContainerHealthStatus.STARTING
 
 @dataclass
+class EdgeConfigResult:
+    edge_id: str
+    connection_type: str
+    status: str = "pending"           # "pending", "applied", "failed"
+    description: str = ""
+    error: str = ""
+
+@dataclass
 class RunningDemo:
     demo_id: str
     status: str = "stopped"           # "stopped", "deploying", "running", "error"
@@ -28,6 +36,7 @@ class RunningDemo:
     compose_file_path: str = ""       # Path to generated docker-compose.yml
     init_results: list[dict] = field(default_factory=list)  # Results from init script runner
     error_message: str = ""           # Error details if status == "error"
+    edge_configs: dict[str, EdgeConfigResult] = field(default_factory=dict)  # edge_id → EdgeConfigResult
 
 class DeployProgress:
     """Tracks deployment progress steps."""

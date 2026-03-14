@@ -6,6 +6,7 @@ from ..engine.docker_manager import get_container_health, restart_container, exe
 from ..models.api_models import (
     InstancesResponse, ContainerInstance, WebUILink,
     ExecRequest, ExecResponse, NetworkMembership, CredentialInfo,
+    EdgeConfigStatus,
 )
 from .demos import _load_demo
 
@@ -87,7 +88,21 @@ async def list_instances(demo_id: str):
             init_status="completed",
         ))
 
-    return InstancesResponse(demo_id=demo_id, status=running.status, instances=instances, init_results=running.init_results)
+    edge_configs = [
+        EdgeConfigStatus(
+            edge_id=ec.edge_id,
+            connection_type=ec.connection_type,
+            status=ec.status,
+            description=ec.description,
+            error=ec.error,
+        )
+        for ec in running.edge_configs.values()
+    ]
+
+    return InstancesResponse(
+        demo_id=demo_id, status=running.status, instances=instances,
+        init_results=running.init_results, edge_configs=edge_configs,
+    )
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/restart")
 async def restart_instance(demo_id: str, node_id: str):
@@ -122,6 +137,122 @@ async def start_instance(demo_id: str, node_id: str):
     c = await asyncio.to_thread(client.containers.get, container_name)
     await asyncio.to_thread(c.start)
     return {"status": "started", "node_id": node_id}
+
+@router.post("/api/demos/{demo_id}/edges/{edge_id}/activate")
+async def activate_edge_config(demo_id: str, edge_id: str):
+    """Activate a paused edge config (run the mc commands)."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    # Load demo definition and regenerate scripts
+    from .demos import _load_demo
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    from ..engine.edge_automation import generate_edge_scripts
+    from ..engine.compose_generator import generate_compose
+    from ..state.store import EdgeConfigResult
+    import os
+    project_name = f"demoforge-{demo_id}"
+    # Run compose generation to expand clusters (modifies demo.nodes/edges in-place)
+    data_dir = os.environ.get("DEMOFORGE_DATA_DIR", "./data")
+    components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
+    try:
+        generate_compose(demo, data_dir, components_dir)
+    except Exception:
+        pass  # We only need the edge expansion, not the file output
+    scripts = generate_edge_scripts(demo, project_name)
+
+    # Find matching script — try exact match, then with -cluster suffix, then stripped
+    script = next((s for s in scripts if s.edge_id == edge_id), None)
+    if not script:
+        script = next((s for s in scripts if s.edge_id == f"{edge_id}-cluster"), None)
+        if script:
+            edge_id = f"{edge_id}-cluster"
+    if not script:
+        # Try stripping -cluster suffix from input
+        stripped = edge_id
+        while stripped.endswith("-cluster"):
+            stripped = stripped[:-8]
+        script = next((s for s in scripts if s.edge_id == stripped or s.edge_id.startswith(stripped)), None)
+        if script:
+            edge_id = script.edge_id
+    if not script:
+        raise HTTPException(404, f"No automation script for edge '{edge_id}'")
+
+    # Ensure edge config entry exists
+    ec = running.edge_configs.get(edge_id)
+    if not ec:
+        ec = EdgeConfigResult(
+            edge_id=edge_id,
+            connection_type=script.connection_type,
+            status="paused",
+            description=script.description,
+        )
+        running.edge_configs[edge_id] = ec
+
+    if ec.status == "applied":
+        return {"status": "already_applied", "edge_id": edge_id}
+    if not script:
+        raise HTTPException(404, f"No automation script for edge '{edge_id}'")
+
+    ec.status = "pending"
+    ec.error = ""
+    state.set_demo(running)
+
+    try:
+        exit_code, stdout, stderr = await exec_in_container(
+            script.container_name, f"sh -c '{script.command}'"
+        )
+        if exit_code != 0:
+            ec.status = "failed"
+            ec.error = stderr[:500]
+            state.set_demo(running)
+            return {"status": "failed", "edge_id": edge_id, "error": stderr[:500]}
+        else:
+            ec.status = "applied"
+            ec.error = ""
+            state.set_demo(running)
+            return {"status": "applied", "edge_id": edge_id}
+    except Exception as e:
+        ec.status = "failed"
+        ec.error = str(e)[:500]
+        state.set_demo(running)
+        return {"status": "failed", "edge_id": edge_id, "error": str(e)[:500]}
+
+@router.post("/api/demos/{demo_id}/edges/{edge_id}/pause")
+async def pause_edge_config(demo_id: str, edge_id: str):
+    """Pause an edge config."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    # Fuzzy match: try exact, then with -cluster suffixes, then partial match
+    ec = running.edge_configs.get(edge_id)
+    if not ec:
+        # Try appending -cluster repeatedly
+        candidate = edge_id
+        for _ in range(3):
+            candidate = f"{candidate}-cluster"
+            ec = running.edge_configs.get(candidate)
+            if ec:
+                edge_id = candidate
+                break
+    if not ec:
+        # Try partial match — find any config whose ID starts with the input
+        for key, val in running.edge_configs.items():
+            if key.startswith(edge_id) or edge_id.startswith(key):
+                ec = val
+                edge_id = key
+                break
+    if not ec:
+        raise HTTPException(404, f"Edge config '{edge_id}' not found")
+
+    ec.status = "paused"
+    state.set_demo(running)
+    return {"status": "paused", "edge_id": edge_id}
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/exec", response_model=ExecResponse)
 async def exec_command(demo_id: str, node_id: str, req: ExecRequest):

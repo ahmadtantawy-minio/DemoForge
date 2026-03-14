@@ -78,11 +78,19 @@ class ContainerInstance(BaseModel):
     credentials: list[CredentialInfo] = []
     init_status: str = "pending"
 
+class EdgeConfigStatus(BaseModel):
+    edge_id: str
+    connection_type: str
+    status: str = "pending"  # "pending", "applied", "failed"
+    description: str = ""
+    error: str = ""
+
 class InstancesResponse(BaseModel):
     demo_id: str
     status: str
     instances: list[ContainerInstance]
     init_results: list[dict] = []
+    edge_configs: list[EdgeConfigStatus] = []
 
 # --- Exec ---
 class ExecRequest(BaseModel):

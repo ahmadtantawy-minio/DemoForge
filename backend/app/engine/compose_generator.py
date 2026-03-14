@@ -9,6 +9,18 @@ from ..config.license_store import license_store
 
 logger = logging.getLogger(__name__)
 
+
+def _mem_bytes(mem_str: str) -> int:
+    """Parse Docker memory string (e.g. '256m', '1g') to bytes for comparison."""
+    mem_str = mem_str.strip().lower()
+    if mem_str.endswith("g"):
+        return int(float(mem_str[:-1]) * 1024 * 1024 * 1024)
+    elif mem_str.endswith("m"):
+        return int(float(mem_str[:-1]) * 1024 * 1024)
+    elif mem_str.endswith("k"):
+        return int(float(mem_str[:-1]) * 1024)
+    return int(mem_str) if mem_str.isdigit() else 0
+
 # Host-side paths for bind mounts (needed when backend runs in Docker)
 HOST_COMPONENTS_DIR = os.environ.get("DEMOFORGE_HOST_COMPONENTS_DIR", "")
 HOST_DATA_DIR = os.environ.get("DEMOFORGE_HOST_DATA_DIR", "")
@@ -105,31 +117,105 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             synthetic_node.labels = {"_cluster_alias": f"{alias_prefix}{i + 1}"}
             demo.nodes.append(synthetic_node)
 
-        # Expand edges: any edge referencing the cluster ID fans out
+        # --- Embedded NGINX load balancer for the cluster ---
+        lb_node_id = f"{cluster.id}-lb"
+        lb_node = DemoNode(
+            id=lb_node_id,
+            component="nginx",
+            variant="load-balancer",
+            position=NodePosition(x=cluster.position.x - 200,
+                                  y=cluster.position.y + 50),
+            config={},
+            display_name=f"{cluster.label} LB",
+        )
+        demo.nodes.append(lb_node)
+
+        # Auto-generate load-balance edges from LB to each MinIO node
+        for j, gen_id in enumerate(generated_ids):
+            demo.edges.append(DemoEdge(
+                id=f"{cluster.id}-lb-edge-{j+1}",
+                source=lb_node_id,
+                target=gen_id,
+                connection_type="load-balance",
+                network="default",
+                connection_config={"algorithm": "least-conn", "backend_port": "9000"},
+                auto_configure=True,
+                label="",
+            ))
+
+        # Expand edges: any edge referencing the cluster ID now routes through the LB
+        # - cluster-level types (replication, site-replication, tiering) → LB node
+        # - data-flow types (load-balance, metrics, s3, etc.) → LB node (no fan-out)
         original_edges = list(demo.edges)
         new_edges = []
         edges_to_remove = []
         for edge in original_edges:
+            is_cluster_level = edge.connection_type.startswith("cluster-")
             if edge.source == cluster.id:
                 edges_to_remove.append(edge.id)
-                for j, gen_id in enumerate(generated_ids):
+                if is_cluster_level:
+                    # Cluster-level operation → route to LB
                     new_edges.append(DemoEdge(
-                        id=f"{edge.id}-{j+1}",
-                        source=gen_id,
+                        id=f"{edge.id}-cluster",
+                        source=lb_node_id,
                         target=edge.target,
                         connection_type=edge.connection_type,
                         network=edge.network,
-                        connection_config=edge.connection_config,
+                        connection_config={
+                            **edge.connection_config,
+                            "_source_cluster_id": cluster.id,
+                        },
                         auto_configure=edge.auto_configure,
                         label=edge.label,
                     ))
+                else:
+                    # Data-flow outbound: route from LB (e.g. metrics from cluster)
+                    # For metrics, use node-1 since LB doesn't expose metrics
+                    if edge.connection_type == "metrics":
+                        new_edges.append(DemoEdge(
+                            id=f"{edge.id}-metrics",
+                            source=generated_ids[0],
+                            target=edge.target,
+                            connection_type=edge.connection_type,
+                            network=edge.network,
+                            connection_config=edge.connection_config,
+                            auto_configure=edge.auto_configure,
+                            label=edge.label,
+                        ))
+                    else:
+                        new_edges.append(DemoEdge(
+                            id=f"{edge.id}-lb",
+                            source=lb_node_id,
+                            target=edge.target,
+                            connection_type=edge.connection_type,
+                            network=edge.network,
+                            connection_config=edge.connection_config,
+                            auto_configure=edge.auto_configure,
+                            label=edge.label,
+                        ))
             elif edge.target == cluster.id:
                 edges_to_remove.append(edge.id)
-                for j, gen_id in enumerate(generated_ids):
+                if is_cluster_level:
+                    # Cluster-level operation → route to LB
                     new_edges.append(DemoEdge(
-                        id=f"{edge.id}-{j+1}",
+                        id=f"{edge.id}-cluster",
                         source=edge.source,
-                        target=gen_id,
+                        target=lb_node_id,
+                        connection_type=edge.connection_type,
+                        network=edge.network,
+                        connection_config={
+                            **edge.connection_config,
+                            "_target_cluster_id": cluster.id,
+                        },
+                        auto_configure=edge.auto_configure,
+                        label=edge.label,
+                    ))
+                else:
+                    # Data-flow inbound: route to LB (LB fans out to nodes internally)
+                    new_edges.append(DemoEdge(
+                        id=f"{edge.id}-lb",
+                        source=edge.source,
+                        target=lb_node_id,
                         connection_type=edge.connection_type,
                         network=edge.network,
                         connection_config=edge.connection_config,
@@ -189,6 +275,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if manifest is None:
             raise ValueError(f"Unknown component: {node.component}")
 
+        component_dir = os.path.join(components_dir, node.component)
         service_name = node.id
         container_name = f"{project_name}-{node.id}"
 
@@ -265,19 +352,24 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     aliases.append(cluster_alias)
                     existing["aliases"] = aliases
 
-        # Build service definition
-        # If component has a build_context, use docker build instead of pulling
-        if manifest.build_context:
-            build_dir = os.path.abspath(os.path.join(component_dir, manifest.build_context))
-            host_build_dir = _to_host_path(build_dir, "components")
+        # Resolve resource limits: demo-level overrides > manifest defaults
+        res = demo.resources
+        mem = res.default_memory or manifest.resources.memory
+        cpu = res.default_cpu or manifest.resources.cpu
+        if res.max_memory:
+            # Parse and cap memory (simple: just use max if set)
+            mem = res.max_memory if _mem_bytes(mem) > _mem_bytes(res.max_memory) else mem
+        if res.max_cpu and cpu > res.max_cpu:
+            cpu = res.max_cpu
 
+        # Build service definition
         service = {
             "image": manifest.image,
             "container_name": container_name,
             "expose": [str(p.container) for p in manifest.ports],
             "environment": env,
-            "mem_limit": manifest.resources.memory,
-            "cpus": manifest.resources.cpu,
+            "mem_limit": mem,
+            "cpus": cpu,
             "labels": {
                 "demoforge.demo": demo.id,
                 "demoforge.node": node.id,
@@ -286,9 +378,6 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             "networks": service_networks,
             "restart": "unless-stopped",
         }
-
-        if manifest.build_context:
-            service["build"] = {"context": host_build_dir}
 
         if command:
             service["command"] = command
@@ -326,7 +415,6 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 compose_volumes[vol_name] = None
 
         # Template mounts: render Jinja2 templates and add as bind-mounts
-        component_dir = os.path.join(components_dir, node.component)
         template_dir = os.path.join(component_dir, "templates")
         if manifest.template_mounts and os.path.isdir(template_dir):
             rendered = _render_templates(template_dir, node, demo, output_dir, project_name, manifest)
@@ -352,6 +440,27 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             service["volumes"] = service_volumes
 
         services[service_name] = service
+
+    # Enforce total demo budget — scale down per-container if total exceeds budget
+    res = demo.resources
+    if res.total_memory and _mem_bytes(res.total_memory) > 0:
+        total_budget = _mem_bytes(res.total_memory)
+        total_used = sum(_mem_bytes(s.get("mem_limit", "256m")) for s in services.values())
+        if total_used > total_budget:
+            scale = total_budget / total_used
+            for svc in services.values():
+                current = _mem_bytes(svc.get("mem_limit", "256m"))
+                scaled = int(current * scale)
+                svc["mem_limit"] = f"{max(scaled // (1024*1024), 64)}m"
+            logger.info(f"Total memory budget {res.total_memory}: scaled {len(services)} services by {scale:.2f}")
+
+    if res.total_cpu and res.total_cpu > 0:
+        total_used = sum(s.get("cpus", 0.5) for s in services.values())
+        if total_used > res.total_cpu:
+            scale = res.total_cpu / total_used
+            for svc in services.values():
+                svc["cpus"] = round(max(svc.get("cpus", 0.5) * scale, 0.1), 2)
+            logger.info(f"Total CPU budget {res.total_cpu}: scaled {len(services)} services by {scale:.2f}")
 
     # Top-level networks block — let Docker auto-assign subnets to avoid conflicts
     compose_networks = {}

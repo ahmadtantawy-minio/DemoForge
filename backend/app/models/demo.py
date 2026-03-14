@@ -30,6 +30,8 @@ class DemoEdge(BaseModel):
     connection_config: dict[str, Any] = {}  # Type-specific config
     auto_configure: bool = True             # Auto-generate init scripts
     label: str = ""
+    source_handle: str | None = None  # React Flow handle ID
+    target_handle: str | None = None  # React Flow handle ID
 
 class DemoGroup(BaseModel):
     id: str
@@ -69,6 +71,15 @@ class DemoNetwork(BaseModel):
     dns_suffix: str = "demo.local"
     driver: str = "bridge"
 
+class DemoResourceSettings(BaseModel):
+    """Demo-level resource limits applied to all containers."""
+    default_memory: str = ""       # e.g. "512m", "1g" — per-container default, empty = use manifest
+    default_cpu: float = 0         # e.g. 0.5, 1.0 — per-container default, 0 = use manifest
+    max_memory: str = ""           # Per-container cap — empty = no cap
+    max_cpu: float = 0             # Per-container cap — 0 = no cap
+    total_memory: str = ""         # Total demo budget — e.g. "32g", empty = no limit
+    total_cpu: float = 0           # Total demo budget — e.g. 16.0, 0 = no limit
+
 class DemoDefinition(BaseModel):
     """Complete demo definition — serializable to/from YAML."""
     id: str
@@ -80,3 +91,4 @@ class DemoDefinition(BaseModel):
     groups: list[DemoGroup] = []
     sticky_notes: list[DemoStickyNote] = []
     clusters: list[DemoCluster] = []
+    resources: DemoResourceSettings = DemoResourceSettings()

@@ -1,0 +1,135 @@
+id: 15a535b2
+name: MinIO Cluster
+description: "4-node erasure-coded MinIO cluster behind NGINX load balancer with Prometheus\
+  \ monitoring. Demonstrates cluster resilience \u2014 stop any node and the cluster\
+  \ continues serving data."
+networks:
+- name: default
+  subnet: 172.20.0.0/16
+  dns_suffix: demo.local
+  driver: bridge
+nodes:
+- id: prometheus
+  component: prometheus
+  variant: default
+  position:
+    x: 600.6604680363606
+    y: 83.04347538666673
+  config: {}
+  networks: {}
+  display_name: ''
+  labels: {}
+  group_id: null
+- id: grafana
+  component: grafana
+  variant: default
+  position:
+    x: 908.3418085600364
+    y: 2.1870950580656014
+  config: {}
+  networks: {}
+  display_name: ''
+  labels: {}
+  group_id: null
+- id: file-generator-1
+  component: file-generator
+  variant: burst
+  position:
+    x: -224.56519899275887
+    y: 52.41851121674833
+  config: {}
+  networks: {}
+  display_name: ''
+  labels: {}
+  group_id: null
+edges:
+- id: e-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: null
+  target_handle: null
+- id: xy-edge__file-generator-1-minio-cluster-1data-in
+  source: file-generator-1
+  target: minio-cluster-1
+  connection_type: file-push
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: null
+  target_handle: null
+- id: xy-edge__minio-cluster-1cluster-out-bottom-minio-cluster-3cluster-in-top
+  source: minio-cluster-1
+  target: minio-cluster-3
+  connection_type: cluster-replication
+  network: default
+  connection_config:
+    target_bucket: demo-bucket-replica
+    direction: one-way
+  auto_configure: true
+  label: ''
+  source_handle: cluster-out-bottom
+  target_handle: cluster-in-top
+- id: xy-edge__minio-cluster-1data-out-prometheus
+  source: minio-cluster-1
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: data-out
+  target_handle: null
+- id: xy-edge__minio-cluster-3data-out-prometheus
+  source: minio-cluster-3
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  source_handle: data-out
+  target_handle: null
+groups: []
+sticky_notes: []
+clusters:
+- id: minio-cluster-1
+  component: minio-aistore
+  label: MinIO AIStore Cluster
+  position:
+    x: 123.35640591555793
+    y: -103.47178363068778
+  node_count: 6
+  drives_per_node: 2
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+- id: minio-cluster-3
+  component: minio
+  label: MinIO CE Cluster
+  position:
+    x: 123.95239818959732
+    y: 233.22067083504655
+  node_count: 4
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+resources:
+  default_memory: 4g
+  default_cpu: 2.0
+  max_memory: 8g
+  max_cpu: 2.0
+  total_memory: 10g
+  total_cpu: 3.0

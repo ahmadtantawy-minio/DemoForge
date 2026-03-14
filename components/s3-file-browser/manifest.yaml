@@ -1,0 +1,78 @@
+id: s3-file-browser
+name: S3 File Browser
+category: tooling
+icon: s3-file-browser
+version: "1.0"
+image: demoforge/s3-file-browser:latest
+build_context: "."
+description: "Web-based S3 browser with load-balance visualization and cluster health validation. Shows which node serves each request."
+
+resources:
+  memory: "128m"
+  cpu: 0.25
+
+ports:
+  - name: http
+    container: 8080
+    protocol: tcp
+
+environment:
+  S3_ENDPOINT: "${S3_ENDPOINT:-http://localhost:9000}"
+  S3_ACCESS_KEY: "${S3_ACCESS_KEY:-minioadmin}"
+  S3_SECRET_KEY: "${S3_SECRET_KEY:-minioadmin}"
+
+volumes: []
+
+health_check:
+  endpoint: /health
+  port: 8080
+  interval: 10s
+  timeout: 5s
+
+secrets:
+  - key: S3_ACCESS_KEY
+    label: "S3 Access Key"
+    default: "minioadmin"
+  - key: S3_SECRET_KEY
+    label: "S3 Secret Key"
+    default: "minioadmin"
+
+web_ui:
+  - name: browser
+    port: 8080
+    path: "/"
+    description: "S3 File Browser with load-balance visualization and cluster health checks"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "S3 File Browser container."
+  quick_actions:
+    - label: "Check health"
+      command: "curl -s http://localhost:8080/health | python -m json.tool"
+    - label: "View config"
+      command: "cat /app/config.json 2>/dev/null || echo 'No config.json — using env vars'"
+    - label: "Tail logs"
+      command: "tail -f /proc/1/fd/1 /proc/1/fd/2"
+
+connections:
+  provides:
+    - type: s3-client
+      port: 8080
+      description: "S3 browser client"
+  accepts:
+    - type: s3
+      config_schema: []
+    - type: load-balance
+      config_schema: []
+
+variants:
+  default:
+    description: "S3 file browser with cluster health validation"
+
+template_mounts:
+  - template: "config.json.j2"
+    mount_path: "/app/config.json"
+
+static_mounts: []
+
+init_scripts: []

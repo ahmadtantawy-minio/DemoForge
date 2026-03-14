@@ -67,7 +67,34 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         className="w-full h-full rounded-xl p-4 cursor-pointer border-2 border-primary/30 bg-primary/5"
         onClick={() => { setSelectedNode(id); setContextNode(null); }}
       >
-        <Handle type="target" position={Position.Left} />
+        <Handle type="target" position={Position.Left} id="data-in" />
+        {/* Cluster-level handles — both source+target at top and bottom for bidirectional dragging */}
+        <Handle
+          type="source"
+          position={Position.Top}
+          id="cluster-out"
+          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10 }}
+          title="Cluster replication (drag to connect)"
+        />
+        <Handle
+          type="target"
+          position={Position.Top}
+          id="cluster-in-top"
+          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10, opacity: 0 }}
+        />
+        <Handle
+          type="target"
+          position={Position.Bottom}
+          id="cluster-in"
+          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10 }}
+          title="Cluster replication (drag to connect)"
+        />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          id="cluster-out-bottom"
+          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10, opacity: 0 }}
+        />
         <div className="flex items-center gap-2 mb-3">
           <ComponentIcon icon={nodeData.componentId || "minio"} size={24} />
           <div className="flex-1">
@@ -91,6 +118,46 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             </div>
           )}
         </div>
+        {/* Embedded NGINX LB */}
+        {(() => {
+          const lbId = `${id}-lb`;
+          const lbInst = instances.find((i) => i.node_id === lbId);
+          const lbHealthy = lbInst?.health === "healthy";
+          // Console URL points through the backend proxy to the LB's console port
+          const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+          const consoleUrl = lbInst ? `${apiBase}/proxy/${activeDemoId}/${lbId}/console/` : null;
+          return (
+            <div className="flex items-center gap-2 mb-2">
+              <div
+                className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] ${
+                  lbInst
+                    ? lbHealthy
+                      ? "bg-green-500/10 border-green-500/30 text-green-400"
+                      : lbInst.health === "starting"
+                      ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 animate-pulse"
+                      : "bg-red-500/10 border-red-500/30 text-red-400"
+                    : "bg-card border-border text-muted-foreground"
+                }`}
+                title={lbInst ? `${lbId} (${lbInst.health})` : "NGINX Load Balancer"}
+              >
+                <span className="font-bold">N</span>
+                <span>LB</span>
+              </div>
+              {consoleUrl && activeDemoId && (
+                <button
+                  className="px-2 py-0.5 rounded border border-border bg-card text-[10px] text-foreground hover:bg-accent transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(consoleUrl, "_blank");
+                  }}
+                  title="Open MinIO Console (via LB)"
+                >
+                  Console
+                </button>
+              )}
+            </div>
+          );
+        })()}
         {/* Internal node visualization */}
         <div className="flex flex-wrap gap-1.5">
           {Array.from({ length: nodeCount }).map((_, i) => {
@@ -107,6 +174,8 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                       ? "bg-green-500/10 border-green-500/30"
                       : isStopped
                       ? "bg-zinc-500/10 border-zinc-500/30 opacity-50"
+                      : inst.health === "starting"
+                      ? "bg-yellow-500/10 border-yellow-500/30 animate-pulse"
                       : "bg-red-500/10 border-red-500/30"
                     : "bg-card border-border"
                 }`}
@@ -122,7 +191,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             );
           })}
         </div>
-        <Handle type="source" position={Position.Right} />
+        <Handle type="source" position={Position.Right} id="data-out" />
       </div>
 
       {/* Per-node context menu — portaled to body to escape React Flow transforms */}
@@ -154,6 +223,23 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                 Start Node
               </button>
             )}
+            {(() => {
+              const lbId = `${id}-lb`;
+              const lbInst = instances.find((i) => i.node_id === lbId);
+              if (lbInst && lbInst.health === "healthy") {
+                const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+                const url = `${apiBase}/proxy/${activeDemoId}/${lbId}/console/`;
+                return (
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors"
+                    onClick={() => { window.open(url, "_blank"); setContextNode(null); }}
+                  >
+                    Open Console
+                  </button>
+                );
+              }
+              return null;
+            })()}
             <button
               className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
               onClick={() => { setActiveView("control-plane"); setContextNode(null); }}
