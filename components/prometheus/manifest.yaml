@@ -50,6 +50,8 @@ terminal:
       command: "wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | head -100"
     - label: "Reload config"
       command: "wget -qO- --post-data='' http://localhost:9090/-/reload"
+    - label: "Tail logs"
+      command: "tail -f /proc/1/fd/1 /proc/1/fd/2"
 
 connections:
   provides:

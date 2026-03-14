@@ -46,6 +46,8 @@ terminal:
       command: "mc alias list"
     - label: "List buckets"
       command: "mc ls target/ 2>/dev/null || echo 'No target configured yet'"
+    - label: "Tail logs"
+      command: "tail -f /proc/1/fd/1 /proc/1/fd/2"
 
 connections:
   provides:

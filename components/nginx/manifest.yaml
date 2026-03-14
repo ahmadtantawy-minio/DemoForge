@@ -47,6 +47,10 @@ terminal:
       command: "nginx -s reload"
     - label: "Active connections"
       command: "curl -s http://localhost/nginx_status"
+    - label: "Tail access log"
+      command: "tail -f /var/log/nginx/access.log"
+    - label: "Tail error log"
+      command: "tail -f /var/log/nginx/error.log"
 
 connections:
   provides:

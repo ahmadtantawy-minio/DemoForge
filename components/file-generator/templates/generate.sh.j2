@@ -13,8 +13,12 @@ set -e
 
 {% if target_edges %}
 {% for item in target_edges %}
-# Target: {{ item.target.id }}
+# Target: {{ item.target.id }} ({{ item.target.component }})
+{% if item.target.component == 'nginx' %}
+TARGET_ENDPOINT="http://{{ project_name }}-{{ item.target.id }}:80"
+{% else %}
 TARGET_ENDPOINT="http://{{ project_name }}-{{ item.target.id }}:9000"
+{% endif %}
 TARGET_BUCKET="{{ item.edge.connection_config.get('target_bucket', 'demo-bucket') if item.edge.connection_config else 'demo-bucket' }}"
 FILE_COUNT={{ item.edge.connection_config.get('file_count', '100') if item.edge.connection_config else '100' }}
 FILE_SIZE="{{ item.edge.connection_config.get('file_size', '1MB') if item.edge.connection_config else '1MB' }}"
@@ -31,28 +35,30 @@ echo "================================"
 mc alias set target "$TARGET_ENDPOINT" "$FG_TARGET_ACCESS_KEY" "$FG_TARGET_SECRET_KEY"
 mc mb "target/$TARGET_BUCKET" --ignore-existing
 
+mkdir -p /tmp/gen
+
 echo "Starting generation..."
 for i in $(seq 1 $FILE_COUNT); do
   FILENAME="file-$(date +%s%N)-$i"
 
   case "$FILE_FORMAT" in
     csv)
-      # Generate CSV with random data
-      echo "id,timestamp,value,category" > /tmp/$FILENAME.csv
+      echo "id,timestamp,value,category" > /tmp/gen/$FILENAME.csv
       for j in $(seq 1 100); do
-        echo "$j,$(date -u +%Y-%m-%dT%H:%M:%S),$(shuf -i 1-10000 -n 1),cat-$(shuf -i 1-5 -n 1)" >> /tmp/$FILENAME.csv
+        echo "$j,$(date -u +%Y-%m-%dT%H:%M:%S),$(shuf -i 1-10000 -n 1),cat-$(shuf -i 1-5 -n 1)" >> /tmp/gen/$FILENAME.csv
       done
-      mc cp /tmp/$FILENAME.csv "target/$TARGET_BUCKET/$FILENAME.csv"
-      rm -f /tmp/$FILENAME.csv
+      mc cp /tmp/gen/$FILENAME.csv "target/$TARGET_BUCKET/$FILENAME.csv"
+      rm -f /tmp/gen/$FILENAME.csv
       ;;
     json)
-      # Generate JSON with random data
-      echo "{\"id\":$i,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S)\",\"data\":\"$(head -c 100 /dev/urandom | base64 | head -c 100)\"}" | \
-        mc pipe "target/$TARGET_BUCKET/$FILENAME.json"
+      echo "{\"id\":$i,\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S)\",\"data\":\"$(head -c 100 /dev/urandom | base64 | head -c 100)\"}" > /tmp/gen/$FILENAME.json
+      mc cp /tmp/gen/$FILENAME.json "target/$TARGET_BUCKET/$FILENAME.json"
+      rm -f /tmp/gen/$FILENAME.json
       ;;
     *)
-      # Random binary data
-      dd if=/dev/urandom bs=$FILE_SIZE count=1 2>/dev/null | mc pipe "target/$TARGET_BUCKET/$FILENAME.bin"
+      dd if=/dev/urandom bs=$FILE_SIZE count=1 of=/tmp/gen/$FILENAME.bin 2>/dev/null
+      mc cp /tmp/gen/$FILENAME.bin "target/$TARGET_BUCKET/$FILENAME.bin"
+      rm -f /tmp/gen/$FILENAME.bin
       ;;
   esac
 
@@ -72,5 +78,5 @@ echo "Connect this Data Generator to a MinIO or NGINX node to set a target."
 echo ""
 echo "Manual usage:"
 echo "  mc alias set target http://<endpoint>:9000 <access-key> <secret-key>"
-echo "  dd if=/dev/urandom bs=1M count=1 | mc pipe target/demo-bucket/test.bin"
+echo "  dd if=/dev/urandom bs=1M count=1 of=/tmp/test.bin && mc cp /tmp/test.bin target/demo-bucket/test.bin"
 {% endif %}

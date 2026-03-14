@@ -55,6 +55,8 @@ terminal:
       command: "wget -qO- http://localhost:3000/api/health"
     - label: "List dashboards"
       command: "wget -qO- http://localhost:3000/api/search 2>/dev/null"
+    - label: "Tail logs"
+      command: "tail -f /var/log/grafana/grafana.log 2>/dev/null || tail -f /proc/1/fd/1"
 
 connections:
   provides: []

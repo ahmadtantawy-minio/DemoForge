@@ -61,6 +61,8 @@ terminal:
       command: "mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD && mc ls local"
     - label: "Create test bucket"
       command: "mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD && mc mb local/test-bucket --ignore-existing"
+    - label: "Tail logs"
+      command: "tail -f /proc/1/fd/1"
 
 connections:
   provides:
