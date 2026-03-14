@@ -71,20 +71,22 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         cred_user = cluster.credentials.get("root_user", "minioadmin")
         cred_pass = cluster.credentials.get("root_password", "minioadmin")
 
-        # Build peer URLs for all nodes in the cluster
-        peer_urls = []
+        # Build node IDs and network alias prefix for expansion notation
+        alias_prefix = f"minio-{cluster.id.replace('-', '')[:8]}"
         for i in range(1, cluster.node_count + 1):
             node_id = f"{cluster.id}-node-{i}"
-            svc_name = f"{project_name}-{node_id}"
-            if drives > 1:
-                peer_urls.append(f"http://{svc_name}:9000/data{{1...{drives}}}")
-            else:
-                peer_urls.append(f"http://{svc_name}:9000/data")
             generated_ids.append(node_id)
 
         cluster_edge_expansion[cluster.id] = generated_ids
 
-        # Create synthetic DemoNode entries
+        # Single expansion URL for one erasure-coded pool
+        n = cluster.node_count
+        if drives > 1:
+            expansion_url = f"http://{alias_prefix}{{1...{n}}}:9000/data{{1...{drives}}}"
+        else:
+            expansion_url = f"http://{alias_prefix}{{1...{n}}}:9000/data"
+
+        # Create synthetic DemoNode entries with network aliases
         for i, node_id in enumerate(generated_ids):
             synthetic_node = DemoNode(
                 id=node_id,
@@ -99,6 +101,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 },
                 display_name=f"Node {i + 1}",
             )
+            # Store network alias for compose generation
+            synthetic_node.labels = {"_cluster_alias": f"{alias_prefix}{i + 1}"}
             demo.nodes.append(synthetic_node)
 
         # Expand edges: any edge referencing the cluster ID fans out
@@ -134,8 +138,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     ))
         demo.edges = [e for e in demo.edges if e.id not in edges_to_remove] + new_edges
 
-        # Register cluster commands for the synthetic nodes
-        server_cmd = ["server"] + peer_urls + ["--console-address", ":9001"]
+        # Register cluster commands — single expansion URL = single erasure-coded pool
+        server_cmd = ["server", expansion_url, "--console-address", ":9001"]
         for node_id in generated_ids:
             cluster_commands[node_id] = server_cmd
             cluster_health_override[node_id] = "/minio/health/cluster"
@@ -248,7 +252,25 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     net_entry["aliases"] = net_cfg.aliases
             service_networks[docker_net_name] = net_entry if net_entry else None
 
+        # Inject cluster network alias for erasure-coded pool discovery
+        cluster_alias = node.labels.get("_cluster_alias", "")
+        if cluster_alias:
+            # Add alias to all networks this node joins
+            for net_name in list(service_networks.keys()):
+                existing = service_networks[net_name]
+                if existing is None:
+                    service_networks[net_name] = {"aliases": [cluster_alias]}
+                elif isinstance(existing, dict):
+                    aliases = existing.get("aliases", [])
+                    aliases.append(cluster_alias)
+                    existing["aliases"] = aliases
+
         # Build service definition
+        # If component has a build_context, use docker build instead of pulling
+        if manifest.build_context:
+            build_dir = os.path.abspath(os.path.join(component_dir, manifest.build_context))
+            host_build_dir = _to_host_path(build_dir, "components")
+
         service = {
             "image": manifest.image,
             "container_name": container_name,
@@ -264,6 +286,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             "networks": service_networks,
             "restart": "unless-stopped",
         }
+
+        if manifest.build_context:
+            service["build"] = {"context": host_build_dir}
 
         if command:
             service["command"] = command
