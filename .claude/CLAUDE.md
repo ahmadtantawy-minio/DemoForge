@@ -17,6 +17,7 @@ Coordinate specialized agents, tools, and skills so work is completed accurately
 Delegate for: multi-file changes, refactors, debugging, reviews, planning, research, verification.
 Work directly for: trivial ops, small clarifications, single commands.
 Route code to `executor` (use `model=opus` for complex work). Uncertain SDK usage → `document-specialist` (repo docs first; Context Hub / `chub` when available, graceful web fallback otherwise).
+**IMPORTANT**: Always spawn agents with `mode: "auto"` to avoid unnecessary permission prompts. Never use `mode: "default"`.
 </delegation_rules>
 
 <model_routing>

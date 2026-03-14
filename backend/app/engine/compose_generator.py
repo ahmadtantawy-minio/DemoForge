@@ -59,11 +59,13 @@ def _render_templates(template_dir, node, demo, output_dir, project_name, manife
     return results
 
 
-def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str = "./components") -> str:
+def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str = "./components") -> tuple[str, DemoDefinition]:
     """
     Generate a docker-compose.yml for the given demo.
-    Returns the path to the generated file.
+    Returns (path to the generated file, expanded demo copy).
+    The original demo object is NOT mutated.
     """
+    demo = demo.model_copy(deep=True)
     project_name = f"demoforge-{demo.id}"
 
     # Build network map from demo.networks list
@@ -80,6 +82,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     for cluster in demo.clusters:
         generated_ids = []
         drives = cluster.drives_per_node
+        total_drives = cluster.node_count * drives
+        if total_drives < 4:
+            raise ValueError(
+                f"Cluster '{cluster.id}' has {cluster.node_count} node(s) x {drives} drive(s) = "
+                f"{total_drives} total drives. MinIO erasure coding requires at least 4 drives."
+            )
         cred_user = cluster.credentials.get("root_user", "minioadmin")
         cred_pass = cluster.credentials.get("root_password", "minioadmin")
 
@@ -151,6 +159,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         edges_to_remove = []
         for edge in original_edges:
             is_cluster_level = edge.connection_type.startswith("cluster-")
+            # Preserve TRUE original edge ID across multiple cluster expansions
+            true_original = edge.connection_config.get("_original_edge_id", edge.id)
             if edge.source == cluster.id:
                 edges_to_remove.append(edge.id)
                 if is_cluster_level:
@@ -164,6 +174,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         connection_config={
                             **edge.connection_config,
                             "_source_cluster_id": cluster.id,
+                            "_original_edge_id": true_original,
                         },
                         auto_configure=edge.auto_configure,
                         label=edge.label,
@@ -178,7 +189,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                             target=edge.target,
                             connection_type=edge.connection_type,
                             network=edge.network,
-                            connection_config=edge.connection_config,
+                            connection_config={
+                                **edge.connection_config,
+                                "_original_edge_id": true_original,
+                            },
                             auto_configure=edge.auto_configure,
                             label=edge.label,
                         ))
@@ -189,7 +203,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                             target=edge.target,
                             connection_type=edge.connection_type,
                             network=edge.network,
-                            connection_config=edge.connection_config,
+                            connection_config={
+                                **edge.connection_config,
+                                "_original_edge_id": true_original,
+                            },
                             auto_configure=edge.auto_configure,
                             label=edge.label,
                         ))
@@ -206,6 +223,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         connection_config={
                             **edge.connection_config,
                             "_target_cluster_id": cluster.id,
+                            "_original_edge_id": true_original,
                         },
                         auto_configure=edge.auto_configure,
                         label=edge.label,
@@ -218,7 +236,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         target=lb_node_id,
                         connection_type=edge.connection_type,
                         network=edge.network,
-                        connection_config=edge.connection_config,
+                        connection_config={
+                            **edge.connection_config,
+                            "_original_edge_id": true_original,
+                        },
                         auto_configure=edge.auto_configure,
                         label=edge.label,
                     ))
@@ -498,4 +519,4 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
 
     logger.info(f"Generated compose file: {output_path}")
-    return output_path
+    return output_path, demo

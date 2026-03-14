@@ -1,38 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useDiagramStore } from "../../stores/diagramStore";
 import type { ConnectionType } from "../../types";
-
-const connectionColors: Record<string, string> = {
-  s3: "#3b82f6",
-  http: "#6b7280",
-  metrics: "#22c55e",
-  replication: "#a855f7",
-  "site-replication": "#d946ef",
-  "load-balance": "#f97316",
-  data: "#6b7280",
-  "metrics-query": "#22c55e",
-  tiering: "#eab308",
-  "file-push": "#06b6d4",
-  "cluster-replication": "#a855f7",
-  "cluster-site-replication": "#d946ef",
-  "cluster-tiering": "#eab308",
-};
-
-const connectionLabels: Record<string, string> = {
-  s3: "S3",
-  http: "HTTP",
-  metrics: "Metrics",
-  replication: "Replication",
-  "site-replication": "Site Replication",
-  "load-balance": "Load Balance",
-  data: "Data",
-  "metrics-query": "PromQL",
-  tiering: "Tiering",
-  "file-push": "File Push",
-  "cluster-replication": "Bucket Replication",
-  "cluster-site-replication": "Site Replication",
-  "cluster-tiering": "ILM Tiering",
-};
+import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
 
 export default function ConnectionTypePicker() {
   const pendingConnection = useDiagramStore((s) => s.pendingConnection);

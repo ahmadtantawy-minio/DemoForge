@@ -22,9 +22,10 @@ class RunningContainer:
 class EdgeConfigResult:
     edge_id: str
     connection_type: str
-    status: str = "pending"           # "pending", "applied", "failed"
+    status: str = "pending"           # "pending", "applied", "failed", "paused"
     description: str = ""
     error: str = ""
+    previously_applied: bool = False  # True if edge was successfully configured at least once
 
 @dataclass
 class RunningDemo:

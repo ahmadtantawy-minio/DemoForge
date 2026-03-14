@@ -655,6 +655,14 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         const configStatus = edgeData?.configStatus;
         const connType = edgeData?.connectionType || "";
         const isClusterEdge = connType.startsWith("cluster-");
+        const activateLabel =
+          connType === "cluster-site-replication" ? "Activate Site Replication" :
+          connType === "cluster-tiering" ? "Activate Tiering" :
+          "Activate Replication";
+        const pauseLabel =
+          connType === "cluster-site-replication" ? "Pause Site Replication" :
+          connType === "cluster-tiering" ? "Pause Tiering" :
+          "Pause Replication";
         return (
           <div
             className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
@@ -690,7 +698,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                   setEdgeContextMenu(null);
                 }}
               >
-                Activate Replication
+                {activateLabel}
               </button>
             )}
             {isClusterEdge && activeDemoId && configStatus === "applied" && (
@@ -703,7 +711,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                   setEdgeContextMenu(null);
                 }}
               >
-                Pause Replication
+                {pauseLabel}
               </button>
             )}
             {!edgeContextMenu.confirm ? (

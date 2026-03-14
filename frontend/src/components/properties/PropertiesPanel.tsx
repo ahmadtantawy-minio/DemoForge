@@ -13,38 +13,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ConfigSchemaForm from "./ConfigSchemaForm";
+import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
+import { Eye, EyeOff } from "lucide-react";
 
-const connectionColors: Record<string, string> = {
-  s3: "#3b82f6",
-  http: "#6b7280",
-  metrics: "#22c55e",
-  replication: "#a855f7",
-  "site-replication": "#d946ef",
-  "load-balance": "#f97316",
-  data: "#6b7280",
-  "metrics-query": "#22c55e",
-  tiering: "#eab308",
-  "file-push": "#06b6d4",
-  "cluster-replication": "#a855f7",
-  "cluster-site-replication": "#d946ef",
-  "cluster-tiering": "#eab308",
-};
-
-const connectionLabels: Record<string, string> = {
-  s3: "S3",
-  http: "HTTP",
-  metrics: "Metrics",
-  replication: "Replication",
-  "site-replication": "Site Replication",
-  "load-balance": "Load Balance",
-  data: "Data",
-  "metrics-query": "PromQL",
-  tiering: "Tiering",
-  "file-push": "File Push",
-  "cluster-replication": "Bucket Replication",
-  "cluster-site-replication": "Site Replication",
-  "cluster-tiering": "ILM Tiering",
-};
+function PasswordInput({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={className ? `pr-8 ${className}` : "pr-8 h-8 text-sm"}
+      />
+      <button
+        type="button"
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setShow((s) => !s)}
+        tabIndex={-1}
+      >
+        {show ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </div>
+  );
+}
 
 // Config schemas for cluster-level connection types (not in component manifests)
 const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
@@ -283,10 +275,9 @@ export default function PropertiesPanel() {
             </div>
             <div className="mb-3">
               <label className="text-xs text-muted-foreground block mb-1">Root Password</label>
-              <Input
-                type="text"
+              <PasswordInput
                 value={gData.cluster_config?.root_password ?? "minioadmin"}
-                onChange={(e) => updateGroup({ cluster_config: { ...(gData.cluster_config || {}), root_password: e.target.value } })}
+                onChange={(v) => updateGroup({ cluster_config: { ...(gData.cluster_config || {}), root_password: v } })}
                 className="h-8 text-sm"
               />
             </div>
@@ -361,10 +352,9 @@ export default function PropertiesPanel() {
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Root Password</label>
-          <Input
-            type="text"
+          <PasswordInput
             value={cData.credentials?.root_password ?? "minioadmin"}
-            onChange={(e) => updateCluster({ credentials: { ...(cData.credentials || {}), root_password: e.target.value } })}
+            onChange={(v) => updateCluster({ credentials: { ...(cData.credentials || {}), root_password: v } })}
             className="h-8 text-sm"
           />
         </div>

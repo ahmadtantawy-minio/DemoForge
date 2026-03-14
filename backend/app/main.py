@@ -18,7 +18,7 @@ async def docker_sync_loop():
     while True:
         await asyncio.sleep(10)
         try:
-            state.sync_with_docker()
+            await asyncio.to_thread(state.sync_with_docker)
         except Exception as e:
             logger.warning(f"Docker sync error: {e}")
 

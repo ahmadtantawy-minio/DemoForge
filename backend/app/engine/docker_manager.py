@@ -154,7 +154,7 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
     network_names = [f"{project_name}-{net.name}" for net in demo.networks]
 
     await progress("compose", "running", "Generating docker-compose file...")
-    compose_path = generate_compose(demo, data_dir, components_dir)
+    compose_path, demo = generate_compose(demo, data_dir, components_dir)
     await progress("compose", "done", f"Generated {compose_path}")
 
     running = RunningDemo(
@@ -297,6 +297,9 @@ async def stop_demo(demo_id: str):
             remove_volumes=True,
         )
         state.remove_demo(demo_id)
+
+    # Clean up the lock after releasing it (outside the async with block)
+    _demo_locks.pop(demo_id, None)
 
 
 async def get_container_health(container_name: str) -> ContainerHealthStatus:
