@@ -24,7 +24,7 @@ environment:
 volumes: []
 
 health_check:
-  endpoint: /
+  endpoint: /nginx_status
   port: 80
   interval: 10s
   timeout: 5s

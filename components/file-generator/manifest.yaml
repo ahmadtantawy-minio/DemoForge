@@ -41,7 +41,7 @@ terminal:
   welcome_message: "Data Generator container. Use quick actions or run commands manually."
   quick_actions:
     - label: "Start generating"
-      command: "/generate.sh"
+      command: "bash /generate.sh"
     - label: "Check mc alias"
       command: "mc alias list"
     - label: "List buckets"
@@ -91,9 +91,4 @@ template_mounts:
 
 static_mounts: []
 
-init_scripts:
-  - command: "chmod +x /generate.sh"
-    wait_for_healthy: false
-    timeout: 10
-    order: 0
-    description: "Make generator script executable"
+init_scripts: []
