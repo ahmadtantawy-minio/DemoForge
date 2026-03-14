@@ -53,6 +53,13 @@
   box-sizing: border-box;
 }
 
+/* Hide React Flow default selection outline on group and sticky nodes */
+.react-flow__node-group.selected,
+.react-flow__node-sticky.selected {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 html,
 body,
 #root {

@@ -28,6 +28,7 @@ export default function GroupNode({ id, data, selected }: NodeProps) {
         className="w-full h-full rounded-xl p-3 cursor-pointer"
         style={{
           background: `${color}0a`,
+          border: `1.5px dashed ${color}40`,
           borderRadius: "12px",
         }}
         onMouseEnter={() => setHovered(true)}
