@@ -42,6 +42,16 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } = useDiagramStore();
   const { activeDemoId, instances, demos } = useDemoStore();
   const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
+
+  // Track dark/light theme reactively
+  const [isDark, setIsDark] = useState(document.documentElement.classList.contains("dark"));
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
   const { deleteElements } = useReactFlow();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
@@ -208,7 +218,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeContextMenu={onNodeContextMenu}
-        colorMode="dark"
+        colorMode={isDark ? "dark" : "light"}
         deleteKeyCode={null}
         fitView
       >
