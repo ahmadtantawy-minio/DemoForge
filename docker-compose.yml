@@ -11,10 +11,14 @@ services:
       - ./components:/app/components:ro              # Component manifests
       - ./demos:/app/demos                           # Saved demo definitions
       - ./data:/app/data                             # Runtime state
+      - ./demo-templates:/app/demo-templates:ro      # Demo templates
     environment:
       - DEMOFORGE_COMPONENTS_DIR=/app/components
       - DEMOFORGE_DEMOS_DIR=/app/demos
       - DEMOFORGE_DATA_DIR=/app/data
+      - DEMOFORGE_TEMPLATES_DIR=/app/demo-templates
+      - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components
+      - DEMOFORGE_HOST_DATA_DIR=${PWD}/data
     labels:
       - "demoforge.role=backend"                     # So we can find ourselves
 

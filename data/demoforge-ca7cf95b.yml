@@ -1,0 +1,48 @@
+version: '3.8'
+services:
+  minio-4:
+    image: minio/minio:latest
+    container_name: demoforge-ca7cf95b-minio-4
+    expose:
+    - '9000'
+    - '9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BROWSER_REDIRECT_URL: ''
+    mem_limit: 256m
+    cpus: 0.5
+    labels:
+      demoforge.demo: ca7cf95b
+      demoforge.node: minio-4
+      demoforge.component: minio
+    networks:
+      demoforge-ca7cf95b-default: null
+    restart: unless-stopped
+    command:
+    - server
+    - /data
+    - --console-address
+    - :9001
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -sf
+      - http://localhost:9000/minio/health/live
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+    - demoforge-ca7cf95b-minio-4-data:/data
+networks:
+  demoforge-ca7cf95b-default:
+    driver: bridge
+    name: demoforge-ca7cf95b-default
+    ipam:
+      config:
+      - subnet: 172.20.0.0/16
+volumes:
+  demoforge-ca7cf95b-minio-4-data:
+    driver: local

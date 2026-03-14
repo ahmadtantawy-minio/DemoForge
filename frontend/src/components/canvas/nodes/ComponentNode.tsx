@@ -3,9 +3,10 @@ import type { ComponentNodeData } from "../../../types";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
 import { proxyUrl } from "../../../api/client";
+import ComponentIcon from "../../shared/ComponentIcon";
 
 export default function ComponentNode({ id, data }: NodeProps) {
-  const nodeData = data as ComponentNodeData;
+  const nodeData = data as unknown as ComponentNodeData;
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
   const { instances, activeDemoId } = useDemoStore();
 
@@ -14,7 +15,7 @@ export default function ComponentNode({ id, data }: NodeProps) {
     starting: "bg-yellow-400",
     degraded: "bg-orange-400",
     error: "bg-red-500",
-    stopped: "bg-gray-400",
+    stopped: "bg-muted-foreground",
   };
 
   const handleDoubleClick = () => {
@@ -27,20 +28,20 @@ export default function ComponentNode({ id, data }: NodeProps) {
 
   return (
     <div
-      className="bg-white border-2 border-gray-300 rounded-lg shadow-sm px-4 py-3 min-w-[140px] cursor-pointer hover:border-blue-400 transition-colors"
+      className="bg-card border-2 border-border rounded-lg shadow-sm px-4 py-3 min-w-[140px] cursor-pointer hover:border-primary/50 transition-colors"
       onClick={() => setSelectedNode(id)}
       onDoubleClick={handleDoubleClick}
     >
       <Handle type="target" position={Position.Left} />
       <div className="flex items-center gap-2">
-        <div className="text-2xl">📦</div>
+        <ComponentIcon icon={nodeData.componentId} size={28} />
         <div>
-          <div className="font-semibold text-sm text-gray-800">{nodeData.label}</div>
-          <div className="text-xs text-gray-500">{nodeData.variant}</div>
+          <div className="font-semibold text-sm text-foreground">{nodeData.label}</div>
+          <div className="text-xs text-muted-foreground">{nodeData.variant}</div>
         </div>
         {nodeData.health && (
           <span
-            className={`ml-auto w-2.5 h-2.5 rounded-full ${healthColors[nodeData.health] ?? "bg-gray-400"}`}
+            className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"}`}
             title={nodeData.health}
           />
         )}

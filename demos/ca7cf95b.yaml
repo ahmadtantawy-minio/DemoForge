@@ -1,0 +1,18 @@
+id: ca7cf95b
+name: Test
+description: ''
+networks:
+- name: default
+  subnet: 172.20.0.0/16
+  dns_suffix: demo.local
+  driver: bridge
+nodes:
+- id: minio-4
+  component: minio
+  variant: single
+  position:
+    x: -406.35993032859375
+    y: -392.06044993531117
+  config: {}
+  networks: {}
+edges: []

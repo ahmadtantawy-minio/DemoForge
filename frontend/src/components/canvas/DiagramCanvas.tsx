@@ -1,20 +1,28 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import {
   ReactFlow,
   MiniMap,
   Controls,
   Background,
+  useReactFlow,
   type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
-import { saveDiagram } from "../../api/client";
+import { saveDiagram, fetchDemo } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
-import DataEdge from "./edges/DataEdge";
+import AnimatedDataEdge from "./edges/AnimatedDataEdge";
+import NodeContextMenu from "./nodes/NodeContextMenu";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { MousePointerClick } from "lucide-react";
 
 const nodeTypes = { component: ComponentNode };
-const edgeTypes = { data: DataEdge };
+const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge };
 
 let nodeCounter = 0;
 
@@ -26,9 +34,46 @@ function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
   }) as T;
 }
 
-export default function DiagramCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode } = useDiagramStore();
-  const activeDemoId = useDemoStore((s) => s.activeDemoId);
+interface DiagramCanvasProps {
+  onOpenTerminal: (nodeId: string) => void;
+}
+
+function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges } = useDiagramStore();
+  const { activeDemoId, instances, demos } = useDemoStore();
+  const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
+  const { deleteElements } = useReactFlow();
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
+
+  // Load diagram from backend when active demo changes
+  useEffect(() => {
+    if (!activeDemoId) return;
+    fetchDemo(activeDemoId).then((demo) => {
+      if (!demo) return;
+      const rfNodes = (demo.nodes || []).map((n: any) => ({
+        id: n.id,
+        type: "component",
+        position: n.position || { x: 0, y: 0 },
+        data: { label: n.component, componentId: n.component, variant: n.variant, config: n.config || {}, networks: n.networks || {} },
+      }));
+      const rfEdges = (demo.edges || []).map((e: any) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "animated",
+        data: { connectionType: e.connection_type, network: e.network, label: e.label || "", status: "idle" },
+      }));
+      // Derive nodeCounter from existing node IDs to avoid collisions
+      const maxId = rfNodes.reduce((max: number, n: any) => {
+        const num = parseInt(n.id.split("-").pop() || "0", 10);
+        return isNaN(num) ? max : Math.max(max, num);
+      }, 0);
+      nodeCounter = maxId;
+      setNodes(rfNodes);
+      setEdges(rfEdges);
+    }).catch(() => {});
+  }, [activeDemoId, setNodes, setEdges]);
 
   const debouncedSave = useRef(
     debounce((demoId: string, ns: Node[], es: any[]) => {
@@ -59,6 +104,7 @@ export default function DiagramCanvas() {
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
+      if (isRunning) return;
       const componentId = e.dataTransfer.getData("componentId");
       const variant = e.dataTransfer.getData("variant") || "single";
       const label = e.dataTransfer.getData("label") || componentId;
@@ -86,7 +132,7 @@ export default function DiagramCanvas() {
         debouncedSave(activeDemoId, [...state.nodes, newNode], state.edges);
       }
     },
-    [addNode, activeDemoId, debouncedSave]
+    [addNode, activeDemoId, debouncedSave, isRunning]
   );
 
   const onDragOver = (e: React.DragEvent) => {
@@ -94,8 +140,65 @@ export default function DiagramCanvas() {
     e.dataTransfer.dropEffect = "move";
   };
 
+  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+  }, []);
+
+  // Delete a node and all connected edges via context menu
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    setPendingDelete({ type: "node", ids: [nodeId] });
+  }, []);
+
+  // Confirm deletion
+  const confirmDelete = useCallback(() => {
+    if (!pendingDelete) return;
+    if (pendingDelete.type === "node") {
+      const nodeId = pendingDelete.ids[0];
+      deleteElements({ nodes: [{ id: nodeId }] });
+    } else {
+      deleteElements({ edges: pendingDelete.ids.map((id) => ({ id })) });
+    }
+    setPendingDelete(null);
+    if (activeDemoId) {
+      setTimeout(() => {
+        const s = useDiagramStore.getState();
+        debouncedSave(activeDemoId, s.nodes, s.edges);
+      }, 50);
+    }
+  }, [pendingDelete, deleteElements, activeDemoId, debouncedSave]);
+
+  // Intercept Backspace/Delete key — show confirmation instead of immediate delete
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isRunning) return;
+      if (e.key === "Backspace" || e.key === "Delete") {
+        const selected = useDiagramStore.getState();
+        const selectedNodes = selected.nodes.filter((n: any) => n.selected);
+        const selectedEdges = selected.edges.filter((edge: any) => edge.selected);
+        if (selectedNodes.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          setPendingDelete({ type: "node", ids: selectedNodes.map((n: any) => n.id) });
+        } else if (selectedEdges.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          setPendingDelete({ type: "edge", ids: selectedEdges.map((edge: any) => edge.id) });
+        }
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [isRunning]);
+
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    if (contextMenu) window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [contextMenu]);
+
   return (
-    <div className="w-full h-full" onDrop={onDrop} onDragOver={onDragOver}>
+    <div className="w-full h-full relative" onDrop={onDrop} onDragOver={onDragOver}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -104,12 +207,71 @@ export default function DiagramCanvas() {
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onNodeContextMenu={onNodeContextMenu}
+        colorMode="dark"
+        deleteKeyCode={null}
         fitView
       >
         <MiniMap />
         <Controls />
         <Background />
       </ReactFlow>
+
+      {/* Empty canvas guidance */}
+      {nodes.length === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+          <MousePointerClick className="w-10 h-10 text-muted-foreground/30 mb-3" />
+          <p className="text-sm text-muted-foreground/60">
+            Drag components from the palette to start building your demo
+          </p>
+        </div>
+      )}
+
+      {contextMenu && (
+        <NodeContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          nodeId={contextMenu.nodeId}
+          instance={instances.find((i) => i.node_id === contextMenu.nodeId)}
+          demoId={activeDemoId ?? ""}
+          isRunning={isRunning}
+          onOpenTerminal={onOpenTerminal}
+          onDeleteNode={handleDeleteNode}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.type === "node"
+                ? `Delete ${pendingDelete.ids.length > 1 ? `${pendingDelete.ids.length} components` : `"${pendingDelete.ids[0]}"`} and all connected edges?`
+                : `Delete ${pendingDelete && pendingDelete.ids.length > 1 ? `${pendingDelete.ids.length} connections` : "this connection"}?`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+// Wrap with ReactFlowProvider so useReactFlow() works
+import { ReactFlowProvider } from "@xyflow/react";
+export default function DiagramCanvas(props: DiagramCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <DiagramCanvasInner {...props} />
+    </ReactFlowProvider>
   );
 }

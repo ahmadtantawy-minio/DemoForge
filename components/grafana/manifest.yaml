@@ -1,0 +1,78 @@
+id: grafana
+name: Grafana
+category: analytics
+icon: grafana
+version: "latest"
+image: grafana/grafana:latest
+description: "Observability dashboards and visualization"
+
+resources:
+  memory: "256m"
+  cpu: 0.5
+
+ports:
+  - name: http
+    container: 3000
+    protocol: tcp
+
+environment:
+  GF_SECURITY_ADMIN_USER: "admin"
+  GF_SECURITY_ADMIN_PASSWORD: "admin"
+  GF_AUTH_ANONYMOUS_ENABLED: "true"
+  GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+  GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/minio-overview.json"
+
+volumes:
+  - name: data
+    path: /var/lib/grafana
+    size: 500m
+
+health_check:
+  endpoint: /api/health
+  port: 3000
+  interval: 10s
+  timeout: 5s
+
+secrets:
+  - key: GF_SECURITY_ADMIN_USER
+    label: "Admin User"
+    default: "admin"
+  - key: GF_SECURITY_ADMIN_PASSWORD
+    label: "Admin Password"
+    default: "admin"
+
+web_ui:
+  - name: grafana
+    port: 3000
+    path: "/"
+    description: "Grafana dashboards"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Grafana container."
+  quick_actions:
+    - label: "Check health"
+      command: "wget -qO- http://localhost:3000/api/health"
+    - label: "List dashboards"
+      command: "wget -qO- http://localhost:3000/api/search 2>/dev/null"
+
+connections:
+  provides: []
+  accepts:
+    - type: metrics-query
+
+variants:
+  default:
+    description: "Single Grafana instance with MinIO dashboard"
+
+template_mounts:
+  - template: "datasources.yml.j2"
+    mount_path: "/etc/grafana/provisioning/datasources/datasources.yml"
+
+static_mounts:
+  - host_path: "provisioning/dashboards/dashboards.yml"
+    mount_path: "/etc/grafana/provisioning/dashboards/dashboards.yml"
+  - host_path: "provisioning/dashboards/minio-overview.json"
+    mount_path: "/var/lib/grafana/dashboards/minio-overview.json"
+
+init_scripts: []

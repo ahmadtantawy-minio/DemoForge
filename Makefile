@@ -1,13 +1,34 @@
-.PHONY: up down build logs
+.PHONY: start stop restart status logs build clean nuke dev-be dev-fe help
 
-up:
-	docker compose up -d
+start:
+	./demoforge.sh start
 
-down:
-	docker compose down
+stop:
+	./demoforge.sh stop
 
-build:
-	docker compose build
+restart:
+	./demoforge.sh restart
+
+status:
+	./demoforge.sh status
 
 logs:
-	docker compose logs -f
+	./demoforge.sh logs
+
+build:
+	./demoforge.sh build
+
+clean:
+	./demoforge.sh clean
+
+nuke:
+	./demoforge.sh nuke
+
+dev-be:
+	./demoforge.sh dev:be
+
+dev-fe:
+	./demoforge.sh dev:fe
+
+help:
+	./demoforge.sh help

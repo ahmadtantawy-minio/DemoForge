@@ -24,14 +24,17 @@ export default function TerminalTab({ demoId, nodeId, quickActions }: Props) {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "monospace",
-      theme: { background: "#1a1a1a" },
+      theme: { background: "#09090b" },
     });
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
     term.open(containerRef.current);
-    fitAddon.fit();
+    // Delay fit to ensure container has dimensions after DOM layout
+    requestAnimationFrame(() => {
+      try { fitAddon.fit(); } catch {}
+    });
     termRef.current = term;
 
     const ws = new WebSocket(terminalWsUrl(demoId, nodeId));
@@ -82,21 +85,21 @@ export default function TerminalTab({ demoId, nodeId, quickActions }: Props) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {quickActions.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-2 py-1 bg-gray-900 border-b border-gray-700">
+        <div className="flex flex-wrap gap-1 px-2 py-1 bg-card border-b border-border">
           {quickActions.map((qa) => (
             <button
               key={qa.label}
               onClick={() => sendCommand(qa.command)}
-              className="px-2 py-0.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-xs"
+              className="px-2 py-0.5 bg-muted hover:bg-accent text-foreground rounded text-xs transition-colors"
             >
               {qa.label}
             </button>
           ))}
         </div>
       )}
-      <div ref={containerRef} className="flex-1 bg-gray-900" />
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden bg-background" />
     </div>
   );
 }

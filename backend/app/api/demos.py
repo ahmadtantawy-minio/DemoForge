@@ -10,6 +10,7 @@ from ..state.store import state
 
 router = APIRouter()
 DEMOS_DIR = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
+TEMPLATES_DIR = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
 
 def _load_demo(demo_id: str) -> DemoDefinition | None:
     path = os.path.join(DEMOS_DIR, f"{demo_id}.yaml")
@@ -49,7 +50,7 @@ async def create_demo(req: CreateDemoRequest):
         id=demo_id,
         name=req.name,
         description=req.description,
-        network=DemoNetwork(name=f"demoforge-{demo_id}-net"),
+        networks=[DemoNetwork(name="default")],
     )
     _save_demo(demo)
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="stopped")
@@ -71,6 +72,15 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     demo.nodes = []
     for rf_node in req.nodes:
         data = rf_node.get("data", {})
+        # Preserve networks config from React Flow node data
+        raw_networks = data.get("networks", {})
+        networks = {}
+        for net_name, net_cfg in raw_networks.items():
+            if isinstance(net_cfg, dict):
+                from ..models.demo import NodeNetworkConfig
+                networks[net_name] = NodeNetworkConfig(**net_cfg)
+            else:
+                networks[net_name] = net_cfg
         demo.nodes.append(DemoNode(
             id=rf_node["id"],
             component=data.get("componentId", ""),
@@ -78,6 +88,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
             position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
                                    y=rf_node.get("position", {}).get("y", 0)),
             config=data.get("config", {}),
+            networks=networks,
         ))
 
     demo.edges = []
@@ -86,15 +97,136 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
             id=rf_edge["id"],
             source=rf_edge["source"],
             target=rf_edge["target"],
-            label=rf_edge.get("label", ""),
+            connection_type=rf_edge.get("data", {}).get("connectionType", "data"),
+            network=rf_edge.get("data", {}).get("network", "default"),
+            label=rf_edge.get("data", {}).get("label", rf_edge.get("label", "")),
         ))
 
     _save_demo(demo)
     return {"status": "saved"}
 
 @router.delete("/api/demos/{demo_id}")
-async def delete_demo(demo_id: str):
+async def delete_demo(demo_id: str, destroy_containers: bool = False, remove_images: bool = False):
+    """Delete a demo. Optionally destroy running containers and/or remove images."""
+    from ..engine.docker_manager import stop_demo
+    import docker as docker_lib
+
+    # Stop containers if requested (or if running)
+    running = state.get_demo(demo_id)
+    if destroy_containers and running:
+        await stop_demo(demo_id)
+
+    # Remove pulled images for this demo's components
+    if remove_images:
+        try:
+            client = docker_lib.from_env()
+            images = client.images.list(filters={"label": f"demoforge.demo={demo_id}"})
+            for img in images:
+                try:
+                    client.images.remove(img.id, force=True)
+                except Exception:
+                    pass
+            # Also remove images used by this demo's components
+            demo = _load_demo(demo_id)
+            if demo:
+                from ..registry.loader import get_component
+                for node in demo.nodes:
+                    manifest = get_component(node.component)
+                    if manifest and manifest.image:
+                        try:
+                            client.images.remove(manifest.image, force=True)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    # Delete the config file
     path = os.path.join(DEMOS_DIR, f"{demo_id}.yaml")
     if os.path.exists(path):
         os.remove(path)
+
+    # Clean up any generated compose files
+    data_dir = os.environ.get("DEMOFORGE_DATA_DIR", "./data")
+    compose_path = os.path.join(data_dir, demo_id, "docker-compose.yaml")
+    if os.path.exists(compose_path):
+        import shutil
+        shutil.rmtree(os.path.join(data_dir, demo_id), ignore_errors=True)
+
     return {"status": "deleted"}
+
+@router.get("/api/inventory")
+async def get_inventory():
+    """Return all DemoForge-managed containers and images."""
+    import docker as docker_lib
+    try:
+        client = docker_lib.from_env()
+    except Exception as e:
+        return {"containers": [], "images": [], "error": str(e)}
+
+    # Find all containers with demoforge labels
+    containers = []
+    try:
+        for c in client.containers.list(all=True, filters={"label": "demoforge.demo"}):
+            containers.append({
+                "id": c.short_id,
+                "name": c.name,
+                "image": c.image.tags[0] if c.image.tags else c.image.short_id,
+                "status": c.status,
+                "demo_id": c.labels.get("demoforge.demo", ""),
+                "node_id": c.labels.get("demoforge.node", ""),
+                "component": c.labels.get("demoforge.component", ""),
+                "created": c.attrs.get("Created", ""),
+            })
+    except Exception:
+        pass
+
+    # Find images used by demos
+    images = []
+    try:
+        for img in client.images.list():
+            tags = img.tags
+            if not tags:
+                continue
+            # Check if any demo uses this image
+            images.append({
+                "id": img.short_id,
+                "tags": tags,
+                "size_mb": round(img.attrs.get("Size", 0) / 1024 / 1024, 1),
+                "created": img.attrs.get("Created", ""),
+            })
+    except Exception:
+        pass
+
+    return {"containers": containers, "images": images}
+
+@router.get("/api/templates")
+async def list_templates():
+    templates = []
+    if os.path.isdir(TEMPLATES_DIR):
+        for fname in os.listdir(TEMPLATES_DIR):
+            if fname.endswith(".yaml"):
+                with open(os.path.join(TEMPLATES_DIR, fname)) as f:
+                    raw = yaml.safe_load(f)
+                templates.append({
+                    "id": raw.get("id", fname.replace(".yaml", "")),
+                    "name": raw.get("name", ""),
+                    "description": raw.get("description", ""),
+                    "node_count": len(raw.get("nodes", [])),
+                })
+    return {"templates": templates}
+
+@router.post("/api/demos/from-template/{template_id}")
+async def create_from_template(template_id: str):
+    path = os.path.join(TEMPLATES_DIR, f"{template_id}.yaml")
+    if not os.path.exists(path):
+        raise HTTPException(404, "Template not found")
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+    demo_id = str(uuid.uuid4())[:8]
+    raw["id"] = demo_id
+    demo = DemoDefinition(**raw)
+    _save_demo(demo)
+    return DemoSummary(
+        id=demo.id, name=demo.name, description=demo.description,
+        node_count=len(demo.nodes), status="stopped",
+    )

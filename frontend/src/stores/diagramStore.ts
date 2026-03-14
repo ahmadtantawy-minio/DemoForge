@@ -27,7 +27,12 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     set({ edges: applyEdgeChanges(changes, get().edges) }),
 
   onConnect: (connection) =>
-    set({ edges: addEdge(connection, get().edges) }),
+    set({
+      edges: addEdge(
+        { ...connection, type: "animated", data: { connectionType: "data", network: "default", label: "", status: "idle" } },
+        get().edges
+      ),
+    }),
 
   addNode: (node) => set({ nodes: [...get().nodes, node] }),
 

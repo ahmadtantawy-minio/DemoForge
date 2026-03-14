@@ -60,6 +60,21 @@ class VariantDef(BaseModel):
     command: list[str] | None = None
     replicas: int = 1
 
+class InitScriptDef(BaseModel):
+    command: str
+    wait_for_healthy: bool = True
+    timeout: int = 60
+    order: int = 0
+    description: str = ""
+
+class TemplateMountDef(BaseModel):
+    template: str        # Filename in templates/ dir
+    mount_path: str      # Container path
+
+class StaticMountDef(BaseModel):
+    host_path: str       # Relative to component dir
+    mount_path: str      # Container path
+
 class ComponentManifest(BaseModel):
     """Full component manifest parsed from YAML."""
     id: str
@@ -80,3 +95,6 @@ class ComponentManifest(BaseModel):
     terminal: TerminalDef = TerminalDef()
     connections: ConnectionsDef = ConnectionsDef()
     variants: dict[str, VariantDef] = {}
+    template_mounts: list[TemplateMountDef] = []
+    static_mounts: list[StaticMountDef] = []
+    init_scripts: list[InitScriptDef] = []

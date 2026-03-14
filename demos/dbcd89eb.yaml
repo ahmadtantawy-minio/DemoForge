@@ -1,0 +1,129 @@
+id: dbcd89eb
+name: Active-Active Replication
+description: Two MinIO instances with bidirectional replication, load-balanced by
+  NGINX, monitored by Prometheus and Grafana
+networks:
+- name: frontend
+  subnet: 172.30.0.0/24
+  dns_suffix: frontend.demo.local
+  driver: bridge
+- name: backend
+  subnet: 172.30.1.0/24
+  dns_suffix: backend.demo.local
+  driver: bridge
+nodes:
+- id: minio-1
+  component: minio
+  variant: replication-source
+  position:
+    x: 300.0
+    y: 100.0
+  config:
+    MINIO_ROOT_USER: minio1admin
+    MINIO_ROOT_PASSWORD: minio1password
+  networks:
+    frontend:
+      ip: null
+      aliases:
+      - minio-1
+    backend:
+      ip: null
+      aliases:
+      - minio-1
+- id: minio-2
+  component: minio
+  variant: replication-target
+  position:
+    x: 300.0
+    y: 300.0
+  config:
+    MINIO_ROOT_USER: minio2admin
+    MINIO_ROOT_PASSWORD: minio2password
+  networks:
+    frontend:
+      ip: null
+      aliases:
+      - minio-2
+    backend:
+      ip: null
+      aliases:
+      - minio-2
+- id: nginx-lb
+  component: nginx
+  variant: load-balancer
+  position:
+    x: 58.62653691509817
+    y: 198.8007691859449
+  config: {}
+  networks:
+    frontend:
+      ip: null
+      aliases:
+      - lb
+- id: prometheus
+  component: prometheus
+  variant: default
+  position:
+    x: 546.7700017481499
+    y: 200.0
+  config: {}
+  networks:
+    backend:
+      ip: null
+      aliases:
+      - prometheus
+- id: grafana
+  component: grafana
+  variant: default
+  position:
+    x: 760.2854146028785
+    y: 152.74879086300334
+  config: {}
+  networks:
+    backend:
+      ip: null
+      aliases:
+      - grafana
+edges:
+- id: e-lb-minio1
+  source: nginx-lb
+  target: minio-1
+  connection_type: load-balance
+  network: frontend
+  label: LB -> MinIO-1
+- id: e-lb-minio2
+  source: nginx-lb
+  target: minio-2
+  connection_type: load-balance
+  network: frontend
+  label: LB -> MinIO-2
+- id: e-repl-1-2
+  source: minio-1
+  target: minio-2
+  connection_type: replication
+  network: backend
+  label: Replication
+- id: e-repl-2-1
+  source: minio-2
+  target: minio-1
+  connection_type: replication
+  network: backend
+  label: Replication
+- id: e-minio1-prom
+  source: minio-1
+  target: prometheus
+  connection_type: metrics
+  network: backend
+  label: Metrics
+- id: e-minio2-prom
+  source: minio-2
+  target: prometheus
+  connection_type: metrics
+  network: backend
+  label: Metrics
+- id: e-prom-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: backend
+  label: PromQL

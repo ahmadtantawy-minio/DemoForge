@@ -101,9 +101,12 @@ async def forward_request(
 
     # Build response headers, rewriting as needed
     resp_headers = {}
+    # Headers to strip — they break iframe embedding or cause issues
+    strip_headers = {"transfer-encoding", "content-encoding", "content-length",
+                     "x-frame-options", "content-security-policy"}
     for key, value in upstream_resp.headers.multi_items():
         lower = key.lower()
-        if lower in ("transfer-encoding", "content-encoding", "content-length"):
+        if lower in strip_headers:
             continue
         if lower == "location":
             # Rewrite redirects to go through proxy
@@ -113,11 +116,18 @@ async def forward_request(
             value = _rewrite_cookie_path(value, proxy_prefix)
         resp_headers[key] = value
 
+    content = upstream_resp.content
+    content_type = upstream_resp.headers.get("content-type", "")
+
+    # For HTML responses, inject a <base> tag so absolute asset paths resolve through proxy
+    if "text/html" in content_type:
+        content = _inject_base_tag(content, proxy_prefix)
+
     return Response(
-        content=upstream_resp.content,
+        content=content,
         status_code=upstream_resp.status_code,
         headers=resp_headers,
-        media_type=upstream_resp.headers.get("content-type"),
+        media_type=content_type,
     )
 
 def _rewrite_location(location: str, base_url: str, proxy_prefix: str) -> str:
@@ -134,3 +144,25 @@ def _rewrite_cookie_path(cookie: str, proxy_prefix: str) -> str:
         import re
         return re.sub(r'Path=/[^;]*', f'Path={proxy_prefix}/', cookie)
     return cookie + f"; Path={proxy_prefix}/"
+
+def _inject_base_tag(content: bytes, proxy_prefix: str) -> bytes:
+    """Inject a <base href> tag into HTML so absolute paths resolve through the proxy."""
+    try:
+        html = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return content
+
+    base_tag = f'<base href="{proxy_prefix}/">'
+
+    # Insert after <head> if present
+    if "<head>" in html:
+        html = html.replace("<head>", f"<head>{base_tag}", 1)
+    elif "<HEAD>" in html:
+        html = html.replace("<HEAD>", f"<HEAD>{base_tag}", 1)
+    elif "<html" in html.lower():
+        # Fallback: insert at the start of body or after first tag
+        html = base_tag + html
+    else:
+        return content
+
+    return html.encode("utf-8")

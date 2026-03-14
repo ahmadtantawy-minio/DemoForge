@@ -66,6 +66,10 @@ connections:
     - type: s3
       port: 9000
       description: "S3-compatible API endpoint"
+    - type: metrics
+      port: 9000
+      path: "/minio/v2/metrics/cluster"
+      description: "Prometheus metrics endpoint"
 
 variants:
   single:
@@ -74,3 +78,19 @@ variants:
   distributed:
     description: "4-drive erasure coding (simulated)"
     command: ["server", "/data{1...4}", "--console-address", ":9001"]
+  replication-source:
+    description: "Replication source node"
+    command: ["server", "/data", "--console-address", ":9001"]
+  replication-target:
+    description: "Replication target node"
+    command: ["server", "/data", "--console-address", ":9001"]
+
+template_mounts: []
+static_mounts: []
+
+init_scripts:
+  - command: "sh -c 'until mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD 2>/dev/null; do sleep 2; done && mc mb local/demo-bucket --ignore-existing && mc mb local/data --ignore-existing'"
+    wait_for_healthy: true
+    timeout: 60
+    order: 1
+    description: "Create default buckets"

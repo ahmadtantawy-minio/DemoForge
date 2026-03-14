@@ -1,8 +1,15 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import type { ContainerInstance } from "../../types";
 import HealthBadge from "./HealthBadge";
 import WebUIFrame from "./WebUIFrame";
+import CredentialDisplay from "./CredentialDisplay";
 import { useDiagramStore } from "../../stores/diagramStore";
+import { restartInstance } from "../../api/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import ComponentIcon from "../shared/ComponentIcon";
 
 interface Props {
   instance: ContainerInstance;
@@ -10,80 +17,134 @@ interface Props {
   onOpenTerminal: (nodeId: string) => void;
 }
 
-export default function ComponentCard({ instance, onOpenTerminal }: Props) {
+export default function ComponentCard({ instance, demoId, onOpenTerminal }: Props) {
   const [activeFrame, setActiveFrame] = useState<{ name: string; path: string } | null>(null);
+  const [restarting, setRestarting] = useState(false);
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
 
+  const handleRestart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRestarting(true);
+    toast.info(`Restarting ${instance.node_id}...`);
+    restartInstance(demoId, instance.node_id)
+      .then(() => toast.success(`${instance.node_id} restarted`))
+      .catch((err: any) => toast.error("Restart failed", { description: err.message }))
+      .finally(() => setRestarting(false));
+  };
+
   return (
-    <div
-      className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 mb-3 cursor-pointer hover:border-blue-300 transition-colors"
-      onClick={() => setSelectedNode(instance.node_id)}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <div className="font-semibold text-sm text-gray-800">{instance.node_id}</div>
-          <div className="text-xs text-gray-500">{instance.component_id}</div>
-        </div>
-        <HealthBadge health={instance.health} />
-      </div>
+    <>
+      <Card
+        className="mb-3 cursor-pointer transition-colors hover:border-primary/50"
+        onClick={() => setSelectedNode(instance.node_id)}
+      >
+        <CardHeader className="p-3 pb-2 flex-row items-center justify-between space-y-0">
+          <div className="flex items-center gap-2">
+            <ComponentIcon icon={instance.component_id} size={24} />
+            <div>
+              <div className="font-semibold text-sm text-foreground">{instance.node_id}</div>
+              <div className="text-xs text-muted-foreground">{instance.component_id}</div>
+            </div>
+          </div>
+          <HealthBadge health={instance.health} />
+        </CardHeader>
+        <CardContent className="p-3 pt-0 space-y-2">
+          {instance.web_uis.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {instance.web_uis.map((ui) => (
+                <Button
+                  key={ui.name}
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs px-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveFrame({ name: ui.name, path: ui.proxy_url });
+                  }}
+                >
+                  {ui.name}
+                </Button>
+              ))}
+            </div>
+          )}
 
-      {instance.web_uis.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
-          {instance.web_uis.map((ui) => (
-            <button
-              key={ui.name}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveFrame({ name: ui.name, path: ui.proxy_url });
-              }}
-              className="px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 hover:bg-blue-100"
+          <div className="flex gap-1">
+            {instance.has_terminal && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={(e) => { e.stopPropagation(); onOpenTerminal(instance.node_id); }}
+              >
+                Terminal
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs px-2"
+              disabled={restarting}
+              onClick={handleRestart}
             >
-              {ui.name}
-            </button>
-          ))}
-        </div>
-      )}
+              {restarting ? "Restarting..." : "Restart"}
+            </Button>
+          </div>
 
-      {instance.has_terminal && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenTerminal(instance.node_id);
-          }}
-          className="px-2 py-0.5 bg-gray-800 text-white rounded text-xs hover:bg-gray-700 mb-2"
-        >
-          Terminal
-        </button>
-      )}
+          {instance.quick_actions.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {instance.quick_actions.map((qa) => (
+                <span
+                  key={qa.label}
+                  className="px-2 py-0.5 bg-muted border border-border rounded text-xs text-muted-foreground"
+                  title={qa.command}
+                >
+                  {qa.label}
+                </span>
+              ))}
+            </div>
+          )}
 
-      {instance.quick_actions.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {instance.quick_actions.map((qa) => (
-            <span
-              key={qa.label}
-              className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs text-gray-600"
-              title={qa.command}
-            >
-              {qa.label}
-            </span>
-          ))}
-        </div>
-      )}
+          <CredentialDisplay credentials={instance.credentials ?? []} />
 
-      {activeFrame && (
-        <div
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="w-4/5 h-4/5 flex flex-col bg-white rounded-lg overflow-hidden shadow-xl">
+          {(instance.networks ?? []).length > 0 && (
+            <div className="border-t border-border pt-2">
+              <div className="text-xs font-semibold text-muted-foreground mb-1">Networks</div>
+              <div className="flex flex-wrap gap-1">
+                {instance.networks.map((net) => (
+                  <span
+                    key={net.network_name}
+                    className="px-1.5 py-0.5 bg-muted border border-border rounded text-[10px] text-foreground"
+                  >
+                    {net.network_name}
+                    {net.ip_address && ` (${net.ip_address})`}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {instance.init_status && instance.init_status !== "completed" && (
+            <div className="text-[10px] text-yellow-500">
+              Init: {instance.init_status}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!activeFrame} onOpenChange={() => setActiveFrame(null)}>
+        <DialogContent className="w-4/5 h-4/5 max-w-none flex flex-col p-0">
+          <DialogHeader className="px-4 py-2 border-b border-border">
+            <DialogTitle className="text-sm">{activeFrame?.name}</DialogTitle>
+          </DialogHeader>
+          {activeFrame && (
             <WebUIFrame
               path={activeFrame.path}
               name={activeFrame.name}
               onClose={() => setActiveFrame(null)}
             />
-          </div>
-        </div>
-      )}
-    </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

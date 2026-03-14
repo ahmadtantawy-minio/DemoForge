@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDemoStore } from "../../stores/demoStore";
+import { Button } from "@/components/ui/button";
+import { X, Plus, TerminalSquare, Trash2 } from "lucide-react";
 import TerminalTab from "./TerminalTab";
 
 interface Tab {
@@ -16,13 +18,22 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const { activeDemoId, instances } = useDemoStore();
 
-  // Merge in any externally pushed tabs
-  const allTabs = [...tabs, ...extraTabs.filter((et) => !tabs.find((t) => t.nodeId === et.nodeId))];
-  const currentTab = activeTab ?? allTabs[0]?.nodeId ?? null;
+  useEffect(() => {
+    setTabs((prev) => {
+      const newTabs = extraTabs.filter((et) => !prev.find((t) => t.nodeId === et.nodeId));
+      if (newTabs.length === 0) return prev;
+      return [...prev, ...newTabs];
+    });
+    if (extraTabs.length > 0) {
+      setActiveTab((prev) => prev ?? extraTabs[extraTabs.length - 1].nodeId);
+    }
+  }, [extraTabs]);
+
+  const currentTab = activeTab ?? tabs[0]?.nodeId ?? null;
 
   const addTab = () => {
     if (!activeDemoId || instances.length === 0) return;
-    const available = instances.filter((i) => i.has_terminal && !allTabs.find((t) => t.nodeId === i.node_id));
+    const available = instances.filter((i) => i.has_terminal && !tabs.find((t) => t.nodeId === i.node_id));
     if (available.length === 0) return;
     const newTab = { nodeId: available[0].node_id };
     setTabs((prev) => [...prev, newTab]);
@@ -33,37 +44,52 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
   const closeTab = (nodeId: string) => {
     setTabs((prev) => prev.filter((t) => t.nodeId !== nodeId));
     if (currentTab === nodeId) {
-      setActiveTab(allTabs.find((t) => t.nodeId !== nodeId)?.nodeId ?? null);
+      setActiveTab(tabs.find((t) => t.nodeId !== nodeId)?.nodeId ?? null);
     }
   };
 
+  const handleAddTab = () => {
+    if (!activeDemoId || instances.length === 0) {
+      // No containers available — could show inline feedback
+      return;
+    }
+    addTab();
+  };
+
+  const hasTerminalContainers = instances.some((i) => i.has_terminal && !tabs.find((t) => t.nodeId === i.node_id));
+
   return (
-    <div className="flex flex-col h-full bg-gray-900 border-t border-gray-700">
-      <div className="flex items-center bg-gray-800 border-b border-gray-700 overflow-x-auto">
-        {allTabs.map((tab) => (
+    <div className="flex flex-col h-full bg-background border-t border-border">
+      <div className="flex items-center bg-card border-b border-border overflow-x-auto">
+        {tabs.map((tab) => (
           <div
             key={tab.nodeId}
-            className={`flex items-center gap-1 px-3 py-1.5 text-xs cursor-pointer border-r border-gray-700 whitespace-nowrap
-              ${currentTab === tab.nodeId ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-200"}`}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs cursor-pointer border-r border-border whitespace-nowrap transition-colors
+              ${currentTab === tab.nodeId ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setActiveTab(tab.nodeId)}
           >
+            <TerminalSquare className="w-3 h-3" />
             <span>{tab.nodeId}</span>
             <button
               onClick={(e) => { e.stopPropagation(); closeTab(tab.nodeId); }}
-              className="ml-1 text-gray-500 hover:text-gray-200"
+              className="ml-1 text-muted-foreground hover:text-foreground transition-colors"
             >
-              ✕
+              <X className="w-3 h-3" />
             </button>
           </div>
         ))}
-        <button
-          onClick={addTab}
-          className="px-3 py-1.5 text-gray-400 hover:text-white text-xs"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={handleAddTab}
+          disabled={!hasTerminalContainers}
+          title={!hasTerminalContainers ? "No running containers available" : "Open terminal"}
         >
-          +
-        </button>
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {currentTab && activeDemoId ? (
           <TerminalTab
             key={currentTab}
@@ -72,10 +98,33 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
             quickActions={instances.find((i) => i.node_id === currentTab)?.quick_actions ?? []}
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-500 text-xs">
-            No terminal open. Click + to open one.
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+            <TerminalSquare className="w-6 h-6 text-muted-foreground/40" />
+            <span className="text-xs">
+              {instances.length === 0
+                ? "No running containers available"
+                : "No terminal open. Click + to open one."}
+            </span>
           </div>
         )}
+      </div>
+      {/* Footer bar */}
+      <div className="flex items-center justify-between px-3 py-1 bg-card border-t border-border text-xs text-muted-foreground flex-shrink-0">
+        <span>{currentTab ? `Container: ${currentTab}` : "No terminal"}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 px-2 text-[10px] text-muted-foreground hover:text-foreground gap-1"
+          onClick={() => {
+            if (currentTab) {
+              closeTab(currentTab);
+            }
+          }}
+          disabled={!currentTab}
+        >
+          <Trash2 className="w-3 h-3" />
+          Clear
+        </Button>
       </div>
     </div>
   );

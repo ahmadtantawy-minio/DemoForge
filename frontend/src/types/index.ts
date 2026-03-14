@@ -1,3 +1,36 @@
+// --- Connection types ---
+export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "load-balance" | "data" | "metrics-query";
+
+// --- Edge data ---
+export interface ComponentEdgeData {
+  connectionType: ConnectionType;
+  network: string;
+  label: string;
+  status?: "active" | "idle" | "error";
+}
+
+// --- Network ---
+export interface NetworkMembership {
+  network_name: string;
+  ip_address?: string;
+  aliases: string[];
+}
+
+// --- Credentials ---
+export interface CredentialInfo {
+  key: string;
+  label: string;
+  value: string;
+}
+
+// --- Demo Template ---
+export interface DemoTemplate {
+  id: string;
+  name: string;
+  description: string;
+  node_count: number;
+}
+
 // --- Registry ---
 export interface ComponentSummary {
   id: string;
@@ -5,6 +38,7 @@ export interface ComponentSummary {
   category: string;
   icon: string;
   description: string;
+  image: string;
   variants: string[];
 }
 
@@ -39,6 +73,10 @@ export interface ContainerInstance {
   web_uis: WebUILink[];
   has_terminal: boolean;
   quick_actions: QuickAction[];
+  resource_usage?: Record<string, number>;
+  networks: NetworkMembership[];
+  credentials: CredentialInfo[];
+  init_status: "pending" | "running" | "completed" | "failed";
 }
 
 // --- React Flow node data ---
@@ -48,4 +86,5 @@ export interface ComponentNodeData {
   variant: string;
   config: Record<string, string>;
   health?: HealthStatus;
+  networks?: string[];
 }

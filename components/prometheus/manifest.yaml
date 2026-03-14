@@ -1,0 +1,71 @@
+id: prometheus
+name: Prometheus
+category: analytics
+icon: prometheus
+version: "latest"
+image: prom/prometheus:latest
+description: "Metrics collection and alerting system"
+
+resources:
+  memory: "256m"
+  cpu: 0.5
+
+ports:
+  - name: http
+    container: 9090
+    protocol: tcp
+
+environment: {}
+
+volumes:
+  - name: data
+    path: /prometheus
+    size: 1g
+
+command:
+  - "--config.file=/etc/prometheus/prometheus.yml"
+  - "--storage.tsdb.path=/prometheus"
+  - "--storage.tsdb.retention.time=1h"
+  - "--web.enable-lifecycle"
+
+health_check:
+  endpoint: /-/healthy
+  port: 9090
+  interval: 10s
+  timeout: 5s
+
+secrets: []
+
+web_ui:
+  - name: prometheus
+    port: 9090
+    path: "/"
+    description: "Prometheus query UI and target status"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Prometheus container."
+  quick_actions:
+    - label: "Check targets"
+      command: "wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null | head -100"
+    - label: "Reload config"
+      command: "wget -qO- --post-data='' http://localhost:9090/-/reload"
+
+connections:
+  provides:
+    - type: metrics-query
+      port: 9090
+      description: "PromQL query endpoint"
+  accepts:
+    - type: metrics
+
+variants:
+  default:
+    description: "Single Prometheus instance"
+
+template_mounts:
+  - template: "prometheus.yml.j2"
+    mount_path: "/etc/prometheus/prometheus.yml"
+
+static_mounts: []
+init_scripts: []

@@ -1,47 +1,61 @@
 import { useState } from "react";
 import { useDemoStore } from "../../stores/demoStore";
-import { createDemo, deployDemo, stopDemo, fetchDemos } from "../../api/client";
+import { useDebugStore } from "../../stores/debugStore";
+import { deployDemo, stopDemo, fetchDemos } from "../../api/client";
+import { toast } from "sonner";
+import DeployProgress from "../deploy/DeployProgress";
+import DemoSelectorModal from "../shared/DemoSelectorModal";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ArrowRightLeft, Sun, Moon } from "lucide-react";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setActiveDemoId, setDemos, setActiveView, updateDemoStatus } = useDemoStore();
-  const [creating, setCreating] = useState(false);
-  const [newDemoName, setNewDemoName] = useState("");
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus } = useDemoStore();
+  const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [selectorOpen, setSelectorOpen] = useState(false);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
 
-  const handleCreate = async () => {
-    if (!newDemoName.trim()) return;
-    const demo = await createDemo(newDemoName.trim());
-    const res = await fetchDemos();
-    setDemos(res.demos);
-    setActiveDemoId(demo.id);
-    setCreating(false);
-    setNewDemoName("");
-  };
-
   const handleDeploy = async () => {
     if (!activeDemoId) return;
-    setLoading("deploy");
     updateDemoStatus(activeDemoId, "deploying");
-    try {
-      const res = await deployDemo(activeDemoId);
-      updateDemoStatus(activeDemoId, res.status as any);
-    } catch {
-      updateDemoStatus(activeDemoId, "error");
-    } finally {
-      setLoading(null);
+    setDeploying(true);
+    toast.info("Deployment started");
+    deployDemo(activeDemoId).catch(() => {});
+  };
+
+  const handleDeployDone = (success: boolean) => {
+    setDeploying(false);
+    if (activeDemoId) {
+      updateDemoStatus(activeDemoId, success ? "running" : "error");
     }
+    if (success) {
+      toast.success("Deployment successful");
+    } else {
+      toast.error("Deployment failed");
+    }
+    fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
   };
 
   const handleStop = async () => {
     if (!activeDemoId) return;
     setLoading("stop");
+    debugStore.addEntry("info", "Deploy", `Stopping demo ${activeDemoId}...`);
     try {
       await stopDemo(activeDemoId);
       updateDemoStatus(activeDemoId, "stopped");
-    } catch {
-      // ignore
+      debugStore.addEntry("info", "Deploy", `Demo stopped`);
+      toast.success("Demo stopped");
+    } catch (err: any) {
+      debugStore.addEntry("error", "Deploy", `Stop failed`, err.message);
+      toast.error("Failed to stop demo", { description: err.message });
     } finally {
       setLoading(null);
     }
@@ -51,90 +65,178 @@ export default function Toolbar() {
     running: "text-green-400",
     deploying: "text-yellow-400",
     error: "text-red-400",
-    stopped: "text-gray-400",
+    stopped: "text-muted-foreground",
   };
 
+  // Tooltip text for disabled deploy/stop buttons
+  const deployTooltip = !activeDemoId
+    ? "Select a demo first"
+    : activeDemo?.status === "running"
+    ? "Demo is already running"
+    : activeDemo?.status === "deploying"
+    ? "Deployment in progress"
+    : null;
+
+  const stopTooltip = !activeDemoId
+    ? "Select a demo first"
+    : activeDemo?.status === "stopped"
+    ? "Demo is already stopped"
+    : activeDemo?.status === "deploying"
+    ? "Deployment in progress"
+    : !activeDemo?.status || activeDemo?.status === "error"
+    ? "Demo is not running"
+    : null;
+
+  const deployDisabled = !activeDemoId || loading !== null || activeDemo?.status === "running" || activeDemo?.status === "deploying";
+  const stopDisabled = !activeDemoId || loading !== null || activeDemo?.status === "stopped" || !activeDemo?.status || activeDemo?.status === "error";
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2 bg-gray-900 border-b border-gray-700 text-white text-sm">
-      <span className="font-bold text-blue-400 mr-2">DemoForge</span>
-
-      <select
-        value={activeDemoId ?? ""}
-        onChange={(e) => setActiveDemoId(e.target.value || null)}
-        className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
-      >
-        <option value="">-- Select Demo --</option>
-        {demos.map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.name}
-          </option>
-        ))}
-      </select>
-
-      {creating ? (
-        <div className="flex items-center gap-1">
-          <input
-            autoFocus
-            value={newDemoName}
-            onChange={(e) => setNewDemoName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            placeholder="Demo name"
-            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
-          />
-          <button onClick={handleCreate} className="px-2 py-1 bg-blue-600 rounded text-xs hover:bg-blue-500">
-            Create
-          </button>
-          <button onClick={() => setCreating(false)} className="px-2 py-1 bg-gray-600 rounded text-xs hover:bg-gray-500">
-            Cancel
-          </button>
+    <TooltipProvider delayDuration={300}>
+      <div className="flex items-center gap-3 px-4 py-2 bg-card border-b border-border text-foreground text-sm">
+        <div className="flex items-center gap-2 mr-2">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="6" y="18" width="14" height="10" rx="2" fill="#C72C48" opacity="0.4"/>
+            <rect x="10" y="11" width="14" height="10" rx="2" fill="#C72C48" opacity="0.7"/>
+            <rect x="14" y="4" width="14" height="10" rx="2" fill="#C72C48"/>
+          </svg>
+          <span className="font-bold text-foreground">DemoForge</span>
         </div>
-      ) : (
-        <button
-          onClick={() => setCreating(true)}
-          className="px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600"
-        >
-          + New Demo
-        </button>
-      )}
 
-      {activeDemo && (
-        <span className={`text-xs ml-1 ${statusColor[activeDemo.status] ?? "text-gray-400"}`}>
-          {activeDemo.status}
-        </span>
-      )}
+        {/* Demo selector trigger */}
+        {activeDemo ? (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground">{activeDemo.name}</span>
+            <span className={`text-xs ${statusColor[activeDemo.status] ?? "text-muted-foreground"}`}>
+              {activeDemo.status}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-6 text-[11px] px-2 gap-1"
+              onClick={() => setSelectorOpen(true)}
+            >
+              <ArrowRightLeft className="w-3 h-3" />
+              Switch
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs px-3"
+            onClick={() => setSelectorOpen(true)}
+          >
+            Select Demo
+          </Button>
+        )}
 
-      <div className="flex-1" />
+        <div className="flex-1" />
 
-      <div className="flex items-center gap-1 bg-gray-700 rounded p-0.5">
-        <button
-          onClick={() => setActiveView("diagram")}
-          className={`px-3 py-1 rounded text-xs transition-colors ${activeView === "diagram" ? "bg-gray-900 text-white" : "text-gray-400 hover:text-white"}`}
+        {/* View switcher - only when demo selected */}
+        {activeDemoId && (
+          <div className="flex items-center gap-1 bg-muted rounded p-0.5">
+            {(["diagram", "control-plane"] as const).map((view) => (
+              <Button
+                key={view}
+                variant={activeView === view ? "secondary" : "ghost"}
+                size="sm"
+                className={`h-7 px-3 text-xs ${activeView === view ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setActiveView(view)}
+              >
+                {view === "diagram" ? "Diagram" : "Instances"}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        {/* Deploy/Stop - only when demo selected */}
+        {activeDemoId && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    onClick={handleDeploy}
+                    disabled={deployDisabled}
+                    size="sm"
+                    className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
+                  >
+                    {loading === "deploy" ? "Deploying..." : activeDemo?.status === "deploying" ? "Deploying..." : "Deploy"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {deployTooltip && (
+                <TooltipContent>
+                  <p className="text-xs">{deployTooltip}</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    onClick={handleStop}
+                    disabled={stopDisabled}
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 text-xs px-3"
+                  >
+                    {loading === "stop" ? "Stopping..." : "Stop"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {stopTooltip && (
+                <TooltipContent>
+                  <p className="text-xs">{stopTooltip}</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </>
+        )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={() => {
+                const html = document.documentElement;
+                const isDark = html.classList.contains("dark");
+                html.classList.toggle("dark", !isDark);
+                localStorage.setItem("demoforge-theme", isDark ? "light" : "dark");
+              }}
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            >
+              <Sun className="w-3.5 h-3.5 hidden dark:block" />
+              <Moon className="w-3.5 h-3.5 block dark:hidden" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p className="text-xs">Toggle theme</p></TooltipContent>
+        </Tooltip>
+
+        <Button
+          onClick={() => debugStore.toggle()}
+          variant="ghost"
+          size="sm"
+          className={`h-7 text-xs px-2 ${debugStore.isOpen ? "text-primary" : "text-muted-foreground"}`}
         >
-          Diagram
-        </button>
-        <button
-          onClick={() => setActiveView("control-plane")}
-          className={`px-3 py-1 rounded text-xs transition-colors ${activeView === "control-plane" ? "bg-gray-900 text-white" : "text-gray-400 hover:text-white"}`}
-        >
-          Control Plane
-        </button>
+          {debugStore.entries.filter((e) => e.level === "error").length > 0
+            ? `Debug (${debugStore.entries.filter((e) => e.level === "error").length})`
+            : "Debug"}
+        </Button>
+
+        {deploying && activeDemoId && activeDemo && (
+          <DeployProgress
+            demoId={activeDemoId}
+            demoName={activeDemo.name}
+            apiBase={import.meta.env.VITE_API_URL || "http://localhost:8000"}
+            onDone={handleDeployDone}
+          />
+        )}
       </div>
 
-      <button
-        onClick={handleDeploy}
-        disabled={!activeDemoId || loading !== null}
-        className="px-3 py-1 bg-green-600 rounded text-xs hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading === "deploy" ? "Deploying..." : "Deploy"}
-      </button>
-
-      <button
-        onClick={handleStop}
-        disabled={!activeDemoId || loading !== null}
-        className="px-3 py-1 bg-red-700 rounded text-xs hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading === "stop" ? "Stopping..." : "Stop"}
-      </button>
-    </div>
+      <DemoSelectorModal open={selectorOpen} onOpenChange={setSelectorOpen} />
+    </TooltipProvider>
   );
 }

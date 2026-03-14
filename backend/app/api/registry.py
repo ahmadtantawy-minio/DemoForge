@@ -15,6 +15,7 @@ async def list_components():
                 category=m.category,
                 icon=m.icon,
                 description=m.description,
+                image=m.image,
                 variants=list(m.variants.keys()),
             )
             for m in registry.values()

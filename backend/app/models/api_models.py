@@ -9,6 +9,7 @@ class ComponentSummary(BaseModel):
     category: str
     icon: str
     description: str
+    image: str = ""               # Docker image, e.g. "minio/minio:latest"
     variants: list[str]           # Just the variant names
 
 class RegistryResponse(BaseModel):
@@ -48,6 +49,25 @@ class ContainerHealthStatus(str, Enum):
     ERROR = "error"
     STOPPED = "stopped"
 
+class ConnectionType(str, Enum):
+    S3 = "s3"
+    HTTP = "http"
+    METRICS = "metrics"
+    REPLICATION = "replication"
+    LOAD_BALANCE = "load-balance"
+    DATA = "data"
+    METRICS_QUERY = "metrics-query"
+
+class NetworkMembership(BaseModel):
+    network_name: str
+    ip_address: str | None = None
+    aliases: list[str] = []
+
+class CredentialInfo(BaseModel):
+    key: str
+    label: str
+    value: str
+
 class WebUILink(BaseModel):
     name: str
     proxy_url: str                # "/proxy/{demo}/{node}/{ui_name}/"
@@ -62,6 +82,9 @@ class ContainerInstance(BaseModel):
     has_terminal: bool
     quick_actions: list[dict]     # [{label, command}]
     resource_usage: dict = {}     # {"memory_mb": 124, "cpu_pct": 12.5}
+    networks: list[NetworkMembership] = []
+    credentials: list[CredentialInfo] = []
+    init_status: str = "pending"
 
 class InstancesResponse(BaseModel):
     demo_id: str

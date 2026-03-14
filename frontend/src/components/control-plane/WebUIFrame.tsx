@@ -1,4 +1,6 @@
 import { proxyUrl } from "../../api/client";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 
 interface Props {
   path: string;
@@ -9,24 +11,26 @@ interface Props {
 export default function WebUIFrame({ path, name, onClose }: Props) {
   const url = proxyUrl(path);
   return (
-    <div className="flex flex-col w-full h-full border border-gray-200 rounded">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-100 border-b border-gray-200">
-        <span className="text-sm font-medium text-gray-700">{name}</span>
+    <div className="flex flex-col w-full h-full">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-muted border-b border-border">
+        <span className="text-sm font-medium text-foreground">{name}</span>
         <div className="flex items-center gap-2">
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:underline"
+            className="text-xs text-primary hover:underline"
           >
             Pop out
           </a>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-800 text-sm"
           >
-            ✕
-          </button>
+            <X className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
       <iframe

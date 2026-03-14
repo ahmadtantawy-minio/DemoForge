@@ -1,0 +1,75 @@
+id: nginx
+name: NGINX
+category: infra
+icon: nginx
+version: "latest"
+image: nginx:latest
+description: "High-performance load balancer and reverse proxy"
+
+resources:
+  memory: "128m"
+  cpu: 0.25
+
+ports:
+  - name: http
+    container: 80
+    protocol: tcp
+  - name: status
+    container: 8080
+    protocol: tcp
+
+environment:
+  NGINX_ENTRYPOINT_QUIET_LOGS: "1"
+
+volumes: []
+
+health_check:
+  endpoint: /
+  port: 80
+  interval: 10s
+  timeout: 5s
+
+secrets: []
+
+web_ui:
+  - name: status
+    port: 80
+    path: "/"
+    description: "NGINX status page"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "NGINX load balancer container."
+  quick_actions:
+    - label: "Test config"
+      command: "nginx -t"
+    - label: "Reload"
+      command: "nginx -s reload"
+    - label: "Active connections"
+      command: "curl -s http://localhost/nginx_status"
+
+connections:
+  provides:
+    - type: load-balance
+      port: 80
+      description: "Load-balanced HTTP endpoint"
+  accepts:
+    - type: s3
+    - type: http
+
+variants:
+  load-balancer:
+    description: "Round-robin load balancer for upstream services"
+
+template_mounts:
+  - template: "nginx.conf.j2"
+    mount_path: "/etc/nginx/conf.d/default.conf"
+
+static_mounts: []
+
+init_scripts:
+  - command: "nginx -s reload"
+    wait_for_healthy: true
+    timeout: 30
+    order: 10
+    description: "Reload nginx with generated config"

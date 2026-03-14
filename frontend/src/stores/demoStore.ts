@@ -5,11 +5,11 @@ interface DemoState {
   demos: DemoSummary[];
   activeDemoId: string | null;
   instances: ContainerInstance[];
-  activeView: "diagram" | "control-plane";
+  activeView: "diagram" | "control-plane" | "demos";
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
-  setActiveView: (view: "diagram" | "control-plane") => void;
+  setActiveView: (view: "diagram" | "control-plane" | "demos") => void;
   updateDemoStatus: (id: string, status: DemoSummary["status"]) => void;
 }
 

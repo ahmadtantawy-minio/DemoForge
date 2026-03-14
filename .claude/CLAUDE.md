@@ -83,3 +83,28 @@ State: `.omc/state/`, `.omc/state/sessions/{sessionId}/`, `.omc/notepad.md`, `.o
 Say "setup omc" or run `/oh-my-claudecode:omc-setup`.
 
 <!-- OMC:END -->
+
+# Project Instructions
+
+## Backlog-Driven Build Workflow
+
+Before starting any build phase, **always** read `plans/backlog.md` and incorporate any items relevant to the current work. Mark items as done (`[x]`) when completed.
+
+## Agent Routing Rules
+
+### Docker Lifecycle Management
+The `docker-expert` agent (`.claude/agents/docker-expert.md`) **must** be involved in **planning and review** of all Docker lifecycle management and automation tasks. This includes:
+- Container deploy/stop/restart operations
+- Docker Compose orchestration and cleanup
+- State reconciliation between in-memory store and Docker
+- Network management and DinD patterns
+- Health monitoring and self-healing logic
+
+### Frontend Design Decisions
+All frontend design decisions **must** use the **Stitch MCP** and **UI Pro plugin** tools. This includes:
+- Component selection, layout, and styling choices
+- Design system and theme decisions
+- Visual hierarchy and UX patterns
+- shadcn/ui component customization
+
+Route frontend design work to the `frontend-designer` agent (`.claude/agents/frontend-designer.md`), which has access to Stitch MCP, UI Pro, and Claude's built-in design capabilities.

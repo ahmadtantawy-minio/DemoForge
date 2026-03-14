@@ -15,25 +15,27 @@ class DemoNode(BaseModel):
     variant: str = "single"       # Which variant from the manifest
     position: NodePosition
     config: dict[str, str] = {}   # Override environment variables
-    network: NodeNetworkConfig = NodeNetworkConfig()
+    networks: dict[str, NodeNetworkConfig] = {}
 
 class DemoEdge(BaseModel):
     id: str
     source: str                   # Node ID
     target: str                   # Node ID
-    type: str = "default"         # Connection type (s3, jdbc, etc.)
+    connection_type: str = "data" # Connection type (s3, jdbc, etc.)
+    network: str = "default"      # Which network this edge traverses
     label: str = ""
 
 class DemoNetwork(BaseModel):
     name: str
     subnet: str = "172.20.0.0/16"
     dns_suffix: str = "demo.local"
+    driver: str = "bridge"
 
 class DemoDefinition(BaseModel):
     """Complete demo definition — serializable to/from YAML."""
     id: str
     name: str
     description: str = ""
-    network: DemoNetwork = DemoNetwork(name="default")
+    networks: list[DemoNetwork] = [DemoNetwork(name="default")]
     nodes: list[DemoNode] = []
     edges: list[DemoEdge] = []
