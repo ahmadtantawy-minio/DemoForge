@@ -96,8 +96,6 @@ export default function App() {
         <div className="flex-1 min-w-0 h-full">
           {showWelcome ? (
             <WelcomeScreen />
-          ) : activeView === "demos" ? (
-            <DemoManager />
           ) : activeView === "diagram" ? (
             <DiagramCanvas onOpenTerminal={openTerminal} />
           ) : (
