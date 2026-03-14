@@ -465,6 +465,16 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isRunning) return;
+      // Ctrl/Cmd+G: create group from selection
+      if ((e.metaKey || e.ctrlKey) && e.key === "g") {
+        e.preventDefault();
+        const state = useDiagramStore.getState();
+        const selected = state.nodes.filter((n: any) => n.selected && n.type !== "group");
+        if (selected.length >= 2) {
+          handleCreateGroupFromSelection();
+        }
+        return;
+      }
       if (e.key === "Backspace" || e.key === "Delete") {
         const selected = useDiagramStore.getState();
         const selectedNodes = selected.nodes.filter((n: any) => n.selected);

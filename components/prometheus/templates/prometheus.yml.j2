@@ -23,9 +23,9 @@ scrape_configs:
     static_configs:
       - targets: ['{{ project_name }}-{{ source_node.id }}:9090']
 {% endif %}
-        labels:
-          instance: '{{ source_node.id }}'
-          component: '{{ source_node.component }}'
+    labels:
+      instance: '{{ source_node.id }}'
+      component: '{{ source_node.component }}'
 {% endif %}
 {% endif %}
 {% endfor %}
