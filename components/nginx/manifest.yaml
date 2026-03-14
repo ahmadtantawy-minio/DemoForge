@@ -52,10 +52,25 @@ connections:
   provides:
     - type: load-balance
       port: 80
-      description: "Load-balanced HTTP endpoint"
+      description: "Load-balanced endpoint"
+      config_schema:
+        - key: algorithm
+          label: "Load Balance Algorithm"
+          type: select
+          options: ["round-robin", "least-conn", "ip-hash"]
+          default: "round-robin"
+        - key: backend_port
+          label: "Backend Port"
+          type: number
+          default: "9000"
+    - type: http
+      port: 80
+      description: "HTTP endpoint"
   accepts:
     - type: s3
+      config_schema: []
     - type: http
+      config_schema: []
 
 variants:
   load-balancer:

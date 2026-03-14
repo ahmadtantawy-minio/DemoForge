@@ -60,6 +60,11 @@ connections:
   provides: []
   accepts:
     - type: metrics-query
+      config_schema:
+        - key: datasource_name
+          label: "Datasource Name"
+          type: string
+          default: "Prometheus"
 
 variants:
   default:

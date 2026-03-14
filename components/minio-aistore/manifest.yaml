@@ -71,6 +71,51 @@ connections:
       port: 9000
       path: "/minio/v2/metrics/cluster"
       description: "Prometheus metrics endpoint"
+  accepts:
+    - type: replication
+      config_schema:
+        - key: source_bucket
+          label: "Source Bucket"
+          type: string
+          default: "demo-bucket"
+        - key: target_bucket
+          label: "Target Bucket"
+          type: string
+          default: "demo-bucket"
+        - key: replication_mode
+          label: "Replication Mode"
+          type: select
+          options: ["async", "sync"]
+          default: "async"
+        - key: bandwidth_limit
+          label: "Bandwidth Limit (MB/s)"
+          type: number
+          default: "0"
+          description: "0 = unlimited"
+    - type: site-replication
+      config_schema:
+        - key: replication_mode
+          label: "Mode"
+          type: select
+          options: ["two-way", "one-way"]
+          default: "two-way"
+    - type: tiering
+      config_schema:
+        - key: policy_name
+          label: "ILM Policy Name"
+          type: string
+          default: "auto-tier"
+        - key: transition_days
+          label: "Transition After (days)"
+          type: number
+          default: "30"
+        - key: storage_class
+          label: "Target Storage Class"
+          type: select
+          options: ["STANDARD", "REDUCED_REDUNDANCY"]
+          default: "STANDARD"
+    - type: file-push
+      config_schema: []
 
 variants:
   single:

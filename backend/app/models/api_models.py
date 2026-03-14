@@ -11,6 +11,7 @@ class ComponentSummary(BaseModel):
     description: str
     image: str = ""               # Docker image, e.g. "minio/minio:latest"
     variants: list[str]           # Just the variant names
+    connections: dict = {}        # {provides: [...], accepts: [...]}
 
 class RegistryResponse(BaseModel):
     components: list[ComponentSummary]

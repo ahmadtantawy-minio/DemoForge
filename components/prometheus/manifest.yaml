@@ -58,6 +58,11 @@ connections:
       description: "PromQL query endpoint"
   accepts:
     - type: metrics
+      config_schema:
+        - key: scrape_interval
+          label: "Scrape Interval"
+          type: string
+          default: "15s"
 
 variants:
   default:
