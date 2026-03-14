@@ -84,21 +84,32 @@ export default function TerminalTab({ demoId, nodeId, quickActions }: Props) {
     }
   };
 
+  const sendCtrlC = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(new Uint8Array([0x03])); // ETX = Ctrl+C
+    }
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0 overflow-hidden">
-      {quickActions.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-2 py-1 bg-card border-b border-border">
-          {quickActions.map((qa) => (
-            <button
-              key={qa.label}
-              onClick={() => sendCommand(qa.command)}
-              className="px-2 py-0.5 bg-muted hover:bg-accent text-foreground rounded text-xs transition-colors"
-            >
-              {qa.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-wrap gap-1 px-2 py-1 bg-card border-b border-border">
+        <button
+          onClick={sendCtrlC}
+          className="px-2 py-0.5 bg-destructive/10 hover:bg-destructive/20 text-destructive rounded text-xs transition-colors font-medium"
+          title="Send Ctrl+C to cancel running command"
+        >
+          Ctrl+C
+        </button>
+        {quickActions.map((qa) => (
+          <button
+            key={qa.label}
+            onClick={() => sendCommand(qa.command)}
+            className="px-2 py-0.5 bg-muted hover:bg-accent text-foreground rounded text-xs transition-colors"
+          >
+            {qa.label}
+          </button>
+        ))}
+      </div>
       <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden bg-background" />
     </div>
   );

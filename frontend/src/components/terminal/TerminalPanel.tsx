@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { Button } from "@/components/ui/button";
-import { X, Plus, TerminalSquare, Trash2 } from "lucide-react";
+import { X, Plus, TerminalSquare } from "lucide-react";
 import TerminalTab from "./TerminalTab";
 
 interface Tab {
@@ -14,18 +14,25 @@ interface Props {
 }
 
 export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
-  const [tabs, setTabs] = useState<Tab[]>(extraTabs);
+  const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
+  const closedTabsRef = useRef<Set<string>>(new Set());
   const { activeDemoId, instances } = useDemoStore();
 
+  // Sync externally pushed tabs into local state (skip manually closed ones)
   useEffect(() => {
     setTabs((prev) => {
-      const newTabs = extraTabs.filter((et) => !prev.find((t) => t.nodeId === et.nodeId));
+      const newTabs = extraTabs.filter(
+        (et) => !prev.find((t) => t.nodeId === et.nodeId) && !closedTabsRef.current.has(et.nodeId)
+      );
       if (newTabs.length === 0) return prev;
       return [...prev, ...newTabs];
     });
     if (extraTabs.length > 0) {
-      setActiveTab((prev) => prev ?? extraTabs[extraTabs.length - 1].nodeId);
+      const lastNew = extraTabs[extraTabs.length - 1];
+      if (!closedTabsRef.current.has(lastNew.nodeId)) {
+        setActiveTab((prev) => prev ?? lastNew.nodeId);
+      }
     }
   }, [extraTabs]);
 
@@ -36,23 +43,24 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
     const available = instances.filter((i) => i.has_terminal && !tabs.find((t) => t.nodeId === i.node_id));
     if (available.length === 0) return;
     const newTab = { nodeId: available[0].node_id };
+    // Remove from closed set so it can be opened again
+    closedTabsRef.current.delete(newTab.nodeId);
     setTabs((prev) => [...prev, newTab]);
     setActiveTab(newTab.nodeId);
     onAddTab?.(newTab.nodeId);
   };
 
   const closeTab = (nodeId: string) => {
+    closedTabsRef.current.add(nodeId);
     setTabs((prev) => prev.filter((t) => t.nodeId !== nodeId));
     if (currentTab === nodeId) {
-      setActiveTab(tabs.find((t) => t.nodeId !== nodeId)?.nodeId ?? null);
+      const remaining = tabs.filter((t) => t.nodeId !== nodeId);
+      setActiveTab(remaining.length > 0 ? remaining[0].nodeId : null);
     }
   };
 
   const handleAddTab = () => {
-    if (!activeDemoId || instances.length === 0) {
-      // No containers available — could show inline feedback
-      return;
-    }
+    if (!activeDemoId || instances.length === 0) return;
     addTab();
   };
 
@@ -108,21 +116,17 @@ export default function TerminalPanel({ extraTabs = [], onAddTab }: Props) {
           </div>
         )}
       </div>
-      {/* Footer bar */}
+      {/* Footer */}
       <div className="flex items-center justify-between px-3 py-1 bg-card border-t border-border text-xs text-muted-foreground flex-shrink-0">
         <span>{currentTab ? `Container: ${currentTab}` : "No terminal"}</span>
         <Button
           variant="ghost"
           size="sm"
-          className="h-5 px-2 text-[10px] text-muted-foreground hover:text-foreground gap-1"
-          onClick={() => {
-            if (currentTab) {
-              closeTab(currentTab);
-            }
-          }}
+          className="h-5 text-[10px] px-2 text-muted-foreground"
           disabled={!currentTab}
+          onClick={() => { if (currentTab) closeTab(currentTab); }}
         >
-          <Trash2 className="w-3 h-3" />
+          <X className="w-3 h-3 mr-1" />
           Clear
         </Button>
       </div>
