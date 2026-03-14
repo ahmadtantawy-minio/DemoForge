@@ -58,9 +58,9 @@
 ### BUG FIXES
 - [x] BUG-3: Edge configs recovered on backend restart
 - [x] BUG-4: Node ID counter uses trailing-number regex across all ID types
-- [ ] BUG-9: Cockpit toggle button unstable — takes multiple clicks to enable/show overlay consistently
-- [ ] BUG-11: Cockpit not showing file counts or traffic data when data is being generated/replicated
-- [ ] BUG-12: Pausing site-replication returns 400 error instead of removing it gracefully
+- [x] BUG-9: Cockpit toggle moved to Zustand store for stable state
+- [x] BUG-11: Cockpit shows bucket stats via mc ls --json + mc du --json through mc-shell
+- [x] BUG-12: Site-replication pause now runs mc admin replicate remove
 - [x] BUG-10: Cluster node shows "replicated" for < 4 drives, "erasure coded" otherwise
 - [x] BUG-1: NGINX upstream direction — verified correct with embedded LB
 - [x] BUG-5: Grafana secret keys — verified matching (GF_SECURITY_ADMIN_USER/PASSWORD)
@@ -68,10 +68,7 @@
 
 ## High Priority — Next Up
 
-- [ ] **Network Overlay**: After deploy, show container IPs on nodes + port/protocol on edges
-  - Query Docker for container IP assignments
-  - Show IPs as small badges on diagram nodes
-  - Toggle-able overlay so it doesn't clutter design view
+- [x] **Network Overlay**: Live Docker IPs shown on all diagram nodes and cluster LBs
 
 - [ ] **S3 File Browser Enhancement**: Per-request node tracking, node distribution histogram
   - Shows "Served by: minio-2" banner via `X-Upstream-Server` header
@@ -84,7 +81,7 @@
 
 ## High Priority — Next Up (continued)
 
-- [ ] **Cockpit: Reposition as side-right panel** — Move cockpit overlay from floating card to a proper right-side panel consuming the lower section alongside the terminal (not overlapping the diagram editor)
+- [x] **Cockpit: Repositioned as right panel** — replaces PropertiesPanel when cockpit is ON
 - [ ] **Cockpit: Host Resource Utilization**: Show parent container/host CPU & memory utilization in the cockpit overlay
   - Docker stats API or cgroup metrics for total CPU/memory used by the demo
   - Display as a summary bar at the top of the cockpit panel
