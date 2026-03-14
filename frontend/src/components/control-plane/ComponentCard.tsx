@@ -5,7 +5,7 @@ import HealthBadge from "./HealthBadge";
 import WebUIFrame from "./WebUIFrame";
 import CredentialDisplay from "./CredentialDisplay";
 import { useDiagramStore } from "../../stores/diagramStore";
-import { restartInstance } from "../../api/client";
+import { restartInstance, stopInstance, startInstance } from "../../api/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +22,8 @@ export default function ComponentCard({ instance, demoId, onOpenTerminal }: Prop
   const [restarting, setRestarting] = useState(false);
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
 
+  const isStopped = instance.health === "stopped";
+
   const handleRestart = (e: React.MouseEvent) => {
     e.stopPropagation();
     setRestarting(true);
@@ -30,6 +32,22 @@ export default function ComponentCard({ instance, demoId, onOpenTerminal }: Prop
       .then(() => toast.success(`${instance.node_id} restarted`))
       .catch((err: any) => toast.error("Restart failed", { description: err.message }))
       .finally(() => setRestarting(false));
+  };
+
+  const handleStop = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toast.info(`Stopping ${instance.node_id}...`);
+    stopInstance(demoId, instance.node_id)
+      .then(() => toast.success(`${instance.node_id} stopped`))
+      .catch((err: any) => toast.error("Stop failed", { description: err.message }));
+  };
+
+  const handleStart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toast.info(`Starting ${instance.node_id}...`);
+    startInstance(demoId, instance.node_id)
+      .then(() => toast.success(`${instance.node_id} started`))
+      .catch((err: any) => toast.error("Start failed", { description: err.message }));
   };
 
   return (
@@ -83,11 +101,29 @@ export default function ComponentCard({ instance, demoId, onOpenTerminal }: Prop
               variant="outline"
               size="sm"
               className="h-6 text-xs px-2"
-              disabled={restarting}
+              disabled={restarting || isStopped}
               onClick={handleRestart}
             >
               {restarting ? "Restarting..." : "Restart"}
             </Button>
+            {!isStopped ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={handleStop}
+              >
+                Stop
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="h-6 text-xs px-2 bg-green-600 hover:bg-green-500 text-white"
+                onClick={handleStart}
+              >
+                Start
+              </Button>
+            )}
           </div>
 
           {instance.quick_actions.length > 0 && (
