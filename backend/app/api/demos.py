@@ -83,10 +83,26 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     if not demo:
         raise HTTPException(404, "Demo not found")
 
-    # Convert React Flow nodes → DemoNodes (skip group-type nodes)
+    # Convert React Flow nodes → DemoNodes (skip group/sticky-type nodes)
     demo.nodes = []
     demo.groups = []
+    demo.sticky_notes = []
     for rf_node in req.nodes:
+        # Sticky note nodes are stored separately
+        if rf_node.get("type") == "sticky":
+            s_data = rf_node.get("data", {})
+            from ..models.demo import DemoStickyNote
+            demo.sticky_notes.append(DemoStickyNote(
+                id=rf_node["id"],
+                text=s_data.get("text", ""),
+                color=s_data.get("color", "#eab308"),
+                position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
+                                       y=rf_node.get("position", {}).get("y", 0)),
+                width=rf_node.get("style", {}).get("width", rf_node.get("width", 200)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 200),
+                height=rf_node.get("style", {}).get("height", rf_node.get("height", 120)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 120),
+            ))
+            continue
+
         # Group nodes are stored separately
         if rf_node.get("type") == "group":
             grp_data = rf_node.get("data", {})

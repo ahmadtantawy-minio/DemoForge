@@ -41,6 +41,14 @@ class DemoGroup(BaseModel):
     width: float = 400
     height: float = 300
 
+class DemoStickyNote(BaseModel):
+    id: str
+    text: str = ""
+    color: str = "#eab308"
+    position: NodePosition
+    width: float = 200
+    height: float = 120
+
 class DemoNetwork(BaseModel):
     name: str
     subnet: str = "172.20.0.0/16"
@@ -56,3 +64,4 @@ class DemoDefinition(BaseModel):
     nodes: list[DemoNode] = []
     edges: list[DemoEdge] = []
     groups: list[DemoGroup] = []
+    sticky_notes: list[DemoStickyNote] = []

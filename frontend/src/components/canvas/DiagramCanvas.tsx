@@ -112,6 +112,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         style: { width: g.width || 400, height: g.height || 300 },
         data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid" },
       }));
+      const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
+        id: s.id,
+        type: "sticky",
+        position: s.position || { x: 0, y: 0 },
+        style: { width: s.width || 200, height: s.height || 120 },
+        data: { text: s.text || "", color: s.color || "#eab308" },
+      }));
       const rfNodes = (demo.nodes || []).map((n: any) => ({
         id: n.id,
         type: "component",
@@ -154,7 +161,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return isNaN(num) ? max : Math.max(max, num);
       }, 0);
       groupCounter = maxGroupId;
-      setNodes([...rfGroups, ...rfNodes]);
+      setNodes([...rfGroups, ...rfStickies, ...rfNodes]);
       setEdges(rfEdges);
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges]);
