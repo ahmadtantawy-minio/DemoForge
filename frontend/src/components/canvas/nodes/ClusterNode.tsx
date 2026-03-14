@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
@@ -31,8 +32,8 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const handleNodeRightClick = (e: React.MouseEvent, idx: number) => {
     e.preventDefault();
     e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setContextNode({ idx, x: rect.right + 4, y: rect.top });
+    // Use nativeEvent to get correct viewport coordinates
+    setContextNode({ idx, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
   };
 
   const handleStopNode = async (nodeId: string) => {
@@ -124,14 +125,14 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         <Handle type="source" position={Position.Right} />
       </div>
 
-      {/* Per-node context menu */}
-      {contextNode && (() => {
+      {/* Per-node context menu — portaled to body to escape React Flow transforms */}
+      {contextNode && createPortal((() => {
         const nodeId = `${id}-node-${contextNode.idx + 1}`;
         const inst = clusterInstances.find((c) => c.node_id === nodeId);
         const isStopped = inst?.health === "stopped";
         return (
           <div
-            className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px] text-popover-foreground"
+            className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px] text-popover-foreground"
             style={{ top: contextNode.y, left: contextNode.x }}
           >
             <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
@@ -167,7 +168,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             </button>
           </div>
         );
-      })()}
+      })(), document.body)}
     </>
   );
 }
