@@ -82,9 +82,7 @@
 ## High Priority — Next Up (continued)
 
 - [x] **Cockpit: Repositioned as right panel** — replaces PropertiesPanel when cockpit is ON
-- [ ] **Cockpit: Host Resource Utilization**: Show parent container/host CPU & memory utilization in the cockpit overlay
-  - Docker stats API or cgroup metrics for total CPU/memory used by the demo
-  - Display as a summary bar at the top of the cockpit panel
+- [x] **Cockpit: Host Resource Utilization**: CPU%, memory shown at top of cockpit panel via Docker stats API (5s cache)
 
 - [x] **Grafana MinIO Dashboard**: Official 37-panel dashboard (ID 13502) auto-provisioned
 
@@ -104,10 +102,10 @@
 
 ## Future — Advanced MinIO Features (Phase 4 remainder)
 
-- [ ] Bucket Policy Presets (mc anonymous, mc policy)
+- [x] Bucket Policy Presets — API endpoint via mc-shell (public, download, upload, none)
 - [ ] SSE Configuration (Server-Side Encryption with KES)
-- [ ] Versioning Configuration UI
-- [ ] IAM User/Policy Setup automation
+- [x] Versioning Configuration — API endpoint via mc-shell (enable/suspend)
+- [x] IAM User/Policy Setup — API endpoint via mc-shell (add user, attach policy)
 - [ ] KES Component for encryption key management
 
 ## Future — Cloud Provider Integration
@@ -116,6 +114,39 @@
 - [ ] GCP Cloud Storage component — manifest, icon, ILM tiering destination
 - [ ] Credential profiles for AWS/GCP
 - [ ] ILM tiering automation for S3/GCS destinations
+
+## Future — Analytics Ecosystem (Phase 6)
+
+- [ ] **HDFS Container**: Hadoop HDFS for data migration demos (HDFS → MinIO)
+  - Image: `apache/hadoop:3` or `bde2020/hadoop-namenode`
+  - Connection types: hdfs-source (provides), data-migration (accepts from MinIO)
+  - Demo: generate data to HDFS, migrate to MinIO via `mc mirror`
+
+- [ ] **Apache Spark Container**: Spark with S3A connector pushing data to MinIO
+  - Image: `bitnami/spark:latest` or `apache/spark:3.5`
+  - Connection types: s3a-client (accepts s3), spark-submit
+  - Demo: Spark job reads/writes parquet to MinIO buckets
+
+- [ ] **AIStore Tables**: MinIO's built-in table format (cluster config option)
+  - Implementation: cluster property toggle, not a separate component
+  - Enables table-format storage within existing MinIO clusters
+  - Config: `MINIO_TABLES_ENABLED=on` environment variable
+
+- [ ] **Apache Iceberg REST Catalog**: Standalone Iceberg catalog on MinIO storage
+  - Image: `tabulario/iceberg-rest:latest`
+  - Connection types: accepts s3 (MinIO), provides iceberg-catalog
+  - Demo: create Iceberg tables stored on MinIO, query via Trino
+
+- [ ] **Trino/Starburst**: SQL query engine reading from AIStore Tables and/or Iceberg
+  - Image: `trinodb/trino:latest`
+  - Connection types: accepts iceberg-catalog, accepts s3
+  - Demo: SQL queries across MinIO data (Iceberg + Hive metastore)
+  - Catalog config: Iceberg connector pointing to REST catalog or direct S3
+
+- [ ] **Analytics Demo Templates**:
+  - Template 1: HDFS → MinIO migration with Spark processing
+  - Template 2: MinIO + Iceberg + Trino lakehouse
+  - Template 3: Full pipeline: Spark → MinIO (AIStore Tables) → Trino
 
 ## Future — Experience & Sharing (Phase 5)
 
