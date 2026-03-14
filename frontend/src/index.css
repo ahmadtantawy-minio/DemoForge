@@ -56,16 +56,20 @@
 /* Hide React Flow default selection outline on group and sticky nodes */
 .react-flow__node-group.selectable.selected,
 .react-flow__node-group.selected,
+.react-flow__node-group.selectable:focus,
+.react-flow__node-group:focus,
 .react-flow__node-sticky.selectable.selected,
-.react-flow__node-sticky.selected {
+.react-flow__node-sticky.selected,
+.react-flow__node-sticky.selectable:focus,
+.react-flow__node-sticky:focus {
   outline: none !important;
   box-shadow: none !important;
-  border: none !important;
 }
 .react-flow__node-group,
 .react-flow__node-sticky {
   outline: none !important;
   box-shadow: none !important;
+  background: transparent !important;
 }
 
 html,

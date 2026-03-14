@@ -1,0 +1,152 @@
+id: 35dd64be
+name: MyDemo
+description: MinIO with Prometheus metrics collection and Grafana dashboards
+networks:
+- name: default
+  subnet: 172.29.0.0/24
+  dns_suffix: default.demo.local
+  driver: bridge
+nodes:
+- id: prometheus
+  component: prometheus
+  variant: default
+  position:
+    x: 447.18409745179434
+    y: -8.801685032793042
+  config: {}
+  networks:
+    default:
+      ip: null
+      aliases:
+      - prometheus
+  display_name: ''
+  labels: {}
+  group_id: null
+- id: grafana
+  component: grafana
+  variant: default
+  position:
+    x: 722.2945989613768
+    y: 43.93780727036248
+  config: {}
+  networks:
+    default:
+      ip: null
+      aliases:
+      - grafana
+  display_name: ''
+  labels: {}
+  group_id: null
+- id: file-generator-2
+  component: file-generator
+  variant: steady
+  position:
+    x: -429.82281040885186
+    y: 158.09012915180259
+  config: {}
+  networks: {}
+  display_name: ''
+  labels: {}
+  group_id: null
+- id: nginx-3
+  component: nginx
+  variant: load-balancer
+  position:
+    x: -290.119832589796
+    y: -10.928817199472633
+  config: {}
+  networks: {}
+  display_name: ''
+  labels: {}
+  group_id: null
+- id: minio-5
+  component: minio
+  variant: single
+  position:
+    x: 162.83107484418687
+    y: 174.61397063808275
+  config: {}
+  networks: {}
+  display_name: node2
+  labels: {}
+  group_id: group-1
+- id: minio-6
+  component: minio
+  variant: single
+  position:
+    x: 160.76496603139367
+    y: 92.00627002590785
+  config: {}
+  networks: {}
+  display_name: node1
+  labels: {}
+  group_id: group-1
+edges:
+- id: e-prom-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: PromQL
+- id: xy-edge__file-generator-2-nginx-3
+  source: file-generator-2
+  target: nginx-3
+  connection_type: file-push
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+- id: xy-edge__nginx-3-minio-5
+  source: nginx-3
+  target: minio-5
+  connection_type: load-balance
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+- id: xy-edge__nginx-3-minio-6
+  source: nginx-3
+  target: minio-6
+  connection_type: load-balance
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+- id: xy-edge__minio-6-prometheus
+  source: minio-6
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+- id: xy-edge__minio-5-prometheus
+  source: minio-5
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+groups:
+- id: group-1
+  label: Cluster 1
+  description: ''
+  color: '#3b82f6'
+  style: solid
+  position:
+    x: -62.22116535008709
+    y: -143.8162851396649
+  width: 400.0
+  height: 300.0
+sticky_notes:
+- id: note-8
+  text: "We have our first HDD based cluster here, round robin load balancing"
+  color: '#eab308'
+  position:
+    x: -342.6933153656837
+    y: -225.90475023745694
+  width: 220.0
+  height: 120.0
