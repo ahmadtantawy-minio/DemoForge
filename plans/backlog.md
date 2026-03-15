@@ -334,34 +334,77 @@
   - Chat shows expandable tool-call blocks (what tool ran, what it returned)
   - Demo: "Show me all buckets", "Create ml-training with versioning", "What's replication status?"
 
-- [ ] **Delta Sharing Integration**: MinIO as governed data sharing platform
-  - Research: how MinIO implements Delta Sharing protocol
-  - Component or cluster toggle depending on implementation
-  - Demo: share tables across clusters without copying data
+- [ ] **Delta Sharing Integration**: MinIO AIStor as governed data sharing platform
+  - AIStor embeds Delta Sharing protocol directly (no sidecar) — port 8080
+  - Config: YAML file defining shares/schemas/tables with bearer token auth
+  - Supports both Delta Lake AND Apache Iceberg tables
+  - New connection type: `delta-sharing` (provides on AIStor, accepts on consumer)
+  - Add `table-sharing` variant to `minio-aistore` manifest with config template
+  - Custom `delta-sharing-client` component: Python FastAPI + `delta-sharing` pip package
+    - Web UI: list shares, list tables, preview data (first N rows)
+    - Pattern: same as s3-file-browser component
+  - Demo: data in MinIO → shared via Delta Sharing → consumed by Python client
+  - **AIStor Enterprise only** — not available in MinIO CE
 
-- [ ] **AI/ML Pipeline Demo** (see Phase 9)
+- [ ] **Delta Sharing Demo Template: "MinIO Zero-Copy Data Sharing"**
+  - Topology: File Gen → MinIO AIStor (table-sharing) → Delta Sharing Client + Grafana
+  - MinIO value: first on-premises object store with native Delta Sharing
+  - Steps: (1) generate data, (2) configure shares, (3) consumer reads without copying
+  - Shows: zero-copy sharing, bearer token auth, cross-org data access
 
 ## Future — AI/ML Pipeline (Phase 9)
 
-- [ ] **Ollama Container**: Local LLM serving (llama3.2:1b, phi3-mini)
-  - Image: `ollama/ollama`, 2-4GB RAM with small model
-  - Connection types: accepts model-store (MinIO), provides inference
-  - Also generates embeddings (nomic-embed-text)
+### Recommended Stack (fits 16GB laptop, ~3GB total for AI components)
 
-- [ ] **Vector Database**: Lightweight vector store for RAG
-  - Qdrant (`qdrant/qdrant`, 100MB image, Rust-native) — recommended
-  - Or ChromaDB (`chromadb/chroma`, Python-based, simple)
-  - Connection: accepts embedding, backup to MinIO via s3
+- [ ] **Ollama Container**: Local LLM + embedding server
+  - Image: `ollama/ollama:latest` (~1.2GB image, serves both inference + embeddings)
+  - Models: `tinyllama` (637MB, 1.1B params) for chat, `all-minilm` (46MB) for embeddings
+  - RAM: ~1.5GB with tinyllama loaded, CPU-only (Metal on Apple Silicon)
+  - Ports: 11434 (REST API for /api/generate and /api/embeddings)
+  - Connection types: provides inference, provides embedding, accepts model-store
+  - Init script: `ollama pull tinyllama && ollama pull all-minilm`
+  - Quick actions: "List models", "Pull TinyLlama", "Test generation", "Test embedding"
 
-- [ ] **RAG Pipeline App**: Custom FastAPI container orchestrating the flow
-  - Reads documents from MinIO → chunks → embeds via Ollama → stores in vector DB
-  - Chat endpoint: embed query → search vectors → retrieve docs from MinIO → LLM generates answer
-  - Web UI showing the full pipeline with step visualization
+- [ ] **Qdrant Vector Database**: Lightweight vector store for RAG
+  - Image: `qdrant/qdrant:latest` (100MB image, Rust-native, 256MB RAM)
+  - Ports: 6333 (REST) + 6334 (gRPC), built-in web dashboard at /dashboard
+  - Connection types: provides vector-search, accepts vector-backup (to MinIO S3)
+  - Native S3 snapshot support — backs up to MinIO bucket
+  - Why Qdrant: 3-5x lighter than Weaviate, no dependencies (unlike Milvus which needs etcd+MinIO)
+
+- [ ] **RAG Pipeline App**: Custom DemoForge container (must build, ~500-800 lines Python)
+  - Image: `demoforge/rag-pipeline:latest` (Python 3.11-slim + FastAPI + boto3 + httpx)
+  - RAM: ~256MB, Port: 8501
+  - Pipeline: reads docs from MinIO → chunks → embeds via Ollama → stores in Qdrant
+  - Query: embed question → search Qdrant → retrieve original docs FROM MinIO → LLM answer
+  - **Web UI with 3 panels**:
+    - Left: pipeline visualizer (animated flow showing each stage lighting up)
+    - Center: chat interface with expandable "Sources" showing MinIO object paths + similarity scores
+    - Right: activity feed (live log of MinIO GETs/PUTs, Qdrant INSERTs/SEARCHes, Ollama calls)
+  - Connection types: accepts document-ingest (MinIO), inference (Ollama), vector-search (Qdrant)
+  - Every MinIO interaction explicitly surfaced for SE demo narrative
+
+- [ ] **New Connection Types for AI/ML** (6 types):
+  - `model-store` (MinIO → Ollama): model registry bucket, pink #ec4899
+  - `document-ingest` (MinIO → RAG): document bucket for embedding, violet #8b5cf6
+  - `embedding` (Ollama → RAG/Qdrant): embedding generation, teal #14b8a6
+  - `vector-backup` (Qdrant → MinIO): snapshot persistence, amber #f59e0b
+  - `inference` (Ollama → RAG): LLM generation, red #ef4444
+  - `vector-search` (Qdrant → RAG): similarity search, cyan #06b6d4
 
 - [ ] **AI Demo Template: "MinIO as AI Data Store"**
   - Topology: File Gen → MinIO (documents) → RAG App → Ollama + Qdrant → Chat UI
-  - MinIO value: training data store, document store, model registry, vector DB backup
-  - Steps: (1) upload docs to MinIO, (2) RAG processes & embeds, (3) user asks questions, (4) answers cite MinIO-stored docs
+  - MinIO value: document store, model registry, vector DB backup — ALL on MinIO
+  - Demo flow:
+    1. "Data lives on MinIO" — show documents bucket, models bucket
+    2. "Embed and index" — RAG reads from MinIO, chunks, embeds via Ollama, stores in Qdrant
+    3. "Ask a question" — chat UI shows: query embedded → Qdrant searched → docs retrieved FROM MinIO → LLM answers
+    4. "Backup vectors" — activate vector-backup edge, Qdrant snapshot appears in MinIO
+    5. "Scale the data" — file-generator pushes 100 more docs, re-index, MinIO handles scale
+
+- [ ] **Resource Budget** (16GB laptop):
+  - MinIO single node: 256MB | Ollama (tinyllama): 1.5GB | Qdrant: 256MB | RAG app: 256MB
+  - Total AI stack: ~2.3GB | With MinIO cluster (4-node): ~3.5GB | Leaves ~8GB for OS/Docker
 
 ## Future — Experience & Sharing (Phase 5)
 
