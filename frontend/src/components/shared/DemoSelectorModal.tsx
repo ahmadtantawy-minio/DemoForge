@@ -140,7 +140,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col bg-popover border-border">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col bg-popover border-border">
           <DialogHeader>
             <DialogTitle>Demo Manager</DialogTitle>
             <DialogDescription>Select, create, or manage your demos.</DialogDescription>
@@ -184,8 +184,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
 
           {showTemplates && (
             <div className="border-b border-border pb-3">
-              {/* Constrained height so the gallery never pushes the demo list off-screen */}
-              <div className="max-h-[40vh] overflow-y-auto pr-1">
+              <div className="max-h-[55vh] overflow-y-auto overflow-x-hidden pr-2">
                 <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
               </div>
             </div>
