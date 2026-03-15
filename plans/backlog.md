@@ -108,12 +108,34 @@
 - [x] IAM User/Policy Setup — API endpoint via mc-shell (add user, attach policy)
 - [ ] KES Component for encryption key management
 
-## Future — Cloud Provider Integration
+## Future — Cloud Provider Integration (Phase 7)
 
-- [ ] AWS S3 component — manifest, icon, ILM tiering destination
-- [ ] GCP Cloud Storage component — manifest, icon, ILM tiering destination
-- [ ] Credential profiles for AWS/GCP
-- [ ] ILM tiering automation for S3/GCS destinations
+### Cloud Storage Components (ILM tiering destinations)
+- [ ] **AWS S3 Component**: manifest, icon, connection type `s3-remote` (accepts tiering from MinIO)
+  - Config: access key, secret key, region, endpoint (for S3-compatible)
+  - Edge automation: `mc admin tier add s3 ALIAS TIER-NAME --endpoint ... --access-key ... --secret-key ... --bucket ...`
+- [ ] **Azure Blob Storage Component**: manifest, icon, connection type `azure-remote`
+  - Config: account name, account key, container
+  - Edge automation: `mc admin tier add azure ALIAS TIER-NAME --account-name ... --account-key ... --bucket ...`
+- [ ] **GCP Cloud Storage Component**: manifest, icon, connection type `gcs-remote`
+  - Config: service account JSON, project ID, bucket
+  - Edge automation: `mc admin tier add gcs ALIAS TIER-NAME --credentials-file ... --bucket ...`
+
+### Credential Management
+- [ ] **Credential Store**: secure credential profiles for cloud providers
+  - Backend: `backend/app/api/credentials.py` — CRUD API for credential profiles
+  - Storage: encrypted YAML in `data/credentials.yaml` (like licenses)
+  - Model: `{id, provider, label, config: {access_key, secret_key, region, ...}}`
+  - UI: Settings dialog tab for managing cloud credentials
+- [ ] **Credential Picker**: when connecting MinIO → cloud component, select credential profile
+  - Edge config_schema includes `credential_profile_id` field
+  - Edge automation resolves credentials from profile before running mc commands
+
+### Cloud Data Browser
+- [ ] **S3 Browser for Cloud**: lightweight web UI to browse remote S3/Azure/GCS buckets
+  - Reuse S3 File Browser component with configurable endpoint
+  - Shows objects in the tiered storage destination
+  - Useful for verifying ILM tiering moved objects correctly
 
 ## Future — Analytics Ecosystem (Phase 6)
 

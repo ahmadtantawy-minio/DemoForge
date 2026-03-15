@@ -3,9 +3,10 @@ import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance, setBucketPolicy } from "../../../api/client";
+import { stopInstance, startInstance } from "../../../api/client";
 import { toast } from "sonner";
 import ComponentIcon from "../../shared/ComponentIcon";
+import MinioAdminPanel from "../../minio/MinioAdminPanel";
 
 interface ClusterNodeData {
   label: string;
@@ -25,6 +26,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const drivesPerNode = nodeData.drivesPerNode || 1;
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
   const [showPolicyMenu, setShowPolicyMenu] = useState(false);
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
 
   // Find running instances matching this cluster's synthetic nodes
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
@@ -268,6 +270,13 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
               View in Instances
             </button>
             {activeDemoId && (
+              <>
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                onClick={() => { setAdminPanelOpen(true); setContextNode(null); }}
+              >
+                MinIO Admin
+              </button>
               <div className="relative">
                 <button
                   className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
@@ -289,6 +298,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                   </div>
                 )}
               </div>
+              </>
             )}
             <button
               className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
@@ -299,6 +309,14 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           </div>
         );
       })(), document.body)}
+
+      {/* MinIO Admin Panel */}
+      <MinioAdminPanel
+        open={adminPanelOpen}
+        onOpenChange={setAdminPanelOpen}
+        clusterId={id}
+        clusterLabel={nodeData.label || "MinIO Cluster"}
+      />
     </>
   );
 }

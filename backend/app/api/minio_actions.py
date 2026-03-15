@@ -169,3 +169,151 @@ async def setup_iam_user(demo_id: str, cluster_id: str, req: IAMSetupRequest):
         raise HTTPException(500, f"mc command failed: {stderr[:200]}")
 
     return {"status": "ok", "cluster_id": cluster_id, "username": req.username, "policy": req.policy}
+
+
+# ---------------------------------------------------------------------------
+# Generic mc command runner + info queries
+# ---------------------------------------------------------------------------
+
+class McCommandRequest(BaseModel):
+    command: str  # mc subcommand after the alias, e.g. "ls", "admin info", "version info"
+
+
+@router.post("/api/demos/{demo_id}/minio/{cluster_id}/mc")
+async def run_mc_command(demo_id: str, cluster_id: str, req: McCommandRequest):
+    """Run an mc command against a cluster and return the output."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+    if "mc-shell" not in running.containers:
+        raise HTTPException(404, "mc-shell container not found")
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    cluster = _find_cluster_in_demo(demo, cluster_id)
+    if not cluster:
+        raise HTTPException(404, f"Cluster '{cluster_id}' not found")
+
+    alias = _cluster_alias(cluster)
+    mc_shell = f"demoforge-{demo_id}-mc-shell"
+
+    # Prepend alias to command if it doesn't already contain it
+    cmd = req.command.strip()
+    if cmd.startswith("mc "):
+        cmd = cmd[3:]  # strip "mc " prefix if user included it
+
+    # Build the full mc command with the alias
+    full_cmd = f"mc {cmd}"
+    # Replace placeholder ALIAS with actual alias
+    if "ALIAS" in full_cmd:
+        full_cmd = full_cmd.replace("ALIAS", alias)
+    elif not any(full_cmd.startswith(f"mc {sub}") for sub in ["alias", "update", "--version"]):
+        # Auto-inject alias for commands that need a target
+        parts = cmd.split(None, 1)
+        if parts:
+            subcmd = parts[0]
+            rest = parts[1] if len(parts) > 1 else ""
+            # Commands that take ALIAS as first arg after subcommand
+            if subcmd in ("ls", "du", "stat", "cat", "head", "cp", "mv", "rm", "rb", "mb",
+                          "version", "anonymous", "replicate"):
+                if rest and not rest.startswith(alias):
+                    full_cmd = f"mc {subcmd} {alias}/{rest}"
+                elif not rest:
+                    full_cmd = f"mc {subcmd} {alias}"
+            elif subcmd == "admin":
+                admin_parts = rest.split(None, 1)
+                if admin_parts:
+                    admin_sub = admin_parts[0]
+                    admin_rest = admin_parts[1] if len(admin_parts) > 1 else ""
+                    if admin_rest and not admin_rest.startswith(alias):
+                        full_cmd = f"mc admin {admin_sub} {alias} {admin_rest}"
+                    elif not admin_rest:
+                        full_cmd = f"mc admin {admin_sub} {alias}"
+
+    try:
+        exit_code, stdout, stderr = await exec_in_container(mc_shell, f"sh -c {shlex.quote(full_cmd)}")
+    except Exception as e:
+        raise HTTPException(500, f"Failed to exec: {e}")
+
+    return {
+        "command": full_cmd,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+
+
+@router.get("/api/demos/{demo_id}/minio/{cluster_id}/info")
+async def get_cluster_info(demo_id: str, cluster_id: str):
+    """Get comprehensive MinIO cluster info: buckets, policies, versioning, users."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+    if "mc-shell" not in running.containers:
+        raise HTTPException(404, "mc-shell container not found")
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    cluster = _find_cluster_in_demo(demo, cluster_id)
+    if not cluster:
+        raise HTTPException(404, f"Cluster '{cluster_id}' not found")
+
+    alias = _cluster_alias(cluster)
+    mc_shell = f"demoforge-{demo_id}-mc-shell"
+
+    async def _run(cmd: str) -> tuple[int, str]:
+        try:
+            ec, out, _ = await exec_in_container(mc_shell, f"sh -c {shlex.quote(cmd)}")
+            return ec, out
+        except Exception:
+            return 1, ""
+
+    import asyncio
+
+    # Run all info queries in parallel
+    results = await asyncio.gather(
+        _run(f"mc ls {alias}"),                           # bucket list
+        _run(f"mc admin info {alias}"),                   # server info
+        _run(f"mc admin user ls {alias}"),                # IAM users
+        _run(f"mc admin replicate info {alias}"),         # site-replication status
+    )
+
+    # Parse bucket list for per-bucket info
+    buckets = []
+    if results[0][0] == 0:
+        for line in results[0][1].strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) >= 5:
+                bname = parts[-1].rstrip("/")
+                if bname:
+                    # Get per-bucket policy and versioning
+                    pol_ec, pol_out = await _run(f"mc anonymous get-json {alias}/{bname}")
+                    ver_ec, ver_out = await _run(f"mc version info {alias}/{bname}")
+                    policy = "none"
+                    if pol_ec == 0 and pol_out.strip():
+                        policy = "custom" if pol_out.strip() != "{}" else "none"
+                    versioning = "unknown"
+                    if ver_ec == 0:
+                        if "enabled" in ver_out.lower():
+                            versioning = "enabled"
+                        elif "suspended" in ver_out.lower():
+                            versioning = "suspended"
+                        else:
+                            versioning = "unversioned"
+                    buckets.append({"name": bname, "policy": policy, "versioning": versioning})
+
+    return {
+        "cluster_id": cluster_id,
+        "alias": alias,
+        "server_info": results[1][1] if results[1][0] == 0 else "unavailable",
+        "buckets": buckets,
+        "users": results[2][1] if results[2][0] == 0 else "unavailable",
+        "site_replication": results[3][1] if results[3][0] == 0 else "not configured",
+    }
