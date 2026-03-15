@@ -258,6 +258,56 @@
   - Shows: cloud-agnostic storage, cost optimization, hybrid architecture
   - Template 3: Full pipeline: Spark → MinIO (AIStore Tables) → Trino
 
+## Future — MinIO MCP & AI Features (Phase 8)
+
+- [ ] **MinIO MCP Server Sidecar**: Auto-deploy `quay.io/minio/aistor/mcp-server-aistor:latest` per cluster
+  - StreamableHTTP mode on port 8090, 128MB RAM, 0.25 CPU
+  - Exposes 25+ tools: list_buckets, create_bucket, get_object_metadata, admin_info, etc.
+  - Toggle via `mcpEnabled` on cluster properties (default: on)
+  - Backend proxy: POST /api/demos/{id}/mcp/{cluster}/tools/{tool_id}
+
+- [ ] **MCP Tool Explorer Tab**: Add "MCP Tools" tab to MinIO Admin Panel
+  - Tool list grouped by category (Read, Write, Admin)
+  - Parameter forms auto-generated from tool schemas
+  - Execute button with JSON result display
+  - Quick-action presets (list buckets, storage usage, replication status)
+  - Zero external dependencies — always works
+
+- [ ] **MCP AI Chat Tab** (opt-in): Add "AI Chat" tab when API key configured
+  - Settings page: Claude/OpenAI API key input
+  - Backend routes chat → LLM API (with MCP tools as available tools) → executes tool calls → streams response
+  - Chat shows expandable tool-call blocks (what tool ran, what it returned)
+  - Demo: "Show me all buckets", "Create ml-training with versioning", "What's replication status?"
+
+- [ ] **Delta Sharing Integration**: MinIO as governed data sharing platform
+  - Research: how MinIO implements Delta Sharing protocol
+  - Component or cluster toggle depending on implementation
+  - Demo: share tables across clusters without copying data
+
+- [ ] **AI/ML Pipeline Demo** (see Phase 9)
+
+## Future — AI/ML Pipeline (Phase 9)
+
+- [ ] **Ollama Container**: Local LLM serving (llama3.2:1b, phi3-mini)
+  - Image: `ollama/ollama`, 2-4GB RAM with small model
+  - Connection types: accepts model-store (MinIO), provides inference
+  - Also generates embeddings (nomic-embed-text)
+
+- [ ] **Vector Database**: Lightweight vector store for RAG
+  - Qdrant (`qdrant/qdrant`, 100MB image, Rust-native) — recommended
+  - Or ChromaDB (`chromadb/chroma`, Python-based, simple)
+  - Connection: accepts embedding, backup to MinIO via s3
+
+- [ ] **RAG Pipeline App**: Custom FastAPI container orchestrating the flow
+  - Reads documents from MinIO → chunks → embeds via Ollama → stores in vector DB
+  - Chat endpoint: embed query → search vectors → retrieve docs from MinIO → LLM generates answer
+  - Web UI showing the full pipeline with step visualization
+
+- [ ] **AI Demo Template: "MinIO as AI Data Store"**
+  - Topology: File Gen → MinIO (documents) → RAG App → Ollama + Qdrant → Chat UI
+  - MinIO value: training data store, document store, model registry, vector DB backup
+  - Steps: (1) upload docs to MinIO, (2) RAG processes & embeds, (3) user asks questions, (4) answers cite MinIO-stored docs
+
 ## Future — Experience & Sharing (Phase 5)
 
 - [ ] Demo Export/Import as archive
