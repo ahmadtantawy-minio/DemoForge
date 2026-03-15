@@ -8,16 +8,19 @@ interface Props {
   y: number;
   nodeId: string;
   componentId?: string;
+  isCluster?: boolean;
+  clusterLabel?: string;
   instance: ContainerInstance | undefined;
   demoId: string;
   isRunning: boolean;
   onOpenTerminal: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
+  onOpenAdmin?: () => void;
   onClose: () => void;
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onOpenAdmin, onClose,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -70,6 +73,7 @@ export default function NodeContextMenu({
   ];
 
   return (
+    <>
     <div
       className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
       style={{ top: clampedY, left: clampedX }}
@@ -86,7 +90,15 @@ export default function NodeContextMenu({
           {item.label}
         </button>
       ))}
-      {menuItems.length === 0 && (
+      {isCluster && isRunning && onOpenAdmin && (
+        <button
+          className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+          onClick={() => { onOpenAdmin(); onClose(); }}
+        >
+          MinIO Admin
+        </button>
+      )}
+      {menuItems.length === 0 && !isCluster && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground">
           Not deployed yet
         </div>
@@ -120,5 +132,6 @@ export default function NodeContextMenu({
         </div>
       )}
     </div>
+    </>
   );
 }

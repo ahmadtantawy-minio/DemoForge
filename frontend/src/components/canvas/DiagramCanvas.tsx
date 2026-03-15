@@ -21,6 +21,7 @@ import ClusterNode from "./nodes/ClusterNode";
 import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
+import MinioAdminPanel from "../minio/MinioAdminPanel";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -83,6 +84,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
+  const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string } | null>(null);
 
   // Track selected nodes for multi-select grouping
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
@@ -645,8 +647,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             y={contextMenu.y}
             nodeId={contextMenu.nodeId}
             componentId={(ctxNode?.data as any)?.componentId}
+            isCluster={isCluster}
+            clusterLabel={isCluster ? (ctxNode?.data as any)?.label : undefined}
             instance={instance}
             demoId={activeDemoId ?? ""}
+            onOpenAdmin={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId }) : undefined}
             isRunning={isRunning}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
@@ -792,6 +797,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {adminPanel && (
+        <MinioAdminPanel
+          open={!!adminPanel}
+          onOpenChange={(open) => { if (!open) setAdminPanel(null); }}
+          clusterId={adminPanel.clusterId}
+          clusterLabel={adminPanel.clusterLabel}
+        />
+      )}
     </div>
   );
 }
