@@ -192,6 +192,14 @@
   - For "Hadoop migration" narrative, use standalone HDFS + Spark + Trino instead
   - This tells a better story: "Replace entire Hadoop stack with MinIO + Trino"
 
+- [ ] **Pipeline Orchestration**: Edge-driven step-by-step pipeline execution (NO Airflow)
+  - Each edge = one pipeline step, activated via context menu
+  - SE controls narrative: click each step, explain to audience
+  - New connection types: `spark-submit`, `s3-queue`, `iceberg-catalog`, `sql-query`, `s3a`
+  - Pre-built PySpark ETL job: read CSV → aggregate → write Parquet → register Iceberg
+  - ClickHouse S3Queue: auto-ingest new objects from MinIO (CREATE TABLE with S3Queue engine)
+  - Edge animation shows data flow during active pipeline steps
+
 - [ ] **Data Generator Extensions**: Extend file-generator to push data to HDFS and Spark
   - Add `hdfs-push` connection type: generates files directly to HDFS via WebHDFS REST API
   - Add `spark-ingest` connection type: pushes data that triggers Spark processing pipeline
