@@ -1,0 +1,76 @@
+id: iceberg-rest
+name: Apache Iceberg
+category: analytics
+icon: iceberg-rest
+version: "latest"
+image: tabulario/iceberg-rest:latest
+description: "Iceberg REST catalog server using MinIO as warehouse storage"
+
+resources:
+  memory: "512m"
+  cpu: 0.5
+
+ports:
+  - name: rest
+    container: 8181
+    protocol: tcp
+
+environment:
+  CATALOG_WAREHOUSE: "s3://warehouse/"
+  CATALOG_IO__IMPL: "org.apache.iceberg.aws.s3.S3FileIO"
+  CATALOG_S3_ENDPOINT: "${CATALOG_S3_ENDPOINT:-http://minio:9000}"
+  CATALOG_S3_ACCESS_KEY_ID: "${CATALOG_S3_ACCESS_KEY_ID:-minioadmin}"
+  CATALOG_S3_SECRET_ACCESS_KEY: "${CATALOG_S3_SECRET_ACCESS_KEY:-minioadmin}"
+  CATALOG_S3_PATH__STYLE__ACCESS: "true"
+  AWS_REGION: "us-east-1"
+
+health_check:
+  endpoint: /v1/config
+  port: 8181
+  interval: 15s
+  timeout: 10s
+
+secrets:
+  - key: CATALOG_S3_ACCESS_KEY_ID
+    label: "S3 Access Key"
+    default: "minioadmin"
+  - key: CATALOG_S3_SECRET_ACCESS_KEY
+    label: "S3 Secret Key"
+    default: "minioadmin"
+
+web_ui:
+  - name: catalog
+    port: 8181
+    path: "/v1/config"
+    description: "Iceberg REST Catalog API"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Apache Iceberg REST Catalog"
+  quick_actions:
+    - label: "Check config"
+      command: "curl -s http://localhost:8181/v1/config | python3 -m json.tool 2>/dev/null || curl -s http://localhost:8181/v1/config"
+    - label: "List namespaces"
+      command: "curl -s http://localhost:8181/v1/namespaces | python3 -m json.tool 2>/dev/null || curl -s http://localhost:8181/v1/namespaces"
+
+connections:
+  provides:
+    - type: iceberg-catalog
+      port: 8181
+      description: "Iceberg REST catalog endpoint"
+      config_schema: []
+  accepts:
+    - type: s3
+      config_schema:
+        - key: warehouse_bucket
+          label: "Warehouse Bucket"
+          type: string
+          default: "warehouse"
+
+variants:
+  default:
+    description: "Iceberg REST catalog with S3 (MinIO) backend"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

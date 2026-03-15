@@ -245,6 +245,14 @@ def _gen_metrics_query(edge: DemoEdge, demo: DemoDefinition, project_name: str) 
 def _gen_file_push(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []
 
+@_register("iceberg-catalog")
+def _gen_iceberg_catalog(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven
+
+@_register("sql-query")
+def _gen_sql_query(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven
+
 
 # ---------------------------------------------------------------------------
 # Helpers for cluster-level operations

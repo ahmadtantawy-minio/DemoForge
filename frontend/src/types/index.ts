@@ -1,5 +1,5 @@
 // --- Connection types ---
-export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering";
+export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query";
 
 // --- Edge data ---
 export interface ComponentEdgeData {
@@ -30,7 +30,28 @@ export interface DemoTemplate {
   id: string;
   name: string;
   description: string;
-  node_count: number;
+  category: string;
+  tags: string[];
+  objective: string;
+  minio_value: string;
+  component_count: number;
+  container_count: number;
+  estimated_resources: {
+    memory?: string;
+    cpu?: number;
+    containers?: number;
+  };
+  walkthrough: { step: string; description: string }[];
+  external_dependencies: string[];
+}
+
+// --- Demo Template Detail (includes demo definition fields) ---
+export interface DemoTemplateDetail extends DemoTemplate {
+  nodes: any[];
+  edges: any[];
+  clusters: any[];
+  networks: any[];
+  groups: any[];
 }
 
 // --- Connection schema ---

@@ -3,9 +3,8 @@ import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
 import {
   fetchDemos, fetchInventory, deleteDemo, deployDemo, stopDemo,
-  createDemo, fetchTemplates, createFromTemplate,
+  createDemo,
 } from "../../api/client";
-import type { DemoTemplate } from "../../types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +15,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import DeployProgress from "../deploy/DeployProgress";
+import TemplateGallery from "../templates/TemplateGallery";
 
 interface InventoryContainer {
   id: string; name: string; image: string; status: string;
@@ -36,7 +33,6 @@ export default function DemoManager() {
 
   const [containers, setContainers] = useState<InventoryContainer[]>([]);
   const [images, setImages] = useState<InventoryImage[]>([]);
-  const [templates, setTemplates] = useState<DemoTemplate[]>([]);
   const [creating, setCreating] = useState(false);
   const [newDemoName, setNewDemoName] = useState("");
   const [loading, setLoading] = useState<Record<string, string>>({});
@@ -64,7 +60,6 @@ export default function DemoManager() {
   useEffect(() => {
     refreshDemos();
     refreshInventory();
-    fetchTemplates().then((res) => setTemplates(res.templates)).catch(() => {});
     const interval = setInterval(() => {
       refreshDemos();
       refreshInventory();
@@ -85,16 +80,10 @@ export default function DemoManager() {
     }
   };
 
-  const handleCreateFromTemplate = async (templateId: string) => {
-    try {
-      const demo = await createFromTemplate(templateId);
-      refreshDemos();
-      setActiveDemoId(demo.id);
-      setActiveView("diagram");
-      toast.success("Demo created from template");
-    } catch (err: any) {
-      toast.error("Failed to create from template", { description: err.message });
-    }
+  const handleCreateFromTemplate = (demoId: string) => {
+    refreshDemos();
+    setActiveDemoId(demoId);
+    setActiveView("diagram");
   };
 
   const handleDeploy = (demoId: string) => {
@@ -217,23 +206,6 @@ export default function DemoManager() {
                 <Button onClick={() => setCreating(true)} size="sm">
                   + New Demo
                 </Button>
-                {templates.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm">From Template</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      {templates.map((t) => (
-                        <DropdownMenuItem key={t.id} onSelect={() => handleCreateFromTemplate(t.id)}>
-                          <div>
-                            <div className="font-medium">{t.name}</div>
-                            <div className="text-xs text-muted-foreground">{t.description}</div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
               </>
             )}
           </div>
@@ -242,6 +214,7 @@ export default function DemoManager() {
         <Tabs defaultValue="demos">
           <TabsList>
             <TabsTrigger value="demos">Demos</TabsTrigger>
+            <TabsTrigger value="templates">Templates</TabsTrigger>
             <TabsTrigger value="containers">Containers ({containers.length})</TabsTrigger>
             <TabsTrigger value="images">Images ({images.length})</TabsTrigger>
           </TabsList>
@@ -355,6 +328,11 @@ export default function DemoManager() {
                 })}
               </div>
             )}
+          </TabsContent>
+
+          {/* === TEMPLATES TAB === */}
+          <TabsContent value="templates">
+            <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
           </TabsContent>
 
           {/* === CONTAINERS TAB === */}

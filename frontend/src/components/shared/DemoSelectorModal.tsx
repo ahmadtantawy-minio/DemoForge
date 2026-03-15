@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { useDemoStore } from "../../stores/demoStore";
-import { createDemo, fetchDemos, fetchTemplates, createFromTemplate, deployDemo, stopDemo, deleteDemo } from "../../api/client";
+import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo } from "../../api/client";
 import { toast } from "sonner";
-import type { DemoTemplate } from "../../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,7 +27,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Play, Square, Trash2, MoreVertical } from "lucide-react";
+import { Plus, Play, Square, Trash2, MoreVertical, LayoutTemplate } from "lucide-react";
+import TemplateGallery from "../templates/TemplateGallery";
 
 interface Props {
   open: boolean;
@@ -39,14 +39,13 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   const { demos, activeDemoId, setActiveDemoId, setActiveView, setDemos } = useDemoStore();
   const [creating, setCreating] = useState(false);
   const [newDemoName, setNewDemoName] = useState("");
-  const [templates, setTemplates] = useState<DemoTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpts, setDeleteOpts] = useState({ destroyContainers: true, removeImages: false });
 
   useEffect(() => {
     if (open) {
       fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
-      fetchTemplates().then((res) => setTemplates(res.templates)).catch(() => {});
     }
   }, [open]);
 
@@ -73,18 +72,12 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
     }
   };
 
-  const handleCreateFromTemplate = async (templateId: string) => {
-    try {
-      const demo = await createFromTemplate(templateId);
-      const res = await fetchDemos();
-      setDemos(res.demos);
-      setActiveDemoId(demo.id);
-      setActiveView("diagram");
-      onOpenChange(false);
-      toast.success("Demo created from template");
-    } catch (err: any) {
-      toast.error("Failed to create from template", { description: err.message });
-    }
+  const handleCreateFromTemplate = (demoId: string) => {
+    fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
+    setActiveDemoId(demoId);
+    setActiveView("diagram");
+    setShowTemplates(false);
+    onOpenChange(false);
   };
 
   const handleDeploy = async (e: React.MouseEvent, demoId: string) => {
@@ -176,26 +169,24 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                   <Plus className="w-3.5 h-3.5" />
                   New Demo
                 </Button>
-                {templates.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="secondary" size="sm" className="h-8">From Template</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56">
-                      {templates.map((t) => (
-                        <DropdownMenuItem key={t.id} onSelect={() => handleCreateFromTemplate(t.id)}>
-                          <div>
-                            <div className="font-medium">{t.name}</div>
-                            <div className="text-xs text-muted-foreground">{t.description}</div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                <Button
+                  variant={showTemplates ? "default" : "secondary"}
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => setShowTemplates(!showTemplates)}
+                >
+                  <LayoutTemplate className="w-3.5 h-3.5" />
+                  From Template
+                </Button>
               </>
             )}
           </div>
+
+          {showTemplates && (
+            <div className="border-b border-border pb-3 -mx-2 px-2">
+              <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
+            </div>
+          )}
 
           <div className="overflow-y-auto flex-1 -mx-2 px-2">
             {demos.length === 0 ? (

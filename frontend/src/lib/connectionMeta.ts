@@ -12,6 +12,8 @@ export const connectionColors: Record<string, string> = {
   "cluster-replication": "#a855f7",
   "cluster-site-replication": "#d946ef",
   "cluster-tiering": "#eab308",
+  "iceberg-catalog": "#1565c0",
+  "sql-query": "#7209b7",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -28,4 +30,6 @@ export const connectionLabels: Record<string, string> = {
   "cluster-replication": "Bucket Replication",
   "cluster-site-replication": "Site Replication",
   "cluster-tiering": "ILM Tiering",
+  "iceberg-catalog": "Iceberg Catalog",
+  "sql-query": "SQL Query",
 };

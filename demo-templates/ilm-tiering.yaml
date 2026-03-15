@@ -1,0 +1,100 @@
+# Template metadata
+_template:
+  name: "ILM Tiering (Hot to Cold)"
+  category: "infrastructure"
+  tags: ["ilm", "tiering", "lifecycle", "cost-optimization"]
+  description: "Two MinIO clusters with ILM tiering. Hot tier stores recent data; cold tier receives aged-out objects automatically via lifecycle rules."
+  objective: "Demonstrate MinIO's Information Lifecycle Management with automatic data tiering"
+  minio_value: "ILM policies automatically move data between storage tiers to optimize cost and performance"
+  estimated_resources:
+    memory: "3GB"
+    cpu: 3
+    containers: 7
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start both MinIO clusters with ILM tiering configured"
+    - step: "Generate data on hot tier"
+      description: "The file generator pushes files to the hot tier cluster"
+    - step: "Observe tiering"
+      description: "After the configured transition period, objects move to the cold tier"
+    - step: "Check cold tier"
+      description: "Open the cold tier MinIO console to see transitioned objects"
+
+# Standard demo definition
+id: template-ilm-tiering
+name: "ILM Tiering (Hot to Cold)"
+description: "Two MinIO clusters with ILM tiering. Hot tier stores recent data; cold tier receives aged-out objects automatically via lifecycle rules."
+
+networks:
+  - name: default
+
+nodes:
+  - id: file-gen
+    component: file-generator
+    variant: steady
+    position: { x: 50, y: 100 }
+    display_name: "Data Generator"
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 600, y: 250 }
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 800, y: 250 }
+
+clusters:
+  - id: minio-hot
+    component: minio
+    label: "MinIO Hot Tier"
+    position: { x: 300, y: 50 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+  - id: minio-cold
+    component: minio
+    label: "MinIO Cold Tier"
+    position: { x: 300, y: 300 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+
+edges:
+  - id: e-filegen-hot
+    source: file-gen
+    target: minio-hot
+    connection_type: file-push
+  - id: e-tiering
+    source: minio-hot
+    target: minio-cold
+    connection_type: cluster-tiering
+    connection_config:
+      source_bucket: data
+      tier_bucket: tiered-data
+      tier_name: COLD-TIER
+      transition_days: "1"
+      policy_name: auto-tier
+    source_handle: cluster-out-bottom
+    target_handle: cluster-in-top
+  - id: e-hot-metrics
+    source: minio-hot
+    target: prometheus
+    connection_type: metrics
+    source_handle: data-out
+  - id: e-cold-metrics
+    source: minio-cold
+    target: prometheus
+    connection_type: metrics
+    source_handle: data-out
+  - id: e-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+
+groups: []
+sticky_notes: []

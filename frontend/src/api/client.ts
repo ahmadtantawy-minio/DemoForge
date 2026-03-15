@@ -176,6 +176,15 @@ export const fetchSystemHealth = () =>
 export const fetchTemplates = () =>
   apiFetch<{ templates: import("../types").DemoTemplate[] }>("/api/templates");
 
+export const fetchTemplate = (templateId: string) =>
+  apiFetch<import("../types").DemoTemplateDetail>(`/api/templates/${templateId}`);
+
+export const updateTemplate = (templateId: string, patch: { name?: string; description?: string; objective?: string; minio_value?: string }) =>
+  apiFetch<import("../types").DemoTemplate>(`/api/templates/${templateId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
 export const createFromTemplate = (templateId: string) =>
   apiFetch<import("../types").DemoSummary>(`/api/demos/from-template/${templateId}`, {
     method: "POST",

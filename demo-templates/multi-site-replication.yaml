@@ -1,0 +1,97 @@
+# Template metadata
+_template:
+  name: "Multi-Site Replication"
+  category: "replication"
+  tags: ["replication", "multi-site", "high-availability"]
+  description: "Two MinIO clusters with bucket replication and a file generator. Data written to Site A automatically replicates to Site B."
+  objective: "Demonstrate MinIO's cross-site bucket replication for disaster recovery"
+  minio_value: "Active-active replication keeps data synchronized across geographically distributed sites"
+  estimated_resources:
+    memory: "3GB"
+    cpu: 3
+    containers: 7
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start both MinIO clusters and the file generator"
+    - step: "Generate test data"
+      description: "The file generator will push files to Site A automatically"
+    - step: "Verify replication"
+      description: "Open both MinIO consoles to see data appearing on Site B"
+    - step: "Test failover"
+      description: "Stop Site A and verify that Site B still serves all replicated data"
+
+# Standard demo definition
+id: template-multi-site-replication
+name: "Multi-Site Replication"
+description: "Two MinIO clusters with bucket replication and a file generator. Data written to Site A automatically replicates to Site B."
+
+networks:
+  - name: default
+
+nodes:
+  - id: file-gen
+    component: file-generator
+    variant: steady
+    position: { x: 50, y: 100 }
+    display_name: "File Generator"
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 600, y: 250 }
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 800, y: 250 }
+
+clusters:
+  - id: minio-site-a
+    component: minio
+    label: "MinIO Site A"
+    position: { x: 300, y: 50 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+  - id: minio-site-b
+    component: minio
+    label: "MinIO Site B"
+    position: { x: 300, y: 300 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+
+edges:
+  - id: e-filegen-sitea
+    source: file-gen
+    target: minio-site-a
+    connection_type: file-push
+  - id: e-replication
+    source: minio-site-a
+    target: minio-site-b
+    connection_type: cluster-replication
+    connection_config:
+      target_bucket: demo-bucket-replica
+      direction: one-way
+    source_handle: cluster-out-bottom
+    target_handle: cluster-in-top
+  - id: e-sitea-metrics
+    source: minio-site-a
+    target: prometheus
+    connection_type: metrics
+    source_handle: data-out
+  - id: e-siteb-metrics
+    source: minio-site-b
+    target: prometheus
+    connection_type: metrics
+    source_handle: data-out
+  - id: e-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+
+groups: []
+sticky_notes: []

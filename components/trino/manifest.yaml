@@ -1,0 +1,75 @@
+id: trino
+name: Trino
+category: analytics
+icon: trino
+version: "latest"
+image: trinodb/trino:latest
+description: "Distributed SQL query engine for analytics on MinIO data via Iceberg or direct S3"
+
+resources:
+  memory: "1g"
+  cpu: 1.0
+
+ports:
+  - name: http
+    container: 8080
+    protocol: tcp
+
+environment:
+  TRINO_ENVIRONMENT: "demoforge"
+
+health_check:
+  endpoint: /v1/info
+  port: 8080
+  interval: 15s
+  timeout: 10s
+
+secrets: []
+
+web_ui:
+  - name: trino-ui
+    port: 8080
+    path: "/ui/"
+    description: "Trino Web UI — query history and cluster status"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Trino SQL query engine"
+  quick_actions:
+    - label: "Show catalogs"
+      command: "trino --execute 'SHOW CATALOGS'"
+    - label: "Show schemas"
+      command: "trino --execute 'SHOW SCHEMAS FROM iceberg'"
+    - label: "Trino version"
+      command: "trino --execute 'SELECT version()'"
+
+connections:
+  provides:
+    - type: sql-query
+      port: 8080
+      description: "Trino SQL query endpoint (JDBC/HTTP)"
+      config_schema: []
+  accepts:
+    - type: iceberg-catalog
+      config_schema:
+        - key: catalog_name
+          label: "Trino Catalog Name"
+          type: string
+          default: "iceberg"
+    - type: s3
+      config_schema:
+        - key: catalog_name
+          label: "Hive/S3 Catalog Name"
+          type: string
+          default: "minio"
+
+variants:
+  default:
+    description: "Single-node Trino coordinator+worker"
+
+template_mounts:
+  - template: "iceberg.properties.j2"
+    mount_path: "/etc/trino/catalog/iceberg.properties"
+
+static_mounts: []
+init_scripts: []

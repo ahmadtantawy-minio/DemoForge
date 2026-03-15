@@ -10,7 +10,6 @@ from ..state.store import state
 
 router = APIRouter()
 DEMOS_DIR = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
-TEMPLATES_DIR = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
 
 def _load_demo(demo_id: str) -> DemoDefinition | None:
     path = os.path.join(DEMOS_DIR, f"{demo_id}.yaml")
@@ -325,34 +324,3 @@ async def get_inventory():
 
     return {"containers": containers, "images": images}
 
-@router.get("/api/templates")
-async def list_templates():
-    templates = []
-    if os.path.isdir(TEMPLATES_DIR):
-        for fname in os.listdir(TEMPLATES_DIR):
-            if fname.endswith(".yaml"):
-                with open(os.path.join(TEMPLATES_DIR, fname)) as f:
-                    raw = yaml.safe_load(f)
-                templates.append({
-                    "id": raw.get("id", fname.replace(".yaml", "")),
-                    "name": raw.get("name", ""),
-                    "description": raw.get("description", ""),
-                    "node_count": len(raw.get("nodes", [])),
-                })
-    return {"templates": templates}
-
-@router.post("/api/demos/from-template/{template_id}")
-async def create_from_template(template_id: str):
-    path = os.path.join(TEMPLATES_DIR, f"{template_id}.yaml")
-    if not os.path.exists(path):
-        raise HTTPException(404, "Template not found")
-    with open(path) as f:
-        raw = yaml.safe_load(f)
-    demo_id = str(uuid.uuid4())[:8]
-    raw["id"] = demo_id
-    demo = DemoDefinition(**raw)
-    _save_demo(demo)
-    return DemoSummary(
-        id=demo.id, name=demo.name, description=demo.description,
-        node_count=len(demo.nodes), status="stopped",
-    )

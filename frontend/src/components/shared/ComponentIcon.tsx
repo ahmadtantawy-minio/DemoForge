@@ -79,6 +79,29 @@ function S3FileBrowserIcon({ size }: { size: number }) {
   );
 }
 
+function IcebergIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#1565C0" />
+      {/* Iceberg shape: triangle top + wider base below waterline */}
+      <polygon points="16,5 21,16 11,16" fill="white" />
+      <polygon points="10,17 22,17 25,27 7,27" fill="white" opacity="0.6" />
+      <line x1="6" y1="16.5" x2="26" y2="16.5" stroke="white" strokeWidth="0.8" strokeDasharray="2 1" />
+    </svg>
+  );
+}
+
+function TrinoIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#DD00A1" />
+      {/* Prism / triangle shape */}
+      <polygon points="16,5 27,25 5,25" fill="none" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+      <text x="50%" y="72%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold" fontFamily="Arial, sans-serif">T</text>
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -100,6 +123,8 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("grafana")) return <GrafanaIcon size={size} />;
     if (id.includes("file-generator") || id.includes("data-gen")) return <FileGeneratorIcon size={size} />;
     if (id.includes("s3-file-browser") || id.includes("s3-browser")) return <S3FileBrowserIcon size={size} />;
+    if (id.includes("iceberg")) return <IcebergIcon size={size} />;
+    if (id.includes("trino")) return <TrinoIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 
