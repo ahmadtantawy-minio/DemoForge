@@ -149,6 +149,61 @@
   - Shows objects in the tiered storage destination
   - Useful for verifying ILM tiering moved objects correctly
 
+## Next — Template Manager (Phase 5)
+
+- [ ] **Template Gallery UI**: Beautiful card-based template browser
+  - Full-width modal/page with template cards in a grid layout
+  - Each card shows: title, description, topology diagram preview, component count, container count
+  - Tags for categories: "lakehouse", "replication", "analytics", "migration", "AI/ML"
+  - Estimated resource requirements badge (RAM, CPU)
+  - External dependency warnings (e.g. "Requires Docker 20+", "Needs 8GB+ RAM")
+  - "Create Demo" button that instantiates the template
+
+- [ ] **Template Detail View**: Expanded view when clicking a card
+  - Full description of the demo scenario and its objective
+  - MinIO value proposition highlighted (why MinIO matters in this pipeline)
+  - Component list with icons, roles, and resource requirements
+  - Connection/edge diagram showing data flow
+  - Step-by-step walkthrough of what the SE will demonstrate
+  - Prerequisites and setup notes
+  - Editable — user can tweak the description text (persisted)
+
+- [ ] **Template Persistence**: Survive Docker rebuilds
+  - Templates stored in `demo-templates/` directory (volume-mounted, like `demos/`)
+  - Each template is a YAML file with metadata + demo definition
+  - User-edited descriptions saved back to the YAML
+  - Seeded templates shipped with DemoForge, user can add custom ones
+  - Backend: `GET /api/templates` lists all, `PATCH /api/templates/{id}` updates description
+
+- [ ] **Template Metadata Schema**:
+  ```yaml
+  id: lakehouse-demo
+  name: "MinIO as Data Lakehouse"
+  category: analytics
+  tags: [lakehouse, iceberg, trino, sql]
+  description: "Full description..."
+  objective: "Demonstrate MinIO as the foundation for an open data lakehouse"
+  minio_value: "S3-compatible storage replaces HDFS as the lakehouse foundation"
+  components:
+    - {id: minio-cluster, label: "MinIO Cluster", role: "Lakehouse storage"}
+    - {id: iceberg, label: "Iceberg REST", role: "Table catalog"}
+    - {id: trino, label: "Trino", role: "SQL query engine"}
+  estimated_resources: {memory: "4GB", cpu: 4, containers: 8}
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start all components"
+    - step: "Generate sample data"
+      description: "Right-click Data Generator → Start Generating"
+  demo: { ... full DemoDefinition ... }
+  ```
+
+- [ ] **Seeded Templates** (ship with DemoForge):
+  - Template 7 "Cluster Resilience" — works now (existing components)
+  - Template 2 "Multi-Site Replication" — works now
+  - Template 3 "ILM Tiering" — works now
+  - Others seeded as analytics/AI components are built
+
 ## Future — Analytics Ecosystem (Phase 6)
 
 - [ ] **HDFS Container**: Hadoop HDFS for data migration demos (HDFS → MinIO)
