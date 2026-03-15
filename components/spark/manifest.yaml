@@ -1,0 +1,75 @@
+id: spark
+name: Apache Spark
+category: analytics
+icon: spark
+version: "3.5"
+image: bitnami/spark:3.5
+description: "Distributed data processing engine with S3A connector for MinIO integration. Runs ETL jobs that read/write data on MinIO."
+
+resources:
+  memory: "1g"
+  cpu: 1.0
+
+ports:
+  - name: master-ui
+    container: 8080
+    protocol: tcp
+  - name: master
+    container: 7077
+    protocol: tcp
+
+environment:
+  SPARK_MODE: "master"
+  SPARK_MASTER_HOST: "localhost"
+
+health_check:
+  endpoint: /
+  port: 8080
+  interval: 15s
+  timeout: 10s
+
+secrets: []
+
+web_ui:
+  - name: spark-ui
+    port: 8080
+    path: "/"
+    description: "Spark Master Web UI — job monitoring"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Apache Spark. Use 'spark-submit' or 'pyspark' for interactive shell."
+  quick_actions:
+    - label: "Spark version"
+      command: "spark-submit --version 2>&1 | head -5"
+    - label: "List running apps"
+      command: "curl -s http://localhost:8080/api/v1/applications 2>/dev/null | python3 -m json.tool || echo 'No apps running'"
+    - label: "Run sample Pi"
+      command: "spark-submit --master local[2] --class org.apache.spark.examples.SparkPi /opt/bitnami/spark/examples/jars/spark-examples*.jar 10 2>&1 | tail -3"
+
+connections:
+  provides:
+    - type: spark-submit
+      port: 7077
+      description: "Spark master for job submission"
+      config_schema: []
+  accepts:
+    - type: s3
+      config_schema:
+        - key: warehouse_bucket
+          label: "Warehouse Bucket"
+          type: string
+          default: "warehouse"
+    - type: hdfs
+      config_schema: []
+
+variants:
+  standalone:
+    description: "Single Spark master+worker (standalone mode)"
+
+template_mounts:
+  - template: "spark-defaults.conf.j2"
+    mount_path: "/opt/bitnami/spark/conf/spark-defaults.conf"
+
+static_mounts: []
+init_scripts: []

@@ -1,0 +1,105 @@
+id: clickhouse
+name: ClickHouse
+category: analytics
+icon: clickhouse
+version: "latest"
+image: clickhouse/clickhouse-server:latest
+description: "Column-oriented OLAP database for real-time analytics on MinIO data via S3 table functions and S3Queue engine"
+
+resources:
+  memory: "512m"
+  cpu: 0.5
+
+ports:
+  - name: http
+    container: 8123
+    protocol: tcp
+  - name: native
+    container: 9001
+    protocol: tcp
+
+environment:
+  CLICKHOUSE_DB: "default"
+  CLICKHOUSE_USER: "default"
+  CLICKHOUSE_PASSWORD: ""
+
+health_check:
+  endpoint: /ping
+  port: 8123
+  interval: 10s
+  timeout: 5s
+
+secrets: []
+
+web_ui:
+  - name: play
+    port: 8123
+    path: "/play"
+    description: "ClickHouse Play UI — interactive SQL console"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "ClickHouse server. Use 'clickhouse-client' for SQL."
+  quick_actions:
+    - label: "Show databases"
+      command: "clickhouse-client --query 'SHOW DATABASES'"
+    - label: "Show tables"
+      command: "clickhouse-client --query 'SHOW TABLES'"
+    - label: "Query S3 (MinIO)"
+      command: "clickhouse-client --query \"SELECT count() FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames')\""
+    - label: "Server info"
+      command: "clickhouse-client --query 'SELECT version(), uptime()'"
+
+connections:
+  provides:
+    - type: sql-query
+      port: 8123
+      description: "ClickHouse HTTP SQL endpoint"
+      config_schema: []
+  accepts:
+    - type: s3
+      config_schema:
+        - key: source_bucket
+          label: "Source Bucket"
+          type: string
+          default: "demo-bucket"
+        - key: file_pattern
+          label: "File Pattern"
+          type: string
+          default: "*.csv"
+        - key: format
+          label: "Data Format"
+          type: select
+          options: ["CSVWithNames", "JSONEachRow", "Parquet", "ORC"]
+          default: "CSVWithNames"
+    - type: s3-queue
+      config_schema:
+        - key: source_bucket
+          label: "Source Bucket"
+          type: string
+          default: "demo-bucket"
+        - key: file_pattern
+          label: "File Pattern"
+          type: string
+          default: "*.csv"
+        - key: format
+          label: "Data Format"
+          type: select
+          options: ["CSVWithNames", "JSONEachRow", "Parquet"]
+          default: "CSVWithNames"
+        - key: table_name
+          label: "Target Table Name"
+          type: string
+          default: "s3queue_ingest"
+
+variants:
+  default:
+    description: "Single ClickHouse server with S3 (MinIO) integration"
+
+template_mounts: []
+
+static_mounts:
+  - host_path: "config/override.xml"
+    mount_path: "/etc/clickhouse-server/config.d/override.xml"
+
+init_scripts: []

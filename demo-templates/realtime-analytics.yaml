@@ -1,0 +1,79 @@
+# Template metadata
+_template:
+  name: "Real-Time Analytics with ClickHouse"
+  category: "analytics"
+  tags: ["real-time", "clickhouse", "olap", "s3-query"]
+  description: "ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics dashboards"
+  objective: "Demonstrate MinIO as the data layer for real-time OLAP queries"
+  minio_value: "MinIO serves as the unified data lake that ClickHouse queries directly — no ETL needed"
+  estimated_resources:
+    memory: "3GB"
+    cpu: 3
+    containers: 5
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start MinIO, ClickHouse, and monitoring"
+    - step: "Generate data"
+      description: "Right-click Data Generator → Start Generating to push CSV files to MinIO"
+    - step: "Query with ClickHouse"
+      description: "Open ClickHouse Play UI and run: SELECT count() FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames')"
+    - step: "Watch real-time"
+      description: "Enable Cockpit to see object counts increase as data flows"
+
+# Standard demo definition
+id: template-realtime-analytics
+name: "Real-Time Analytics with ClickHouse"
+description: "ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics dashboards"
+
+networks:
+  - name: default
+
+nodes:
+  - id: file-gen
+    component: file-generator
+    variant: burst
+    position: { x: 50, y: 150 }
+    display_name: "Data Generator"
+  - id: minio
+    component: minio
+    variant: single
+    position: { x: 300, y: 150 }
+    display_name: "MinIO"
+  - id: clickhouse
+    component: clickhouse
+    variant: default
+    position: { x: 550, y: 150 }
+    display_name: "ClickHouse"
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 550, y: 300 }
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 750, y: 300 }
+
+clusters: []
+
+edges:
+  - id: e-filegen-minio
+    source: file-gen
+    target: minio
+    connection_type: file-push
+  - id: e-minio-clickhouse
+    source: minio
+    target: clickhouse
+    connection_type: s3
+  - id: e-minio-metrics
+    source: minio
+    target: prometheus
+    connection_type: metrics
+    source_handle: data-out
+  - id: e-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+
+groups: []
+sticky_notes: []

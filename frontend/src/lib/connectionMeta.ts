@@ -14,6 +14,9 @@ export const connectionColors: Record<string, string> = {
   "cluster-tiering": "#eab308",
   "iceberg-catalog": "#1565c0",
   "sql-query": "#7209b7",
+  "s3-queue": "#00897b",
+  "spark-submit": "#e65100",
+  "hdfs": "#ff6b35",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -32,4 +35,7 @@ export const connectionLabels: Record<string, string> = {
   "cluster-tiering": "ILM Tiering",
   "iceberg-catalog": "Iceberg Catalog",
   "sql-query": "SQL Query",
+  "s3-queue": "S3 Queue",
+  "spark-submit": "Spark Submit",
+  "hdfs": "HDFS",
 };

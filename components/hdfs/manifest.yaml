@@ -1,0 +1,66 @@
+id: hdfs
+name: Apache HDFS
+category: storage
+icon: hdfs
+version: "3"
+image: apache/hadoop:3
+description: "Hadoop Distributed File System for legacy data storage. Used in migration demos showing data moving from HDFS to MinIO."
+
+resources:
+  memory: "512m"
+  cpu: 0.5
+
+ports:
+  - name: namenode-web
+    container: 9870
+    protocol: tcp
+  - name: namenode-rpc
+    container: 8020
+    protocol: tcp
+
+environment:
+  HADOOP_HOME: "/opt/hadoop"
+  CLUSTER_NAME: "demoforge"
+  ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
+
+health_check:
+  endpoint: /
+  port: 9870
+  interval: 15s
+  timeout: 10s
+
+secrets: []
+
+web_ui:
+  - name: namenode
+    port: 9870
+    path: "/"
+    description: "HDFS NameNode Web UI — file browser and cluster status"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Apache HDFS. Use 'hdfs dfs' commands."
+  quick_actions:
+    - label: "List root"
+      command: "hdfs dfs -ls /"
+    - label: "Cluster info"
+      command: "hdfs dfsadmin -report 2>/dev/null | head -20"
+    - label: "Create demo dir"
+      command: "hdfs dfs -mkdir -p /data/demo && hdfs dfs -ls /data/"
+
+connections:
+  provides:
+    - type: hdfs
+      port: 8020
+      description: "HDFS NameNode RPC"
+      config_schema: []
+  accepts: []
+
+variants:
+  pseudo-distributed:
+    description: "Single-node NameNode + DataNode (pseudo-distributed mode)"
+    command: ["bash", "-c", "hdfs namenode -format -force -nonInteractive 2>/dev/null; hdfs namenode & hdfs datanode"]
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

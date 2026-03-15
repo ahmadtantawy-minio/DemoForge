@@ -102,6 +102,42 @@ function TrinoIcon({ size }: { size: number }) {
   );
 }
 
+function ClickHouseIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#FFCC00" />
+      {/* Column chart bars representing columnar storage */}
+      <rect x="6" y="16" width="4" height="10" rx="1" fill="#1F1F1F" />
+      <rect x="12" y="10" width="4" height="16" rx="1" fill="#1F1F1F" />
+      <rect x="18" y="13" width="4" height="13" rx="1" fill="#1F1F1F" />
+      <rect x="24" y="7" width="4" height="19" rx="1" fill="#1F1F1F" />
+    </svg>
+  );
+}
+
+function SparkIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#e65100" />
+      {/* Lightning bolt */}
+      <path
+        d="M18 5L10 18h7l-3 9 12-15h-8l2-7z"
+        fill="white"
+      />
+    </svg>
+  );
+}
+
+function HDFSIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#ff6b35" />
+      <circle cx="16" cy="16" r="9" fill="none" stroke="white" strokeWidth="2" />
+      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold" fontFamily="Arial, sans-serif">H</text>
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -125,6 +161,9 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("s3-file-browser") || id.includes("s3-browser")) return <S3FileBrowserIcon size={size} />;
     if (id.includes("iceberg")) return <IcebergIcon size={size} />;
     if (id.includes("trino")) return <TrinoIcon size={size} />;
+    if (id.includes("clickhouse")) return <ClickHouseIcon size={size} />;
+    if (id.includes("spark")) return <SparkIcon size={size} />;
+    if (id.includes("hdfs")) return <HDFSIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

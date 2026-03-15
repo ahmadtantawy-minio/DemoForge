@@ -1,0 +1,100 @@
+# Template metadata
+_template:
+  name: "Hadoop to MinIO Migration"
+  category: "analytics"
+  tags: ["migration", "hadoop", "hdfs", "spark", "modernization"]
+  description: "Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector"
+  objective: "Show how Spark bridges HDFS and MinIO for data lake modernization"
+  minio_value: "MinIO replaces HDFS as the modern, S3-compatible data lake — Spark reads from both seamlessly"
+  estimated_resources:
+    memory: "4GB"
+    cpu: 4
+    containers: 6
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start HDFS, Spark, MinIO, and monitoring"
+    - step: "Create data in HDFS"
+      description: "Open HDFS terminal and create sample files in /data/demo/"
+    - step: "Run migration job"
+      description: "Use Spark to read from HDFS and write to MinIO via S3A"
+    - step: "Verify on MinIO"
+      description: "Open MinIO Console to see the migrated data in the warehouse bucket"
+
+# Standard demo definition
+id: template-hadoop-migration
+name: "Hadoop to MinIO Migration"
+description: "Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector"
+
+networks:
+  - name: default
+
+nodes:
+  - id: hdfs
+    component: hdfs
+    variant: pseudo-distributed
+    position: { x: 100, y: 200 }
+    display_name: "HDFS"
+    config: {}
+
+  - id: spark
+    component: spark
+    variant: standalone
+    position: { x: 400, y: 200 }
+    display_name: "Apache Spark"
+    config: {}
+
+  - id: minio-1
+    component: minio
+    variant: single
+    position: { x: 700, y: 200 }
+    display_name: "MinIO"
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 700, y: 400 }
+    config: {}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 900, y: 400 }
+    config: {}
+
+edges:
+  - id: e-hdfs-spark
+    source: hdfs
+    target: spark
+    connection_type: hdfs
+    network: default
+    label: "HDFS"
+
+  - id: e-minio-spark
+    source: minio-1
+    target: spark
+    connection_type: s3
+    network: default
+    label: "S3A"
+    connection_config:
+      warehouse_bucket: "warehouse"
+
+  - id: e-minio-prom
+    source: minio-1
+    target: prometheus
+    connection_type: metrics
+    network: default
+    label: "Metrics"
+
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    label: "PromQL"
+
+groups: []
+sticky_notes: []

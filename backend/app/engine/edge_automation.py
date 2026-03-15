@@ -253,6 +253,18 @@ def _gen_iceberg_catalog(edge: DemoEdge, demo: DemoDefinition, project_name: str
 def _gen_sql_query(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []  # Template-driven
 
+@_register("s3-queue")
+def _gen_s3_queue(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # S3Queue setup done via ClickHouse init or on-demand
+
+@_register("spark-submit")
+def _gen_spark_submit(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven
+
+@_register("hdfs")
+def _gen_hdfs(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven
+
 
 # ---------------------------------------------------------------------------
 # Helpers for cluster-level operations
