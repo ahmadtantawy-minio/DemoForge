@@ -19,9 +19,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge, Terminal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
+import ConfigScriptPanel from "../config/ConfigScriptPanel";
 
 export default function Toolbar() {
   const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit } = useDemoStore();
@@ -31,6 +32,7 @@ export default function Toolbar() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [licensesOpen, setLicensesOpen] = useState(false);
   const [configViewerOpen, setConfigViewerOpen] = useState(false);
+  const [scriptPanelOpen, setScriptPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [resourceSettings, setResourceSettings] = useState({ default_memory: "", default_cpu: 0, max_memory: "", max_cpu: 0, total_memory: "", total_cpu: 0 });
   const [renaming, setRenaming] = useState(false);
@@ -258,6 +260,19 @@ export default function Toolbar() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  onClick={() => setScriptPanelOpen(true)}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                >
+                  <Terminal className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Setup Script</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
                   onClick={() => {
                     // Load current resource settings from demo
                     import("../../api/client").then(({ fetchDemo }) =>
@@ -357,6 +372,14 @@ export default function Toolbar() {
         <GeneratedConfigViewer
           open={configViewerOpen}
           onOpenChange={setConfigViewerOpen}
+          demoId={activeDemoId}
+        />
+      )}
+
+      {activeDemoId && (
+        <ConfigScriptPanel
+          open={scriptPanelOpen}
+          onOpenChange={setScriptPanelOpen}
           demoId={activeDemoId}
         />
       )}

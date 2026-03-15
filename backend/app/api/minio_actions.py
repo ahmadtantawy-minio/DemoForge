@@ -4,6 +4,7 @@ Phase 4 features:
   4.3 - Bucket policy presets
   4.5 - Versioning toggle per bucket
   4.6 - IAM setup (pre-create demo users)
+  4.7 - SSE-S3 encryption toggle per bucket
 """
 import shlex
 import logging
@@ -172,6 +173,84 @@ async def setup_iam_user(demo_id: str, cluster_id: str, req: IAMSetupRequest):
 
 
 # ---------------------------------------------------------------------------
+# 4.7 SSE-S3 Encryption Toggle per Bucket
+# ---------------------------------------------------------------------------
+
+class BucketEncryptionRequest(BaseModel):
+    bucket: str
+    enabled: bool
+
+
+@router.post("/api/demos/{demo_id}/minio/{cluster_id}/encryption")
+async def set_bucket_encryption(demo_id: str, cluster_id: str, req: BucketEncryptionRequest):
+    """Enable or clear SSE-S3 auto-encryption on a bucket via mc encrypt set/clear."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    if "mc-shell" not in running.containers:
+        raise HTTPException(404, "mc-shell container not found — redeploy the demo")
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    cluster = _find_cluster_in_demo(demo, cluster_id)
+    if not cluster:
+        raise HTTPException(404, f"Cluster '{cluster_id}' not found in demo")
+
+    alias = _cluster_alias(cluster)
+    mc_shell = f"demoforge-{demo_id}-mc-shell"
+
+    action = "set sse-s3" if req.enabled else "clear"
+    cmd = f"mc encrypt {action} {alias}/{req.bucket}"
+    try:
+        exit_code, stdout, stderr = await exec_in_container(mc_shell, f"sh -c {shlex.quote(cmd)}")
+    except Exception as e:
+        raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
+
+    if exit_code != 0:
+        logger.warning(f"set_bucket_encryption failed for {demo_id}/{cluster_id}/{req.bucket}: {stderr[:200]}")
+        raise HTTPException(500, f"mc command failed: {stderr[:200]}")
+
+    return {"status": "ok", "cluster_id": cluster_id, "bucket": req.bucket, "encryption": "sse-s3" if req.enabled else "none"}
+
+
+@router.get("/api/demos/{demo_id}/minio/{cluster_id}/encryption")
+async def get_bucket_encryption(demo_id: str, cluster_id: str, bucket: str):
+    """Get SSE-S3 encryption status for a bucket via mc encrypt info."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    if "mc-shell" not in running.containers:
+        raise HTTPException(404, "mc-shell container not found — redeploy the demo")
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    cluster = _find_cluster_in_demo(demo, cluster_id)
+    if not cluster:
+        raise HTTPException(404, f"Cluster '{cluster_id}' not found in demo")
+
+    alias = _cluster_alias(cluster)
+    mc_shell = f"demoforge-{demo_id}-mc-shell"
+
+    cmd = f"mc encrypt info {alias}/{bucket}"
+    try:
+        exit_code, stdout, stderr = await exec_in_container(mc_shell, f"sh -c {shlex.quote(cmd)}")
+    except Exception as e:
+        raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
+
+    encryption = "none"
+    if exit_code == 0 and "sse-s3" in stdout.lower():
+        encryption = "sse-s3"
+
+    return {"cluster_id": cluster_id, "bucket": bucket, "encryption": encryption, "raw": stdout}
+
+
+# ---------------------------------------------------------------------------
 # Generic mc command runner + info queries
 # ---------------------------------------------------------------------------
 
@@ -296,6 +375,7 @@ async def get_cluster_info(demo_id: str, cluster_id: str):
                     # Get per-bucket policy and versioning
                     pol_ec, pol_out = await _run(f"mc anonymous get-json {alias}/{bname}")
                     ver_ec, ver_out = await _run(f"mc version info {alias}/{bname}")
+                    enc_ec, enc_out = await _run(f"mc encrypt info {alias}/{bname}")
                     policy = "none"
                     if pol_ec == 0 and pol_out.strip():
                         policy = "custom" if pol_out.strip() != "{}" else "none"
@@ -307,7 +387,10 @@ async def get_cluster_info(demo_id: str, cluster_id: str):
                             versioning = "suspended"
                         else:
                             versioning = "unversioned"
-                    buckets.append({"name": bname, "policy": policy, "versioning": versioning})
+                    encryption = "none"
+                    if enc_ec == 0 and "sse-s3" in enc_out.lower():
+                        encryption = "sse-s3"
+                    buckets.append({"name": bname, "policy": policy, "versioning": versioning, "encryption": encryption})
 
     return {
         "cluster_id": cluster_id,

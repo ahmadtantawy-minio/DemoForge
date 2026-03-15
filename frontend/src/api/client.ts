@@ -63,6 +63,9 @@ export const updateDemo = (id: string, patch: { name?: string; description?: str
 export const fetchGeneratedConfig = (id: string) =>
   apiFetch<{ demo_id: string; configs: Record<string, string> }>(`/api/demos/${id}/generated-config`);
 
+export const fetchConfigScript = (id: string) =>
+  apiFetch<{ demo_id: string; script: string; sections: { name: string; commands: string[] }[] }>(`/api/demos/${id}/config-script`);
+
 export const saveDiagram = (id: string, nodes: any[], edges: any[]) =>
   apiFetch<any>(`/api/demos/${id}/diagram`, {
     method: "PUT",

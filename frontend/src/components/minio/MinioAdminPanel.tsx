@@ -23,6 +23,7 @@ interface BucketInfo {
   name: string;
   policy: string;
   versioning: string;
+  encryption: string;
 }
 
 interface ClusterInfo {
@@ -128,6 +129,26 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
     }
   };
 
+  const toggleEncryption = async (bucket: string, enabled: boolean) => {
+    if (!activeDemoId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/minio/${clusterId}/encryption`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bucket, enabled }),
+      });
+      if (res.ok) {
+        toast.success(`SSE-S3 encryption ${enabled ? "enabled" : "disabled"} for ${bucket}`);
+        fetchInfo();
+      } else {
+        const err = await res.json();
+        toast.error("Failed", { description: err.detail || err.message });
+      }
+    } catch (e: any) {
+      toast.error("Failed", { description: e.message });
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
@@ -177,13 +198,21 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
                 <div key={b.name} className="border border-border rounded p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-foreground">{b.name}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      b.versioning === "enabled" ? "bg-green-500/10 text-green-400" :
-                      b.versioning === "suspended" ? "bg-yellow-500/10 text-yellow-400" :
-                      "bg-muted text-muted-foreground"
-                    }`}>
-                      {b.versioning}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        b.encryption === "sse-s3" ? "bg-green-500/10 text-green-400" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {b.encryption === "sse-s3" ? "SSE-S3" : "None"}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        b.versioning === "enabled" ? "bg-green-500/10 text-green-400" :
+                        b.versioning === "suspended" ? "bg-yellow-500/10 text-yellow-400" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {b.versioning}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">Policy:</span>
@@ -210,6 +239,15 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
                       onClick={() => toggleVersioning(b.name, b.versioning !== "enabled")}
                     >
                       {b.versioning === "enabled" ? "Enabled" : "Enable"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground ml-2">Encryption:</span>
+                    <Button
+                      size="sm"
+                      variant={b.encryption === "sse-s3" ? "default" : "outline"}
+                      className="h-6 text-[10px] px-2"
+                      onClick={() => toggleEncryption(b.name, b.encryption !== "sse-s3")}
+                    >
+                      {b.encryption === "sse-s3" ? "SSE-S3" : "Enable"}
                     </Button>
                   </div>
                 </div>
