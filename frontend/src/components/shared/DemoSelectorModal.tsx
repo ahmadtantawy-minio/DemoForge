@@ -183,12 +183,15 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
           </div>
 
           {showTemplates && (
-            <div className="border-b border-border pb-3 -mx-2 px-2">
-              <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
+            <div className="border-b border-border pb-3">
+              {/* Constrained height so the gallery never pushes the demo list off-screen */}
+              <div className="max-h-[40vh] overflow-y-auto pr-1">
+                <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
+              </div>
             </div>
           )}
 
-          <div className="overflow-y-auto flex-1 -mx-2 px-2">
+          <div className="overflow-y-auto flex-1 min-h-0">
             {demos.length === 0 ? (
               <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                 No demos yet. Create one to get started.
@@ -229,8 +232,8 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                         </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                      {/* Actions — revealed on hover OR when focus lands inside (keyboard accessible) */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                         {demo.status === "stopped" || demo.status === "error" ? (
                           <Button
                             size="sm"

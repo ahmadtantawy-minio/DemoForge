@@ -256,7 +256,7 @@ export default function DemoManager() {
                               )}
                             </div>
                             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                              <span>{demo.id}</span>
+                              <span className="font-mono truncate max-w-[120px]" title={demo.id}>{demo.id}</span>
                               <span>{demo.node_count} node{demo.node_count !== 1 ? "s" : ""}</span>
                               {containerCount > 0 && (
                                 <span>{containerCount} container{containerCount !== 1 ? "s" : ""}</span>
@@ -331,7 +331,7 @@ export default function DemoManager() {
           </TabsContent>
 
           {/* === TEMPLATES TAB === */}
-          <TabsContent value="templates">
+          <TabsContent value="templates" className="pt-2">
             <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
           </TabsContent>
 

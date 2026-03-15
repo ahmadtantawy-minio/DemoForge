@@ -56,9 +56,11 @@ function CategoryPill({
 export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) {
   const [templates, setTemplates] = useState<DemoTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<DemoTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   // Editable fields in the detail dialog
@@ -69,9 +71,10 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(false);
     fetchTemplates()
       .then((res) => setTemplates(res.templates))
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -88,6 +91,8 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   );
 
   const handleCardClick = async (templateId: string) => {
+    if (loadingDetail) return;
+    setLoadingDetail(templateId);
     try {
       const detail = await fetchTemplate(templateId);
       setSelectedTemplate(detail);
@@ -98,6 +103,8 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
       setDetailOpen(true);
     } catch (err: any) {
       toast.error("Failed to load template details", { description: err.message });
+    } finally {
+      setLoadingDetail(null);
     }
   };
 
@@ -171,6 +178,35 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
             </div>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  // ── Error state ──────────────────────────────────────────────────────
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+        <div className="w-12 h-12 rounded-xl bg-destructive/10 flex items-center justify-center mb-1">
+          <LayoutGrid className="w-6 h-6 text-destructive/70" />
+        </div>
+        <p className="text-sm font-medium text-foreground">Failed to load templates</p>
+        <p className="text-xs text-muted-foreground max-w-[280px]">
+          Could not reach the template API. Check your server and try again.
+        </p>
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline underline-offset-2 mt-1"
+          onClick={() => {
+            setLoadError(false);
+            setLoading(true);
+            fetchTemplates()
+              .then((res) => setTemplates(res.templates))
+              .catch(() => setLoadError(true))
+              .finally(() => setLoading(false));
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -251,7 +287,8 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               role="listitem"
               tabIndex={0}
               aria-label={`${t.name} template, ${t.category} category`}
-              className="group border border-border rounded-lg bg-card hover:border-primary/40 hover:bg-accent/30 hover:shadow-sm transition-all duration-150 cursor-pointer flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-busy={loadingDetail === t.id}
+              className={`group border border-border rounded-lg bg-card hover:border-primary/40 hover:bg-accent/30 hover:shadow-sm transition-all duration-150 flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card ${loadingDetail === t.id ? "opacity-70 cursor-wait" : "cursor-pointer"}`}
               onClick={() => handleCardClick(t.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -321,7 +358,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 <Button
                   size="sm"
                   className="h-7 text-xs shrink-0"
-                  disabled={creating === t.id}
+                  disabled={creating === t.id || !!loadingDetail}
                   aria-label={`Create demo from template: ${t.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -330,8 +367,13 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 >
                   {creating === t.id ? (
                     <>
-                      <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                      <Loader2 className="w-3 h-3 animate-spin mr-1" aria-hidden="true" />
                       Creating…
+                    </>
+                  ) : loadingDetail === t.id ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin mr-1" aria-hidden="true" />
+                      Loading…
                     </>
                   ) : (
                     "Create Demo"
@@ -356,104 +398,107 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
           </DialogHeader>
 
           {selectedTemplate && (
-            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-              {/* Description (editable) */}
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
-                  Description
-                </label>
-                <textarea
-                  className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                  rows={3}
-                  value={editDescription}
-                  onChange={(e) => { setEditDescription(e.target.value); setDirty(true); }}
-                />
-              </div>
-
-              {/* Objective (editable) */}
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">
-                  Objective
-                </label>
-                <textarea
-                  className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                  rows={2}
-                  value={editObjective}
-                  onChange={(e) => { setEditObjective(e.target.value); setDirty(true); }}
-                />
-              </div>
-
-              {/* MinIO Value Proposition */}
-              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3">
-                <label className="text-xs font-medium text-blue-400 block mb-1">
-                  MinIO Value Proposition
-                </label>
-                <textarea
-                  className="w-full bg-transparent border-none text-sm text-blue-300 resize-none focus:outline-none"
-                  rows={2}
-                  value={editMinioValue}
-                  onChange={(e) => { setEditMinioValue(e.target.value); setDirty(true); }}
-                />
-              </div>
-
-              {/* Unsaved changes indicator + save — visually connected to the fields above */}
-              {dirty && (
-                <div className="flex items-center justify-between rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
-                  <span className="text-xs text-yellow-400">Unsaved changes</span>
-                  <Button size="sm" variant="secondary" onClick={handleSaveMetadata}>
-                    Save Changes
-                  </Button>
+            <>
+              {/* Scrollable content region */}
+              <div className="overflow-y-auto flex-1 space-y-4 pr-3 min-h-0">
+                {/* Description (editable) */}
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                    rows={3}
+                    value={editDescription}
+                    onChange={(e) => { setEditDescription(e.target.value); setDirty(true); }}
+                  />
                 </div>
-              )}
 
-              {/* Components */}
-              <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-2">
-                  Components
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {selectedTemplate.nodes.map((n: any) => (
-                    <Badge key={n.id} variant="outline" className="text-xs">
-                      <Layers className="w-3 h-3 mr-1" aria-hidden="true" />
-                      {n.display_name || n.component}
-                    </Badge>
-                  ))}
-                  {selectedTemplate.clusters.map((c: any) => (
-                    <Badge key={c.id} variant="outline" className="text-xs">
-                      <Box className="w-3 h-3 mr-1" aria-hidden="true" />
-                      {c.label || c.component} ({c.node_count}x)
-                    </Badge>
-                  ))}
+                {/* Objective (editable) */}
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    Objective
+                  </label>
+                  <textarea
+                    className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                    rows={2}
+                    value={editObjective}
+                    onChange={(e) => { setEditObjective(e.target.value); setDirty(true); }}
+                  />
                 </div>
-              </div>
 
-              {/* Walkthrough */}
-              {selectedTemplate.walkthrough.length > 0 && (
+                {/* MinIO Value Proposition — editable field with visible affordance */}
+                <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3">
+                  <label className="text-xs font-medium text-blue-400 block mb-1">
+                    MinIO Value Proposition
+                  </label>
+                  <textarea
+                    className="w-full bg-transparent border border-blue-500/20 rounded text-sm text-blue-300 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500/50 px-2 py-1"
+                    rows={2}
+                    value={editMinioValue}
+                    onChange={(e) => { setEditMinioValue(e.target.value); setDirty(true); }}
+                  />
+                </div>
+
+                {/* Unsaved changes indicator + save */}
+                {dirty && (
+                  <div className="flex items-center justify-between rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
+                    <span className="text-xs text-yellow-400">Unsaved changes</span>
+                    <Button size="sm" variant="secondary" onClick={handleSaveMetadata}>
+                      Save Changes
+                    </Button>
+                  </div>
+                )}
+
+                {/* Components */}
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-2">
-                    Walkthrough
+                    Components
                   </label>
-                  <ol className="space-y-2" aria-label="Demo walkthrough steps">
-                    {selectedTemplate.walkthrough.map((w, i) => (
-                      <li key={i} className="flex gap-3">
-                        <span
-                          className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center mt-0.5"
-                          aria-hidden="true"
-                        >
-                          {i + 1}
-                        </span>
-                        <div>
-                          <div className="text-sm font-medium text-foreground">{w.step}</div>
-                          <div className="text-xs text-muted-foreground">{w.description}</div>
-                        </div>
-                      </li>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTemplate.nodes.map((n: any) => (
+                      <Badge key={n.id} variant="outline" className="text-xs">
+                        <Layers className="w-3 h-3 mr-1" aria-hidden="true" />
+                        {n.display_name || n.component}
+                      </Badge>
                     ))}
-                  </ol>
+                    {selectedTemplate.clusters.map((c: any) => (
+                      <Badge key={c.id} variant="outline" className="text-xs">
+                        <Box className="w-3 h-3 mr-1" aria-hidden="true" />
+                        {c.label || c.component} ({c.node_count}x)
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              {/* Resource summary + Create — pinned together at the bottom */}
-              <div className="flex items-center justify-between pt-3 border-t border-border">
+                {/* Walkthrough */}
+                {selectedTemplate.walkthrough.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground block mb-2">
+                      Walkthrough
+                    </label>
+                    <ol className="space-y-2" aria-label="Demo walkthrough steps">
+                      {selectedTemplate.walkthrough.map((w, i) => (
+                        <li key={`${selectedTemplate.id}-step-${i}`} className="flex gap-3">
+                          <span
+                            className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center mt-0.5"
+                            aria-hidden="true"
+                          >
+                            {i + 1}
+                          </span>
+                          <div>
+                            <div className="text-sm font-medium text-foreground">{w.step}</div>
+                            <div className="text-xs text-muted-foreground">{w.description}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+
+              {/* Pinned footer — always visible, never scrolls away */}
+              <div className="flex items-center justify-between pt-3 border-t border-border flex-shrink-0">
                 <div
                   className="flex items-center gap-4 text-xs text-muted-foreground"
                   aria-label="Resource summary"
@@ -483,7 +528,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 >
                   {creating === selectedTemplate.id ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                      <Loader2 className="w-4 h-4 animate-spin mr-1" aria-hidden="true" />
                       Creating…
                     </>
                   ) : (
@@ -491,7 +536,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                   )}
                 </Button>
               </div>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
