@@ -206,11 +206,56 @@
   - Context menu: "Generate to HDFS" / "Generate to Spark" options alongside existing MinIO push
   - Configurable: file format (CSV, JSON, Parquet), size, rate, target path
 
-- [ ] **Analytics Demo Templates**:
-  - Template 1: "Open Lakehouse" — File Gen → MinIO → Iceberg → Trino → SQL queries
-  - Template 2: "Real-Time Analytics" — File Gen → MinIO → ClickHouse → Grafana dashboards
-  - Template 3: "Unified Analytics" — MinIO → Iceberg → Trino (batch) + ClickHouse (real-time)
-  - Template 4: "Hadoop Migration" — HDFS → Spark → MinIO + Trino replacing Hive/Impala
+- [ ] **Demo Templates** — MinIO-centric pipeline scenarios for SEs:
+
+  **Template 1: "MinIO as Data Lakehouse"** (primary demo)
+  - Topology: File Gen → MinIO Cluster → Iceberg REST → Trino + Grafana
+  - MinIO value: S3-compatible object storage AS the lakehouse — no HDFS needed
+  - Steps: (1) generate data to MinIO, (2) Iceberg catalogs it as tables, (3) Trino queries via SQL
+  - Shows: versioning, bucket policies, Iceberg table format on S3, SQL analytics
+  - Cockpit: watch objects accumulate, query them live in Trino
+
+  **Template 2: "MinIO Multi-Site Replication with Analytics"** (enterprise)
+  - Topology: Site-A (MinIO+LB) ↔ Site-B (MinIO+LB) + ClickHouse on Site-B + Grafana
+  - MinIO value: active-active replication, analytics on replicated data
+  - Steps: (1) generate data on Site-A, (2) activate site-replication, (3) ClickHouse S3Queue on Site-B auto-ingests, (4) Grafana shows real-time dashboard
+  - Shows: site-replication, data locality, real-time analytics on replicated data
+
+  **Template 3: "MinIO ILM Tiering with Analytics"** (cost optimization)
+  - Topology: Hot MinIO → ILM → Cold MinIO → Trino (query cold data) + ClickHouse (real-time on hot)
+  - MinIO value: automatic data lifecycle, query both tiers transparently
+  - Steps: (1) generate data to hot tier, (2) activate tiering, (3) data moves to cold after N days, (4) Trino queries across both tiers via Iceberg
+  - Shows: ILM lifecycle, tiered storage, unified query layer
+
+  **Template 4: "Hadoop to MinIO Migration"** (modernization)
+  - Topology: HDFS → Spark (S3A) → MinIO → Iceberg → Trino (replacing Hive/Impala)
+  - MinIO value: drop-in S3 replacement for HDFS, modern query engine
+  - Steps: (1) data exists in HDFS, (2) Spark reads HDFS writes to MinIO via S3A, (3) Iceberg catalogs, (4) Trino replaces Hive/Impala
+  - Shows: S3A compatibility, migration path, performance improvement
+
+  **Template 5: "MinIO + Spark ETL Pipeline"** (data engineering)
+  - Topology: File Gen → MinIO (raw) → Spark (transform) → MinIO (curated) → Trino
+  - MinIO value: both raw and curated data on MinIO, Spark reads/writes via S3A
+  - Steps: (1) ingest raw CSV/JSON, (2) Spark aggregates to Parquet, (3) query curated data
+  - Shows: S3A connector, ETL on object storage, raw-to-curated pattern
+
+  **Template 6: "MinIO Real-Time Ingest + Dashboard"** (IoT/streaming)
+  - Topology: File Gen (burst) → MinIO → ClickHouse (S3Queue) → Grafana
+  - MinIO value: S3 as event buffer, ClickHouse auto-ingests, zero Kafka needed
+  - Steps: (1) burst-generate data, (2) ClickHouse S3Queue picks up objects automatically, (3) Grafana shows live metrics
+  - Shows: S3Queue pattern, MinIO as streaming buffer, real-time dashboards
+
+  **Template 7: "MinIO Cluster Resilience Demo"** (infrastructure)
+  - Topology: MinIO Cluster (4-node EC) + LB + File Gen + Prometheus + Grafana
+  - MinIO value: erasure coding, node failure tolerance, self-healing
+  - Steps: (1) generate data, (2) stop 1-2 nodes, (3) show data still accessible, (4) restart nodes, (5) cluster self-heals
+  - Shows: erasure coding, health monitoring, zero-downtime operations
+
+  **Template 8: "MinIO Multi-Cloud Tiering"** (hybrid cloud)
+  - Topology: MinIO Cluster → ILM → AWS S3 / Azure Blob / GCP (when Phase 7 ready)
+  - MinIO value: single S3 API, transparent tiering to any cloud
+  - Steps: (1) data on MinIO, (2) ILM moves cold data to cloud, (3) queries still work transparently
+  - Shows: cloud-agnostic storage, cost optimization, hybrid architecture
   - Template 3: Full pipeline: Spark → MinIO (AIStore Tables) → Trino
 
 ## Future — Experience & Sharing (Phase 5)
