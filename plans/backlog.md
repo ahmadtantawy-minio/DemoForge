@@ -86,6 +86,18 @@
 
 - [x] **Grafana MinIO Dashboard**: Official 37-panel dashboard (ID 13502) auto-provisioned
 
+## High Priority — Configuration & Educational Panel (Phase 3 rework)
+
+- [ ] **Configuration Panel Rework** — Educational code-editor-style configuration viewer
+  - Rework the generated config viewer to be a proper code editor with syntax highlighting
+  - Show every mc command needed to build the setup from scratch (MinIO perspective)
+  - Include inline comments explaining WHY each command is needed and WHAT it does
+  - Layout: text editor panel with syntax coloring (shell commands, YAML, JSON)
+  - Sections: cluster setup, bucket creation, versioning, replication config, IAM, tiering
+  - Each section shows the actual mc commands with `# comments` explaining the purpose
+  - Export button to copy all commands as a runnable shell script
+  - Should serve as a learning tool for SEs to understand the MinIO configuration
+
 ## Remaining Backlog (lower priority)
 
 - [ ] Verbose output panel in deploy/stop modals
@@ -146,8 +158,10 @@
 
 - [ ] **Apache Spark Container**: Spark with S3A connector pushing data to MinIO
   - Image: `bitnami/spark:latest` or `apache/spark:3.5`
-  - Connection types: s3a-client (accepts s3), spark-submit
+  - Connection types: s3a-client (accepts s3), spark-submit, accepts hdfs
   - Demo: Spark job reads/writes parquet to MinIO buckets
+  - Built-in jobs: aggregation pipeline that runs every X minutes, transforms and pushes to MinIO
+  - Init script: pre-submit a sample PySpark job that reads raw data → aggregates → writes parquet
 
 - [ ] **AIStore Tables**: MinIO's built-in table format (cluster config option)
   - Implementation: cluster property toggle, not a separate component
@@ -164,6 +178,12 @@
   - Connection types: accepts iceberg-catalog, accepts s3
   - Demo: SQL queries across MinIO data (Iceberg + Hive metastore)
   - Catalog config: Iceberg connector pointing to REST catalog or direct S3
+
+- [ ] **Data Generator Extensions**: Extend file-generator to push data to HDFS and Spark
+  - Add `hdfs-push` connection type: generates files directly to HDFS via WebHDFS REST API
+  - Add `spark-ingest` connection type: pushes data that triggers Spark processing pipeline
+  - Context menu: "Generate to HDFS" / "Generate to Spark" options alongside existing MinIO push
+  - Configurable: file format (CSV, JSON, Parquet), size, rate, target path
 
 - [ ] **Analytics Demo Templates**:
   - Template 1: HDFS → MinIO migration with Spark processing
