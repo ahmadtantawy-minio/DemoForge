@@ -173,11 +173,24 @@
   - Connection types: accepts s3 (MinIO), provides iceberg-catalog
   - Demo: create Iceberg tables stored on MinIO, query via Trino
 
-- [ ] **Trino/Starburst**: SQL query engine reading from AIStore Tables and/or Iceberg
-  - Image: `trinodb/trino:latest`
-  - Connection types: accepts iceberg-catalog, accepts s3
-  - Demo: SQL queries across MinIO data (Iceberg + Hive metastore)
-  - Catalog config: Iceberg connector pointing to REST catalog or direct S3
+- [ ] **Trino** (Priority 1 query engine): SQL query engine for lakehouse analytics
+  - Image: `trinodb/trino:latest` (~2.5GB, JVM, 1GB RAM)
+  - Connection types: accepts iceberg-catalog, accepts s3, provides sql-query
+  - Template mounts: minio.properties.j2, iceberg.properties.j2 for catalog config
+  - Demo: SQL queries over Parquet/Iceberg on MinIO, CREATE TABLE AS SELECT
+  - **NOT Starburst** — license key required, no demo value over open-source Trino at small scale
+
+- [ ] **ClickHouse** (Priority 2 query engine): Real-time analytics on MinIO data
+  - Image: `clickhouse/clickhouse-server:latest` (~1GB, C++ native, 512MB RAM)
+  - Connection types: accepts s3 (via s3() table function), provides sql-query
+  - No catalog needed — direct S3 reads, S3Queue for continuous ingestion
+  - Demo: real-time dashboards, log analytics, hot-cold architecture with MinIO
+  - Reads Iceberg tables created by Trino (IcebergS3 engine, read-only)
+  - Note: native port 9000 conflicts with MinIO — use HTTP port 8123 only
+
+- [ ] **Cloudera: NOT RECOMMENDED** — infeasible in Docker (64GB+ RAM minimum, commercial license)
+  - For "Hadoop migration" narrative, use standalone HDFS + Spark + Trino instead
+  - This tells a better story: "Replace entire Hadoop stack with MinIO + Trino"
 
 - [ ] **Data Generator Extensions**: Extend file-generator to push data to HDFS and Spark
   - Add `hdfs-push` connection type: generates files directly to HDFS via WebHDFS REST API
@@ -186,8 +199,10 @@
   - Configurable: file format (CSV, JSON, Parquet), size, rate, target path
 
 - [ ] **Analytics Demo Templates**:
-  - Template 1: HDFS → MinIO migration with Spark processing
-  - Template 2: MinIO + Iceberg + Trino lakehouse
+  - Template 1: "Open Lakehouse" — File Gen → MinIO → Iceberg → Trino → SQL queries
+  - Template 2: "Real-Time Analytics" — File Gen → MinIO → ClickHouse → Grafana dashboards
+  - Template 3: "Unified Analytics" — MinIO → Iceberg → Trino (batch) + ClickHouse (real-time)
+  - Template 4: "Hadoop Migration" — HDFS → Spark → MinIO + Trino replacing Hive/Impala
   - Template 3: Full pipeline: Spark → MinIO (AIStore Tables) → Trino
 
 ## Future — Experience & Sharing (Phase 5)
