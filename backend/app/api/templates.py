@@ -10,16 +10,27 @@ TEMPLATES_DIR = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
 DEMOS_DIR = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
 
 
-def _load_template_raw(template_id: str) -> dict | None:
+def _safe_path(template_id: str) -> str | None:
+    """Resolve template path and validate it stays within TEMPLATES_DIR."""
     path = os.path.join(TEMPLATES_DIR, f"{template_id}.yaml")
-    if not os.path.exists(path):
+    real = os.path.realpath(path)
+    if not real.startswith(os.path.realpath(TEMPLATES_DIR)):
+        return None
+    return path
+
+
+def _load_template_raw(template_id: str) -> dict | None:
+    path = _safe_path(template_id)
+    if not path or not os.path.exists(path):
         return None
     with open(path) as f:
         return yaml.safe_load(f)
 
 
 def _save_template_raw(template_id: str, raw: dict):
-    path = os.path.join(TEMPLATES_DIR, f"{template_id}.yaml")
+    path = _safe_path(template_id)
+    if not path:
+        raise ValueError(f"Invalid template ID: {template_id}")
     with open(path, "w") as f:
         yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 

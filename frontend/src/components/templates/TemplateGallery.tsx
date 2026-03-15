@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { toast } from "sonner";
@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Box, Cpu, MemoryStick, Container, Layers } from "lucide-react";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
@@ -18,17 +18,48 @@ interface TemplateGalleryProps {
 
 const categoryColors: Record<string, string> = {
   infrastructure: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  replication: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-  analytics: "bg-green-500/15 text-green-400 border-green-500/30",
-  ai: "bg-pink-500/15 text-pink-400 border-pink-500/30",
-  general: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+  replication:    "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  analytics:      "bg-green-500/15 text-green-400 border-green-500/30",
+  ai:             "bg-pink-500/15 text-pink-400 border-pink-500/30",
+  general:        "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
 };
+
+// Pill used both in cards and filter bar
+function CategoryPill({
+  category,
+  active,
+  onClick,
+}: {
+  category: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  const color = categoryColors[category] ?? categoryColors.general;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-all select-none
+        ${color}
+        ${active !== undefined
+          ? active
+            ? "opacity-100 ring-1 ring-current"
+            : "opacity-50 hover:opacity-80"
+          : "cursor-default"
+        }`}
+    >
+      {category}
+    </button>
+  );
+}
 
 export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) {
   const [templates, setTemplates] = useState<DemoTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<DemoTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   // Editable fields in the detail dialog
   const [editDescription, setEditDescription] = useState("");
@@ -37,10 +68,24 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
+    setLoading(true);
     fetchTemplates()
       .then((res) => setTemplates(res.templates))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
+
+  // Derive unique categories in insertion order
+  const categories = useMemo(() => {
+    const seen = new Set<string>();
+    templates.forEach((t) => seen.add(t.category));
+    return Array.from(seen);
+  }, [templates]);
+
+  const filtered = useMemo(
+    () => (activeCategory ? templates.filter((t) => t.category === activeCategory) : templates),
+    [templates, activeCategory]
+  );
 
   const handleCardClick = async (templateId: string) => {
     try {
@@ -61,6 +106,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
     try {
       const demo = await createFromTemplate(templateId);
       toast.success(`Demo "${demo.name}" created from template`);
+      setDetailOpen(false);
       onCreateDemo(demo.id);
     } catch (err: any) {
       toast.error("Failed to create demo from template", { description: err.message });
@@ -77,11 +123,10 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
         objective: editObjective,
         minio_value: editMinioValue,
       });
-      // Update in the list
       setTemplates((prev) =>
         prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t))
       );
-      setSelectedTemplate((prev) => prev ? { ...prev, ...updated } : prev);
+      setSelectedTemplate((prev) => (prev ? { ...prev, ...updated } : prev));
       setDirty(false);
       toast.success("Template updated");
     } catch (err: any) {
@@ -89,99 +134,224 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
     }
   };
 
-  if (templates.length === 0) {
+  // ── Loading skeleton ──────────────────────────────────────────────────
+  if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-        No templates available.
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center gap-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-6 w-20 rounded-full bg-muted animate-pulse" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="border border-border rounded-lg bg-card flex flex-col gap-3 p-4 animate-pulse"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              <div className="h-4 w-20 rounded-full bg-muted" />
+              <div className="h-5 w-3/4 rounded bg-muted" />
+              <div className="space-y-1.5">
+                <div className="h-3 w-full rounded bg-muted" />
+                <div className="h-3 w-5/6 rounded bg-muted" />
+                <div className="h-3 w-2/3 rounded bg-muted" />
+              </div>
+              <div className="flex gap-1 mt-1">
+                <div className="h-4 w-14 rounded bg-muted" />
+                <div className="h-4 w-10 rounded bg-muted" />
+              </div>
+              <div className="border-t border-border pt-2.5 flex justify-between items-center">
+                <div className="flex gap-3">
+                  <div className="h-3 w-8 rounded bg-muted" />
+                  <div className="h-3 w-10 rounded bg-muted" />
+                </div>
+                <div className="h-7 w-24 rounded bg-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
+  // ── Empty state ──────────────────────────────────────────────────────
+  if (templates.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+        <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mb-1">
+          <LayoutGrid className="w-6 h-6 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground">No templates available</p>
+        <p className="text-xs text-muted-foreground max-w-[280px]">
+          Templates will appear here once they are added to the backend. Check your server configuration.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Empty filtered state ─────────────────────────────────────────────
+  const emptyFilter = filtered.length === 0 && activeCategory !== null;
+
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {templates.map((t) => (
-          <div
-            key={t.id}
-            className="group border border-border rounded-lg bg-card hover:border-primary/50 hover:bg-accent/50 transition-all cursor-pointer flex flex-col"
-            onClick={() => handleCardClick(t.id)}
+      {/* ── Category filter bar ─────────────────────────────────────── */}
+      {categories.length > 1 && (
+        <div
+          className="flex items-center gap-2 flex-wrap mb-4 pb-3 border-b border-border"
+          role="group"
+          aria-label="Filter templates by category"
+        >
+          <ListFilter className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+          <button
+            type="button"
+            onClick={() => setActiveCategory(null)}
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-all select-none
+              border-border text-muted-foreground
+              ${activeCategory === null
+                ? "bg-muted opacity-100 ring-1 ring-border"
+                : "opacity-60 hover:opacity-90 hover:bg-muted/50"
+              }`}
           >
-            {/* Card header */}
-            <div className="p-4 flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${categoryColors[t.category] ?? categoryColors.general}`}
-                >
-                  {t.category}
-                </span>
-              </div>
-              <h3 className="font-semibold text-sm text-foreground mb-1">{t.name}</h3>
-              <p className="text-xs text-muted-foreground line-clamp-3">{t.description}</p>
+            All ({templates.length})
+          </button>
+          {categories.map((cat) => (
+            <CategoryPill
+              key={cat}
+              category={cat}
+              active={activeCategory === cat}
+              onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+            />
+          ))}
+        </div>
+      )}
 
-              {/* Tags */}
-              {t.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-3">
-                  {t.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+      {emptyFilter ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+          <p className="text-sm text-muted-foreground">
+            No templates in the <span className="text-foreground font-medium">{activeCategory}</span> category.
+          </p>
+          <button
+            type="button"
+            className="text-xs text-primary hover:underline underline-offset-2"
+            onClick={() => setActiveCategory(null)}
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : (
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+          role="list"
+          aria-label="Template gallery"
+        >
+          {filtered.map((t) => (
+            <div
+              key={t.id}
+              role="listitem"
+              tabIndex={0}
+              aria-label={`${t.name} template, ${t.category} category`}
+              className="group border border-border rounded-lg bg-card hover:border-primary/40 hover:bg-accent/30 hover:shadow-sm transition-all duration-150 cursor-pointer flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              onClick={() => handleCardClick(t.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleCardClick(t.id);
+                }
+              }}
+            >
+              {/* Card body */}
+              <div className="p-4 flex-1 flex flex-col gap-2">
+                {/* Category + resource hint row */}
+                <div className="flex items-center justify-between gap-2">
+                  <CategoryPill category={t.category} />
+                  <span
+                    className="text-[10px] text-muted-foreground flex items-center gap-1"
+                    title={`${t.container_count} container${t.container_count !== 1 ? "s" : ""}`}
+                  >
+                    <Container className="w-3 h-3" aria-hidden="true" />
+                    {t.container_count}
+                  </span>
                 </div>
-              )}
-            </div>
 
-            {/* Card footer */}
-            <div className="border-t border-border px-4 py-2.5 flex items-center justify-between">
-              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1" title="Containers">
-                  <Container className="w-3 h-3" />
-                  {t.container_count}
-                </span>
-                {t.estimated_resources.memory && (
-                  <span className="flex items-center gap-1" title="Memory">
-                    <MemoryStick className="w-3 h-3" />
-                    {t.estimated_resources.memory}
-                  </span>
-                )}
-                {t.estimated_resources.cpu && (
-                  <span className="flex items-center gap-1" title="CPU cores">
-                    <Cpu className="w-3 h-3" />
-                    {t.estimated_resources.cpu} CPU
-                  </span>
+                {/* Name — primary attention target */}
+                <h3 className="font-semibold text-base text-foreground leading-snug group-hover:text-primary transition-colors duration-150">
+                  {t.name}
+                </h3>
+
+                {/* Description */}
+                <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                  {t.description}
+                </p>
+
+                {/* Tags */}
+                {t.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-auto pt-2">
+                    {t.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-muted/80 text-muted-foreground border border-border/60"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                 )}
               </div>
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                disabled={creating === t.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCreate(t.id);
-                }}
-              >
-                {creating === t.id ? "Creating..." : "Create Demo"}
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
 
-      {/* Template Detail Dialog */}
+              {/* Card footer */}
+              <div className="border-t border-border px-4 py-2.5 flex items-center justify-between gap-2 bg-muted/20 rounded-b-lg">
+                <div
+                  className="flex items-center gap-3 text-[10px] text-muted-foreground"
+                  aria-label="Resource requirements"
+                >
+                  {t.estimated_resources.memory && (
+                    <span className="flex items-center gap-1" title="Estimated memory">
+                      <MemoryStick className="w-3 h-3" aria-hidden="true" />
+                      {t.estimated_resources.memory}
+                    </span>
+                  )}
+                  {t.estimated_resources.cpu && (
+                    <span className="flex items-center gap-1" title="Estimated CPU">
+                      <Cpu className="w-3 h-3" aria-hidden="true" />
+                      {t.estimated_resources.cpu} CPU
+                    </span>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs shrink-0"
+                  disabled={creating === t.id}
+                  aria-label={`Create demo from template: ${t.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCreate(t.id);
+                  }}
+                >
+                  {creating === t.id ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                      Creating…
+                    </>
+                  ) : (
+                    "Create Demo"
+                  )}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Template Detail Dialog ───────────────────────────────────── */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col bg-popover border-border">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-base">
               {selectedTemplate && (
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${categoryColors[selectedTemplate.category] ?? categoryColors.general}`}
-                >
-                  {selectedTemplate.category}
-                </span>
+                <CategoryPill category={selectedTemplate.category} />
               )}
-              {selectedTemplate?.name}
+              <span className="font-semibold">{selectedTemplate?.name}</span>
             </DialogTitle>
           </DialogHeader>
 
@@ -189,7 +359,9 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
             <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               {/* Description (editable) */}
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Description</label>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">
+                  Description
+                </label>
                 <textarea
                   className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                   rows={3}
@@ -200,7 +372,9 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
 
               {/* Objective (editable) */}
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">Objective</label>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">
+                  Objective
+                </label>
                 <textarea
                   className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                   rows={2}
@@ -211,7 +385,9 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
 
               {/* MinIO Value Proposition */}
               <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3">
-                <label className="text-xs font-medium text-blue-400 block mb-1">MinIO Value Proposition</label>
+                <label className="text-xs font-medium text-blue-400 block mb-1">
+                  MinIO Value Proposition
+                </label>
                 <textarea
                   className="w-full bg-transparent border-none text-sm text-blue-300 resize-none focus:outline-none"
                   rows={2}
@@ -220,8 +396,10 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 />
               </div>
 
+              {/* Unsaved changes indicator + save — visually connected to the fields above */}
               {dirty && (
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between rounded-md border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
+                  <span className="text-xs text-yellow-400">Unsaved changes</span>
                   <Button size="sm" variant="secondary" onClick={handleSaveMetadata}>
                     Save Changes
                   </Button>
@@ -230,17 +408,19 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
 
               {/* Components */}
               <div>
-                <label className="text-xs font-medium text-muted-foreground block mb-2">Components</label>
+                <label className="text-xs font-medium text-muted-foreground block mb-2">
+                  Components
+                </label>
                 <div className="flex flex-wrap gap-2">
                   {selectedTemplate.nodes.map((n: any) => (
                     <Badge key={n.id} variant="outline" className="text-xs">
-                      <Layers className="w-3 h-3 mr-1" />
+                      <Layers className="w-3 h-3 mr-1" aria-hidden="true" />
                       {n.display_name || n.component}
                     </Badge>
                   ))}
                   {selectedTemplate.clusters.map((c: any) => (
                     <Badge key={c.id} variant="outline" className="text-xs">
-                      <Box className="w-3 h-3 mr-1" />
+                      <Box className="w-3 h-3 mr-1" aria-hidden="true" />
                       {c.label || c.component} ({c.node_count}x)
                     </Badge>
                   ))}
@@ -250,11 +430,16 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               {/* Walkthrough */}
               {selectedTemplate.walkthrough.length > 0 && (
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-2">Walkthrough</label>
-                  <ol className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground block mb-2">
+                    Walkthrough
+                  </label>
+                  <ol className="space-y-2" aria-label="Demo walkthrough steps">
                     {selectedTemplate.walkthrough.map((w, i) => (
                       <li key={i} className="flex gap-3">
-                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center mt-0.5">
+                        <span
+                          className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center mt-0.5"
+                          aria-hidden="true"
+                        >
                           {i + 1}
                         </span>
                         <div>
@@ -267,33 +452,43 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 </div>
               )}
 
-              {/* Resource Summary */}
-              <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
-                <span className="flex items-center gap-1">
-                  <Container className="w-3.5 h-3.5" />
-                  {selectedTemplate.container_count} containers
-                </span>
-                {selectedTemplate.estimated_resources.memory && (
+              {/* Resource summary + Create — pinned together at the bottom */}
+              <div className="flex items-center justify-between pt-3 border-t border-border">
+                <div
+                  className="flex items-center gap-4 text-xs text-muted-foreground"
+                  aria-label="Resource summary"
+                >
                   <span className="flex items-center gap-1">
-                    <MemoryStick className="w-3.5 h-3.5" />
-                    {selectedTemplate.estimated_resources.memory}
+                    <Container className="w-3.5 h-3.5" aria-hidden="true" />
+                    {selectedTemplate.container_count} container{selectedTemplate.container_count !== 1 ? "s" : ""}
                   </span>
-                )}
-                {selectedTemplate.estimated_resources.cpu && (
-                  <span className="flex items-center gap-1">
-                    <Cpu className="w-3.5 h-3.5" />
-                    {selectedTemplate.estimated_resources.cpu} CPU
-                  </span>
-                )}
-              </div>
+                  {selectedTemplate.estimated_resources.memory && (
+                    <span className="flex items-center gap-1">
+                      <MemoryStick className="w-3.5 h-3.5" aria-hidden="true" />
+                      {selectedTemplate.estimated_resources.memory}
+                    </span>
+                  )}
+                  {selectedTemplate.estimated_resources.cpu && (
+                    <span className="flex items-center gap-1">
+                      <Cpu className="w-3.5 h-3.5" aria-hidden="true" />
+                      {selectedTemplate.estimated_resources.cpu} CPU
+                    </span>
+                  )}
+                </div>
 
-              {/* Create button */}
-              <div className="flex justify-end pt-2">
                 <Button
                   disabled={creating === selectedTemplate.id}
+                  aria-label={`Create demo from template: ${selectedTemplate.name}`}
                   onClick={() => handleCreate(selectedTemplate.id)}
                 >
-                  {creating === selectedTemplate.id ? "Creating..." : "Create Demo"}
+                  {creating === selectedTemplate.id ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                      Creating…
+                    </>
+                  ) : (
+                    "Create Demo"
+                  )}
                 </Button>
               </div>
             </div>
