@@ -222,6 +222,16 @@ export const setLicense = (licenseId: string, value: string, label: string) =>
 export const deleteLicense = (licenseId: string) =>
   apiFetch<{ status: string }>(`/api/settings/licenses/${licenseId}`, { method: "DELETE" });
 
+// LLM Config
+export const getLlmConfig = () =>
+  apiFetch<{ endpoint: string; model: string; api_type: string }>("/api/settings/llm");
+
+export const setLlmConfig = (config: { endpoint?: string; model?: string; api_type?: string }) =>
+  apiFetch<{ status: string }>("/api/settings/llm", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+
 // MinIO Actions (Phase 4)
 export const setBucketPolicy = (demoId: string, clusterId: string, bucket: string, policy: string) =>
   apiFetch<{ status: string; cluster_id: string; bucket: string; policy: string }>(
@@ -239,6 +249,17 @@ export const setupIAMUser = (demoId: string, clusterId: string, username: string
   apiFetch<{ status: string; cluster_id: string; username: string; policy: string }>(
     `/api/demos/${demoId}/minio/${clusterId}/iam`,
     { method: "POST", body: JSON.stringify({ username, password, policy }) }
+  );
+
+// Walkthrough
+export interface WalkthroughStep {
+  step: string;
+  description: string;
+}
+
+export const getWalkthrough = (demoId: string) =>
+  apiFetch<{ demo_id: string; walkthrough: WalkthroughStep[] }>(
+    `/api/demos/${demoId}/walkthrough`
   );
 
 // MCP Tools (Phase 8)

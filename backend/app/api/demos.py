@@ -186,6 +186,37 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     _save_demo(demo)
     return {"status": "saved"}
 
+@router.get("/api/demos/{demo_id}/walkthrough")
+async def get_walkthrough(demo_id: str):
+    """Get walkthrough steps for a demo (from its template metadata if available)."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+
+    # Try to find the template this demo was created from
+    templates_dir = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
+    walkthrough = []
+
+    # Check all templates for matching name/description
+    if os.path.isdir(templates_dir):
+        for fname in os.listdir(templates_dir):
+            if not fname.endswith(".yaml"):
+                continue
+            try:
+                with open(os.path.join(templates_dir, fname)) as f:
+                    raw = yaml.safe_load(f)
+                template_meta = raw.get("_template", {})
+                template_name = raw.get("name", "")
+                # Match by name (demos created from templates keep the template name)
+                if template_name and template_name == demo.name:
+                    walkthrough = template_meta.get("walkthrough", [])
+                    break
+            except Exception:
+                continue
+
+    return {"demo_id": demo_id, "walkthrough": walkthrough}
+
+
 @router.get("/api/demos/{demo_id}/export")
 async def export_demo(demo_id: str):
     """Export a demo as a downloadable YAML file."""

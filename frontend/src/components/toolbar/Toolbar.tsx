@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
 import LicenseSettings from "../admin/LicenseSettings";
+import SettingsDialog from "../settings/SettingsDialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,13 +20,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge, Terminal } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge, Terminal, BookOpen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit } = useDemoStore();
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -34,6 +35,7 @@ export default function Toolbar() {
   const [configViewerOpen, setConfigViewerOpen] = useState(false);
   const [scriptPanelOpen, setScriptPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [globalSettingsOpen, setGlobalSettingsOpen] = useState(false);
   const [resourceSettings, setResourceSettings] = useState({ default_memory: "", default_cpu: 0, max_memory: "", max_cpu: 0, total_memory: "", total_cpu: 0 });
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
@@ -308,6 +310,19 @@ export default function Toolbar() {
             >
               <Gauge className="w-3.5 h-3.5" />
             </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={(e) => { e.stopPropagation(); toggleWalkthrough(); }}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 w-7 p-0 ${walkthroughOpen ? "text-blue-400 bg-blue-400/10" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Walkthrough</p></TooltipContent>
+            </Tooltip>
           </>
         )}
 
@@ -345,6 +360,20 @@ export default function Toolbar() {
           <TooltipContent><p className="text-xs">Toggle theme</p></TooltipContent>
         </Tooltip>
 
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={() => setGlobalSettingsOpen(true)}
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p className="text-xs">Settings</p></TooltipContent>
+        </Tooltip>
+
         <Button
           onClick={() => debugStore.toggle()}
           variant="ghost"
@@ -367,6 +396,7 @@ export default function Toolbar() {
       </div>
 
       <DemoSelectorModal open={selectorOpen} onOpenChange={setSelectorOpen} />
+      <SettingsDialog open={globalSettingsOpen} onOpenChange={setGlobalSettingsOpen} />
 
       {activeDemoId && (
         <GeneratedConfigViewer

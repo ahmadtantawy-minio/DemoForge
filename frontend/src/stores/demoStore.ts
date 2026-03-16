@@ -9,11 +9,14 @@ interface DemoState {
   instances: ContainerInstance[];
   activeView: ViewType;
   cockpitEnabled: boolean;
+  walkthroughOpen: boolean;
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
   setActiveView: (view: ViewType) => void;
   toggleCockpit: () => void;
+  toggleWalkthrough: () => void;
+  setWalkthroughOpen: (open: boolean) => void;
   updateDemoStatus: (id: string, status: DemoSummary["status"]) => void;
 }
 
@@ -47,6 +50,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   instances: [],
   activeView: initial.view,
   cockpitEnabled: false,
+  walkthroughOpen: false,
 
   setDemos: (demos) => set({ demos }),
 
@@ -63,6 +67,10 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   toggleCockpit: () => set({ cockpitEnabled: !get().cockpitEnabled }),
+
+  toggleWalkthrough: () => set({ walkthroughOpen: !get().walkthroughOpen }),
+
+  setWalkthroughOpen: (open) => set({ walkthroughOpen: open }),
 
   updateDemoStatus: (id, status) =>
     set({

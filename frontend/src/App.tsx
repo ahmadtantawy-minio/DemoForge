@@ -14,11 +14,14 @@ import TerminalPanel from "./components/terminal/TerminalPanel";
 import DebugPanel from "./components/debug/DebugPanel";
 import WelcomeScreen from "./components/shared/WelcomeScreen";
 import CockpitOverlay from "./components/cockpit/CockpitOverlay";
+import WalkthroughPanel from "./components/walkthrough/WalkthroughPanel";
+import { getWalkthrough, WalkthroughStep } from "./api/client";
 
 export default function App() {
-  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled } = useDemoStore();
+  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
+  const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(350);
   const isDragging = useRef(false);
 
@@ -75,6 +78,14 @@ export default function App() {
     const interval = setInterval(syncInstances, 5000);
     return () => clearInterval(interval);
   }, [activeDemoId, activeDemo?.status, setInstances]);
+
+  // Fetch walkthrough steps when panel opens
+  useEffect(() => {
+    if (!walkthroughOpen || !activeDemoId) return;
+    getWalkthrough(activeDemoId)
+      .then((res) => setWalkthroughSteps(res.walkthrough))
+      .catch(() => setWalkthroughSteps([]));
+  }, [walkthroughOpen, activeDemoId]);
 
   const openTerminal = (nodeId: string) => {
     setTerminalTabs((prev) =>
@@ -142,7 +153,9 @@ export default function App() {
         {/* Right sidebar - Properties Panel or Cockpit (only in diagram view with active demo) */}
         {showSidebars && (
           <div className="w-72 flex-shrink-0 h-full">
-            {cockpitEnabled ? <CockpitOverlay /> : <PropertiesPanel />}
+            {walkthroughOpen
+              ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />
+              : cockpitEnabled ? <CockpitOverlay /> : <PropertiesPanel />}
           </div>
         )}
       </div>
