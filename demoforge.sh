@@ -51,12 +51,12 @@ check_deps() {
 
     if [ ${#missing[@]} -gt 0 ]; then
         err "Missing dependencies: ${missing[*]}"
-        err "Install Docker Desktop or Docker Engine with Compose v2 plugin."
+        err "Install Docker (Docker Desktop, OrbStack, or Docker Engine) with Compose v2 plugin."
         exit 1
     fi
 
     if ! docker info &>/dev/null 2>&1; then
-        err "Docker daemon is not running. Start Docker Desktop or the Docker service."
+        err "Docker daemon is not running. Start Docker Desktop, OrbStack, or the Docker service."
         exit 1
     fi
 }

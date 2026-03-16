@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import McpToolExplorer from "./McpToolExplorer";
+import McpChat from "./McpChat";
 import {
   Dialog,
   DialogContent,
@@ -50,7 +51,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   const [mcCommand, setMcCommand] = useState("");
   const [mcOutput, setMcOutput] = useState("");
   const [mcRunning, setMcRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "buckets" | "users" | "mc" | "mcp-tools">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "buckets" | "users" | "mc" | "mcp-tools" | "ai-chat">("overview");
 
   const fetchInfo = useCallback(async () => {
     if (!activeDemoId || !clusterId) return;
@@ -159,7 +160,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-border pb-1">
-          {(["overview", "buckets", "users", "mc", "mcp-tools"] as const).map((tab) => (
+          {(["overview", "buckets", "users", "mc", "mcp-tools", "ai-chat"] as const).map((tab) => (
             <button
               key={tab}
               className={`px-3 py-1 text-xs rounded-t ${activeTab === tab
@@ -167,7 +168,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
                 : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setActiveTab(tab)}
             >
-              {tab === "mc" ? "mc Console" : tab === "mcp-tools" ? "MCP Tools" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === "mc" ? "mc Console" : tab === "mcp-tools" ? "MCP Tools" : tab === "ai-chat" ? "AI Chat" : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
           <button
@@ -308,7 +309,12 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
             <McpToolExplorer demoId={activeDemoId} clusterId={clusterId} />
           )}
 
-          {!info && !loading && activeTab !== "mc" && activeTab !== "mcp-tools" && (
+          {/* AI Chat tab */}
+          {activeTab === "ai-chat" && activeDemoId && (
+            <McpChat demoId={activeDemoId} clusterId={clusterId} />
+          )}
+
+          {!info && !loading && activeTab !== "mc" && activeTab !== "mcp-tools" && activeTab !== "ai-chat" && (
             <div className="text-xs text-muted-foreground p-3">No data available. Click Refresh.</div>
           )}
         </div>
