@@ -1,22 +1,24 @@
 connector.name=iceberg
 iceberg.catalog.type=rest
-{% for edge in edges %}
-{% if edge.target == node.id and edge.connection_type == 'iceberg-catalog' %}
-{% set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
-{% if source_node %}
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 'iceberg-catalog' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node %}
 iceberg.rest-catalog.uri=http://{{ project_name }}-{{ source_node.id }}:8181
-{% endif %}
-{% endif %}
-{% endfor %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
 iceberg.rest-catalog.warehouse=warehouse
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 's3' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node %}
 fs.native-s3.enabled=true
-{% for edge in edges %}
-{% if edge.target == node.id and edge.connection_type == 's3' %}
-{% set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
-{% if source_node %}
 s3.endpoint=http://{{ project_name }}-{{ source_node.id }}:9000
 s3.path-style-access=true
-{% endif %}
-{% endif %}
-{% endfor %}
+s3.aws-access-key=minioadmin
+s3.aws-secret-key=minioadmin
+{%- endif %}
+{%- endif %}
+{%- endfor %}
 s3.region=us-east-1

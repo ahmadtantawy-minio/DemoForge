@@ -1,0 +1,225 @@
+# Template metadata
+_template:
+  name: "Full Analytics Pipeline"
+  category: "analytics"
+  tags: ["lakehouse", "iceberg", "trino", "clickhouse", "spark", "hdfs", "s3", "real-time", "etl", "migration"]
+  description: "Comprehensive analytics pipeline: HDFS as legacy source, Spark for ETL transformation, MinIO as the modern data lake, Iceberg REST catalog for table management, Trino for SQL analytics, and ClickHouse for real-time OLAP — all connected through S3."
+  objective: "Demonstrate MinIO as the unified storage layer powering a complete modern data stack — replacing HDFS with a full migration and analytics workflow"
+  minio_value: "MinIO serves as the single S3-compatible data lake that every analytics engine reads from and writes to — replacing HDFS, proprietary storage, and fragmented data silos. Spark migrates data FROM legacy HDFS TO MinIO."
+  estimated_resources:
+    memory: "7GB"
+    cpu: 7
+    containers: 10
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start all components. Wait for all health indicators to turn green (~60s)."
+    - step: "Generate sample data"
+      description: "Right-click Data Generator → Start Generating to push CSV files into MinIO's demo-bucket."
+    - step: "Browse data on MinIO"
+      description: "Open MinIO Console to see objects accumulating in demo-bucket and warehouse bucket."
+    - step: "Query with ClickHouse (real-time)"
+      description: "Open ClickHouse Play UI → run: SELECT count() FROM s3('http://minio-1:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames')"
+    - step: "Create Iceberg tables with Trino"
+      description: "Open Trino terminal → CREATE SCHEMA iceberg.analytics; CREATE TABLE iceberg.analytics.events AS SELECT * FROM ... — tables stored as Parquet on MinIO."
+    - step: "Explore HDFS (legacy source)"
+      description: "Open HDFS NameNode UI to see the legacy file system. Create sample data in /data/demo/."
+    - step: "Run Spark ETL (HDFS → MinIO)"
+      description: "Open Spark terminal → submit a PySpark job that reads from HDFS and writes transformed Parquet to MinIO via S3A connector."
+    - step: "Monitor with Grafana"
+      description: "Open Grafana to see MinIO throughput, ClickHouse queries, and Spark metrics in real-time dashboards."
+    - step: "Enable Cockpit"
+      description: "Toggle Cockpit to see live bucket stats, object counts, and host resource utilization."
+
+# Standard demo definition
+id: template-full-analytics-pipeline
+name: "Full Analytics Pipeline"
+description: "Comprehensive analytics pipeline: HDFS → Spark ETL → MinIO data lake → Iceberg + Trino SQL + ClickHouse OLAP"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    dns_suffix: demo.local
+    driver: bridge
+
+nodes:
+  # Legacy source
+  - id: hdfs
+    component: hdfs
+    variant: pseudo-distributed
+    position: { x: -200, y: 50 }
+    display_name: "HDFS (Legacy)"
+    config: {}
+
+  # Data ingestion (direct to MinIO)
+  - id: file-gen
+    component: file-generator
+    variant: burst
+    position: { x: -200, y: 250 }
+    display_name: "Data Generator"
+    config: {}
+
+  # ETL engine (reads HDFS + MinIO, writes MinIO)
+  - id: spark
+    component: spark
+    variant: standalone
+    position: { x: 100, y: 50 }
+    display_name: "Apache Spark"
+    config: {}
+
+  # Core storage — modern data lake
+  - id: minio-1
+    component: minio
+    variant: single
+    position: { x: 400, y: 150 }
+    display_name: "MinIO"
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+
+  # Catalog
+  - id: iceberg-rest
+    component: iceberg-rest
+    variant: default
+    position: { x: 700, y: 50 }
+    display_name: "Iceberg REST Catalog"
+    config: {}
+
+  # SQL query engines
+  - id: trino
+    component: trino
+    variant: default
+    position: { x: 950, y: 50 }
+    display_name: "Trino"
+    config: {}
+
+  - id: clickhouse
+    component: clickhouse
+    variant: default
+    position: { x: 700, y: 280 }
+    display_name: "ClickHouse"
+    config: {}
+
+  # Monitoring
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 400, y: 400 }
+    display_name: "Prometheus"
+    config: {}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 700, y: 400 }
+    display_name: "Grafana"
+    config: {}
+
+clusters: []
+
+edges:
+  # ── Data Ingestion ──
+  # File Generator → MinIO (direct S3 push)
+  - id: e-filegen-minio
+    source: file-gen
+    target: minio-1
+    connection_type: file-push
+    network: default
+    auto_configure: true
+    label: ""
+
+  # ── Legacy Migration Path ──
+  # HDFS → Spark (reads legacy data)
+  - id: e-hdfs-spark
+    source: hdfs
+    target: spark
+    connection_type: hdfs
+    network: default
+    auto_configure: true
+    label: "HDFS read"
+
+  # Spark → MinIO (writes transformed data via S3A)
+  - id: e-minio-spark
+    source: minio-1
+    target: spark
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3A read/write"
+    connection_config:
+      warehouse_bucket: "warehouse"
+
+  # ── Catalog Layer ──
+  # MinIO → Iceberg REST (warehouse storage)
+  - id: e-minio-iceberg
+    source: minio-1
+    target: iceberg-rest
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 warehouse"
+    connection_config:
+      warehouse_bucket: "warehouse"
+
+  # Iceberg REST → Trino (catalog)
+  - id: e-iceberg-trino
+    source: iceberg-rest
+    target: trino
+    connection_type: iceberg-catalog
+    network: default
+    auto_configure: true
+    label: "Iceberg catalog"
+    connection_config:
+      catalog_name: "iceberg"
+
+  # MinIO → Trino (direct S3 connector)
+  - id: e-minio-trino
+    source: minio-1
+    target: trino
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 direct"
+    connection_config:
+      catalog_name: "minio"
+
+  # ── Real-Time Analytics ──
+  # MinIO → ClickHouse (S3 table functions)
+  - id: e-minio-clickhouse
+    source: minio-1
+    target: clickhouse
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 query"
+
+  # ── Monitoring ──
+  # MinIO → Prometheus
+  - id: e-minio-prom
+    source: minio-1
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  # Prometheus → Grafana
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    auto_configure: true
+    label: "PromQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 10g
+  total_cpu: 10.0

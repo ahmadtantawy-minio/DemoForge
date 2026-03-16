@@ -245,6 +245,10 @@ def _gen_metrics_query(edge: DemoEdge, demo: DemoDefinition, project_name: str) 
 def _gen_file_push(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []
 
+@_register("s3")
+def _gen_s3(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (Trino/Spark/ClickHouse configure via Jinja2)
+
 @_register("iceberg-catalog")
 def _gen_iceberg_catalog(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []  # Template-driven

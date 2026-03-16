@@ -7,28 +7,42 @@ scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 'metrics' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node %}
+{%- set scrape_interval = edge.connection_config.scrape_interval|default('15s') if edge.connection_config else '15s' %}
 
-{% for edge in edges %}
-{% if edge.target == node.id and edge.connection_type == 'metrics' %}
-{% set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
-{% if source_node %}
-{% set scrape_interval = edge.connection_config.scrape_interval|default('15s') if edge.connection_config else '15s' %}
   - job_name: '{{ source_node.id }}'
     scrape_interval: {{ scrape_interval }}
-{% if source_node.component == 'minio' or source_node.component == 'minio-aistore' %}
+{%- if source_node.component == 'minio' or source_node.component == 'minio-aistore' %}
     metrics_path: '/minio/v2/metrics/cluster'
     static_configs:
       - targets: ['{{ project_name }}-{{ source_node.id }}:9000']
         labels:
           instance: '{{ source_node.id }}'
           component: '{{ source_node.component }}'
-{% else %}
+{%- elif source_node.component == 'clickhouse' %}
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['{{ project_name }}-{{ source_node.id }}:8123']
+        labels:
+          instance: '{{ source_node.id }}'
+          component: 'clickhouse'
+{%- elif source_node.component == 'spark' %}
+    metrics_path: '/metrics/executors/prometheus'
+    static_configs:
+      - targets: ['{{ project_name }}-{{ source_node.id }}:8080']
+        labels:
+          instance: '{{ source_node.id }}'
+          component: 'spark'
+{%- else %}
     static_configs:
       - targets: ['{{ project_name }}-{{ source_node.id }}:9090']
         labels:
           instance: '{{ source_node.id }}'
           component: '{{ source_node.component }}'
-{% endif %}
-{% endif %}
-{% endif %}
-{% endfor %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}

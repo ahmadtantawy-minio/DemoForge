@@ -21,6 +21,7 @@ environment:
   GF_AUTH_ANONYMOUS_ENABLED: "true"
   GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
   GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/minio-overview.json"
+  GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "5s"
 
 volumes:
   - name: data
@@ -81,5 +82,9 @@ static_mounts:
     mount_path: "/etc/grafana/provisioning/dashboards/dashboards.yml"
   - host_path: "provisioning/dashboards/minio-overview.json"
     mount_path: "/var/lib/grafana/dashboards/minio-overview.json"
+  - host_path: "provisioning/dashboards/clickhouse-overview.json"
+    mount_path: "/var/lib/grafana/dashboards/clickhouse-overview.json"
+  - host_path: "provisioning/dashboards/spark-overview.json"
+    mount_path: "/var/lib/grafana/dashboards/spark-overview.json"
 
 init_scripts: []

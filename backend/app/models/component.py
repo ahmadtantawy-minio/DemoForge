@@ -20,6 +20,7 @@ class HealthCheckDef(BaseModel):
     port: int                     # Which container port to hit
     interval: str = "10s"
     timeout: str = "5s"
+    start_period: str = "15s"
 
 class SecretDef(BaseModel):
     key: str                      # ENV var name

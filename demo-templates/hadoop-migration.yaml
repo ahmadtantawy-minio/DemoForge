@@ -2,24 +2,28 @@
 _template:
   name: "Hadoop to MinIO Migration"
   category: "analytics"
-  tags: ["migration", "hadoop", "hdfs", "spark", "modernization"]
-  description: "Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector"
-  objective: "Show how Spark bridges HDFS and MinIO for data lake modernization"
-  minio_value: "MinIO replaces HDFS as the modern, S3-compatible data lake — Spark reads from both seamlessly"
+  tags: ["migration", "hadoop", "hdfs", "spark", "modernization", "s3a"]
+  description: "Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector. Shows the modernization path from Hadoop to an S3-native data lake."
+  objective: "Show how Spark bridges HDFS and MinIO for data lake modernization — read from legacy HDFS, transform, write to MinIO"
+  minio_value: "MinIO replaces HDFS as the modern, S3-compatible data lake — Spark reads from both seamlessly via S3A connector"
   estimated_resources:
     memory: "4GB"
     cpu: 4
-    containers: 6
+    containers: 5
   external_dependencies: []
   walkthrough:
     - step: "Deploy the demo"
-      description: "Click Deploy to start HDFS, Spark, MinIO, and monitoring"
+      description: "Click Deploy to start HDFS, Spark, MinIO, Prometheus, and Grafana. Wait for all health indicators to turn green."
     - step: "Create data in HDFS"
-      description: "Open HDFS terminal and create sample files in /data/demo/"
-    - step: "Run migration job"
-      description: "Use Spark to read from HDFS and write to MinIO via S3A"
+      description: "Open HDFS terminal → run: echo 'id,city,temp\\n1,NYC,72\\n2,LA,85' | hdfs dfs -put - /data/demo/weather.csv"
+    - step: "Verify HDFS data"
+      description: "Open HDFS NameNode UI → Browse the file system → navigate to /data/demo/ to see the files."
+    - step: "Run Spark migration job"
+      description: "Open Spark terminal → submit a PySpark job that reads CSV from HDFS and writes Parquet to MinIO via S3A."
     - step: "Verify on MinIO"
-      description: "Open MinIO Console to see the migrated data in the warehouse bucket"
+      description: "Open MinIO Console to see the migrated Parquet data in the warehouse bucket."
+    - step: "Monitor the migration"
+      description: "Open Grafana → MinIO Dashboard to see PUT operations spike during the migration."
 
 # Standard demo definition
 id: template-hadoop-migration
@@ -28,13 +32,15 @@ description: "Demonstrates migrating data from legacy HDFS to MinIO using Spark'
 
 networks:
   - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
 
 nodes:
   - id: hdfs
     component: hdfs
     variant: pseudo-distributed
     position: { x: 100, y: 200 }
-    display_name: "HDFS"
+    display_name: "HDFS (Legacy)"
     config: {}
 
   - id: spark
@@ -56,45 +62,66 @@ nodes:
   - id: prometheus
     component: prometheus
     variant: default
-    position: { x: 700, y: 400 }
+    position: { x: 400, y: 400 }
+    display_name: "Prometheus"
     config: {}
 
   - id: grafana
     component: grafana
     variant: default
-    position: { x: 900, y: 400 }
+    position: { x: 700, y: 400 }
+    display_name: "Grafana"
     config: {}
 
+clusters: []
+
 edges:
+  # HDFS → Spark (reads legacy data)
   - id: e-hdfs-spark
     source: hdfs
     target: spark
     connection_type: hdfs
     network: default
-    label: "HDFS"
+    auto_configure: true
+    label: "HDFS read"
 
+  # MinIO ↔ Spark (S3A read/write)
   - id: e-minio-spark
     source: minio-1
     target: spark
     connection_type: s3
     network: default
+    auto_configure: true
     label: "S3A"
     connection_config:
       warehouse_bucket: "warehouse"
 
+  # MinIO → Prometheus (metrics)
   - id: e-minio-prom
     source: minio-1
     target: prometheus
     connection_type: metrics
     network: default
+    auto_configure: true
+    source_handle: data-out
     label: "Metrics"
 
+  # Prometheus → Grafana
   - id: e-prom-grafana
     source: prometheus
     target: grafana
     connection_type: metrics-query
     network: default
+    auto_configure: true
     label: "PromQL"
 
 groups: []
 sticky_notes: []
+
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 5g
+  total_cpu: 5.0

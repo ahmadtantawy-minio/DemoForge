@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance } from "../../../api/client";
+import { stopInstance, startInstance, setBucketPolicy } from "../../../api/client";
 import { toast } from "sonner";
 import ComponentIcon from "../../shared/ComponentIcon";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";

@@ -127,7 +127,7 @@ export default function AnimatedDataEdge({
               <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse shrink-0" title="Applying config..." />
             )}
             {configStatus === "paused" && (
-              <svg width="8" height="8" viewBox="0 0 8 8" className="shrink-0" title="Paused — right-click to activate">
+              <svg width="8" height="8" viewBox="0 0 8 8" className="shrink-0" aria-label="Paused — right-click to activate">
                 <rect x="1" y="1" width="2" height="6" fill="#eab308" />
                 <rect x="5" y="1" width="2" height="6" fill="#eab308" />
               </svg>

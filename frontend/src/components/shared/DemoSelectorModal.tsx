@@ -27,7 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Play, Square, Trash2, MoreVertical, LayoutTemplate } from "lucide-react";
+import { Plus, Play, Square, Trash2, MoreVertical, LayoutTemplate, FolderOpen } from "lucide-react";
 import TemplateGallery from "../templates/TemplateGallery";
 
 interface Props {
@@ -39,7 +39,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   const { demos, activeDemoId, setActiveDemoId, setActiveView, setDemos } = useDemoStore();
   const [creating, setCreating] = useState(false);
   const [newDemoName, setNewDemoName] = useState("");
-  const [showTemplates, setShowTemplates] = useState(false);
+  const [activeTab, setActiveTab] = useState<"demos" | "templates">("demos");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpts, setDeleteOpts] = useState({ destroyContainers: true, removeImages: false });
 
@@ -76,7 +76,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
     fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
     setActiveDemoId(demoId);
     setActiveView("diagram");
-    setShowTemplates(false);
+    setActiveTab("demos");
     onOpenChange(false);
   };
 
@@ -143,149 +143,172 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
         <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col bg-popover border-border">
           <DialogHeader>
             <DialogTitle>Demo Manager</DialogTitle>
-            <DialogDescription>Select, create, or manage your demos.</DialogDescription>
+            <DialogDescription>Create demos from templates or manage your existing ones.</DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center gap-2 pb-3 border-b border-border">
-            {creating ? (
-              <div className="flex items-center gap-2 flex-1">
-                <Input
-                  autoFocus
-                  value={newDemoName}
-                  onChange={(e) => setNewDemoName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreate();
-                    if (e.key === "Escape") { setCreating(false); setNewDemoName(""); }
-                  }}
-                  placeholder="Demo name..."
-                  className="h-8 text-sm flex-1"
-                />
-                <Button onClick={handleCreate} size="sm" className="h-8">Create</Button>
-                <Button onClick={() => { setCreating(false); setNewDemoName(""); }} variant="ghost" size="sm" className="h-8">Cancel</Button>
-              </div>
-            ) : (
-              <>
-                <Button onClick={() => setCreating(true)} size="sm" className="gap-1.5 h-8 bg-primary text-primary-foreground hover:bg-primary/90">
+          {/* Tab bar */}
+          <div className="flex items-center gap-1 border-b border-border">
+            <button
+              onClick={() => setActiveTab("demos")}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "demos"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+            >
+              <FolderOpen className="w-4 h-4" />
+              My Demos
+              {demos.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                  {demos.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("templates")}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "templates"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+            >
+              <LayoutTemplate className="w-4 h-4" />
+              Templates
+            </button>
+
+            {/* New Demo button — always visible on the right */}
+            <div className="ml-auto pb-1">
+              {creating ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    autoFocus
+                    value={newDemoName}
+                    onChange={(e) => setNewDemoName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreate();
+                      if (e.key === "Escape") { setCreating(false); setNewDemoName(""); }
+                    }}
+                    placeholder="Demo name..."
+                    className="h-7 text-xs w-44"
+                  />
+                  <Button onClick={handleCreate} size="sm" className="h-7 text-xs">Create</Button>
+                  <Button onClick={() => { setCreating(false); setNewDemoName(""); }} variant="ghost" size="sm" className="h-7 text-xs">Cancel</Button>
+                </div>
+              ) : (
+                <Button onClick={() => setCreating(true)} size="sm" className="gap-1.5 h-7 text-xs">
                   <Plus className="w-3.5 h-3.5" />
-                  New Demo
+                  New Blank Demo
                 </Button>
-                <Button
-                  variant={showTemplates ? "default" : "secondary"}
-                  size="sm"
-                  className="gap-1.5 h-8"
-                  onClick={() => setShowTemplates(!showTemplates)}
-                >
-                  <LayoutTemplate className="w-3.5 h-3.5" />
-                  From Template
-                </Button>
-              </>
-            )}
+              )}
+            </div>
           </div>
 
-          {showTemplates && (
-            <div className="border-b border-border pb-3">
-              <div className="max-h-[55vh] overflow-y-auto overflow-x-hidden pr-2">
-                <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
-              </div>
-            </div>
-          )}
-
+          {/* Tab content */}
           <div className="overflow-y-auto flex-1 min-h-0">
-            {demos.length === 0 ? (
-              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-                No demos yet. Create one to get started.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-2 py-2">
-                {demos.map((demo) => (
-                  <button
-                    key={demo.id}
-                    onClick={() => handleSelect(demo.id)}
-                    className={`text-left px-4 py-3 rounded-lg border transition-all cursor-pointer group ${
-                      activeDemoId === demo.id
-                        ? "border-primary bg-primary/5 shadow-md"
-                        : "border-border bg-card hover:border-primary/50 hover:bg-accent"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      {/* Status dot */}
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot[demo.status] ?? statusDot.stopped}`} />
-
-                      {/* Demo info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm text-foreground truncate">{demo.name}</span>
-                          {activeDemoId === demo.id && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">current</span>
-                          )}
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${statusColors[demo.status] ?? statusColors.stopped}`}>
-                            {demo.status}
-                          </span>
-                        </div>
-                        {demo.description && (
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{demo.description}</p>
-                        )}
-                        <div className="flex items-center gap-3 text-[10px] text-zinc-500 mt-1">
-                          <span>{demo.node_count} node{demo.node_count !== 1 ? "s" : ""}</span>
-                          <span className="font-mono">{demo.id}</span>
-                        </div>
-                      </div>
-
-                      {/* Actions — revealed on hover OR when focus lands inside (keyboard accessible) */}
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                        {demo.status === "stopped" || demo.status === "error" ? (
-                          <Button
-                            size="sm"
-                            className="h-7 w-7 p-0 bg-green-600 hover:bg-green-500 text-white"
-                            onClick={(e) => handleDeploy(e, demo.id)}
-                            title="Deploy"
-                          >
-                            <Play className="w-3.5 h-3.5" />
-                          </Button>
-                        ) : demo.status === "running" ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-7 w-7 p-0"
-                            onClick={(e) => handleStop(e, demo.id)}
-                            title="Stop"
-                          >
-                            <Square className="w-3.5 h-3.5" />
-                          </Button>
-                        ) : null}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-zinc-400 hover:text-foreground">
-                              <MoreVertical className="w-3.5 h-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
-                            <DropdownMenuItem onSelect={() => handleSelect(demo.id)}>
-                              Open
-                            </DropdownMenuItem>
-                            {(demo.status === "stopped" || demo.status === "error") && (
-                              <DropdownMenuItem onSelect={(e) => { handleDeploy(e as any, demo.id); }}>
-                                Deploy
-                              </DropdownMenuItem>
+            {/* ── My Demos tab ── */}
+            {activeTab === "demos" && (
+              <>
+                {demos.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                    <FolderOpen className="w-10 h-10 text-muted-foreground/50" />
+                    <p className="text-sm text-muted-foreground">No demos yet.</p>
+                    <p className="text-xs text-muted-foreground">Create a blank demo or pick one from the <button className="text-primary hover:underline underline-offset-2" onClick={() => setActiveTab("templates")}>Templates</button> tab.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 py-2">
+                    {demos.map((demo) => (
+                      <button
+                        key={demo.id}
+                        onClick={() => handleSelect(demo.id)}
+                        className={`text-left px-4 py-3 rounded-lg border transition-all cursor-pointer group ${
+                          activeDemoId === demo.id
+                            ? "border-primary bg-primary/5 shadow-md"
+                            : "border-border bg-card hover:border-primary/50 hover:bg-accent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot[demo.status] ?? statusDot.stopped}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm text-foreground truncate">{demo.name}</span>
+                              {activeDemoId === demo.id && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">current</span>
+                              )}
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${statusColors[demo.status] ?? statusColors.stopped}`}>
+                                {demo.status}
+                              </span>
+                            </div>
+                            {demo.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5 truncate">{demo.description}</p>
                             )}
-                            {demo.status === "running" && (
-                              <DropdownMenuItem onSelect={(e) => { handleStop(e as any, demo.id); }}>
-                                Stop
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                              className="text-red-400 focus:text-red-400"
-                              onSelect={() => setDeleteTarget({ id: demo.id, name: demo.name })}
-                            >
-                              <Trash2 className="w-3.5 h-3.5 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                            <div className="flex items-center gap-3 text-[10px] text-zinc-500 mt-1">
+                              <span>{demo.node_count} node{demo.node_count !== 1 ? "s" : ""}</span>
+                              <span className="font-mono">{demo.id}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                            {demo.status === "stopped" || demo.status === "error" ? (
+                              <Button
+                                size="sm"
+                                className="h-7 w-7 p-0 bg-green-600 hover:bg-green-500 text-white"
+                                onClick={(e) => handleDeploy(e, demo.id)}
+                                title="Deploy"
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                              </Button>
+                            ) : demo.status === "running" ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="h-7 w-7 p-0"
+                                onClick={(e) => handleStop(e, demo.id)}
+                                title="Stop"
+                              >
+                                <Square className="w-3.5 h-3.5" />
+                              </Button>
+                            ) : null}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-zinc-400 hover:text-foreground">
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem onSelect={() => handleSelect(demo.id)}>
+                                  Open
+                                </DropdownMenuItem>
+                                {(demo.status === "stopped" || demo.status === "error") && (
+                                  <DropdownMenuItem onSelect={(e) => { handleDeploy(e as any, demo.id); }}>
+                                    Deploy
+                                  </DropdownMenuItem>
+                                )}
+                                {demo.status === "running" && (
+                                  <DropdownMenuItem onSelect={(e) => { handleStop(e as any, demo.id); }}>
+                                    Stop
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  className="text-red-400 focus:text-red-400"
+                                  onSelect={() => setDeleteTarget({ id: demo.id, name: demo.name })}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── Templates tab ── */}
+            {activeTab === "templates" && (
+              <div className="py-2">
+                <TemplateGallery onCreateDemo={handleCreateFromTemplate} />
               </div>
             )}
           </div>

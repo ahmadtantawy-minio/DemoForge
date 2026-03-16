@@ -40,3 +40,10 @@ test-upload.txt
 # License keys (sensitive)
 data/licenses.yaml
 !data/.gitkeep
+
+# Large binary JARs (built via Docker)
+*.jar
+
+# User-created demo definitions (not templates)
+demos/*.yaml
+!demos/.gitkeep

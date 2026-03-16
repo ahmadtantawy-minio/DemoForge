@@ -7,7 +7,7 @@ image: clickhouse/clickhouse-server:latest
 description: "Column-oriented OLAP database for real-time analytics on MinIO data via S3 table functions and S3Queue engine"
 
 resources:
-  memory: "512m"
+  memory: "1g"
   cpu: 0.5
 
 ports:
@@ -42,19 +42,24 @@ terminal:
   welcome_message: "ClickHouse server. Use 'clickhouse-client' for SQL."
   quick_actions:
     - label: "Show databases"
-      command: "clickhouse-client --query 'SHOW DATABASES'"
+      command: "clickhouse-client --port 9001 --query 'SHOW DATABASES'"
     - label: "Show tables"
-      command: "clickhouse-client --query 'SHOW TABLES'"
+      command: "clickhouse-client --port 9001 --query 'SHOW TABLES'"
     - label: "Query S3 (MinIO)"
-      command: "clickhouse-client --query \"SELECT count() FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames')\""
+      command: "clickhouse-client --port 9001 --query \"SELECT count() FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames')\""
     - label: "Server info"
-      command: "clickhouse-client --query 'SELECT version(), uptime()'"
+      command: "clickhouse-client --port 9001 --query 'SELECT version(), uptime()'"
 
 connections:
   provides:
     - type: sql-query
       port: 8123
       description: "ClickHouse HTTP SQL endpoint"
+      config_schema: []
+    - type: metrics
+      port: 8123
+      path: "/metrics"
+      description: "Prometheus metrics endpoint"
       config_schema: []
   accepts:
     - type: s3

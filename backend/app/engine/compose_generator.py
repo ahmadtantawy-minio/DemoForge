@@ -342,6 +342,30 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         env.update(node.config)
 
+        # Auto-resolve S3 endpoint from s3 edges for components that accept s3
+        for edge in demo.edges:
+            if edge.target == node.id and edge.connection_type == "s3":
+                s3_service_name = edge.source  # service name in compose
+                s3_port = 9000
+                # Find the source node's manifest to get the correct port
+                source_manifest = get_component(
+                    next((n.component for n in demo.nodes if n.id == edge.source), "")
+                )
+                if source_manifest:
+                    for p in source_manifest.ports:
+                        if p.name in ("api", "s3", "http") and p.container == 9000:
+                            s3_port = p.container
+                            break
+                s3_endpoint = f"http://{s3_service_name}:{s3_port}"
+                # Inject S3 endpoint for known env var patterns
+                s3_env_keys = {
+                    "CATALOG_S3_ENDPOINT": s3_endpoint,
+                }
+                for env_key, env_val in s3_env_keys.items():
+                    if env_key in env:
+                        env[env_key] = env_val
+                break  # Use first s3 edge
+
         # Determine which networks this node joins
         # If node.networks is empty, join all demo networks
         if node.networks:
@@ -377,10 +401,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     aliases.append(cluster_alias)
                     existing["aliases"] = aliases
 
-        # Resolve resource limits: demo-level overrides > manifest defaults
+        # Resolve resource limits: use the larger of demo default or manifest value
         res = demo.resources
-        mem = res.default_memory or manifest.resources.memory
-        cpu = res.default_cpu or manifest.resources.cpu
+        manifest_mem = manifest.resources.memory
+        manifest_cpu = manifest.resources.cpu
+        mem = max(res.default_memory or "256m", manifest_mem, key=_mem_bytes)
+        cpu = max(res.default_cpu or 0.5, manifest_cpu)
         if res.max_memory:
             # Parse and cap memory (simple: just use max if set)
             mem = res.max_memory if _mem_bytes(mem) > _mem_bytes(res.max_memory) else mem
@@ -417,12 +443,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 endpoint = cluster_health_override[node.id]
             else:
                 endpoint = hc.endpoint
+            health_url = f"http://localhost:{hc.port}{endpoint}"
             service["healthcheck"] = {
-                "test": ["CMD", "curl", "-sf", f"http://localhost:{hc.port}{endpoint}"],
+                "test": ["CMD-SHELL", f"curl -sf {health_url} || wget -qO- {health_url} || bash -c 'echo > /dev/tcp/localhost/{hc.port}'"],
                 "interval": hc.interval,
                 "timeout": hc.timeout,
                 "retries": 3,
-                "start_period": "10s",
+                "start_period": hc.start_period if hasattr(hc, 'start_period') else "15s",
             }
 
         # Named volumes
