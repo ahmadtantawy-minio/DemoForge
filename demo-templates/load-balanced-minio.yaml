@@ -1,3 +1,29 @@
+# Template metadata
+_template:
+  name: "Load-Balanced MinIO"
+  category: "infrastructure"
+  tags: ["load-balancer", "nginx", "high-availability", "scalability"]
+  description: "NGINX load balancer distributing S3 API traffic across two MinIO nodes for horizontal scalability and availability."
+  objective: "Demonstrate how NGINX fronts multiple MinIO instances to provide a single S3 endpoint with traffic distribution"
+  minio_value: "MinIO's S3-compatible API works seamlessly behind standard load balancers, enabling horizontal scaling without client-side changes"
+  estimated_resources:
+    memory: "2GB"
+    cpu: 2
+    containers: 3
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start the NGINX load balancer and both MinIO nodes"
+    - step: "Connect via load balancer endpoint"
+      description: "Use the NGINX endpoint (port 9000) as your single S3 URL — clients never address nodes directly"
+    - step: "Upload objects"
+      description: "Upload files through the load balancer and note which backend node receives each request"
+    - step: "Verify distribution"
+      description: "Open both MinIO consoles and confirm objects are spread across both nodes"
+    - step: "Simulate a node failure"
+      description: "Stop one MinIO node and verify the load balancer automatically routes all traffic to the healthy node"
+
+# Standard demo definition
 id: load-balanced-minio
 name: "Load-Balanced MinIO"
 description: "NGINX load balancer distributing traffic across two MinIO nodes"

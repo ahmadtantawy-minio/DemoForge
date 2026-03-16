@@ -1,3 +1,31 @@
+# Template metadata
+_template:
+  name: "ILM Tiered Storage (Hot to Cold Clusters)"
+  category: "infrastructure"
+  tags: ["ilm", "tiering", "hot-cold", "lifecycle", "cost-optimization", "load-balancer", "monitoring"]
+  description: "Two load-balanced MinIO clusters representing NVMe hot and HDD cold storage tiers. A data generator continuously ingests data through the hot tier, which automatically transitions aging objects to the cold tier via ILM policies."
+  objective: "Demonstrate enterprise ILM tiering at scale with separate hot and cold MinIO clusters, each fronted by an NGINX load balancer"
+  minio_value: "MinIO's ILM policies automate data movement from expensive fast storage to cost-efficient cold storage, reducing TCO while maintaining seamless data access"
+  estimated_resources:
+    memory: "5GB"
+    cpu: 5
+    containers: 8
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start the data generator, hot tier NGINX and two MinIO nodes, cold tier two MinIO nodes, and the monitoring stack"
+    - step: "Observe data ingestion"
+      description: "Watch the data generator push files through the hot tier load balancer at a steady rate"
+    - step: "Check hot tier usage"
+      description: "Open either hot MinIO console to see ingest bucket filling with objects"
+    - step: "Review ILM policy"
+      description: "Inspect the auto-archive ILM rule configured on the hot tier with a 7-day transition"
+    - step: "Observe tiering in action"
+      description: "After the transition period, verify that objects have moved to the cold tier cluster"
+    - step: "Monitor throughput in Grafana"
+      description: "Review Grafana dashboards to see ingest rates on hot tier and transition activity on cold tier"
+
+# Standard demo definition
 name: "ILM Tiered Storage (Hot → Cold)"
 description: "Two MinIO clusters with ILM tiering: hot tier (NVMe, fast access) automatically moves aging data to cold tier (HDD, cost-efficient). Data Generator pushes files through the hot tier load balancer."
 

@@ -78,6 +78,25 @@ export const saveDiagramWithGroups = (id: string, nodes: any[], edges: any[], gr
     body: JSON.stringify({ nodes: [...nodes, ...groups], edges }),
   });
 
+// Demo Export/Import
+export const exportDemo = (demoId: string) => {
+  window.open(`${API_BASE}/api/demos/${demoId}/export`, '_blank');
+};
+
+export const importDemo = async (file: File): Promise<{ id: string; name: string }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/demos/import`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Import failed');
+  }
+  return res.json();
+};
+
 export const deleteDemo = (id: string, opts?: { destroyContainers?: boolean; removeImages?: boolean }) => {
   const params = new URLSearchParams();
   if (opts?.destroyContainers) params.set("destroy_containers", "true");

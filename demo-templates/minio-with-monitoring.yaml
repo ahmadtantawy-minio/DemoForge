@@ -1,3 +1,29 @@
+# Template metadata
+_template:
+  name: "MinIO with Monitoring"
+  category: "infrastructure"
+  tags: ["monitoring", "prometheus", "grafana", "observability", "metrics"]
+  description: "Single MinIO node with Prometheus metrics collection and Grafana dashboards for full observability into storage operations."
+  objective: "Demonstrate MinIO's built-in Prometheus metrics endpoint and how to visualize storage health, performance, and capacity with Grafana"
+  minio_value: "MinIO exposes rich Prometheus metrics out of the box — no agents or plugins needed — covering throughput, latency, capacity, and error rates"
+  estimated_resources:
+    memory: "2GB"
+    cpu: 2
+    containers: 3
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start MinIO, Prometheus, and Grafana"
+    - step: "Generate some activity"
+      description: "Upload and download objects via the MinIO console to generate metrics data"
+    - step: "Open Grafana"
+      description: "Navigate to Grafana (port 3000) and open the MinIO dashboard"
+    - step: "Explore metrics"
+      description: "Review throughput, request rates, storage utilization, and error metrics in real time"
+    - step: "Query Prometheus directly"
+      description: "Open Prometheus (port 9090) and run PromQL queries against MinIO metrics for ad-hoc analysis"
+
+# Standard demo definition
 id: minio-with-monitoring
 name: "MinIO with Monitoring"
 description: "MinIO with Prometheus metrics collection and Grafana dashboards"

@@ -1,3 +1,31 @@
+# Template metadata
+_template:
+  name: "Tiered Storage"
+  category: "infrastructure"
+  tags: ["tiering", "ilm", "hot-cold", "lifecycle", "cost-optimization"]
+  description: "Two MinIO nodes representing hot and cold storage tiers. Objects on the hot tier automatically transition to the cold tier after 30 days via an ILM policy."
+  objective: "Demonstrate MinIO's ILM tiering capability with a simple hot-to-cold object transition using a lifecycle policy"
+  minio_value: "MinIO's ILM tiering lets you keep recent data on fast, expensive storage and automatically move older data to lower-cost storage — all through the standard S3 API with no application changes"
+  estimated_resources:
+    memory: "1GB"
+    cpu: 1
+    containers: 2
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start the hot and cold MinIO nodes"
+    - step: "Inspect the ILM policy"
+      description: "Open the hot MinIO console and review the transition-after-30d lifecycle rule configured on the ingest bucket"
+    - step: "Upload objects to hot tier"
+      description: "Upload test objects to the hot tier and verify they are accessible at full speed"
+    - step: "Trigger a manual transition"
+      description: "Use the MinIO mc CLI to manually trigger a tier transition and observe objects moving to the cold node"
+    - step: "Verify cold tier objects"
+      description: "Open the cold MinIO console and confirm that transitioned objects are present and readable"
+    - step: "Confirm transparent access"
+      description: "Read a transitioned object via the hot tier endpoint to demonstrate seamless tiered access"
+
+# Standard demo definition
 id: tiered-storage
 name: "Tiered Storage"
 description: "Hot MinIO tier automatically transitions objects to cold MinIO tier via ILM policies"

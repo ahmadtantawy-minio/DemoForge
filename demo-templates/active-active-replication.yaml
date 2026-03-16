@@ -1,3 +1,31 @@
+# Template metadata
+_template:
+  name: "Active-Active Replication"
+  category: "replication"
+  tags: ["replication", "active-active", "bidirectional", "high-availability", "load-balancer", "monitoring"]
+  description: "Two MinIO instances with bidirectional bucket replication, fronted by an NGINX load balancer and monitored with Prometheus and Grafana."
+  objective: "Demonstrate MinIO's active-active replication where writes on either node are mirrored to the other, with no single point of failure"
+  minio_value: "Bidirectional replication enables geo-redundant deployments where any site can accept writes and all data stays consistent across nodes"
+  estimated_resources:
+    memory: "3GB"
+    cpu: 3
+    containers: 5
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start both MinIO nodes, NGINX load balancer, Prometheus, and Grafana"
+    - step: "Upload objects via load balancer"
+      description: "Connect to the NGINX endpoint and upload files to either MinIO node"
+    - step: "Verify bidirectional sync"
+      description: "Open both MinIO consoles and confirm objects written to one node appear on the other"
+    - step: "Simulate node failure"
+      description: "Stop one MinIO node and verify that the load balancer routes all traffic to the surviving node"
+    - step: "Check Grafana dashboards"
+      description: "Review replication lag and throughput metrics in Grafana to confirm replication health"
+    - step: "Restore and resync"
+      description: "Restart the stopped node and observe it catching up with any objects written during the outage"
+
+# Standard demo definition
 id: active-active-replication
 name: "Active-Active Replication"
 description: "Two MinIO instances with bidirectional replication, load-balanced by NGINX, monitored by Prometheus and Grafana"

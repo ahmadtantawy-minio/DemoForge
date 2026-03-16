@@ -1,7 +1,8 @@
 import os
 import uuid
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi.responses import Response
 from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, NodePosition
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
@@ -184,6 +185,50 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
 
     _save_demo(demo)
     return {"status": "saved"}
+
+@router.get("/api/demos/{demo_id}/export")
+async def export_demo(demo_id: str):
+    """Export a demo as a downloadable YAML file."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+
+    yaml_content = yaml.dump(demo.model_dump(), default_flow_style=False, sort_keys=False)
+
+    filename = f"{demo.name.replace(' ', '-').lower()}-{demo.id}.yaml"
+    return Response(
+        content=yaml_content,
+        media_type="application/x-yaml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.post("/api/demos/import")
+async def import_demo(file: UploadFile):
+    """Import a demo from a YAML file."""
+    content = await file.read()
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError as e:
+        raise HTTPException(400, f"Invalid YAML: {e}")
+
+    # Generate a new ID to avoid conflicts
+    new_id = str(uuid.uuid4())[:8]
+    data["id"] = new_id
+
+    # If name exists, add "(imported)" suffix to distinguish
+    if "name" in data:
+        data["name"] = data["name"] + " (imported)"
+
+    # Validate and save
+    try:
+        demo = DemoDefinition(**data)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid demo format: {e}")
+
+    _save_demo(demo)
+    return {"id": new_id, "name": demo.name, "status": "stopped"}
+
 
 @router.delete("/api/demos/{demo_id}")
 async def delete_demo(demo_id: str, destroy_containers: bool = False, remove_images: bool = False, force: bool = False):

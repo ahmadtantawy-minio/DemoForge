@@ -1,3 +1,31 @@
+# Template metadata
+_template:
+  name: "Multi-Cluster with Replication"
+  category: "replication"
+  tags: ["replication", "multi-cluster", "disaster-recovery", "nvme", "hdd", "load-balancer", "monitoring"]
+  description: "Two MinIO clusters — a high-performance NVMe primary and an HDD disaster recovery cluster — each fronted by NGINX, with async bucket replication from primary to DR. Monitored with Prometheus and Grafana."
+  objective: "Demonstrate a production-grade primary-to-DR replication architecture with separate storage tiers and independent load balancers"
+  minio_value: "MinIO's async bucket replication continuously protects production data to a cost-efficient DR cluster, enabling fast failover with minimal RPO"
+  estimated_resources:
+    memory: "5GB"
+    cpu: 5
+    containers: 8
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start both NVMe and HDD clusters with their NGINX load balancers and monitoring stack"
+    - step: "Write data to the NVMe primary"
+      description: "Connect to the NVMe cluster's NGINX endpoint and upload objects to the production-data bucket"
+    - step: "Monitor replication progress"
+      description: "Open Grafana to see replication throughput and pending object count from primary to DR"
+    - step: "Verify DR cluster has data"
+      description: "Open the HDD cluster's MinIO console and confirm production-data objects have replicated"
+    - step: "Simulate primary failure"
+      description: "Stop both NVMe nodes to simulate a site failure and verify data is fully accessible from the HDD DR cluster"
+    - step: "Review replication metrics"
+      description: "Check Prometheus for replication lag metrics to understand your RPO in practice"
+
+# Standard demo definition
 name: "Multi-Cluster with Replication"
 description: "Two MinIO clusters (NVMe + HDD) with NGINX load balancers and bucket replication between them. Prometheus + Grafana for monitoring."
 

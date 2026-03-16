@@ -1,3 +1,29 @@
+# Template metadata
+_template:
+  name: "Bucket Replication"
+  category: "replication"
+  tags: ["replication", "bucket-replication", "async", "disaster-recovery"]
+  description: "Two MinIO nodes with one-way bucket-level replication from a source to a target. Objects written to the source bucket are automatically copied to the replica bucket."
+  objective: "Demonstrate MinIO's bucket replication feature for asynchronous data protection and disaster recovery"
+  minio_value: "Bucket replication provides granular, policy-driven data protection — replicate only the data that matters to a secondary site or cloud target"
+  estimated_resources:
+    memory: "1GB"
+    cpu: 1
+    containers: 2
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start the source and target MinIO nodes"
+    - step: "Upload objects to source"
+      description: "Open the source MinIO console and upload files to the source-bucket"
+    - step: "Verify replication"
+      description: "Open the target MinIO console and confirm files appear in the replica-bucket after a few seconds"
+    - step: "Check replication status"
+      description: "In the source MinIO console, inspect object metadata to see the replication status tag"
+    - step: "Test replication rules"
+      description: "Modify the replication rule (e.g., add prefix filters) and observe which objects are replicated"
+
+# Standard demo definition
 id: bucket-replication
 name: "Bucket Replication"
 description: "Two MinIO nodes with bucket-level replication from source to target"

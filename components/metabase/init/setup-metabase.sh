@@ -79,7 +79,9 @@ echo "Checking for existing Trino connection..."
 DB_LIST=$(http_get "$MB/api/database" "X-Metabase-Session: $SESSION")
 
 if echo "$DB_LIST" | grep -q "Trino"; then
-  echo "Trino connection already exists."
+  echo "Trino connection already exists. Fetching DB id..."
+  DB_ID=$(echo "$DB_LIST" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+  echo "Trino DB id: $DB_ID"
 else
   echo "Adding Trino database connection (host: $TRINO_HOST, catalog: ${TRINO_CATALOG:-iceberg})..."
   DB_BODY="{\"name\":\"Trino - MinIO Lakehouse\",\"engine\":\"starburst\",\"details\":{\"host\":\"${TRINO_HOST}\",\"port\":8080,\"catalog\":\"${TRINO_CATALOG:-iceberg}\",\"schema\":\"${TRINO_SCHEMA:-analytics}\",\"user\":\"trino\",\"ssl\":false,\"tunnel-enabled\":false}}"
@@ -94,6 +96,57 @@ else
     echo "Schema sync triggered."
   else
     echo "WARNING: Failed to add Trino database."
+  fi
+fi
+
+# --- Step 6: Create pre-seeded dashboard ---
+echo "Creating pre-seeded dashboard..."
+
+# Only proceed if we have a valid DB_ID
+if [ -z "$DB_ID" ]; then
+  echo "WARNING: DB_ID not set, skipping dashboard creation."
+else
+  # Check if dashboard already exists
+  DASH_LIST=$(http_get "$MB/api/dashboard" "X-Metabase-Session: $SESSION")
+  if echo "$DASH_LIST" | grep -q "Live Orders Analytics"; then
+    echo "Dashboard 'Live Orders Analytics' already exists. Skipping."
+  else
+    # Wait for sync to settle
+    sleep 10
+
+    # Create dashboard
+    DASH_RESULT=$(http_post "$MB/api/dashboard" '{"name":"Live Orders Analytics","description":"Real-time analytics on MinIO data via Trino"}' "X-Metabase-Session: $SESSION")
+    DASH_ID=$(echo "$DASH_RESULT" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+
+    if [ -z "$DASH_ID" ]; then
+      echo "WARNING: Could not create dashboard."
+    else
+      echo "Dashboard created (id: $DASH_ID)."
+
+      # Card 1: Table count (safe — works even with no data loaded yet)
+      CARD1=$(http_post "$MB/api/card" "{\"name\":\"Table Count\",\"display\":\"scalar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT count(*) AS table_count FROM system.information_schema.tables WHERE table_schema != 'information_schema'\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+      C1ID=$(echo "$CARD1" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+
+      # Card 2: Tables per schema
+      CARD2=$(http_post "$MB/api/card" "{\"name\":\"Tables by Schema\",\"display\":\"bar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT table_schema, count(*) AS tables FROM system.information_schema.tables GROUP BY table_schema ORDER BY tables DESC\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+      C2ID=$(echo "$CARD2" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+
+      # Card 3: All tables listing
+      CARD3=$(http_post "$MB/api/card" "{\"name\":\"All Tables\",\"display\":\"table\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT table_catalog, table_schema, table_name FROM system.information_schema.tables WHERE table_schema != 'information_schema' ORDER BY table_schema, table_name\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+      C3ID=$(echo "$CARD3" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+
+      # Card 4: Trino version
+      CARD4=$(http_post "$MB/api/card" "{\"name\":\"Trino Version\",\"display\":\"scalar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT node_version FROM system.runtime.nodes LIMIT 1\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+      C4ID=$(echo "$CARD4" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+
+      # Add cards to dashboard
+      for CID in $C1ID $C2ID $C3ID $C4ID; do
+        if [ -n "$CID" ]; then
+          http_post "$MB/api/dashboard/$DASH_ID/cards" "{\"cardId\":$CID}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
+        fi
+      done
+      echo "Dashboard cards created and added."
+    fi
   fi
 fi
 

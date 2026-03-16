@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useDemoStore } from "../../stores/demoStore";
-import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo } from "../../api/client";
+import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo, exportDemo, importDemo } from "../../api/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Play, Square, Trash2, MoreVertical, LayoutTemplate, FolderOpen } from "lucide-react";
+import { Plus, Play, Square, Trash2, MoreVertical, LayoutTemplate, FolderOpen, Upload, Download } from "lucide-react";
 import TemplateGallery from "../templates/TemplateGallery";
 
 interface Props {
@@ -42,6 +42,21 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   const [activeTab, setActiveTab] = useState<"demos" | "templates">("demos");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpts, setDeleteOpts] = useState({ destroyContainers: true, removeImages: false });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await importDemo(file);
+      const res = await fetchDemos();
+      setDemos(res.demos);
+      toast.success(`Demo "${result.name}" imported`);
+    } catch (err: any) {
+      toast.error("Import failed", { description: err.message });
+    }
+    e.target.value = '';
+  };
 
   useEffect(() => {
     if (open) {
@@ -195,10 +210,16 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                   <Button onClick={() => { setCreating(false); setNewDemoName(""); }} variant="ghost" size="sm" className="h-7 text-xs">Cancel</Button>
                 </div>
               ) : (
-                <Button onClick={() => setCreating(true)} size="sm" className="gap-1.5 h-7 text-xs">
-                  <Plus className="w-3.5 h-3.5" />
-                  New Blank Demo
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button onClick={() => fileInputRef.current?.click()} size="sm" variant="outline" className="gap-1.5 h-7 text-xs">
+                    <Upload className="w-3.5 h-3.5" />
+                    Import
+                  </Button>
+                  <Button onClick={() => setCreating(true)} size="sm" className="gap-1.5 h-7 text-xs">
+                    <Plus className="w-3.5 h-3.5" />
+                    New Blank Demo
+                  </Button>
+                </div>
               )}
             </div>
           </div>
@@ -287,6 +308,10 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                                     Stop
                                   </DropdownMenuItem>
                                 )}
+                                <DropdownMenuItem onSelect={() => exportDemo(demo.id)}>
+                                  <Download className="w-3.5 h-3.5 mr-2" />
+                                  Export
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-red-400 focus:text-red-400"
                                   onSelect={() => setDeleteTarget({ id: demo.id, name: demo.name })}
@@ -314,6 +339,8 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <input ref={fileInputRef} type="file" accept=".yaml,.yml" className="hidden" onChange={handleImport} />
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -1,3 +1,33 @@
+# Template metadata
+_template:
+  name: "Site Replication (Bidirectional)"
+  category: "replication"
+  tags: ["site-replication", "bidirectional", "active-active", "multi-site", "high-availability", "load-balancer", "monitoring"]
+  description: "Two MinIO sites with full bidirectional site replication, each fronted by an NGINX load balancer. Any change on either site — buckets, objects, IAM policies — replicates automatically to the other."
+  objective: "Demonstrate MinIO's site replication feature where two fully independent MinIO deployments stay in complete sync, including metadata and IAM"
+  minio_value: "MinIO site replication goes beyond bucket replication — it synchronizes the entire namespace including IAM users, policies, and bucket configurations, enabling true active-active multi-site deployments"
+  estimated_resources:
+    memory: "5GB"
+    cpu: 5
+    containers: 8
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start both sites, each with two MinIO nodes behind NGINX, plus Prometheus and Grafana"
+    - step: "Write to Site 1"
+      description: "Connect to the Site 1 NGINX endpoint and create a bucket and upload objects"
+    - step: "Verify on Site 2"
+      description: "Open the Site 2 MinIO console and confirm the same bucket and objects appear automatically"
+    - step: "Write to Site 2"
+      description: "Upload different objects directly to Site 2 and verify they replicate back to Site 1"
+    - step: "Test IAM sync"
+      description: "Create a new IAM user or policy on Site 1 and confirm it appears on Site 2 — site replication syncs identity too"
+    - step: "Simulate site failure"
+      description: "Stop all Site 1 nodes and verify Site 2 serves all data independently with no data loss"
+    - step: "Monitor replication health"
+      description: "Review Grafana dashboards for replication throughput and lag between both sites"
+
+# Standard demo definition
 name: "Site Replication (Bidirectional)"
 description: "Two MinIO sites with full bidirectional site replication. Each site has its own NGINX load balancer. Changes on either site replicate to the other."
 
