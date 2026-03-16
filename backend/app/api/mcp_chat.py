@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# --- LLM Configuration (persisted in env/settings file) ---
+# --- LLM Configuration ---
 
 _llm_config = {
     "endpoint": os.environ.get("DEMOFORGE_LLM_ENDPOINT", "http://host.docker.internal:11434"),
     "model": os.environ.get("DEMOFORGE_LLM_MODEL", "qwen2.5:14b"),
-    "api_type": os.environ.get("DEMOFORGE_LLM_API_TYPE", "ollama"),  # "ollama" or "openai"
+    "api_type": os.environ.get("DEMOFORGE_LLM_API_TYPE", "ollama"),
 }
 
 LLM_SETTINGS_FILE = os.path.join(
@@ -40,18 +40,15 @@ LLM_SETTINGS_FILE = os.path.join(
 
 
 def _load_llm_config():
-    """Load LLM config from file if it exists."""
     try:
         if os.path.exists(LLM_SETTINGS_FILE):
             with open(LLM_SETTINGS_FILE) as f:
-                saved = json.load(f)
-                _llm_config.update(saved)
+                _llm_config.update(json.load(f))
     except Exception:
         pass
 
 
 def _save_llm_config():
-    """Persist LLM config to file."""
     try:
         os.makedirs(os.path.dirname(LLM_SETTINGS_FILE), exist_ok=True)
         with open(LLM_SETTINGS_FILE, "w") as f:
@@ -66,11 +63,11 @@ _load_llm_config()
 class LLMConfigRequest(BaseModel):
     endpoint: str | None = None
     model: str | None = None
-    api_type: str | None = None  # "ollama" or "openai"
+    api_type: str | None = None
 
 
 class ChatRequest(BaseModel):
-    messages: list[dict[str, str]]  # [{role: "user", content: "..."}]
+    messages: list[dict[str, str]]
 
 
 @router.get("/api/settings/llm")
@@ -90,10 +87,7 @@ async def set_llm_config(req: LLMConfigRequest):
     return _llm_config
 
 
-# --- MCP Tool conversion to Ollama/OpenAI tool format ---
-
 def _mcp_tool_to_openai(tool: dict) -> dict:
-    """Convert MCP tool schema to OpenAI function calling format."""
     return {
         "type": "function",
         "function": {
@@ -104,22 +98,17 @@ def _mcp_tool_to_openai(tool: dict) -> dict:
     }
 
 
-# --- Chat endpoint with SSE streaming ---
+SYSTEM_PROMPT = """You are a helpful MinIO storage assistant. You MUST always respond in English.
 
-SYSTEM_PROMPT = """You are a helpful MinIO storage assistant. You help users manage their MinIO object storage through available tools.
+You help users manage their MinIO object storage through available tools. When the user asks about buckets, objects, storage status, or admin operations, use the available tools to get real data and provide accurate answers.
 
-When the user asks about buckets, objects, storage status, or admin operations, use the available tools to get real data and provide accurate answers.
-
-Keep responses concise and helpful. When showing tool results, summarize the key information clearly."""
+Keep responses concise and helpful. When showing tool results, summarize the key information clearly. Always respond in English."""
 
 
 @router.post("/api/demos/{demo_id}/minio/{cluster_id}/mcp/chat")
 async def mcp_chat(demo_id: str, cluster_id: str, req: ChatRequest):
-    """Stream a chat response with MCP tool access via local LLM."""
-    # Verify MCP sidecar exists
     container_name = _resolve_mcp_container(demo_id, cluster_id)
 
-    # Fetch available MCP tools
     try:
         tools_result = await _mcp_request(
             container_name,
@@ -139,157 +128,115 @@ async def mcp_chat(demo_id: str, cluster_id: str, req: ChatRequest):
     )
 
 
+async def _ollama_chat(endpoint: str, model: str, messages: list, tools: list) -> dict:
+    """Non-streaming Ollama call — reliable for tool calling."""
+    body = {"model": model, "messages": messages, "stream": False}
+    if tools:
+        body["tools"] = tools
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(f"{endpoint}/api/chat", json=body)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _ollama_stream(endpoint: str, model: str, messages: list):
+    """Streaming Ollama call — for final text-only response."""
+    body = {"model": model, "messages": messages, "stream": True}
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        async with client.stream("POST", f"{endpoint}/api/chat", json=body) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield content
+                if chunk.get("done", False):
+                    break
+
+
 async def _chat_stream(container_name: str, messages: list[dict], tools: list[dict]):
-    """Generator that streams chat responses, executing tool calls as needed."""
+    """Generator: uses non-streaming for tool rounds, streaming for final answer."""
     endpoint = _llm_config["endpoint"]
     model = _llm_config["model"]
-    api_type = _llm_config["api_type"]
 
-    # Build the conversation with system prompt
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-
-    # Determine API URL
-    if api_type == "ollama":
-        chat_url = f"{endpoint}/api/chat"
-    else:
-        chat_url = f"{endpoint}/v1/chat/completions"
 
     max_tool_rounds = 5
     for round_num in range(max_tool_rounds):
         try:
-            if api_type == "ollama":
-                body = {
-                    "model": model,
-                    "messages": full_messages,
-                    "stream": True,
-                    "tools": tools if tools else None,
-                }
-            else:
-                body = {
-                    "model": model,
-                    "messages": full_messages,
-                    "stream": True,
-                    "tools": tools if tools else None,
-                }
-            # Remove None tools
-            body = {k: v for k, v in body.items() if v is not None}
-
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream("POST", chat_url, json=body) as response:
-                    if response.status_code != 200:
-                        error_text = ""
-                        async for chunk in response.aiter_text():
-                            error_text += chunk
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'LLM request failed ({response.status_code}): {error_text[:200]}'})}\n\n"
-                        return
-
-                    accumulated_content = ""
-                    tool_calls = []
-
-                    async for line in response.aiter_lines():
-                        if not line.strip():
-                            continue
-
-                        # Ollama streams JSON objects, one per line
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-
-                        if api_type == "ollama":
-                            msg = chunk.get("message", {})
-                            content = msg.get("content", "")
-                            if content:
-                                accumulated_content += content
-                                yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
-
-                            # Check for tool calls
-                            if msg.get("tool_calls"):
-                                for tc in msg["tool_calls"]:
-                                    fn = tc.get("function", {})
-                                    tool_calls.append({
-                                        "name": fn.get("name", ""),
-                                        "arguments": fn.get("arguments", {}),
-                                    })
-
-                            if chunk.get("done", False):
-                                break
-                        else:
-                            # OpenAI-compatible streaming
-                            choices = chunk.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    accumulated_content += content
-                                    yield f"data: {json.dumps({'type': 'text', 'content': content})}\n\n"
-
-                                if delta.get("tool_calls"):
-                                    for tc in delta["tool_calls"]:
-                                        fn = tc.get("function", {})
-                                        tool_calls.append({
-                                            "name": fn.get("name", ""),
-                                            "arguments": json.loads(fn.get("arguments", "{}")),
-                                        })
-
-                    # If no tool calls, we're done
-                    if not tool_calls:
-                        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                        return
-
-                    # Execute tool calls via MCP
-                    for tc in tool_calls:
-                        yield f"data: {json.dumps({'type': 'tool_call', 'name': tc['name'], 'arguments': tc['arguments']})}\n\n"
-
-                        try:
-                            result = await _mcp_request(
-                                container_name,
-                                {
-                                    "jsonrpc": "2.0",
-                                    "id": 1,
-                                    "method": "tools/call",
-                                    "params": {"name": tc["name"], "arguments": tc["arguments"]},
-                                },
-                            )
-                            # Extract text from MCP result
-                            result_text = ""
-                            if isinstance(result, dict):
-                                for content_item in result.get("content", []):
-                                    if content_item.get("type") == "text":
-                                        result_text += content_item.get("text", "")
-                            else:
-                                result_text = str(result)
-
-                            yield f"data: {json.dumps({'type': 'tool_result', 'name': tc['name'], 'result': result_text[:2000]})}\n\n"
-
-                            # Add tool call + result to conversation for next round
-                            full_messages.append({
-                                "role": "assistant",
-                                "content": accumulated_content,
-                                "tool_calls": [{
-                                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                                }],
-                            })
-                            full_messages.append({
-                                "role": "tool",
-                                "content": result_text[:2000],
-                            })
-                        except Exception as e:
-                            yield f"data: {json.dumps({'type': 'tool_result', 'name': tc['name'], 'result': f'Error: {str(e)}'})}\n\n"
-                            full_messages.append({
-                                "role": "tool",
-                                "content": f"Error: {str(e)}",
-                            })
-
-                    # Reset for next round (LLM will process tool results)
-                    accumulated_content = ""
-                    tool_calls = []
-
+            # Non-streaming call to handle tool calling reliably
+            result = await _ollama_chat(endpoint, model, full_messages, tools)
         except httpx.RequestError as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Cannot reach LLM at {endpoint}: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Cannot reach LLM at {endpoint}: {e}'})}\n\n"
             return
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        except httpx.HTTPStatusError as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'LLM error: {e.response.status_code}'})}\n\n"
             return
+
+        msg = result.get("message", {})
+        tool_calls = msg.get("tool_calls", [])
+
+        if not tool_calls:
+            # No tool calls — stream the final text content
+            content = msg.get("content", "")
+            if content:
+                # Re-do as streaming for nice UX
+                full_messages.append({"role": "assistant", "content": content})
+                # Stream the already-generated content word by word for smooth UX
+                words = content.split(" ")
+                for i, word in enumerate(words):
+                    token = word if i == 0 else " " + word
+                    yield f"data: {json.dumps({'type': 'text', 'content': token})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        # Process tool calls
+        assistant_content = msg.get("content", "")
+        full_messages.append({
+            "role": "assistant",
+            "content": assistant_content,
+            "tool_calls": tool_calls,
+        })
+
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            tool_name = fn.get("name", "")
+            tool_args = fn.get("arguments", {})
+
+            yield f"data: {json.dumps({'type': 'tool_call', 'name': tool_name, 'arguments': tool_args})}\n\n"
+
+            try:
+                mcp_result = await _mcp_request(
+                    container_name,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": tool_args},
+                    },
+                )
+                result_text = ""
+                if isinstance(mcp_result, dict):
+                    for item in mcp_result.get("content", []):
+                        if item.get("type") == "text":
+                            result_text += item.get("text", "")
+                else:
+                    result_text = str(mcp_result)
+
+                yield f"data: {json.dumps({'type': 'tool_result', 'name': tool_name, 'result': result_text[:2000]})}\n\n"
+
+                full_messages.append({
+                    "role": "tool",
+                    "content": result_text[:2000],
+                })
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                yield f"data: {json.dumps({'type': 'tool_result', 'name': tool_name, 'result': error_msg})}\n\n"
+                full_messages.append({"role": "tool", "content": error_msg})
 
     yield f"data: {json.dumps({'type': 'done'})}\n\n"

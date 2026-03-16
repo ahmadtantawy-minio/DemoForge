@@ -1,0 +1,117 @@
+# Template metadata
+_template:
+  name: "MinIO AI Assistant"
+  category: "ai"
+  tags: ["mcp", "ai", "ollama", "natural-language", "storage-management", "chat"]
+  description: "MinIO with an AI-powered assistant that understands your storage. Ask questions in natural language — the AI uses MCP tools to list buckets, check status, manage objects, and more. Powered by local Ollama LLM."
+  objective: "Demonstrate MinIO's MCP (Model Context Protocol) integration — AI agents can manage object storage through natural language"
+  minio_value: "MinIO is the first object store with native MCP support. AI agents can list buckets, manage objects, check replication status, and administer clusters — all through a standardized protocol."
+  estimated_resources:
+    memory: "4GB"
+    cpu: 4
+    containers: 7
+  external_dependencies:
+    - "Ollama running locally with a model (e.g. qwen2.5:14b)"
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start MinIO cluster, monitoring, and MCP sidecar. Wait for green health indicators."
+    - step: "Generate sample data"
+      description: "Right-click Data Generator → Start Generating to push files into MinIO."
+    - step: "Open MinIO Admin Panel"
+      description: "Right-click the MinIO cluster → MinIO Admin. You'll see 6 tabs including MCP Tools and AI Chat."
+    - step: "Explore MCP Tools"
+      description: "Click the MCP Tools tab. Browse 26 available tools grouped by category. Try the quick actions: List Buckets, Admin Info."
+    - step: "Try AI Chat"
+      description: "Click the AI Chat tab. Ask: 'List all buckets' — watch the AI call the list_buckets tool and summarize the results."
+    - step: "Advanced queries"
+      description: "Try: 'How much storage is used?', 'Create a bucket called ml-training', 'What's the replication status?'"
+    - step: "Monitor with Grafana"
+      description: "Open Grafana to see MinIO metrics as the AI manages your storage."
+
+# Standard demo definition
+id: template-minio-ai-assistant
+name: "MinIO AI Assistant"
+description: "AI-powered MinIO management via MCP — ask questions in natural language, powered by local Ollama"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  # Data ingestion
+  - id: file-gen
+    component: file-generator
+    variant: burst
+    position: { x: -150, y: 150 }
+    display_name: "Data Generator"
+    config: {}
+
+  # Monitoring
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 300, y: 350 }
+    display_name: "Prometheus"
+    config: {}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 550, y: 350 }
+    display_name: "Grafana"
+    config: {}
+
+clusters:
+  - id: minio-cluster-1
+    component: minio
+    label: "MinIO Cluster"
+    position: { x: 150, y: 50 }
+    node_count: 2
+    drives_per_node: 2
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+    config: {}
+    width: 280.0
+    height: 200.0
+
+edges:
+  # Data Generator → MinIO Cluster
+  - id: e-filegen-minio
+    source: file-gen
+    target: minio-cluster-1
+    connection_type: file-push
+    network: default
+    auto_configure: true
+    label: ""
+
+  # MinIO → Prometheus (metrics)
+  - id: e-minio-prom
+    source: minio-cluster-1
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  # Prometheus → Grafana
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    auto_configure: true
+    label: "PromQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 6g
+  total_cpu: 6.0
