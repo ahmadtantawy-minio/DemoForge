@@ -97,4 +97,11 @@ else
   fi
 fi
 
-echo "Metabase setup complete."
+# --- Step 7: Mark onboarding as complete ---
+echo "Marking onboarding as complete..."
+# Set site name and suppress welcome modals
+http_post "$MB/api/setting/site-name" "{\"value\":\"DemoForge Analytics\"}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
+http_post "$MB/api/setting/setup-license-active-at-setup" "{\"value\":true}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
+http_post "$MB/api/setting/show-database-syncing-modal" "{\"value\":false}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
+
+echo "Metabase setup complete. Login: admin@demoforge.local / DemoForge123!"
