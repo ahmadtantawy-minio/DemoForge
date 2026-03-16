@@ -515,7 +515,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             logger.info(f"Total CPU budget {res.total_cpu}: scaled {len(services)} services by {scale:.2f}")
 
     # --- mc-shell: lightweight MinIO Client container for every demo ---
-    if demo.clusters:
+    metabase_node = next((n for n in demo.nodes if n.component == "metabase"), None)
+    needs_mc_shell = bool(demo.clusters) or bool(metabase_node)
+    if needs_mc_shell:
         mc_shell_name = f"{project_name}-mc-shell"
         mc_env = {}
         for i, cluster in enumerate(demo.clusters):
@@ -549,7 +551,26 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             lines.append(f"  echo 'Waiting for {alias_name}... attempt $attempt'")
             lines.append(f"  sleep 10")
             lines.append(f"done")
+        # Also add aliases for standalone MinIO nodes (not in clusters)
+        standalone_minio = [n for n in demo.nodes if n.component in ("minio", "minio-aistore") and not any(
+            n.id.startswith(f"{c.id}-") for c in demo.clusters
+        )]
+        for node in standalone_minio:
+            alias_name = node.display_name.replace(" ", "_").replace("-", "_") if node.display_name else node.id
+            node_url = f"http://{project_name}-{node.id}:9000"
+            cred_user = node.config.get("MINIO_ROOT_USER", "minioadmin")
+            cred_pass = node.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+            lines.append(f"# Retry alias setup for standalone {alias_name}")
+            lines.append(f"for attempt in 1 2 3 4 5 6 7 8 9 10; do")
+            lines.append(f"  mc alias set '{alias_name}' '{node_url}' '{cred_user}' '{cred_pass}' 2>/dev/null && break")
+            lines.append(f"  echo 'Waiting for {alias_name}... attempt $attempt'")
+            lines.append(f"  sleep 10")
+            lines.append(f"done")
+
         lines.append("echo 'mc aliases configured.'")
+
+        # Metabase setup is handled by a separate sidecar (see below)
+
         lines.append("sleep infinity")
         with open(init_script_path, "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -574,7 +595,47 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             "volumes": [f"{init_host_path}:/etc/mc-shell/init.sh:ro"],
             "restart": "unless-stopped",
         }
+
         logger.info(f"Added mc-shell service for demo {demo.id} with {len(demo.clusters)} cluster alias(es)")
+
+    # --- metabase-init: setup sidecar when Metabase is in the demo ---
+    if metabase_node:
+        trino_edge = next((e for e in demo.edges if e.target == metabase_node.id and e.connection_type == "sql-query"), None)
+        trino_node = next((n for n in demo.nodes if trino_edge and n.id == trino_edge.source), None)
+        metabase_host = f"{project_name}-{metabase_node.id}"
+        trino_host = f"{project_name}-{trino_node.id}" if trino_node else ""
+        catalog = trino_edge.connection_config.get("catalog", "iceberg") if trino_edge else "iceberg"
+        schema = trino_edge.connection_config.get("schema", "analytics") if trino_edge else "analytics"
+
+        components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
+        setup_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "setup-metabase.sh")
+        if os.path.exists(setup_script):
+            setup_host_path = _to_host_path(setup_script, "components")
+            init_networks = {docker_net_name: None for docker_net_name in network_map.values()}
+
+            services["metabase-init"] = {
+                "image": "alpine:3.19",
+                "container_name": f"{project_name}-metabase-init",
+                "entrypoint": ["/bin/sh", "/setup/setup-metabase.sh"],
+                "environment": {
+                    "METABASE_HOST": metabase_host,
+                    "TRINO_HOST": trino_host,
+                    "TRINO_CATALOG": catalog,
+                    "TRINO_SCHEMA": schema,
+                },
+                "mem_limit": "64m",
+                "cpus": 0.1,
+                "labels": {
+                    "demoforge.demo": demo.id,
+                    "demoforge.node": "metabase-init",
+                    "demoforge.component": "metabase-init",
+                },
+                "networks": init_networks,
+                "volumes": [f"{setup_host_path}:/setup/setup-metabase.sh:ro"],
+                "restart": "no",
+                "depends_on": [metabase_node.id],
+            }
+            logger.info(f"Added metabase-init sidecar for demo {demo.id}")
 
     # --- mcp-server: one MCP sidecar per MinIO cluster for AI tool access ---
     if demo.clusters:

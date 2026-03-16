@@ -1,0 +1,76 @@
+id: metabase
+name: Metabase
+category: analytics
+icon: metabase
+version: "latest"
+image: metabase/metabase:latest
+description: "Open-source BI and analytics platform. Connects to Trino for SQL dashboards over MinIO data."
+
+resources:
+  memory: "1g"
+  cpu: 0.5
+
+ports:
+  - name: web
+    container: 3000
+    protocol: tcp
+
+environment:
+  MB_DB_TYPE: "h2"
+  MB_JETTY_PORT: "3000"
+  JAVA_TIMEZONE: "UTC"
+  JAVA_OPTS: "-Xmx512m -Xms256m"
+
+health_check:
+  endpoint: /api/health
+  port: 3000
+  interval: 15s
+  timeout: 10s
+  start_period: 60s
+
+secrets:
+  - key: MB_ADMIN_EMAIL
+    label: "Admin Email"
+    default: "admin@demoforge.local"
+  - key: MB_ADMIN_PASSWORD
+    label: "Admin Password"
+    default: "DemoForge123!"
+
+web_ui:
+  - name: dashboard
+    port: 3000
+    path: "/"
+    description: "Metabase BI Dashboard — analytics and visualization"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Metabase BI container. Use curl to interact with the API."
+  quick_actions:
+    - label: "Health check"
+      command: "curl -s http://localhost:3000/api/health"
+    - label: "List databases"
+      command: "curl -s http://localhost:3000/api/database | python3 -m json.tool 2>/dev/null || curl -s http://localhost:3000/api/database"
+    - label: "List dashboards"
+      command: "curl -s http://localhost:3000/api/dashboard | python3 -m json.tool 2>/dev/null || curl -s http://localhost:3000/api/dashboard"
+
+connections:
+  provides: []
+  accepts:
+    - type: sql-query
+      config_schema:
+        - key: catalog
+          label: "Trino Catalog"
+          type: string
+          default: "iceberg"
+        - key: schema
+          label: "Default Schema"
+          type: string
+          default: "analytics"
+
+variants:
+  default:
+    description: "Metabase with embedded H2 database (no external deps)"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []
