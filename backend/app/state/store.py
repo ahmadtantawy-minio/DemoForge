@@ -185,6 +185,26 @@ class StateStore:
                 running.status = "stopped"
                 running.containers.clear()
 
+            elif running.status == "stopped" and len(running_containers) > 0:
+                # Demo marked stopped but Docker has running containers — recover state
+                logger.info(f"Sync: demo {demo_id} marked stopped but has {len(running_containers)} running container(s) — recovering to running")
+                running.status = "running"
+                project_name = f"demoforge-{demo_id}"
+                running.compose_project = project_name
+                net_names = list(running_containers[0].attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+                running.networks = [n for n in net_names if n.startswith(project_name)]
+                for c in all_containers:
+                    node_id = c.labels.get("demoforge.node", "")
+                    component_id = c.labels.get("demoforge.component", "")
+                    if node_id:
+                        container_nets = list(c.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+                        running.containers[node_id] = RunningContainer(
+                            node_id=node_id,
+                            component_id=component_id,
+                            container_name=c.name,
+                            networks=container_nets,
+                        )
+
             elif running.status == "running":
                 # Update container list — include ALL containers (running + stopped)
                 # so stopped nodes can be started back via the UI

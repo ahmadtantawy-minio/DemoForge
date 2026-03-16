@@ -746,8 +746,21 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{project_name}.yml")
+
+    # Use a custom dumper that quotes strings which could be misinterpreted as numbers
+    class QuotedDumper(yaml.Dumper):
+        pass
+
+    def _str_representer(dumper, data):
+        # Force quoting for strings that YAML might interpret as numbers/booleans
+        if data and (data[0].isdigit() or data.lower() in ("true", "false", "yes", "no", "null", "on", "off")):
+            return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+    QuotedDumper.add_representer(str, _str_representer)
+
     with open(output_path, "w") as f:
-        yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+        yaml.dump(compose, f, Dumper=QuotedDumper, default_flow_style=False, sort_keys=False)
 
     logger.info(f"Generated compose file: {output_path}")
     return output_path, demo
