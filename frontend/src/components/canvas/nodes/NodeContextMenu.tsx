@@ -10,17 +10,20 @@ interface Props {
   componentId?: string;
   isCluster?: boolean;
   clusterLabel?: string;
+  mcpEnabled?: boolean;
   instance: ContainerInstance | undefined;
   demoId: string;
   isRunning: boolean;
   onOpenTerminal: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onOpenAdmin?: () => void;
+  onOpenMcpTools?: () => void;
+  onOpenAiChat?: () => void;
   onClose: () => void;
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onOpenAdmin, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onClose,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -91,12 +94,31 @@ export default function NodeContextMenu({
         </button>
       ))}
       {isCluster && isRunning && onOpenAdmin && (
-        <button
-          className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
-          onClick={() => { onOpenAdmin(); onClose(); }}
-        >
-          MinIO Admin
-        </button>
+        <>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+            onClick={() => { onOpenAdmin(); onClose(); }}
+          >
+            MinIO Admin
+          </button>
+          {mcpEnabled && onOpenMcpTools && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+              onClick={() => { onOpenMcpTools(); onClose(); }}
+            >
+              MCP Tools
+            </button>
+          )}
+          {mcpEnabled && onOpenAiChat && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+              onClick={() => { onOpenAiChat(); onClose(); }}
+            >
+              AI Chat
+            </button>
+          )}
+        </>
       )}
       {menuItems.length === 0 && !isCluster && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground">

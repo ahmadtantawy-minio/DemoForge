@@ -84,7 +84,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
-  const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string } | null>(null);
+  const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: string } | null>(null);
 
   // Track selected nodes for multi-select grouping
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
@@ -651,9 +651,12 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             componentId={(ctxNode?.data as any)?.componentId}
             isCluster={isCluster}
             clusterLabel={isCluster ? (ctxNode?.data as any)?.label : undefined}
+            mcpEnabled={isCluster ? (ctxNode?.data as any)?.mcpEnabled !== false : false}
             instance={instance}
             demoId={activeDemoId ?? ""}
-            onOpenAdmin={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId }) : undefined}
+            onOpenAdmin={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "overview" }) : undefined}
+            onOpenMcpTools={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "mcp-tools" }) : undefined}
+            onOpenAiChat={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}
             isRunning={isRunning}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
@@ -806,6 +809,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           onOpenChange={(open) => { if (!open) setAdminPanel(null); }}
           clusterId={adminPanel.clusterId}
           clusterLabel={adminPanel.clusterLabel}
+          defaultTab={(adminPanel.defaultTab as any) || "overview"}
         />
       )}
     </div>
