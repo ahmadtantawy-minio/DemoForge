@@ -221,3 +221,22 @@ export const setupIAMUser = (demoId: string, clusterId: string, username: string
     `/api/demos/${demoId}/minio/${clusterId}/iam`,
     { method: "POST", body: JSON.stringify({ username, password, policy }) }
   );
+
+// MCP Tools (Phase 8)
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export const listMcpTools = (demoId: string, clusterId: string) =>
+  apiFetch<{ tools: McpTool[] }>(
+    `/api/demos/${demoId}/minio/${clusterId}/mcp/tools/list`,
+    { method: "POST" }
+  );
+
+export const callMcpTool = (demoId: string, clusterId: string, toolName: string, args: Record<string, unknown>) =>
+  apiFetch<{ result: unknown; error?: string }>(
+    `/api/demos/${demoId}/minio/${clusterId}/mcp/tools/call`,
+    { method: "POST", body: JSON.stringify({ tool_name: toolName, arguments: args }) }
+  );

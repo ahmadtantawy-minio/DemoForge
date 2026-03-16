@@ -3,6 +3,7 @@ import { useDemoStore } from "../../stores/demoStore";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import McpToolExplorer from "./McpToolExplorer";
 import {
   Dialog,
   DialogContent,
@@ -49,7 +50,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   const [mcCommand, setMcCommand] = useState("");
   const [mcOutput, setMcOutput] = useState("");
   const [mcRunning, setMcRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "buckets" | "users" | "mc">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "buckets" | "users" | "mc" | "mcp-tools">("overview");
 
   const fetchInfo = useCallback(async () => {
     if (!activeDemoId || !clusterId) return;
@@ -158,7 +159,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-border pb-1">
-          {(["overview", "buckets", "users", "mc"] as const).map((tab) => (
+          {(["overview", "buckets", "users", "mc", "mcp-tools"] as const).map((tab) => (
             <button
               key={tab}
               className={`px-3 py-1 text-xs rounded-t ${activeTab === tab
@@ -166,7 +167,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
                 : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setActiveTab(tab)}
             >
-              {tab === "mc" ? "mc Console" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === "mc" ? "mc Console" : tab === "mcp-tools" ? "MCP Tools" : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
           <button
@@ -302,7 +303,12 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
             </div>
           )}
 
-          {!info && !loading && (
+          {/* MCP Tools tab */}
+          {activeTab === "mcp-tools" && activeDemoId && (
+            <McpToolExplorer demoId={activeDemoId} clusterId={clusterId} />
+          )}
+
+          {!info && !loading && activeTab !== "mc" && activeTab !== "mcp-tools" && (
             <div className="text-xs text-muted-foreground p-3">No data available. Click Refresh.</div>
           )}
         </div>

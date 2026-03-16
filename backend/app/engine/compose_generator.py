@@ -576,6 +576,81 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         }
         logger.info(f"Added mc-shell service for demo {demo.id} with {len(demo.clusters)} cluster alias(es)")
 
+    # --- mcp-server: one MCP sidecar per MinIO cluster for AI tool access ---
+    if demo.clusters:
+        for cluster in demo.clusters:
+            mcp_svc_name = f"{cluster.id}-mcp"
+            mcp_container_name = f"{project_name}-{cluster.id}-mcp"
+            cred_user = cluster.credentials.get("root_user", "minioadmin")
+            cred_pass = cluster.credentials.get("root_password", "minioadmin")
+
+            mcp_env = {
+                "MINIO_ENDPOINT": f"{project_name}-{cluster.id}-lb:80",
+                "MINIO_ACCESS_KEY": cred_user,
+                "MINIO_SECRET_KEY": cred_pass,
+                "MINIO_USE_SSL": "false",
+            }
+
+            mcp_networks = {docker_net_name: None for docker_net_name in network_map.values()}
+
+            services[mcp_svc_name] = {
+                "image": "quay.io/minio/aistor/mcp-server-aistor:latest",
+                "container_name": mcp_container_name,
+                "command": ["--allow-write", "--allow-delete", "--allow-admin",
+                            "--http", "--http-port", "8090"],
+                "environment": mcp_env,
+                "expose": ["8090"],
+                "mem_limit": "128m",
+                "cpus": 0.25,
+                "labels": {
+                    "demoforge.demo": demo.id,
+                    "demoforge.node": mcp_svc_name,
+                    "demoforge.component": "mcp-server-minio",
+                },
+                "networks": mcp_networks,
+                "restart": "unless-stopped",
+            }
+        logger.info(f"Added {len(demo.clusters)} MCP server sidecar(s) for demo {demo.id}")
+
+    # Also inject MCP sidecar for standalone MinIO nodes (not in clusters)
+    minio_nodes = [n for n in demo.nodes if n.component in ("minio", "minio-aistore") and not any(
+        n.id.startswith(f"{c.id}-") for c in demo.clusters
+    )]
+    for node in minio_nodes:
+        mcp_svc_name = f"{node.id}-mcp"
+        mcp_container_name = f"{project_name}-{node.id}-mcp"
+        cred_user = node.config.get("MINIO_ROOT_USER", "minioadmin")
+        cred_pass = node.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+
+        mcp_env = {
+            "MINIO_ENDPOINT": f"{project_name}-{node.id}:9000",
+            "MINIO_ACCESS_KEY": cred_user,
+            "MINIO_SECRET_KEY": cred_pass,
+            "MINIO_USE_SSL": "false",
+        }
+
+        mcp_networks = {docker_net_name: None for docker_net_name in network_map.values()}
+
+        services[mcp_svc_name] = {
+            "image": "quay.io/minio/aistor/mcp-server-aistor:latest",
+            "container_name": mcp_container_name,
+            "command": ["--allow-write", "--allow-delete", "--allow-admin",
+                        "--http", "--http-port", "8090"],
+            "environment": mcp_env,
+            "expose": ["8090"],
+            "mem_limit": "128m",
+            "cpus": 0.25,
+            "labels": {
+                "demoforge.demo": demo.id,
+                "demoforge.node": mcp_svc_name,
+                "demoforge.component": "mcp-server-minio",
+            },
+            "networks": mcp_networks,
+            "restart": "unless-stopped",
+        }
+    if minio_nodes:
+        logger.info(f"Added {len(minio_nodes)} MCP server sidecar(s) for standalone MinIO nodes")
+
     # Top-level networks block — let Docker auto-assign subnets to avoid conflicts
     compose_networks = {}
     for net in demo.networks:
