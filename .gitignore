@@ -29,9 +29,7 @@ Thumbs.db
 data/
 
 # Screenshots and Playwright artifacts
-*.png
-*.jpg
-*.jpeg
+.artifacts/
 .playwright-mcp/
 
 # Test artifacts
