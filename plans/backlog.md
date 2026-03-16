@@ -66,37 +66,68 @@
 - [x] BUG-5: Grafana secret keys — verified matching (GF_SECURITY_ADMIN_USER/PASSWORD)
 - [x] BUG-8: Terminal tab duplication — already fixed with closedTabsRef
 
-## High Priority — Next Up
+## Completed — Recent
 
 - [x] **Network Overlay**: Live Docker IPs shown on all diagram nodes and cluster LBs
+- [x] **Cockpit: Repositioned as right panel** — replaces PropertiesPanel when cockpit is ON
+- [x] **Cockpit: Host Resource Utilization**: CPU%, memory shown at top of cockpit panel via Docker stats API (5s cache)
+- [x] **Grafana MinIO Dashboard**: Official 37-panel dashboard (ID 13502) auto-provisioned
+- [x] **Phase 6: Full Analytics Pipeline** — Trino, Iceberg REST, ClickHouse, Spark, HDFS components + 3 demo templates (tested e2e)
+- [x] **Grafana Dashboards**: ClickHouse #869, Spark #7890, MinIO #13502 — auto-provisioned
+- [x] **Custom Spark Image**: demoforge/spark-s3a with pre-baked hadoop-aws + aws-sdk JARs
+- [x] **Demo Manager UI**: Separated My Demos / Templates tabs
+- [x] **Phase 8: MinIO MCP Integration** — MCP sidecar per cluster, proxy API, Tool Explorer (26 tools), AI Chat (Ollama)
+- [x] **MCP as cluster config** — toggle in Properties Panel, violet badge, context menu entries
+
+## HIGH PRIORITY — Phase 6.5: Metabase BI Layer
+
+### Sprint 1 — Metabase Core
+- [ ] **Metabase Component Manifest**: `metabase/metabase:latest`, port 3000, H2 embedded DB
+  - Category: analytics, accepts: `sql-query` (from Trino)
+  - Health check: `/api/health`, secrets: admin email/password
+  - Web UI: `dashboard` on port 3000
+- [ ] **Metabase Init Script**: API-based auto-setup after health check
+  - Complete first-run via `POST /api/setup` (admin user, skip wizard)
+  - Add Trino database connection (derived from edge config)
+  - Create 3-4 pre-seeded dashboard cards (orders/minute, revenue by region, KPIs)
+- [ ] **Demo Template: "BI Dashboard - Lakehouse"**: 6 containers
+  - File Gen → MinIO → Iceberg REST → Trino → Metabase + Prometheus
+  - Reuses existing Iceberg REST + Trino components
+  - Structured data generator pushes Parquet with orders schema
+
+### Sprint 2 — AIStor Tables Path + Data Generator
+- [ ] **Structured Data Generator Component**: Custom Python image (`demoforge/data-generator`)
+  - Parquet profile: orders schema (order_id, customer_id, product_name, quantity, unit_price, order_date, region)
+  - Partitioned by date: `raw-data/year=YYYY/month=MM/day=DD/`
+  - Uses pyarrow + boto3, configurable batch size and interval
+  - build_context pattern (like Spark custom image)
+- [ ] **Trino AIStor Catalog Template**: `aistor-iceberg.properties.j2`
+  - Points to MinIO's `/_iceberg` endpoint instead of Iceberg REST
+  - SigV4 authentication
+- [ ] **Demo Template: "BI Dashboard - AIStor Tables"**: 4 containers
+  - Data Gen → MinIO AIStor (/_iceberg) → Trino → Metabase
+  - License-gated via existing minio-aistore license_requirements
+  - Lightest possible analytics demo
+
+### Sprint 3 — Polish (optional)
+- [ ] **Pre-seeded Metabase Dashboard**: Full 7-card dashboard via API
+  - Orders per minute (line), Revenue by region (bar), Top products (horizontal bar)
+  - Order volume trend (area), Total orders / Total revenue / Avg order value (KPIs)
+- [ ] **Iceberg-native Data Generator Profile**: Write directly via pyiceberg to AIStor Tables
+- [ ] **Metabase Auto-Refresh Demo**: 1-minute auto-refresh showing live data flow
+
+## Medium Priority
 
 - [ ] **S3 File Browser Enhancement**: Per-request node tracking, node distribution histogram
   - Shows "Served by: minio-2" banner via `X-Upstream-Server` header
   - Node distribution histogram for load-balance visualization
-  - Operations: list buckets, browse objects, upload, download, delete
 
 - [ ] **Data Generator Web Console**: Lightweight web UI for start/stop, live progress
   - REST API: POST /start, POST /stop, GET /status, GET /files
-  - Lower priority — terminal quick actions work for now
-
-## High Priority — Next Up (continued)
-
-- [x] **Cockpit: Repositioned as right panel** — replaces PropertiesPanel when cockpit is ON
-- [x] **Cockpit: Host Resource Utilization**: CPU%, memory shown at top of cockpit panel via Docker stats API (5s cache)
-
-- [x] **Grafana MinIO Dashboard**: Official 37-panel dashboard (ID 13502) auto-provisioned
-
-## High Priority — Configuration & Educational Panel (Phase 3 rework)
 
 - [ ] **Configuration Panel Rework** — Educational code-editor-style configuration viewer
-  - Rework the generated config viewer to be a proper code editor with syntax highlighting
-  - Show every mc command needed to build the setup from scratch (MinIO perspective)
-  - Include inline comments explaining WHY each command is needed and WHAT it does
-  - Layout: text editor panel with syntax coloring (shell commands, YAML, JSON)
-  - Sections: cluster setup, bucket creation, versioning, replication config, IAM, tiering
-  - Each section shows the actual mc commands with `# comments` explaining the purpose
-  - Export button to copy all commands as a runnable shell script
-  - Should serve as a learning tool for SEs to understand the MinIO configuration
+  - Show every mc command needed to build the setup from scratch
+  - Syntax highlighting, inline comments, export as shell script
 
 ## Remaining Backlog (lower priority)
 
@@ -154,13 +185,12 @@
   - Shows objects in the tiered storage destination
   - Useful for verifying ILM tiering moved objects correctly
 
-## Next — Template Manager (Phase 5)
+## Completed — Template Manager (Phase 5)
 
-- [ ] **Template Gallery UI**: Beautiful card-based template browser
-  - Full-width modal/page with template cards in a grid layout
-  - Each card shows: title, description, topology diagram preview, component count, container count
-  - Tags for categories: "lakehouse", "replication", "analytics", "migration", "AI/ML"
-  - Estimated resource requirements badge (RAM, CPU)
+- [x] **Template Gallery UI**: Card-based template browser with category filters
+  - Grid layout with category pills, tags, resource estimates
+  - Loading skeletons, error states, keyboard navigation, ARIA labels
+  - Detail dialog with editable descriptions and walkthrough steps
   - External dependency warnings (e.g. "Requires Docker 20+", "Needs 8GB+ RAM")
   - "Create Demo" button that instantiates the template
 
@@ -209,44 +239,20 @@
   - Template 3 "ILM Tiering" — works now
   - Others seeded as analytics/AI components are built
 
-## Future — Analytics Ecosystem (Phase 6)
+## Completed — Analytics Ecosystem (Phase 6)
 
-- [ ] **HDFS Container**: Hadoop HDFS for data migration demos (HDFS → MinIO)
-  - Image: `apache/hadoop:3` or `bde2020/hadoop-namenode`
-  - Connection types: hdfs-source (provides), data-migration (accepts from MinIO)
-  - Demo: generate data to HDFS, migrate to MinIO via `mc mirror`
+- [x] **HDFS Container**: apache/hadoop:3, pseudo-distributed mode, proper network binding
+- [x] **Apache Spark Container**: demoforge/spark-s3a:3.5.0 with pre-baked S3A JARs
+- [x] **Apache Iceberg REST Catalog**: tabulario/iceberg-rest, S3 + AWS credential auto-resolution
+- [x] **Trino**: trinodb/trino with Iceberg catalog, S3 credentials, AWS env vars
+- [x] **ClickHouse**: clickhouse-server with 1GB memory, port 9001 (avoid MinIO conflict)
+- [x] **3 Analytics Templates**: Full Analytics Pipeline (9 containers), Real-Time Analytics, Hadoop Migration
+- [x] **Grafana Dashboards**: Official ClickHouse #869, Spark #7890, MinIO #13502
 
-- [ ] **Apache Spark Container**: Spark with S3A connector pushing data to MinIO
-  - Image: `bitnami/spark:latest` or `apache/spark:3.5`
-  - Connection types: s3a-client (accepts s3), spark-submit, accepts hdfs
-  - Demo: Spark job reads/writes parquet to MinIO buckets
-  - Built-in jobs: aggregation pipeline that runs every X minutes, transforms and pushes to MinIO
-  - Init script: pre-submit a sample PySpark job that reads raw data → aggregates → writes parquet
-
-- [ ] **AIStore Tables**: MinIO's built-in table format (cluster config option)
-  - Implementation: cluster property toggle, not a separate component
-  - Enables table-format storage within existing MinIO clusters
-  - Config: `MINIO_TABLES_ENABLED=on` environment variable
-
-- [ ] **Apache Iceberg REST Catalog**: Standalone Iceberg catalog on MinIO storage
-  - Image: `tabulario/iceberg-rest:latest`
-  - Connection types: accepts s3 (MinIO), provides iceberg-catalog
-  - Demo: create Iceberg tables stored on MinIO, query via Trino
-
-- [ ] **Trino** (Priority 1 query engine): SQL query engine for lakehouse analytics
-  - Image: `trinodb/trino:latest` (~2.5GB, JVM, 1GB RAM)
-  - Connection types: accepts iceberg-catalog, accepts s3, provides sql-query
-  - Template mounts: minio.properties.j2, iceberg.properties.j2 for catalog config
-  - Demo: SQL queries over Parquet/Iceberg on MinIO, CREATE TABLE AS SELECT
-  - **NOT Starburst** — license key required, no demo value over open-source Trino at small scale
-
-- [ ] **ClickHouse** (Priority 2 query engine): Real-time analytics on MinIO data
-  - Image: `clickhouse/clickhouse-server:latest` (~1GB, C++ native, 512MB RAM)
-  - Connection types: accepts s3 (via s3() table function), provides sql-query
-  - No catalog needed — direct S3 reads, S3Queue for continuous ingestion
-  - Demo: real-time dashboards, log analytics, hot-cold architecture with MinIO
-  - Reads Iceberg tables created by Trino (IcebergS3 engine, read-only)
-  - Note: native port 9000 conflicts with MinIO — use HTTP port 8123 only
+- [ ] **AIStore Tables**: MinIO's built-in Iceberg V3 table format (cluster config option)
+  - Requires AIStor Enterprise license + RELEASE.2026-02-02+
+  - Endpoint: `/_iceberg`, SigV4 auth, `mc table` CLI commands
+  - Planned for Phase 6.5 Sprint 2 (AIStor Tables demo path with Metabase)
 
 - [ ] **Cloudera: NOT RECOMMENDED** — infeasible in Docker (64GB+ RAM minimum, commercial license)
   - For "Hadoop migration" narrative, use standalone HDFS + Spark + Trino instead
@@ -318,26 +324,16 @@
   - Shows: cloud-agnostic storage, cost optimization, hybrid architecture
   - Template 3: Full pipeline: Spark → MinIO (AIStore Tables) → Trino
 
-## Future — MinIO MCP & AI Features (Phase 8)
+## Completed — MinIO MCP & AI Features (Phase 8)
 
-- [ ] **MinIO MCP Server Sidecar**: Auto-deploy `quay.io/minio/aistor/mcp-server-aistor:latest` per cluster
-  - StreamableHTTP mode on port 8090, 128MB RAM, 0.25 CPU
-  - Exposes 25+ tools: list_buckets, create_bucket, get_object_metadata, admin_info, etc.
-  - Toggle via `mcpEnabled` on cluster properties (default: on)
-  - Backend proxy: POST /api/demos/{id}/mcp/{cluster}/tools/{tool_id}
-
-- [ ] **MCP Tool Explorer Tab**: Add "MCP Tools" tab to MinIO Admin Panel
-  - Tool list grouped by category (Read, Write, Admin)
-  - Parameter forms auto-generated from tool schemas
-  - Execute button with JSON result display
-  - Quick-action presets (list buckets, storage usage, replication status)
-  - Zero external dependencies — always works
-
-- [ ] **MCP AI Chat Tab** (opt-in): Add "AI Chat" tab when API key configured
-  - Settings page: Claude/OpenAI API key input
-  - Backend routes chat → LLM API (with MCP tools as available tools) → executes tool calls → streams response
-  - Chat shows expandable tool-call blocks (what tool ran, what it returned)
-  - Demo: "Show me all buckets", "Create ml-training with versioning", "What's replication status?"
+- [x] **MinIO MCP Server Sidecar**: Auto-deploys per cluster + standalone MinIO node
+  - quay.io/minio/aistor/mcp-server-aistor:latest, StreamableHTTP on port 8090
+  - 26 tools, configurable via `mcp_enabled` cluster property, violet MCP badge
+- [x] **MCP Tool Explorer Tab**: Categorized tools, auto-generated parameter forms, quick actions
+- [x] **MCP AI Chat Tab**: Ollama-powered (configurable endpoint), SSE streaming, multi-round tool calling
+  - Settings API: GET/POST /api/settings/llm (endpoint, model, api_type)
+  - Works with any OpenAI-compatible API (Ollama, vLLM, LiteLLM, OpenAI)
+- [x] **MinIO AI Assistant Template**: Cluster + MCP sidecar + monitoring demo
 
 - [ ] **Delta Sharing Integration**: MinIO AIStor as governed data sharing platform
   - AIStor embeds Delta Sharing protocol directly (no sidecar) — port 8080
