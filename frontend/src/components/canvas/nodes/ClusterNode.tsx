@@ -16,6 +16,7 @@ interface ClusterNodeData {
   credentials: Record<string, string>;
   config: Record<string, string>;
   health?: string;
+  mcpEnabled?: boolean;
 }
 
 export default function ClusterNode({ id, data, selected }: NodeProps) {
@@ -27,6 +28,8 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
   const [showPolicyMenu, setShowPolicyMenu] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "mcp-tools" | "ai-chat">("overview");
+  const mcpEnabled = nodeData.mcpEnabled !== false;
 
   // Find running instances matching this cluster's synthetic nodes
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
@@ -166,17 +169,13 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                   {lbIp}
                 </span>
               )}
-              {consoleUrl && activeDemoId && (
-                <button
-                  className="px-2 py-0.5 rounded border border-border bg-card text-[10px] text-foreground hover:bg-accent transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(consoleUrl, "_blank");
-                  }}
-                  title="Open MinIO Console (via LB)"
+              {mcpEnabled && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-violet-500/15 text-violet-400 border border-violet-500/30"
+                  title="MCP AI Tools enabled — right-click for AI Chat"
                 >
-                  Console
-                </button>
+                  MCP
+                </span>
               )}
             </div>
           );
@@ -271,12 +270,29 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             </button>
             {activeDemoId && (
               <>
+              <div className="border-t border-border my-1" />
               <button
                 className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
-                onClick={() => { setAdminPanelOpen(true); setContextNode(null); }}
+                onClick={() => { setAdminDefaultTab("overview"); setAdminPanelOpen(true); setContextNode(null); }}
               >
                 MinIO Admin
               </button>
+              {mcpEnabled && (
+                <>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+                  onClick={() => { setAdminDefaultTab("mcp-tools"); setAdminPanelOpen(true); setContextNode(null); }}
+                >
+                  MCP Tools
+                </button>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+                  onClick={() => { setAdminDefaultTab("ai-chat"); setAdminPanelOpen(true); setContextNode(null); }}
+                >
+                  AI Chat
+                </button>
+                </>
+              )}
               <div className="relative">
                 <button
                   className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
@@ -316,6 +332,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         onOpenChange={setAdminPanelOpen}
         clusterId={id}
         clusterLabel={nodeData.label || "MinIO Cluster"}
+        defaultTab={adminDefaultTab}
       />
     </>
   );

@@ -359,6 +359,20 @@ export default function PropertiesPanel() {
             className="h-8 text-sm"
           />
         </div>
+        <div className="mb-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cData.mcpEnabled !== false}
+              onChange={(e) => updateCluster({ mcpEnabled: e.target.checked })}
+              className="rounded"
+            />
+            <span className="text-xs text-muted-foreground">Enable MCP AI Tools</span>
+            {cData.mcpEnabled !== false && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">MCP</span>
+            )}
+          </label>
+        </div>
         <div className="mt-3 pt-3 border-t border-border">
           <div className="text-xs text-muted-foreground">
             Total drives: {totalDrives} &bull; Parity: 50%

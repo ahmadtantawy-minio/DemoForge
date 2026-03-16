@@ -128,6 +128,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           drivesPerNode: c.drives_per_node || 1,
           credentials: c.credentials || {},
           config: c.config || {},
+          mcpEnabled: c.mcp_enabled !== false,
         },
       }));
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
@@ -324,6 +325,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             drivesPerNode: 1,
             credentials: { root_user: "minioadmin", root_password: "minioadmin" },
             config: {},
+            mcpEnabled: true,
           },
         };
         addNode(newCluster);

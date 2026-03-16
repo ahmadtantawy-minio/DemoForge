@@ -37,21 +37,24 @@ interface ClusterInfo {
   site_replication: string;
 }
 
+type TabType = "overview" | "buckets" | "users" | "mc" | "mcp-tools" | "ai-chat";
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clusterId: string;
   clusterLabel: string;
+  defaultTab?: TabType;
 }
 
-export default function MinioAdminPanel({ open, onOpenChange, clusterId, clusterLabel }: Props) {
+export default function MinioAdminPanel({ open, onOpenChange, clusterId, clusterLabel, defaultTab = "overview" }: Props) {
   const { activeDemoId } = useDemoStore();
   const [info, setInfo] = useState<ClusterInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [mcCommand, setMcCommand] = useState("");
   const [mcOutput, setMcOutput] = useState("");
   const [mcRunning, setMcRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "buckets" | "users" | "mc" | "mcp-tools" | "ai-chat">("overview");
+  const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
 
   const fetchInfo = useCallback(async () => {
     if (!activeDemoId || !clusterId) return;
@@ -66,8 +69,11 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   }, [activeDemoId, clusterId]);
 
   useEffect(() => {
-    if (open) fetchInfo();
-  }, [open, fetchInfo]);
+    if (open) {
+      fetchInfo();
+      setActiveTab(defaultTab);
+    }
+  }, [open, fetchInfo, defaultTab]);
 
   const runMcCommand = async () => {
     if (!activeDemoId || !clusterId || !mcCommand.trim()) return;

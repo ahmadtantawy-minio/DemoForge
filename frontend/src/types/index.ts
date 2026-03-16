@@ -153,6 +153,7 @@ export interface ClusterNodeData {
   credentials: Record<string, string>;
   config: Record<string, string>;
   health?: HealthStatus;
+  mcpEnabled?: boolean;
 }
 
 export interface DemoGroup {

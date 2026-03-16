@@ -578,7 +578,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
     # --- mcp-server: one MCP sidecar per MinIO cluster for AI tool access ---
     if demo.clusters:
-        for cluster in demo.clusters:
+        for cluster in [c for c in demo.clusters if c.mcp_enabled]:
             mcp_svc_name = f"{cluster.id}-mcp"
             mcp_container_name = f"{project_name}-{cluster.id}-mcp"
             cred_user = cluster.credentials.get("root_user", "minioadmin")
@@ -610,7 +610,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "networks": mcp_networks,
                 "restart": "unless-stopped",
             }
-        logger.info(f"Added {len(demo.clusters)} MCP server sidecar(s) for demo {demo.id}")
+        mcp_clusters = [c for c in demo.clusters if c.mcp_enabled]
+        if mcp_clusters:
+            logger.info(f"Added {len(mcp_clusters)} MCP server sidecar(s) for demo {demo.id}")
 
     # Also inject MCP sidecar for standalone MinIO nodes (not in clusters)
     minio_nodes = [n for n in demo.nodes if n.component in ("minio", "minio-aistore") and not any(

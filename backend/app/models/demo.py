@@ -56,6 +56,7 @@ class DemoCluster(BaseModel):
     config: dict[str, str] = {}
     width: float = 280
     height: float = 200
+    mcp_enabled: bool = True          # Deploy MCP sidecar for AI tool access
 
 class DemoStickyNote(BaseModel):
     id: str
