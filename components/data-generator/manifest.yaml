@@ -1,0 +1,60 @@
+id: data-generator
+name: Structured Data Generator
+category: tooling
+icon: data-generator
+version: "1.0"
+image: demoforge/data-generator:latest
+build_context: "."
+description: "Generates structured Parquet data (orders schema) and pushes to MinIO. Partitioned by date for Iceberg/Trino queries."
+
+resources:
+  memory: "256m"
+  cpu: 0.25
+
+ports: []
+
+environment:
+  S3_ENDPOINT: "localhost:9000"
+  S3_ACCESS_KEY: "minioadmin"
+  S3_SECRET_KEY: "minioadmin"
+  S3_BUCKET: "raw-data"
+  BATCH_SIZE: "500"
+  INTERVAL_SECONDS: "5"
+  PARTITION_BY_DATE: "true"
+
+secrets:
+  - key: S3_ACCESS_KEY
+    label: "S3 Access Key"
+    default: "minioadmin"
+  - key: S3_SECRET_KEY
+    label: "S3 Secret Key"
+    default: "minioadmin"
+
+web_ui: []
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Structured Data Generator"
+  quick_actions:
+    - label: "Check status"
+      command: "ps aux | grep generate"
+    - label: "View logs"
+      command: "cat /tmp/generator.log 2>/dev/null || echo 'No logs yet'"
+
+connections:
+  provides: []
+  accepts:
+    - type: s3
+      config_schema:
+        - key: bucket
+          label: "Target Bucket"
+          type: string
+          default: "raw-data"
+
+variants:
+  default:
+    description: "Generates Parquet with orders schema at configurable rate"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

@@ -342,29 +342,29 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         env.update(node.config)
 
-        # Auto-resolve S3 endpoint from s3 edges for components that accept s3
+        # Auto-resolve S3 endpoint from s3 edges
         for edge in demo.edges:
-            if edge.target == node.id and edge.connection_type == "s3":
-                s3_service_name = edge.source  # service name in compose
-                s3_port = 9000
-                # Find the source node's manifest to get the correct port
-                source_manifest = get_component(
-                    next((n.component for n in demo.nodes if n.id == edge.source), "")
-                )
-                if source_manifest:
-                    for p in source_manifest.ports:
-                        if p.name in ("api", "s3", "http") and p.container == 9000:
-                            s3_port = p.container
-                            break
-                s3_endpoint = f"http://{s3_service_name}:{s3_port}"
-                # Inject S3 endpoint for known env var patterns
-                s3_env_keys = {
-                    "CATALOG_S3_ENDPOINT": s3_endpoint,
-                }
-                for env_key, env_val in s3_env_keys.items():
-                    if env_key in env:
-                        env[env_key] = env_val
-                break  # Use first s3 edge
+            if edge.connection_type != "s3":
+                continue
+            # Determine the MinIO peer: if this node is target, peer is source; if source, peer is target
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_component = next((n.component for n in demo.nodes if n.id == peer_id), "")
+            if peer_component not in ("minio", "minio-aistore"):
+                continue
+            s3_service_name = peer_id
+            s3_port = 9000
+            s3_endpoint_host = f"{s3_service_name}:{s3_port}"
+            # Inject S3 endpoint for known env var patterns
+            if "CATALOG_S3_ENDPOINT" in env:
+                env["CATALOG_S3_ENDPOINT"] = s3_endpoint_host
+            if "S3_ENDPOINT" in env:
+                env["S3_ENDPOINT"] = s3_endpoint_host
+            break  # Use first s3 edge
 
         # Determine which networks this node joins
         # If node.networks is empty, join all demo networks
