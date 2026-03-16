@@ -100,6 +100,11 @@
 
 ## Remaining Backlog (lower priority)
 
+- [ ] **Bucket Policy UX Enhancement**: Bucket policy should be set per-bucket with a bucket picker
+  - Move to MinIO Admin Panel → Buckets tab (already has per-bucket controls)
+  - Add bucket selector dropdown before policy selection
+  - Support bulk apply to all buckets
+  - Show current policy status per bucket clearly
 - [ ] Verbose output panel in deploy/stop modals
 - [ ] License info display per component (Apache 2.0, MIT, AGPL)
 - [ ] DemoManager sorting/filtering
