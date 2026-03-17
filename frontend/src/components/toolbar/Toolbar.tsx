@@ -389,7 +389,7 @@ export default function Toolbar() {
           <DeployProgress
             demoId={activeDemoId}
             demoName={activeDemo.name}
-            apiBase={import.meta.env.VITE_API_URL || "http://localhost:8000"}
+            apiBase={import.meta.env.VITE_API_URL || "http://localhost:9210"}
             onDone={handleDeployDone}
           />
         )}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoStore } from "./stores/demoStore";
 import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
-import { fetchDemos, fetchInstances, getFailoverStatus } from "./api/client";
+import { fetchDemos, fetchInstances, getFailoverStatus, getResilienceStatus } from "./api/client";
 import { Toaster } from "sonner";
 import Toolbar from "./components/toolbar/Toolbar";
 import ComponentPalette from "./components/palette/ComponentPalette";
@@ -18,7 +18,7 @@ import WalkthroughPanel from "./components/walkthrough/WalkthroughPanel";
 import { getWalkthrough, WalkthroughStep } from "./api/client";
 
 export default function App() {
-  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen } = useDemoStore();
+  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
@@ -52,20 +52,23 @@ export default function App() {
         if (res.edge_configs && res.edge_configs.length > 0) {
           const { edges, setEdges } = useDiagramStore.getState();
           // Build lookup: backend edge IDs may have "-cluster" suffix from compose_generator
-          const edgeConfigMap = new Map<string, string>();
+          const edgeConfigMap = new Map<string, { status: string; error: string }>();
           for (const ec of res.edge_configs) {
-            edgeConfigMap.set(ec.edge_id, ec.status);
+            const entry = { status: ec.status, error: ec.error || "" };
+            edgeConfigMap.set(ec.edge_id, entry);
             // Strip trailing "-cluster" suffix(es) so frontend edge IDs match
             let stripped = ec.edge_id;
             while (stripped.endsWith("-cluster")) {
               stripped = stripped.slice(0, -8);
-              edgeConfigMap.set(stripped, ec.status);
+              edgeConfigMap.set(stripped, entry);
             }
           }
           const updated = edges.map((e) => {
-            const configStatus = edgeConfigMap.get(e.id) || (e.data as any)?.configStatus;
-            if (configStatus && configStatus !== (e.data as any)?.configStatus) {
-              return { ...e, data: { ...e.data, configStatus } };
+            const entry = edgeConfigMap.get(e.id);
+            const configStatus = entry?.status || (e.data as any)?.configStatus;
+            const configError = entry?.error || (e.data as any)?.configError || "";
+            if (configStatus && (configStatus !== (e.data as any)?.configStatus || configError !== (e.data as any)?.configError)) {
+              return { ...e, data: { ...e.data, configStatus, configError } };
             }
             return e;
           });
@@ -82,10 +85,11 @@ export default function App() {
             const ed = e.data as any;
             if (ed?.connectionType !== "failover") return e;
             // Determine if this edge's target is the active upstream
+            // Only match the failover entry whose gateway is this edge's source
+            const sourceId = e.source;
             const targetId = e.target;
-            const isActive = fsRes.failover.some((f) =>
-              f.healthy && f.active_upstream && f.active_upstream.includes(targetId)
-            );
+            const gwEntry = fsRes.failover.find((f) => f.gateway === sourceId);
+            const isActive = !!(gwEntry && gwEntry.healthy && gwEntry.active_upstream && gwEntry.active_upstream.includes(targetId));
             if (ed.failoverActive !== isActive) {
               changed = true;
               return { ...e, data: { ...ed, failoverActive: isActive } };
@@ -93,6 +97,12 @@ export default function App() {
             return e;
           });
           if (changed) setCurrentEdges(updatedEdges);
+        }).catch(() => {});
+        // Poll resilience tester status
+        getResilienceStatus(activeDemoId).then((rsRes) => {
+          if (rsRes.probes && rsRes.probes.length > 0) {
+            setResilienceProbes(rsRes.probes);
+          }
         }).catch(() => {});
       }).catch(() => {});
     syncInstances();

@@ -130,7 +130,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           const lbHealthy = lbInst?.health === "healthy";
           const lbIp = lbInst?.networks?.find((n) => n.ip_address)?.ip_address ?? null;
           // Console URL points through the backend proxy to the LB's console port
-          const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+          const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:9210";
           const consoleUrl = lbInst ? `${apiBase}/proxy/${activeDemoId}/${lbId}/console/` : null;
           return (
             <div className="flex items-center gap-2 mb-2">
@@ -234,7 +234,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
               const lbId = `${id}-lb`;
               const lbInst = instances.find((i) => i.node_id === lbId);
               if (lbInst && lbInst.health === "healthy") {
-                const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+                const apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:9210";
                 const url = `${apiBase}/proxy/${activeDemoId}/${lbId}/console/`;
                 return (
                   <button

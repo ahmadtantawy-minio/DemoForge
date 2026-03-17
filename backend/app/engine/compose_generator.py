@@ -1,5 +1,6 @@
 """Generate docker-compose.yml from a demo definition."""
 import os
+import re
 import logging
 import yaml
 from jinja2 import Environment, FileSystemLoader
@@ -541,7 +542,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         init_script_path = os.path.join(init_script_dir, "init.sh")
         lines = ["#!/bin/sh", "# Wait for clusters then configure mc aliases", "sleep 15"]
         for cluster in demo.clusters:
-            alias_name = cluster.label.replace(" ", "_").replace("-", "_")
+            alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
             lb_url = f"http://{project_name}-{cluster.id}-lb:80"
             cred_user = cluster.credentials.get("root_user", "minioadmin")
             cred_pass = cluster.credentials.get("root_password", "minioadmin")
@@ -556,7 +557,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             n.id.startswith(f"{c.id}-") for c in demo.clusters
         )]
         for node in standalone_minio:
-            alias_name = node.display_name.replace(" ", "_").replace("-", "_") if node.display_name else node.id
+            alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", node.display_name) if node.display_name else node.id
             node_url = f"http://{project_name}-{node.id}:9000"
             cred_user = node.config.get("MINIO_ROOT_USER", "minioadmin")
             cred_pass = node.config.get("MINIO_ROOT_PASSWORD", "minioadmin")

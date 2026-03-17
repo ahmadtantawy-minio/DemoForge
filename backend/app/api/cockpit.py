@@ -25,47 +25,54 @@ async def _get_host_stats(demo_id: str) -> dict:
     if cached and (now - cached[0]) < _HOST_STATS_TTL:
         return cached[1]
 
-    def _collect():
-        containers = docker_client.containers.list(
+    def _get_containers():
+        return docker_client.containers.list(
             filters={"label": f"demoforge.demo={demo_id}"}
+        )
+
+    def _stats_for(c):
+        try:
+            s = c.stats(stream=False)
+            cpu_delta = (
+                s["cpu_stats"]["cpu_usage"]["total_usage"]
+                - s["precpu_stats"]["cpu_usage"]["total_usage"]
+            )
+            system_delta = (
+                s["cpu_stats"].get("system_cpu_usage", 0)
+                - s["precpu_stats"].get("system_cpu_usage", 0)
+            )
+            num_cpus = s["cpu_stats"].get("online_cpus") or len(
+                s["cpu_stats"]["cpu_usage"].get("percpu_usage", [1])
+            )
+            cpu_pct = (cpu_delta / system_delta) * num_cpus * 100.0 if system_delta > 0 and cpu_delta >= 0 else 0.0
+            mem = s.get("memory_stats", {})
+            return {"cpu": cpu_pct, "mem": mem.get("usage", 0), "limit": mem.get("limit", 0)}
+        except Exception:
+            return None
+
+    try:
+        containers = await asyncio.to_thread(_get_containers)
+        # Fetch stats for all containers in parallel (each stats call blocks ~1s)
+        stats_list = await asyncio.gather(
+            *[asyncio.to_thread(_stats_for, c) for c in containers],
+            return_exceptions=True,
         )
         total_cpu = 0.0
         total_mem_bytes = 0
         mem_limit_bytes = 0
         count = 0
-        for c in containers:
-            try:
-                s = c.stats(stream=False)
-                # CPU %
-                cpu_delta = (
-                    s["cpu_stats"]["cpu_usage"]["total_usage"]
-                    - s["precpu_stats"]["cpu_usage"]["total_usage"]
-                )
-                system_delta = (
-                    s["cpu_stats"].get("system_cpu_usage", 0)
-                    - s["precpu_stats"].get("system_cpu_usage", 0)
-                )
-                num_cpus = s["cpu_stats"].get("online_cpus") or len(
-                    s["cpu_stats"]["cpu_usage"].get("percpu_usage", [1])
-                )
-                if system_delta > 0 and cpu_delta >= 0:
-                    total_cpu += (cpu_delta / system_delta) * num_cpus * 100.0
-                # Memory
-                mem = s.get("memory_stats", {})
-                total_mem_bytes += mem.get("usage", 0)
-                mem_limit_bytes = max(mem_limit_bytes, mem.get("limit", 0))
+        for s in stats_list:
+            if isinstance(s, dict):
+                total_cpu += s["cpu"]
+                total_mem_bytes += s["mem"]
+                mem_limit_bytes = max(mem_limit_bytes, s["limit"])
                 count += 1
-            except Exception:
-                pass
-        return {
+        result = {
             "cpu_percent": round(total_cpu, 1),
             "memory_mb": round(total_mem_bytes / 1024 / 1024, 1),
             "memory_limit_mb": round(mem_limit_bytes / 1024 / 1024, 1),
             "container_count": count,
         }
-
-    try:
-        result = await asyncio.to_thread(_collect)
     except Exception as e:
         logger.warning(f"Failed to collect host stats for {demo_id}: {e}")
         result = {"cpu_percent": 0.0, "memory_mb": 0.0, "memory_limit_mb": 0.0, "container_count": 0}
@@ -111,7 +118,7 @@ async def get_cockpit_data(demo_id: str):
                 # Skip built-in aliases and temporary automation aliases
                 alias_name = obj.get("alias", "")
                 url = obj.get("URL", "")
-                skip_aliases = {"play", "local", "gcs", "s3", "site1", "site2", "hot", "cold", "source", "target"}
+                skip_aliases = {"play", "local", "gcs", "s3"}
                 if alias_name and "demoforge" in url and alias_name not in skip_aliases:
                     aliases.append(alias_name)
             except json.JSONDecodeError:

@@ -4,6 +4,7 @@ category: tooling
 icon: resilience-tester
 version: "1.0"
 image: minio/mc:latest
+entrypoint: ["/bin/sh", "-c"]
 description: "Continuous S3 write/read probe that shows failover status in real-time. Reports upstream server, latency, and object count every 2 seconds."
 
 resources:
@@ -39,7 +40,7 @@ connections:
 variants:
   default:
     description: "Continuous write/read resilience probe"
-    command: ["bash", "-c", "sleep 20 && chmod +x /test.sh && /test.sh"]
+    command: ["sleep 20 && sh /test.sh"]
 
 template_mounts:
   - template: "test.sh.j2"

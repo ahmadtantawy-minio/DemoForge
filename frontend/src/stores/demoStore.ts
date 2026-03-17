@@ -3,6 +3,17 @@ import type { DemoSummary, ContainerInstance } from "../types";
 
 type ViewType = "diagram" | "control-plane";
 
+export interface ResilienceProbe {
+  node_id: string;
+  last_line: string;
+  status: "ok" | "fail" | "unknown";
+  seq: number | null;
+  write_ms: number | null;
+  read_ms: number | null;
+  objects: number | null;
+  upstream: string;
+}
+
 interface DemoState {
   demos: DemoSummary[];
   activeDemoId: string | null;
@@ -10,6 +21,7 @@ interface DemoState {
   activeView: ViewType;
   cockpitEnabled: boolean;
   walkthroughOpen: boolean;
+  resilienceProbes: ResilienceProbe[];
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
@@ -18,6 +30,7 @@ interface DemoState {
   toggleWalkthrough: () => void;
   setWalkthroughOpen: (open: boolean) => void;
   updateDemoStatus: (id: string, status: DemoSummary["status"]) => void;
+  setResilienceProbes: (probes: ResilienceProbe[]) => void;
 }
 
 function viewFromPath(path: string): { demoId: string | null; view: ViewType } {
@@ -51,6 +64,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   activeView: initial.view,
   cockpitEnabled: false,
   walkthroughOpen: false,
+  resilienceProbes: [],
 
   setDemos: (demos) => set({ demos }),
 
@@ -76,6 +90,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
     set({
       demos: get().demos.map((d) => (d.id === id ? { ...d, status } : d)),
     }),
+
+  setResilienceProbes: (probes) => set({ resilienceProbes: probes }),
 }));
 
 // Handle browser back/forward

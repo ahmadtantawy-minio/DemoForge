@@ -3,10 +3,10 @@
 # Auto-configured by DemoForge
 
 {%- for edge in edges %}
-{%- if edge.target == node.id and edge.connection_type == 's3' %}
-{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
-{%- if source_node %}
-TARGET_HOST="{{ project_name }}-{{ source_node.id }}"
+{%- if edge.source == node.id and edge.connection_type == 's3' %}
+{%- set target_node = nodes | selectattr('id', 'equalto', edge.target) | first %}
+{%- if target_node %}
+TARGET_HOST="{{ project_name }}-{{ target_node.id }}"
 TARGET_PORT="80"
 {%- endif %}
 {%- endif %}

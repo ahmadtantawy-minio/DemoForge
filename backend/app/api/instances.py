@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Cache for live replication checks (avoid hammering mc on every poll)
+_repl_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _check_live_replication_status(running, demo_id: str) -> bool | None:
+    """Check if site replication is actually enabled by querying mc-shell.
+
+    Returns True if enabled, False if not, None if we can't determine.
+    Caches result for 10 seconds to avoid excessive Docker exec calls.
+    """
+    import time
+    now = time.time()
+    cached = _repl_cache.get(demo_id)
+    if cached and now - cached[0] < 10:
+        return cached[1]
+
+    mc_shell_name = f"demoforge-{demo_id}-mc-shell"
+    if mc_shell_name not in [c.container_name for c in running.containers.values()]:
+        return None
+
+    try:
+        exit_code, stdout, stderr = await exec_in_container(
+            mc_shell_name,
+            "sh -c 'mc admin replicate info site1 2>&1 | head -1'",
+        )
+        enabled = "enabled" in stdout.lower() if exit_code == 0 else False
+        _repl_cache[demo_id] = (now, enabled)
+        return enabled
+    except Exception:
+        return None
+
 
 def _build_replication_state_cmd(
     demo, edge_id: str, project_name: str, desired_state: str,
@@ -169,16 +200,27 @@ async def list_instances(demo_id: str):
             init_status="completed",
         ))
 
-    edge_configs = [
-        EdgeConfigStatus(
+    # Build edge configs with live verification for site-replication
+    edge_configs = []
+    for ec in running.edge_configs.values():
+        status = ec.status
+        error = ec.error
+        # For site-replication edges, verify actual status from MinIO
+        if ec.connection_type in ("site-replication", "cluster-site-replication"):
+            live = await _check_live_replication_status(running, demo_id)
+            if live is not None:
+                status = "applied" if live else ("failed" if ec.status == "applied" else ec.status)
+                if not live and ec.status == "applied":
+                    error = "Site replication not active on cluster"
+                elif live and ec.status in ("paused", "failed"):
+                    error = ""
+        edge_configs.append(EdgeConfigStatus(
             edge_id=ec.edge_id,
             connection_type=ec.connection_type,
-            status=ec.status,
+            status=status,
             description=ec.description,
-            error=ec.error,
-        )
-        for ec in running.edge_configs.values()
-    ]
+            error=error,
+        ))
 
     return InstancesResponse(
         demo_id=demo_id, status=running.status, instances=instances,

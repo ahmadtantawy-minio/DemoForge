@@ -5,7 +5,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "9210:9210"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # Docker-in-Docker control
       - ./components:/app/components:ro              # Component manifests
@@ -31,4 +31,4 @@ services:
     depends_on:
       - backend
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:9210

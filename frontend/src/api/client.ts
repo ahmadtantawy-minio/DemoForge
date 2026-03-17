@@ -1,7 +1,7 @@
 import { useDebugStore } from "../stores/debugStore";
 import { toast } from "sonner";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
 
 function debugLog(level: "info" | "warn" | "error", source: string, message: string, details?: string) {
   try { useDebugStore.getState().addEntry(level, source, message, details); } catch {}
@@ -256,6 +256,22 @@ export const getFailoverStatus = (demoId: string) =>
   apiFetch<{ demo_id: string; failover: Array<{ gateway: string; active_upstream: string; healthy: boolean }> }>(
     `/api/demos/${demoId}/failover-status`
   );
+
+// Resilience tester status
+export const getResilienceStatus = (demoId: string) =>
+  apiFetch<{
+    demo_id: string;
+    probes: Array<{
+      node_id: string;
+      last_line: string;
+      status: "ok" | "fail" | "unknown";
+      seq: number | null;
+      write_ms: number | null;
+      read_ms: number | null;
+      objects: number | null;
+      upstream: string;
+    }>;
+  }>(`/api/demos/${demoId}/resilience-status`);
 
 // Walkthrough
 export interface WalkthroughStep {

@@ -24,7 +24,7 @@ cd "$SCRIPT_DIR"
 
 PROJECT_NAME="demoforge"
 COMPOSE_FILE="docker-compose.yml"
-BACKEND_PORT=8000
+BACKEND_PORT=9210
 FRONTEND_PORT=3000
 
 # Colors

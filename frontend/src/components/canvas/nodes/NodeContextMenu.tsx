@@ -53,20 +53,20 @@ export default function NodeContextMenu({
     }] : []),
     ...(componentId === "file-generator" && isRunning && instance ? [
       {
-        label: "Start Generating",
+        label: "▶ Start Generating",
         action: () => {
           toast.info("Starting data generation...");
-          execCommand(demoId, nodeId, "sh /generate.sh &")
+          execCommand(demoId, nodeId, "sh -c 'nohup sh /generate.sh > /tmp/gen.log 2>&1 & echo started'")
             .then(() => toast.success("Data generation started"))
             .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
         },
         destructive: false,
       },
       {
-        label: "Stop Generating",
+        label: "⏹ Stop Generating",
         action: () => {
           toast.info("Stopping data generation...");
-          execCommand(demoId, nodeId, "pkill -f generate")
+          execCommand(demoId, nodeId, "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid; echo stopped'")
             .then(() => toast.success("Data generation stopped"))
             .catch((err: any) => toast.error("Failed to stop generation", { description: err.message }));
         },

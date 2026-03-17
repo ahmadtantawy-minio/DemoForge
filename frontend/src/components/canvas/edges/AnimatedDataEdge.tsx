@@ -14,7 +14,8 @@ export default function AnimatedDataEdge({
   const edgeData = data as ComponentEdgeData | undefined;
   const connectionType = (edgeData?.connectionType ?? "data") as string;
   const status = edgeData?.status ?? "idle";
-  const configStatus = (edgeData as any)?.configStatus as string | undefined; // "pending" | "applied" | "failed" | undefined
+  const configStatus = (edgeData as any)?.configStatus as string | undefined; // "pending" | "applied" | "failed" | "paused" | undefined
+  const configError = (edgeData as any)?.configError as string | undefined;
   const color = connectionColors[connectionType] ?? "#6b7280";
   const label = edgeData?.label || connectionLabels[connectionType] || "";
 
@@ -127,7 +128,12 @@ export default function AnimatedDataEdge({
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="Config applied — right-click to pause" />
             )}
             {configStatus === "failed" && (
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="Config failed — right-click to retry" />
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title={configError ? `Failed: ${configError}` : "Config failed — right-click to retry"} />
+            )}
+            {configStatus === "failed" && configError && (
+              <span className="text-red-400 max-w-[120px] truncate" title={configError}>
+                {configError.replace(/^mc:\s*<ERROR>\s*/i, "").slice(0, 40)}
+              </span>
             )}
             {configStatus === "pending" && (
               <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse shrink-0" title="Applying config..." />

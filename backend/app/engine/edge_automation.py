@@ -433,7 +433,8 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     # Smart site-replication activation:
     # 1. Check if already configured via mc admin replicate info
     # 2. If "enabled" found → already active, report success
-    # 3. If not → clean target buckets, then add
+    # 3. If not → clean ALL target buckets (required for site-repl), then add
+    # 4. Verify replication is actually enabled after adding
     command = (
         f"mc alias set site1 http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set site2 http://{target_host}:80 {_safe(target_user)} {_safe(target_pass)} && "
@@ -441,9 +442,14 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
         f"case \"$STATUS\" in "
         f"*enabled*) echo \"Site replication already active\"; mc admin replicate info site1;; "
         f"*) echo \"Setting up site replication...\"; "
-        f"for b in $(mc ls site2 2>/dev/null | tr -s ' ' | cut -d' ' -f5 | tr -d '/'); do "
-        f"[ -n \"$b\" ] && mc rb site2/$b --force 2>/dev/null; done; "
-        f"mc admin replicate add site1 site2;; "
+        # Clean ALL buckets on both sites to ensure only one has data
+        f"for b in $(mc ls --json site2/ 2>/dev/null | grep -o '\"key\":\"[^\"]*\"' | cut -d'\"' -f4 | tr -d '/'); do "
+        f"echo \"Removing site2/$b\"; mc rb --force site2/$b 2>/dev/null || true; done; "
+        f"mc admin replicate add site1 site2 && "
+        # Verify it actually worked
+        f"VERIFY=$(mc admin replicate info site1 2>&1 | head -1) && "
+        f"case \"$VERIFY\" in *enabled*) echo \"Site replication verified active\";; "
+        f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
         f"esac"
     )
 
