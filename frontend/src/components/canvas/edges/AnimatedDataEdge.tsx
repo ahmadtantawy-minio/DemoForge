@@ -20,6 +20,12 @@ export default function AnimatedDataEdge({
 
   const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
     connectionType === "cluster-site-replication";
+  const isFailover = connectionType === "failover";
+  const failoverRole = (edgeData as any)?.connectionConfig?.role as string | undefined;
+  const failoverActive = (edgeData as any)?.failoverActive as boolean | undefined;
+  // For failover edges: active = solid + animated, standby = dashed + dimmed
+  const isFailoverStandby = isFailover && failoverActive === false;
+  const isFailoverActive = isFailover && failoverActive === true;
   const markerId = `arrow-${id}`;
   const markerStartId = `arrow-start-${id}`;
 
@@ -70,15 +76,15 @@ export default function AnimatedDataEdge({
         id={id}
         path={edgePath}
         style={{
-          stroke: color,
-          strokeWidth: 2,
-          strokeOpacity: configStatus === "pending" || configStatus === "paused" ? 0.4 : 0.8,
-          strokeDasharray: configStatus === "pending" || configStatus === "paused" ? "6 4" : undefined,
+          stroke: isFailoverActive ? "#22c55e" : isFailoverStandby ? "#6b7280" : color,
+          strokeWidth: isFailoverActive ? 2.5 : 2,
+          strokeOpacity: isFailoverStandby ? 0.3 : configStatus === "pending" || configStatus === "paused" ? 0.4 : 0.8,
+          strokeDasharray: isFailoverStandby ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : undefined,
           markerEnd: `url(#${markerId})`,
           markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
         }}
       />
-      {(status === "active" || configStatus === "applied") && (
+      {(status === "active" || configStatus === "applied" || isFailoverActive) && (
         <>
           <circle r="3" fill={color} opacity={0.8}>
             <animateMotion
@@ -131,6 +137,12 @@ export default function AnimatedDataEdge({
                 <rect x="1" y="1" width="2" height="6" fill="#eab308" />
                 <rect x="5" y="1" width="2" height="6" fill="#eab308" />
               </svg>
+            )}
+            {isFailoverActive && (
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="Active — traffic routing here" />
+            )}
+            {isFailoverStandby && (
+              <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 shrink-0" title="Standby — ready for failover" />
             )}
             {label}
           </div>

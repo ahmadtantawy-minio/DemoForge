@@ -251,6 +251,12 @@ export const setupIAMUser = (demoId: string, clusterId: string, username: string
     { method: "POST", body: JSON.stringify({ username, password, policy }) }
   );
 
+// Failover status
+export const getFailoverStatus = (demoId: string) =>
+  apiFetch<{ demo_id: string; failover: Array<{ gateway: string; active_upstream: string; healthy: boolean }> }>(
+    `/api/demos/${demoId}/failover-status`
+  );
+
 // Walkthrough
 export interface WalkthroughStep {
   step: string;

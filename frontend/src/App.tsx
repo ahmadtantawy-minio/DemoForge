@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoStore } from "./stores/demoStore";
 import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
-import { fetchDemos, fetchInstances } from "./api/client";
+import { fetchDemos, fetchInstances, getFailoverStatus } from "./api/client";
 import { Toaster } from "sonner";
 import Toolbar from "./components/toolbar/Toolbar";
 import ComponentPalette from "./components/palette/ComponentPalette";
@@ -73,6 +73,27 @@ export default function App() {
             setEdges(updated);
           }
         }
+        // Update failover edge status
+        getFailoverStatus(activeDemoId).then((fsRes) => {
+          if (!fsRes.failover || fsRes.failover.length === 0) return;
+          const { edges: currentEdges, setEdges: setCurrentEdges } = useDiagramStore.getState();
+          let changed = false;
+          const updatedEdges = currentEdges.map((e) => {
+            const ed = e.data as any;
+            if (ed?.connectionType !== "failover") return e;
+            // Determine if this edge's target is the active upstream
+            const targetId = e.target;
+            const isActive = fsRes.failover.some((f) =>
+              f.healthy && f.active_upstream && f.active_upstream.includes(targetId)
+            );
+            if (ed.failoverActive !== isActive) {
+              changed = true;
+              return { ...e, data: { ...ed, failoverActive: isActive } };
+            }
+            return e;
+          });
+          if (changed) setCurrentEdges(updatedEdges);
+        }).catch(() => {});
       }).catch(() => {});
     syncInstances();
     const interval = setInterval(syncInstances, 5000);
