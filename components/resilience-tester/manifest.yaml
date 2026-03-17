@@ -1,0 +1,49 @@
+id: resilience-tester
+name: Resilience Tester
+category: tooling
+icon: resilience-tester
+version: "1.0"
+image: minio/mc:latest
+description: "Continuous S3 write/read probe that shows failover status in real-time. Reports upstream server, latency, and object count every 2 seconds."
+
+resources:
+  memory: "64m"
+  cpu: 0.1
+
+ports: []
+
+environment:
+  TARGET_ALIAS: "target"
+  TEST_BUCKET: "resilience-test"
+  INTERVAL: "2"
+
+secrets: []
+
+web_ui: []
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Resilience Tester — run /test.sh to start manual test"
+  quick_actions:
+    - label: "Start test"
+      command: "/test.sh &"
+    - label: "View status"
+      command: "tail -20 /tmp/resilience.log 2>/dev/null || echo 'No test running'"
+
+connections:
+  provides: []
+  accepts:
+    - type: s3
+      config_schema: []
+
+variants:
+  default:
+    description: "Continuous write/read resilience probe"
+    command: ["bash", "-c", "sleep 20 && chmod +x /test.sh && /test.sh"]
+
+template_mounts:
+  - template: "test.sh.j2"
+    mount_path: "/test.sh"
+
+static_mounts: []
+init_scripts: []

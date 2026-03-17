@@ -17,6 +17,7 @@ export const connectionColors: Record<string, string> = {
   "s3-queue": "#00897b",
   "spark-submit": "#e65100",
   "hdfs": "#ff6b35",
+  "failover": "#dc2626",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -38,4 +39,5 @@ export const connectionLabels: Record<string, string> = {
   "s3-queue": "S3 Queue",
   "spark-submit": "Spark Submit",
   "hdfs": "HDFS",
+  "failover": "Failover",
 };

@@ -1,0 +1,64 @@
+#!/bin/bash
+# Resilience Tester — continuous S3 write/read probe
+# Auto-configured by DemoForge
+
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 's3' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node %}
+TARGET_HOST="{{ project_name }}-{{ source_node.id }}"
+TARGET_PORT="80"
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+
+ACCESS_KEY="${S3_ACCESS_KEY:-minioadmin}"
+SECRET_KEY="${S3_SECRET_KEY:-minioadmin}"
+BUCKET="${TEST_BUCKET:-resilience-test}"
+INTERVAL="${INTERVAL:-2}"
+
+echo "Resilience Tester starting..."
+echo "Target: ${TARGET_HOST}:${TARGET_PORT}"
+
+# Wait for target to be available
+for i in $(seq 1 30); do
+  mc alias set target "http://${TARGET_HOST}:${TARGET_PORT}" "$ACCESS_KEY" "$SECRET_KEY" 2>/dev/null && break
+  echo "Waiting for target... ($i/30)"
+  sleep 2
+done
+
+# Create test bucket
+mc mb "target/${BUCKET}" --ignore-existing 2>/dev/null
+
+SEQ=0
+while true; do
+  SEQ=$((SEQ + 1))
+  TS=$(date +%Y%m%d_%H%M%S)
+
+  # Write
+  WRITE_START=$(date +%s%N)
+  echo "test-${SEQ}-${TS}" | mc pipe "target/${BUCKET}/probe-${SEQ}.txt" 2>/dev/null
+  WRITE_RC=$?
+  WRITE_END=$(date +%s%N)
+  WRITE_MS=$(( (WRITE_END - WRITE_START) / 1000000 ))
+
+  # Read
+  READ_START=$(date +%s%N)
+  mc cat "target/${BUCKET}/probe-${SEQ}.txt" > /dev/null 2>&1
+  READ_RC=$?
+  READ_END=$(date +%s%N)
+  READ_MS=$(( (READ_END - READ_START) / 1000000 ))
+
+  # Count
+  COUNT=$(mc ls "target/${BUCKET}/" 2>/dev/null | wc -l)
+
+  if [ "$WRITE_RC" -eq 0 ] && [ "$READ_RC" -eq 0 ]; then
+    STATUS="[OK]"
+  else
+    STATUS="[FAIL]"
+  fi
+
+  echo "${STATUS} #${SEQ} | Write: ${WRITE_MS}ms (rc:${WRITE_RC}) | Read: ${READ_MS}ms (rc:${READ_RC}) | Objects: ${COUNT}" | tee -a /tmp/resilience.log
+
+  sleep "$INTERVAL"
+done

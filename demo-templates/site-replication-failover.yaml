@@ -1,0 +1,195 @@
+_template:
+  name: "Site Replication with Failover"
+  category: "replication"
+  tags: ["site-replication", "failover", "active-passive", "high-availability", "resilience", "nginx"]
+  description: "Two MinIO sites with bidirectional replication and an active-passive failover gateway. Stop a site to see traffic automatically switch to the backup — data stays accessible with zero downtime."
+  objective: "Demonstrate MinIO site replication with automatic failover — proving data availability even during site outages"
+  minio_value: "MinIO's site replication ensures data consistency across sites. Combined with an NGINX failover proxy, applications get transparent high availability with automatic switchover and recovery."
+  estimated_resources:
+    memory: "4GB"
+    cpu: 4
+    containers: 10
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start both MinIO sites, failover gateway, and monitoring. Wait for green health indicators."
+    - step: "Watch data flow"
+      description: "The resilience tester automatically writes and reads objects through the failover gateway. Check the terminal logs — you'll see [OK] status with Site A upstream."
+    - step: "Activate site replication"
+      description: "Right-click the site replication edge → Activate. Both sites now sync bidirectionally."
+    - step: "Verify both sites"
+      description: "Open MinIO Console for both sites. Same buckets and objects appear on both."
+    - step: "Simulate Site A failure"
+      description: "Right-click Site A cluster → Stop both nodes. Watch the resilience tester switch: [OK] Upstream switches to Site B within seconds."
+    - step: "Verify zero downtime"
+      description: "The tester keeps writing — no gap in sequence numbers. Data is still fully accessible via Site B."
+    - step: "Restore Site A"
+      description: "Right-click Site A → Start nodes. Within 10 seconds, the tester switches back to Site A."
+    - step: "Verify re-sync"
+      description: "Open Site A console — all objects written during the outage are replicated back from Site B."
+
+id: template-site-replication-failover
+name: "Site Replication with Failover"
+description: "Active-passive failover across two MinIO sites with automatic switchover and recovery"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  - id: failover-gw
+    component: nginx
+    variant: failover-proxy
+    position: { x: 400, y: -50 }
+    display_name: "Failover Gateway"
+    config: {}
+
+  - id: resilience-tester
+    component: resilience-tester
+    variant: default
+    position: { x: 100, y: -50 }
+    display_name: "Resilience Tester"
+    config:
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+
+  - id: file-gen
+    component: file-generator
+    variant: steady
+    position: { x: 100, y: 150 }
+    display_name: "Data Generator"
+    config: {}
+
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 700, y: 300 }
+    display_name: "Prometheus"
+    config: {}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 950, y: 300 }
+    display_name: "Grafana"
+    config: {}
+
+clusters:
+  - id: minio-site-a
+    component: minio
+    label: "MinIO Site A (Primary)"
+    position: { x: 250, y: 200 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+    config: {}
+    width: 280.0
+    height: 200.0
+    mcp_enabled: false
+
+  - id: minio-site-b
+    component: minio
+    label: "MinIO Site B (Backup)"
+    position: { x: 700, y: 200 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+    config: {}
+    width: 280.0
+    height: 200.0
+    mcp_enabled: false
+
+edges:
+  # Failover gateway → Site A (primary)
+  - id: e-failover-site-a
+    source: failover-gw
+    target: minio-site-a
+    connection_type: failover
+    network: default
+    auto_configure: true
+    label: "Primary"
+    connection_config:
+      role: "primary"
+
+  # Failover gateway → Site B (backup)
+  - id: e-failover-site-b
+    source: failover-gw
+    target: minio-site-b
+    connection_type: failover
+    network: default
+    auto_configure: true
+    label: "Backup"
+    connection_config:
+      role: "backup"
+
+  # Resilience tester → Failover gateway
+  - id: e-tester-failover
+    source: resilience-tester
+    target: failover-gw
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "Probe"
+
+  # Data generator → Failover gateway
+  - id: e-filegen-failover
+    source: file-gen
+    target: failover-gw
+    connection_type: file-push
+    network: default
+    auto_configure: true
+    label: ""
+
+  # Site replication (bidirectional)
+  - id: e-site-replication
+    source: minio-site-a
+    target: minio-site-b
+    connection_type: cluster-site-replication
+    network: default
+    auto_configure: true
+    label: "Site Replication"
+    source_handle: cluster-out-bottom
+    target_handle: cluster-in-top
+
+  # Metrics
+  - id: e-site-a-metrics
+    source: minio-site-a
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  - id: e-site-b-metrics
+    source: minio-site-b
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    auto_configure: true
+    label: "PromQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 256m
+  default_cpu: 0.25
+  max_memory: 1g
+  max_cpu: 1.0
+  total_memory: 6g
+  total_cpu: 6.0

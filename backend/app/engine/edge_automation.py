@@ -269,6 +269,10 @@ def _gen_spark_submit(edge: DemoEdge, demo: DemoDefinition, project_name: str) -
 def _gen_hdfs(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []  # Template-driven
 
+@_register("failover")
+def _gen_failover(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (NGINX failover config)
+
 
 # ---------------------------------------------------------------------------
 # Helpers for cluster-level operations

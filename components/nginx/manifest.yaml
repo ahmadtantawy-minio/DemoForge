@@ -77,6 +77,10 @@ connections:
     - type: http
       port: 80
       description: "HTTP endpoint"
+    - type: failover
+      port: 80
+      description: "Active-passive failover endpoint"
+      config_schema: []
   accepts:
     - type: s3
       config_schema: []
@@ -88,6 +92,8 @@ connections:
 variants:
   load-balancer:
     description: "Round-robin load balancer for upstream services"
+  failover-proxy:
+    description: "Active-passive failover proxy across two upstream sites with health-check-based routing"
 
 template_mounts:
   - template: "nginx.conf.j2"
