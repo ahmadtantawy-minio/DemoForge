@@ -678,7 +678,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     # Also inject MCP sidecar for standalone MinIO nodes (not in clusters)
     minio_nodes = [n for n in demo.nodes if n.component in ("minio", "minio-aistore") and not any(
         n.id.startswith(f"{c.id}-") for c in demo.clusters
-    )]
+    ) and n.labels.get("mcp_enabled", "false").lower() == "true"]
     for node in minio_nodes:
         mcp_svc_name = f"{node.id}-mcp"
         mcp_container_name = f"{project_name}-{node.id}-mcp"

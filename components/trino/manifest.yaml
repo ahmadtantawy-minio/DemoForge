@@ -32,7 +32,7 @@ secrets: []
 web_ui:
   - name: trino-ui
     port: 8080
-    path: "/ui/"
+    path: "/"
     description: "Trino Web UI — query history and cluster status"
 
 terminal:

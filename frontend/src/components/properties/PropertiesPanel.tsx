@@ -524,6 +524,15 @@ export default function PropertiesPanel() {
               ))}
             </div>
           )}
+          {data.componentId === "metabase" && (
+            <div className="mt-2 p-2 rounded border border-blue-500/20 bg-blue-500/5">
+              <div className="text-[10px] font-medium text-blue-400 mb-1">Login Credentials</div>
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                <div>Email: <span className="text-foreground font-mono">admin@demoforge.local</span></div>
+                <div>Password: <span className="text-foreground font-mono">DemoForge123!</span></div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
