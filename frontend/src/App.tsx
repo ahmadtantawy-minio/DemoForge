@@ -153,6 +153,10 @@ export default function App() {
         position="bottom-right"
         toastOptions={{
           style: { background: "#18181b", border: "1px solid #27272a", color: "#fafafa" },
+          classNames: {
+            error: "!border-red-800 !bg-red-950/90",
+            actionButton: "!bg-zinc-700 !text-zinc-200 hover:!bg-zinc-600 !text-xs !px-2 !py-1",
+          },
         }}
       />
 

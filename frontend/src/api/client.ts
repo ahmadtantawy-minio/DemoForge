@@ -20,7 +20,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       debugLog("error", "API", `${method} ${path} → ${res.status}`, body);
       // Toast on non-GET errors (user-initiated actions)
       if (method !== "GET") {
-        toast.error(`API Error: ${method} ${path}`, { description: body.slice(0, 200) });
+        toast.error(`API Error: ${method} ${path}`, {
+          description: body.slice(0, 200),
+          duration: 10000,
+          action: { label: "Copy", onClick: () => navigator.clipboard.writeText(body) },
+        });
       }
       throw new Error(`API error ${res.status}: ${body}`);
     }

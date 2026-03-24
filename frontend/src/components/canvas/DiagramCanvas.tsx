@@ -709,9 +709,17 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                   activateEdgeConfig(activeDemoId, edgeContextMenu.edgeId)
                     .then((r) => {
                       if (r.status === "applied") toast.success("Connection activated");
-                      else toast.error("Activation failed", { description: r.error });
+                      else toast.error("Activation failed", {
+                        description: r.error?.slice(0, 200),
+                        duration: 10000,
+                        action: r.error ? { label: "Copy", onClick: () => navigator.clipboard.writeText(r.error!) } : undefined,
+                      });
                     })
-                    .catch((e: any) => toast.error("Activation failed", { description: e.message }));
+                    .catch((e: any) => toast.error("Activation failed", {
+                      description: e.message?.slice(0, 200),
+                      duration: 10000,
+                      action: { label: "Copy", onClick: () => navigator.clipboard.writeText(e.message) },
+                    }));
                   setEdgeContextMenu(null);
                 }}
               >
@@ -739,9 +747,17 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                   resyncEdge(activeDemoId, edgeContextMenu.edgeId)
                     .then((r) => {
                       if (r.status === "resync_started") toast.success("Resync started");
-                      else toast.error("Resync failed", { description: r.error });
+                      else toast.error("Resync failed", {
+                        description: r.error?.slice(0, 200),
+                        duration: 10000,
+                        action: r.error ? { label: "Copy", onClick: () => navigator.clipboard.writeText(r.error!) } : undefined,
+                      });
                     })
-                    .catch((e: any) => toast.error("Resync failed", { description: e.message }));
+                    .catch((e: any) => toast.error("Resync failed", {
+                      description: e.message?.slice(0, 200),
+                      duration: 10000,
+                      action: { label: "Copy", onClick: () => navigator.clipboard.writeText(e.message) },
+                    }));
                   setEdgeContextMenu(null);
                 }}
               >

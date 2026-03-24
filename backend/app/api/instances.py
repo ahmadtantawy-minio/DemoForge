@@ -508,7 +508,7 @@ async def resync_edge(demo_id: str, edge_id: str):
     project_name = f"demoforge-{demo_id}"
     mc_shell = f"{project_name}-mc-shell"
 
-    cmd = f"mc admin replicate resync start {alias} --all"
+    cmd = f"mc admin replicate resync start {alias}"
     try:
         exit_code, stdout, stderr = await exec_in_container(
             mc_shell, f"sh -c {shlex.quote(cmd)}"
