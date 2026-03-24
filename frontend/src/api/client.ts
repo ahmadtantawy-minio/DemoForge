@@ -178,6 +178,18 @@ export const startInstance = (demoId: string, nodeId: string) =>
     { method: "POST" }
   );
 
+export const resetCluster = (demoId: string, clusterId: string) =>
+  apiFetch<{ status: string; cluster_id: string; buckets_removed: number }>(
+    `/api/demos/${demoId}/clusters/${clusterId}/reset`,
+    { method: "POST" }
+  );
+
+export const fetchMinioCommands = (demoId: string) =>
+  apiFetch<{
+    demo_id: string;
+    commands: Array<{ category: string; description: string; command: string }>;
+  }>(`/api/demos/${demoId}/minio-commands`);
+
 export const getInstanceHealth = (demoId: string, nodeId: string) =>
   apiFetch<{ node_id: string; health: string }>(
     `/api/demos/${demoId}/instances/${nodeId}/health`

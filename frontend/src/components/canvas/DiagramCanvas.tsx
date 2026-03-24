@@ -677,8 +677,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           connType === "cluster-tiering" ? "Activate Tiering" :
           "Activate Replication";
         const pauseLabel =
-          connType === "cluster-site-replication" ? "Pause Site Replication" :
-          connType === "cluster-tiering" ? "Pause Tiering" :
+          connType === "cluster-site-replication" ? "Remove Site Replication" :
+          connType === "cluster-tiering" ? "Remove Tiering" :
           "Pause Replication";
         return (
           <div

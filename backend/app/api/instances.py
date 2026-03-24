@@ -500,15 +500,34 @@ async def resync_edge(demo_id: str, edge_id: str):
     if not demo:
         raise HTTPException(404, "Demo definition not found")
 
+    import re as _re
     expanded = _expand_demo_for_edges(demo)
-    alias = _get_first_cluster_alias(expanded)
-    if not alias:
-        raise HTTPException(400, "No clusters found for resync")
+    if len(expanded.clusters) < 2:
+        raise HTTPException(400, "Need at least 2 clusters for resync")
+
+    # mc admin replicate resync start requires exactly 2 aliases
+    # Find the edge's source and target clusters
+    edge = next((e for e in expanded.edges if e.id == edge_id or e.id.startswith(edge_id)), None)
+    if edge:
+        src_cid = (edge.connection_config or {}).get("_source_cluster_id", "")
+        tgt_cid = (edge.connection_config or {}).get("_target_cluster_id", "")
+        src_cluster = next((c for c in expanded.clusters if c.id == src_cid), None)
+        tgt_cluster = next((c for c in expanded.clusters if c.id == tgt_cid), None)
+        if src_cluster and tgt_cluster:
+            alias1 = _re.sub(r"[^a-zA-Z0-9_]", "_", src_cluster.label)
+            alias2 = _re.sub(r"[^a-zA-Z0-9_]", "_", tgt_cluster.label)
+        else:
+            # Fallback: use first two clusters
+            alias1 = _re.sub(r"[^a-zA-Z0-9_]", "_", expanded.clusters[0].label)
+            alias2 = _re.sub(r"[^a-zA-Z0-9_]", "_", expanded.clusters[1].label)
+    else:
+        alias1 = _re.sub(r"[^a-zA-Z0-9_]", "_", expanded.clusters[0].label)
+        alias2 = _re.sub(r"[^a-zA-Z0-9_]", "_", expanded.clusters[1].label)
 
     project_name = f"demoforge-{demo_id}"
     mc_shell = f"{project_name}-mc-shell"
 
-    cmd = f"mc admin replicate resync start {alias}"
+    cmd = f"mc admin replicate resync start {alias1} {alias2}"
     try:
         exit_code, stdout, stderr = await exec_in_container(
             mc_shell, f"sh -c {shlex.quote(cmd)}"
@@ -522,6 +541,61 @@ async def resync_edge(demo_id: str, edge_id: str):
         return {"status": "failed", "edge_id": edge_id, "error": str(e)[:500]}
 
 
+@router.post("/api/demos/{demo_id}/clusters/{cluster_id}/reset")
+async def reset_cluster(demo_id: str, cluster_id: str):
+    """Remove all buckets from a MinIO cluster via mc-shell."""
+    import re as _re
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
+    if not cluster:
+        raise HTTPException(404, f"Cluster '{cluster_id}' not found")
+
+    alias = _re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+    project_name = f"demoforge-{demo_id}"
+    mc_shell = f"{project_name}-mc-shell"
+
+    # List buckets using only shell builtins (no grep/awk/cut available in minio/mc:latest)
+    # Then remove each one. We count removed buckets via a counter written to a temp file.
+    cmd = (
+        f"count=0; "
+        f"mc ls {alias}/ 2>/dev/null | while read line; do "
+        f'b="${{line##* }}"; b="${{b%/}}"; '
+        f'[ -n "$b" ] && mc rb --force {alias}/$b 2>/dev/null && count=$((count+1)); '
+        f"done; "
+        f"mc ls {alias}/ 2>/dev/null | while read line; do "
+        f'b="${{line##* }}"; b="${{b%/}}"; '
+        f'[ -n "$b" ] && echo "BUCKET:$b"; '
+        f"done"
+    )
+
+    # First pass: remove buckets
+    remove_cmd = (
+        f"mc ls {alias}/ 2>/dev/null | while read line; do "
+        f'b="${{line##* }}"; b="${{b%/}}"; '
+        f'[ -n "$b" ] && mc rb --force {alias}/$b 2>/dev/null && echo "REMOVED:$b"; '
+        f"done"
+    )
+
+    try:
+        exit_code, stdout, stderr = await exec_in_container(
+            mc_shell, f"sh -c {shlex.quote(remove_cmd)}"
+        )
+        if exit_code != 0:
+            return {"status": "failed", "cluster_id": cluster_id, "error": (stderr or stdout)[:500]}
+
+        removed = [line[len("REMOVED:"):] for line in stdout.splitlines() if line.startswith("REMOVED:")]
+        return {"status": "reset", "cluster_id": cluster_id, "buckets_removed": len(removed)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @router.post("/api/demos/{demo_id}/instances/{node_id}/exec", response_model=ExecResponse)
 async def exec_command(demo_id: str, node_id: str, req: ExecRequest):
     running = state.get_demo(demo_id)
@@ -531,3 +605,71 @@ async def exec_command(demo_id: str, node_id: str, req: ExecRequest):
         running.containers[node_id].container_name, req.command
     )
     return ExecResponse(exit_code=exit_code, stdout=stdout, stderr=stderr)
+
+
+@router.get("/api/demos/{demo_id}/minio-commands")
+async def get_minio_commands(demo_id: str):
+    """Return all MinIO mc commands used to set up this demo, grouped by category."""
+    import re as _re
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    commands = []
+    project_name = f"demoforge-{demo_id}"
+
+    # --- Alias Setup commands (from init.sh pattern in compose_generator) ---
+    for cluster in demo.clusters:
+        alias_name = _re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+        lb_url = f"http://{project_name}-{cluster.id}-lb:80"
+        cred_user = cluster.credentials.get("root_user", "minioadmin")
+        cred_pass = cluster.credentials.get("root_password", "minioadmin")
+        commands.append({
+            "category": "Alias Setup",
+            "description": f"Configure mc alias for cluster: {cluster.label}",
+            "command": f"mc alias set '{alias_name}' '{lb_url}' '{cred_user}' '{cred_pass}'",
+        })
+
+    # Standalone MinIO nodes
+    standalone_minio = [
+        n for n in demo.nodes
+        if n.component in ("minio", "minio-aistore")
+        and not any(n.id.startswith(f"{c.id}-") for c in demo.clusters)
+    ]
+    for node in standalone_minio:
+        alias_name = _re.sub(r"[^a-zA-Z0-9_]", "_", node.display_name) if getattr(node, "display_name", None) else node.id
+        node_url = f"http://{project_name}-{node.id}:9000"
+        cred_user = node.config.get("MINIO_ROOT_USER", "minioadmin")
+        cred_pass = node.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+        commands.append({
+            "category": "Alias Setup",
+            "description": f"Configure mc alias for node: {node.id}",
+            "command": f"mc alias set '{alias_name}' '{node_url}' '{cred_user}' '{cred_pass}'",
+        })
+
+    # --- Edge-generated commands (replication, site-replication, tiering) ---
+    expanded_demo = _expand_demo_for_edges(demo)
+    scripts = generate_edge_scripts(expanded_demo, project_name)
+
+    # Map connection_type → category label
+    _category_map = {
+        "replication": "Bucket Replication",
+        "cluster-replication": "Bucket Replication",
+        "site-replication": "Site Replication",
+        "cluster-site-replication": "Site Replication",
+        "tiering": "ILM Tiering",
+        "cluster-tiering": "ILM Tiering",
+    }
+
+    for script in scripts:
+        category = _category_map.get(script.connection_type, "Other mc Commands")
+        # Split compound commands (joined with &&) into individual lines for readability
+        # but show the full command as-is for copy/paste accuracy
+        commands.append({
+            "category": category,
+            "description": script.description,
+            "command": script.command,
+        })
+
+    return {"demo_id": demo_id, "commands": commands}

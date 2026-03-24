@@ -77,10 +77,10 @@ export default function AnimatedDataEdge({
         id={id}
         path={edgePath}
         style={{
-          stroke: isFailoverActive ? "#22c55e" : isFailoverStandby ? "#6b7280" : color,
+          stroke: isFailoverActive ? "#22c55e" : isFailoverStandby ? "#6b7280" : configStatus === "failed" ? "#ef4444" : color,
           strokeWidth: isFailoverActive ? 2.5 : 2,
-          strokeOpacity: isFailoverStandby ? 0.3 : configStatus === "pending" || configStatus === "paused" ? 0.4 : 0.8,
-          strokeDasharray: isFailoverStandby ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : undefined,
+          strokeOpacity: isFailoverStandby ? 0.3 : configStatus === "pending" || configStatus === "paused" ? 0.4 : configStatus === "failed" ? 0.5 : 0.8,
+          strokeDasharray: isFailoverStandby ? "4 4" : configStatus === "failed" ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : undefined,
           markerEnd: `url(#${markerId})`,
           markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
         }}

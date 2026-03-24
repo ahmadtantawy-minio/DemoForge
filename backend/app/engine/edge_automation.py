@@ -435,37 +435,35 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_cluster.label)
     target_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", target_cluster.label)
 
-    # Smart site-replication activation:
+    # Collect ALL cluster aliases — mc admin replicate add requires all sites when extending
+    all_aliases = [_re.sub(r"[^a-zA-Z0-9_]", "_", c.label) for c in demo.clusters]
+    all_aliases_str = " ".join(all_aliases)
+
+    # Site-replication activation:
     # 1. Wait for mc-shell init to set up aliases
     # 2. Check if already configured via mc admin replicate info
-    # 3. If enabled AND target is already in the group → skip
-    # 4. If enabled but target NOT in group → extend (add target to existing group)
-    # 5. If not enabled → clean target buckets, then add both
-    # 6. Verify replication is active after adding
+    # 3. If enabled → try to add target (idempotent if already in group, extends if not)
+    # 4. If not enabled → clean target buckets first, then add
+    # 5. Verify replication is active after adding
     command = (
         # Wait for aliases to be configured by init.sh
         f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && break; sleep 2; done && "
-        f"INFO=$(mc admin replicate info {source_alias} 2>&1) && "
-        f"STATUS=$(echo \"$INFO\" | head -1) && "
+        f"STATUS=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
-        # Already enabled — check if target is already in the group
+        # Already enabled — add ALL cluster aliases (MinIO requires all existing sites when extending)
         f"*enabled\\ for*) "
-        f"if echo \"$INFO\" | head -20 | tr -s ' ' | while read line; do echo \"$line\"; done | "
-        f"  while read line; do case \"$line\" in *{target_alias}*) exit 0;; esac; done; then "
-        f"echo \"Site {target_alias} already in replication group\"; "
-        f"else "
-        f"echo \"Extending replication group to include {target_alias}...\"; "
+        f"echo \"Replication active, ensuring all sites in group...\"; "
         f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
         f"[ -n \"$b\" ] && mc rb --force {target_alias}/$b 2>/dev/null; done; "
-        f"mc admin replicate add {source_alias} {target_alias}; "
-        f"fi;; "
+        f"mc admin replicate add {all_aliases_str} 2>&1 || true; "
+        f"echo \"Replication group updated\"; mc admin replicate info {source_alias};; "
         # Not enabled — fresh setup
         f"*) echo \"Setting up site replication...\"; "
         f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
         f"[ -n \"$b\" ] && echo \"Removing {target_alias}/$b\" && mc rb --force {target_alias}/$b 2>/dev/null; done; "
-        f"mc admin replicate add {source_alias} {target_alias} && "
+        f"mc admin replicate add {all_aliases_str} && "
         # Verify it actually worked
         f"VERIFY=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
         f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance } from "../../../api/client";
+import { stopInstance, startInstance, resetCluster } from "../../../api/client";
 import { toast } from "sonner";
 import ComponentIcon from "../../shared/ComponentIcon";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
@@ -26,6 +26,8 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const nodeCount = nodeData.nodeCount || 4;
   const drivesPerNode = nodeData.drivesPerNode || 1;
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
+  const [clusterMenu, setClusterMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "mcp-tools" | "ai-chat">("overview");
   const mcpEnabled = nodeData.mcpEnabled !== false;
@@ -37,6 +39,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const handleNodeRightClick = (e: React.MouseEvent, idx: number) => {
     e.preventDefault();
     e.stopPropagation();
+    setConfirmReset(false);
     // Use nativeEvent to get correct viewport coordinates
     setContextNode({ idx, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
   };
@@ -65,12 +68,39 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
     setContextNode(null);
   };
 
+  const handleResetCluster = async () => {
+    if (!activeDemoId) return;
+    setConfirmReset(false);
+    setContextNode(null);
+    toast.info(`Removing all buckets from ${nodeData.label || id}...`);
+    try {
+      const res = await resetCluster(activeDemoId, id);
+      toast.success(`Cluster reset: ${res.buckets_removed} bucket${res.buckets_removed !== 1 ? "s" : ""} removed`);
+    } catch (err: any) {
+      const errMsg = err.message || "Unknown error";
+      toast.error(`Failed to reset cluster`, {
+        description: errMsg,
+        duration: 10000,
+        action: { label: "Copy", onClick: () => navigator.clipboard.writeText(errMsg) },
+      });
+    }
+  };
+
   return (
     <>
       <NodeResizer isVisible={selected} minWidth={240} minHeight={160} />
       <div
         className="w-full h-full rounded-xl p-4 cursor-pointer border-2 border-primary/30 bg-primary/5"
-        onClick={() => { setSelectedNode(id); setContextNode(null); }}
+        onClick={() => { setSelectedNode(id); setContextNode(null); setClusterMenu(null); }}
+        onContextMenu={(e) => {
+          // Only open cluster menu if not clicking on a node icon
+          if ((e.target as HTMLElement).closest("[data-node-icon]")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setClusterMenu({ x: e.clientX, y: e.clientY });
+          setContextNode(null);
+          setConfirmReset(false);
+        }}
       >
         <Handle type="target" position={Position.Left} id="data-in" />
         {/* Cluster-level handles — both source+target at top and bottom for bidirectional dragging */}
@@ -208,7 +238,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         const isStopped = inst?.health === "stopped";
         return (
           <div
-            className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px] text-popover-foreground"
+            className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[220px] text-popover-foreground"
             style={{ top: contextNode.y, left: contextNode.x }}
           >
             <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
@@ -256,6 +286,37 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             {activeDemoId && (
               <>
               <div className="border-t border-border my-1" />
+              {confirmReset ? (
+                <div className="px-3 py-2">
+                  <div className="text-xs text-destructive mb-2">Remove all buckets? This cannot be undone.</div>
+                  <div className="flex gap-1">
+                    <button
+                      className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
+                      onClick={handleResetCluster}
+                    >
+                      Confirm Reset
+                    </button>
+                    <button
+                      className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                      onClick={() => setConfirmReset(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={() => setConfirmReset(true)}
+                >
+                  Reset Cluster (Remove All Buckets)
+                </button>
+              )}
+              </>
+            )}
+            {activeDemoId && (
+              <>
+              <div className="border-t border-border my-1" />
               <button
                 className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
                 onClick={() => { setAdminDefaultTab("overview"); setAdminPanelOpen(true); setContextNode(null); }}
@@ -273,6 +334,69 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           </div>
         );
       })(), document.body)}
+
+      {/* Cluster-level context menu */}
+      {clusterMenu && createPortal(
+        <div
+          className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[220px] text-popover-foreground"
+          style={{ top: Math.min(clusterMenu.y, window.innerHeight - 200), left: Math.min(clusterMenu.x, window.innerWidth - 240) }}
+        >
+          <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
+            {nodeData.label || id}
+          </div>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+            onClick={() => { setAdminDefaultTab("overview"); setAdminPanelOpen(true); setClusterMenu(null); }}
+          >
+            MinIO Admin
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+            onClick={() => { setActiveView("control-plane"); setClusterMenu(null); }}
+          >
+            View in Instances
+          </button>
+          {activeDemoId && (
+            <>
+              <div className="border-t border-border my-1" />
+              {confirmReset ? (
+                <div className="px-3 py-2">
+                  <div className="text-xs text-destructive mb-2">Remove all buckets from this cluster? This cannot be undone.</div>
+                  <div className="flex gap-1">
+                    <button
+                      className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
+                      onClick={() => { handleResetCluster(); setClusterMenu(null); }}
+                    >
+                      Confirm Reset
+                    </button>
+                    <button
+                      className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                      onClick={() => setConfirmReset(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={() => setConfirmReset(true)}
+                >
+                  Reset Cluster (Remove All Buckets)
+                </button>
+              )}
+            </>
+          )}
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
+            onClick={() => setClusterMenu(null)}
+          >
+            Cancel
+          </button>
+        </div>,
+        document.body
+      )}
 
       {/* MinIO Admin Panel */}
       <MinioAdminPanel
