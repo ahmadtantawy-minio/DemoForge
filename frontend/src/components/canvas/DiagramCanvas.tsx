@@ -13,7 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
-import { saveDiagram, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig } from "../../api/client";
+import { saveDiagram, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
 import StickyNoteNode from "./nodes/StickyNoteNode";
@@ -729,6 +729,23 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                 }}
               >
                 {pauseLabel}
+              </button>
+            )}
+            {isClusterEdge && activeDemoId && isRunning && connType.includes("site-replication") && configStatus === "applied" && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                onClick={() => {
+                  toast.info("Starting resync...");
+                  resyncEdge(activeDemoId, edgeContextMenu.edgeId)
+                    .then((r) => {
+                      if (r.status === "resync_started") toast.success("Resync started");
+                      else toast.error("Resync failed", { description: r.error });
+                    })
+                    .catch((e: any) => toast.error("Resync failed", { description: e.message }));
+                  setEdgeContextMenu(null);
+                }}
+              >
+                Resync All Sites
               </button>
             )}
             {!edgeContextMenu.confirm ? (

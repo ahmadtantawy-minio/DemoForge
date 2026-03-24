@@ -433,24 +433,11 @@ async def pause_edge_config(demo_id: str, edge_id: str):
         if _demo:
             expanded = _expand_demo_for_edges(_demo)
             project_name = f"demoforge-{demo_id}"
-            # Find the edge to get cluster info
             edge = next((e for e in expanded.edges if e.id == edge_id), None)
             if edge:
-                config = edge.connection_config or {}
-                source_cluster_id = config.get("_source_cluster_id", "")
-                if not source_cluster_id:
-                    for c in expanded.clusters:
-                        if edge.source.startswith(f"{c.id}-") or edge.source == f"{c.id}-lb":
-                            source_cluster_id = c.id
-                            break
-                source_cluster = next((c for c in expanded.clusters if c.id == source_cluster_id), None)
-                if source_cluster:
-                    source_host = _resolve_cluster_endpoint(source_cluster, project_name)
-                    source_user, source_pass = _get_cluster_credentials(source_cluster)
-                    cmd = (
-                        f"mc alias set site1 http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
-                        f"mc admin replicate remove site1 --all --force"
-                    )
+                alias = _get_first_cluster_alias(expanded)
+                if alias:
+                    cmd = f"mc admin replicate remove {alias} --all --force"
                     try:
                         exit_code, stdout, stderr = await exec_in_container(
                             f"{project_name}-mc-shell", f"sh -c {shlex.quote(cmd)}"
@@ -489,7 +476,51 @@ async def pause_edge_config(demo_id: str, edge_id: str):
 
     ec.status = "paused"
     state.set_demo(running)
+    # Clear replication cache
+    _repl_cache.pop(demo_id, None)
     return {"status": "paused", "edge_id": edge_id}
+
+
+def _get_first_cluster_alias(demo) -> str | None:
+    """Get the sanitized alias name of the first cluster (used for mc admin commands)."""
+    import re as _re
+    if demo.clusters:
+        return _re.sub(r"[^a-zA-Z0-9_]", "_", demo.clusters[0].label)
+    return None
+
+
+@router.post("/api/demos/{demo_id}/edges/{edge_id}/resync")
+async def resync_edge(demo_id: str, edge_id: str):
+    """Trigger mc admin replicate resync on a site-replication edge."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo definition not found")
+
+    expanded = _expand_demo_for_edges(demo)
+    alias = _get_first_cluster_alias(expanded)
+    if not alias:
+        raise HTTPException(400, "No clusters found for resync")
+
+    project_name = f"demoforge-{demo_id}"
+    mc_shell = f"{project_name}-mc-shell"
+
+    cmd = f"mc admin replicate resync start {alias} --all"
+    try:
+        exit_code, stdout, stderr = await exec_in_container(
+            mc_shell, f"sh -c {shlex.quote(cmd)}"
+        )
+        if exit_code != 0:
+            return {"status": "failed", "edge_id": edge_id, "error": (stderr or stdout)[:500]}
+        # Clear replication cache to force refresh
+        _repl_cache.pop(demo_id, None)
+        return {"status": "resync_started", "edge_id": edge_id, "output": stdout[:500]}
+    except Exception as e:
+        return {"status": "failed", "edge_id": edge_id, "error": str(e)[:500]}
+
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/exec", response_model=ExecResponse)
 async def exec_command(demo_id: str, node_id: str, req: ExecRequest):

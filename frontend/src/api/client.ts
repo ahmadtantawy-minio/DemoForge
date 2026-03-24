@@ -150,6 +150,12 @@ export const pauseEdgeConfig = (demoId: string, edgeId: string) =>
     { method: "POST" }
   );
 
+export const resyncEdge = (demoId: string, edgeId: string) =>
+  apiFetch<{ status: string; edge_id: string; error?: string; output?: string }>(
+    `/api/demos/${demoId}/edges/${edgeId}/resync`,
+    { method: "POST" }
+  );
+
 export const restartInstance = (demoId: string, nodeId: string) =>
   apiFetch<{ demo_id: string; node_id: string; status: string }>(
     `/api/demos/${demoId}/instances/${nodeId}/restart`,
