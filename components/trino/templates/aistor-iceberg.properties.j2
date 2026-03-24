@@ -1,21 +1,26 @@
-{%- set aistor_source = [] %}
+{%- set ns = namespace(aistor_endpoint="") %}
 {%- for edge in edges %}
-{%- if edge.target == node.id and edge.connection_type == 's3' %}
+{%- if edge.target == node.id and edge.connection_type in ['s3', 'aistor-tables'] %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
-{%- if source_node and source_node.component is defined and source_node.component == 'minio-aistore' %}
-{%- if aistor_source.append(source_node) %}{% endif %}
+{%- if source_node %}
+{%- if source_node.component == 'minio-aistore' %}
+{%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
+{%- elif source_node.component == 'nginx' and source_node.id.endswith('-lb') %}
+{#- Cluster LB node — use the LB endpoint on port 80, _iceberg path still works through LB #}
+{%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
+{%- endif %}
 {%- endif %}
 {%- endif %}
 {%- endfor %}
-{%- if aistor_source %}
+{%- if ns.aistor_endpoint %}
 connector.name=iceberg
 iceberg.catalog.type=rest
-iceberg.rest-catalog.uri=http://{{ project_name }}-{{ aistor_source[0].id }}:9000/_iceberg
+iceberg.rest-catalog.uri={{ ns.aistor_endpoint }}/_iceberg
 iceberg.rest-catalog.warehouse=analytics
 iceberg.rest-catalog.security=OAUTH2
 iceberg.rest-catalog.vended-credentials-enabled=true
 fs.native-s3.enabled=true
-s3.endpoint=http://{{ project_name }}-{{ aistor_source[0].id }}:9000
+s3.endpoint={{ ns.aistor_endpoint }}
 s3.path-style-access=true
 s3.aws-access-key=minioadmin
 s3.aws-secret-key=minioadmin
