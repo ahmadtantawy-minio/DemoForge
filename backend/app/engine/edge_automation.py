@@ -436,20 +436,32 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     target_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", target_cluster.label)
 
     # Smart site-replication activation:
-    # 1. Wait for mc-shell init to set up aliases (they're created by compose_generator)
+    # 1. Wait for mc-shell init to set up aliases
     # 2. Check if already configured via mc admin replicate info
-    # 3. If "enabled" found → already active, report success
-    # 4. If not → clean target buckets (required for site-repl), then add
-    # 5. Verify replication is actually enabled after adding
+    # 3. If enabled AND target is already in the group → skip
+    # 4. If enabled but target NOT in group → extend (add target to existing group)
+    # 5. If not enabled → clean target buckets, then add both
+    # 6. Verify replication is active after adding
     command = (
         # Wait for aliases to be configured by init.sh
         f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && break; sleep 2; done && "
-        f"STATUS=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
+        f"INFO=$(mc admin replicate info {source_alias} 2>&1) && "
+        f"STATUS=$(echo \"$INFO\" | head -1) && "
         f"case \"$STATUS\" in "
-        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info {source_alias};; "
+        # Already enabled — check if target is already in the group
+        f"*enabled\\ for*) "
+        f"if echo \"$INFO\" | head -20 | tr -s ' ' | while read line; do echo \"$line\"; done | "
+        f"  while read line; do case \"$line\" in *{target_alias}*) exit 0;; esac; done; then "
+        f"echo \"Site {target_alias} already in replication group\"; "
+        f"else "
+        f"echo \"Extending replication group to include {target_alias}...\"; "
+        f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
+        f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
+        f"[ -n \"$b\" ] && mc rb --force {target_alias}/$b 2>/dev/null; done; "
+        f"mc admin replicate add {source_alias} {target_alias}; "
+        f"fi;; "
+        # Not enabled — fresh setup
         f"*) echo \"Setting up site replication...\"; "
-        # Clean ALL buckets on target site to ensure only one site has data
-        # Use pure shell — minio/mc image has no awk/grep/cut
         f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
         f"[ -n \"$b\" ] && echo \"Removing {target_alias}/$b\" && mc rb --force {target_alias}/$b 2>/dev/null; done; "

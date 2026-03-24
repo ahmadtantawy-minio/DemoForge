@@ -1,0 +1,216 @@
+_template:
+  name: "Multi-Site Replication (3-Way)"
+  category: "replication"
+  tags: ["site-replication", "multi-site", "3-way", "bidirectional", "n-way", "replication"]
+  description: "Three MinIO sites with bidirectional replication. Data written to any site automatically replicates to all others."
+  objective: "Demonstrate N-way site replication across 3 MinIO clusters with independent data ingestion"
+  minio_value: "MinIO site replication supports N-way topologies — all sites stay in sync regardless of which site receives writes. This demo runs two independent data generators writing to Site B and Site C while Site A stays current through replication."
+  estimated_resources:
+    memory: "6GB"
+    cpu: 6
+    containers: 16
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start all three MinIO sites, data generators, resilience tester, and monitoring. Wait for green health indicators on all clusters."
+    - step: "Activate site replication A↔B"
+      description: "Right-click the Site Replication A↔B edge → Activate. Sites A and B are now linked bidirectionally."
+    - step: "Activate site replication A↔C"
+      description: "Right-click the Site Replication A↔C edge → Activate. MinIO extends the replication group to include Site C — all three sites now replicate N-way."
+    - step: "Watch data generators"
+      description: "Data Generator B pushes files to site-b-bucket on Site B. Data Generator C pushes files to site-c-bucket on Site C. Both buckets and objects appear on Site A within seconds."
+    - step: "Verify convergence on Site A"
+      description: "Open the MinIO Console for Site A. You will see site-b-bucket and site-c-bucket with all objects, replicated from both other sites."
+    - step: "Run the resilience tester"
+      description: "The resilience tester reads from Site A to confirm that data written to B and C is accessible via A. Watch the [OK] sequence numbers increase without gaps."
+    - step: "Verify cross-site consistency"
+      description: "Open consoles for Site B and Site C — each site mirrors all buckets from the other two, demonstrating full N-way consistency."
+
+id: template-multi-site-replication-3way
+name: "Multi-Site Replication (3-Way)"
+description: "Three MinIO sites with bidirectional replication. Data written to any site automatically replicates to all others."
+
+networks:
+  - name: default
+    subnet: 172.21.0.0/16
+    driver: bridge
+
+nodes:
+  - id: data-gen-site-b
+    component: file-generator
+    variant: steady
+    position: { x: 550, y: -80 }
+    display_name: "Data Generator B"
+    config: {}
+
+  - id: data-gen-site-c
+    component: file-generator
+    variant: steady
+    position: { x: 950, y: -80 }
+    display_name: "Data Generator C"
+    config: {}
+
+  - id: resilience-tester
+    component: resilience-tester
+    variant: default
+    position: { x: 100, y: 150 }
+    display_name: "Resilience Tester"
+    config:
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 1200, y: 400 }
+    display_name: "Prometheus"
+    config: {}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 1450, y: 400 }
+    display_name: "Grafana"
+    config: {}
+
+clusters:
+  - id: minio-site-a
+    component: minio
+    label: "MinIO Site A"
+    position: { x: 250, y: 200 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+    config: {}
+    width: 280.0
+    height: 200.0
+    mcp_enabled: false
+
+  - id: minio-site-b
+    component: minio
+    label: "MinIO Site B"
+    position: { x: 700, y: 200 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+    config: {}
+    width: 280.0
+    height: 200.0
+    mcp_enabled: false
+
+  - id: minio-site-c
+    component: minio
+    label: "MinIO Site C"
+    position: { x: 1100, y: 200 }
+    node_count: 2
+    drives_per_node: 1
+    credentials:
+      root_user: minioadmin
+      root_password: minioadmin
+    config: {}
+    width: 280.0
+    height: 200.0
+    mcp_enabled: false
+
+edges:
+  # Data generators push to their respective sites
+  - id: e-datagen-b-site-b
+    source: data-gen-site-b
+    target: minio-site-b
+    connection_type: file-push
+    network: default
+    auto_configure: true
+    label: "Push to site-b-bucket"
+    connection_config:
+      target_bucket: "site-b-bucket"
+
+  - id: e-datagen-c-site-c
+    source: data-gen-site-c
+    target: minio-site-c
+    connection_type: file-push
+    network: default
+    auto_configure: true
+    label: "Push to site-c-bucket"
+    connection_config:
+      target_bucket: "site-c-bucket"
+
+  # Resilience tester reads from Site A to verify replication convergence
+  - id: e-tester-site-a
+    source: resilience-tester
+    target: minio-site-a
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "Verify via Site A"
+
+  # Site replication edges — A↔B first, then A↔C extends to 3-way
+  - id: e-site-replication-ab
+    source: minio-site-a
+    target: minio-site-b
+    connection_type: cluster-site-replication
+    network: default
+    auto_configure: true
+    label: "Site Replication A↔B"
+    source_handle: cluster-out-bottom
+    target_handle: cluster-in-bottom
+
+  - id: e-site-replication-ac
+    source: minio-site-a
+    target: minio-site-c
+    connection_type: cluster-site-replication
+    network: default
+    auto_configure: true
+    label: "Site Replication A↔C"
+    source_handle: cluster-out-bottom
+    target_handle: cluster-in-bottom
+
+  # Metrics from all three sites
+  - id: e-site-a-metrics
+    source: minio-site-a
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  - id: e-site-b-metrics
+    source: minio-site-b
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  - id: e-site-c-metrics
+    source: minio-site-c
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    auto_configure: true
+    label: "PromQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 256m
+  default_cpu: 0.25
+  max_memory: 1g
+  max_cpu: 1.0
+  total_memory: 8g
+  total_cpu: 8.0
