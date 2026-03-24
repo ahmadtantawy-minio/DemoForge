@@ -1,11 +1,11 @@
 id: data-generator
-name: Structured Data Generator
+name: Data Generator
 category: tooling
 icon: data-generator
 version: "1.0"
 image: demoforge/data-generator:latest
 build_context: "."
-description: "Generates structured Parquet data (orders schema) and pushes to MinIO. Partitioned by date for Iceberg/Trino queries."
+description: "Generates structured data (orders schema) in Parquet, JSON, or CSV format and pushes to MinIO. Partitioned by date for Iceberg/Trino queries."
 
 resources:
   memory: "256m"
@@ -18,8 +18,10 @@ environment:
   S3_ACCESS_KEY: "minioadmin"
   S3_SECRET_KEY: "minioadmin"
   S3_BUCKET: "raw-data"
-  BATCH_SIZE: "500"
-  INTERVAL_SECONDS: "5"
+  DG_FORMAT: "parquet"
+  DG_FILE_SIZE_ROWS: "1000"
+  DG_RATE: "1"
+  DG_BATCH_SIZE: "10"
   PARTITION_BY_DATE: "true"
 
 secrets:
@@ -42,7 +44,28 @@ terminal:
       command: "cat /tmp/generator.log 2>/dev/null || echo 'No logs yet'"
 
 connections:
-  provides: []
+  provides:
+    - type: structured-data
+      port: 0
+      description: "Pushes structured data (Parquet/JSON/CSV) to an S3 target"
+      config_schema:
+        - key: format
+          label: "File Format"
+          type: select
+          options: ["parquet", "json", "csv"]
+          default: "parquet"
+        - key: rows_per_file
+          label: "Rows per File"
+          type: number
+          default: "1000"
+        - key: rate
+          label: "Files per Minute"
+          type: number
+          default: "1"
+        - key: target_bucket
+          label: "Target Bucket"
+          type: string
+          default: "data-lake"
   accepts:
     - type: s3
       config_schema:
@@ -50,10 +73,23 @@ connections:
           label: "Target Bucket"
           type: string
           default: "raw-data"
+        - key: format
+          label: "File Format"
+          type: select
+          options: ["parquet", "json", "csv"]
+          default: "parquet"
+        - key: rows_per_file
+          label: "Rows per File"
+          type: number
+          default: "1000"
+        - key: rate
+          label: "Files per Minute"
+          type: number
+          default: "1"
 
 variants:
   default:
-    description: "Generates Parquet with orders schema at configurable rate"
+    description: "Generates structured data in configurable format (Parquet/JSON/CSV) at configurable rate"
 
 template_mounts: []
 static_mounts: []

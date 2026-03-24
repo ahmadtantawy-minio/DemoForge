@@ -141,6 +141,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 width=rf_node.get("style", {}).get("width", rf_node.get("width", 280)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 280),
                 height=rf_node.get("style", {}).get("height", rf_node.get("height", 200)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 200),
                 mcp_enabled=c_data.get("mcpEnabled", True),
+                aistor_tables_enabled=c_data.get("aistorTablesEnabled", False),
             ))
             continue
 

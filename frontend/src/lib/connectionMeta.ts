@@ -18,6 +18,8 @@ export const connectionColors: Record<string, string> = {
   "spark-submit": "#e65100",
   "hdfs": "#ff6b35",
   "failover": "#dc2626",
+  "structured-data": "#059669",
+  "aistor-tables": "#1565c0",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -40,4 +42,6 @@ export const connectionLabels: Record<string, string> = {
   "spark-submit": "Spark Submit",
   "hdfs": "HDFS",
   "failover": "Failover",
+  "structured-data": "Data Push",
+  "aistor-tables": "AIStor Tables",
 };

@@ -373,6 +373,41 @@ export default function PropertiesPanel() {
             )}
           </label>
         </div>
+        <div className="mb-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cData.aistorTablesEnabled === true}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                updateCluster({ aistorTablesEnabled: enabled });
+                // Auto-update existing edges from this cluster to Trino nodes
+                const trinoNodeIds = nodes.filter((n) => (n.data as any)?.componentId === "trino").map((n) => n.id);
+                if (trinoNodeIds.length > 0) {
+                  const updatedEdges = edges.map((edge) => {
+                    if (edge.source === selectedNodeId && trinoNodeIds.includes(edge.target)) {
+                      const ed = edge.data as any;
+                      const newType = enabled ? "aistor-tables" : "s3";
+                      if (ed?.connectionType === "s3" || ed?.connectionType === "aistor-tables") {
+                        return { ...edge, data: { ...ed, connectionType: newType } };
+                      }
+                    }
+                    return edge;
+                  });
+                  if (updatedEdges.some((e, i) => e !== edges[i])) setEdges(updatedEdges);
+                }
+              }}
+              className="rounded"
+            />
+            <span className="text-xs text-muted-foreground">Enable AIStor Tables</span>
+            {cData.aistorTablesEnabled === true && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-700/15 text-blue-400 border border-blue-700/30">Tables</span>
+            )}
+          </label>
+          <p className="text-[10px] text-muted-foreground mt-0.5 ml-5">
+            Allows direct connection to Trino via AIStor Tables
+          </p>
+        </div>
         <div className="mt-3 pt-3 border-t border-border">
           <div className="text-xs text-muted-foreground">
             Total drives: {totalDrives} &bull; Parity: 50%

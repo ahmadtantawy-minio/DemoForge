@@ -71,6 +71,25 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       return;
     }
 
+    // Cluster → Trino: require aistor_tables_enabled
+    if (sourceNode.type === "cluster" && (targetNode.data as any)?.componentId === "trino") {
+      const aistorEnabled = (sourceNode.data as any)?.aistorTablesEnabled === true;
+      if (!aistorEnabled) {
+        toast.warning("Enable AIStor Tables on this cluster to connect to Trino directly", {
+          description: "Toggle 'Enable AIStor Tables' in the cluster properties panel first.",
+        });
+        return;
+      }
+      // Add aistor-tables edge directly
+      set({
+        edges: addEdge(
+          { ...connection, type: "animated", data: { connectionType: "aistor-tables", network: "default", label: "", status: "idle" } },
+          state.edges
+        ),
+      });
+      return;
+    }
+
     // For cluster nodes, use the underlying componentId for manifest lookup
     const sourceComponentId = (sourceNode.data as any)?.componentId;
     const targetComponentId = (targetNode.data as any)?.componentId;

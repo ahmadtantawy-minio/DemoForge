@@ -66,6 +66,21 @@ function FileGeneratorIcon({ size }: { size: number }) {
   );
 }
 
+function DataGeneratorIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#059669" />
+      {/* Table grid: header row + two data rows, three columns */}
+      <rect x="5" y="7" width="22" height="5" rx="1" fill="white" opacity="0.95" />
+      <rect x="5" y="14" width="22" height="4" rx="1" fill="white" opacity="0.55" />
+      <rect x="5" y="20" width="22" height="4" rx="1" fill="white" opacity="0.35" />
+      {/* Column dividers */}
+      <line x1="12" y1="7" x2="12" y2="24" stroke="#059669" strokeWidth="1" />
+      <line x1="20" y1="7" x2="20" y2="24" stroke="#059669" strokeWidth="1" />
+    </svg>
+  );
+}
+
 function S3FileBrowserIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -157,7 +172,8 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("nginx")) return <NGINXIcon size={size} />;
     if (id.includes("prometheus")) return <PrometheusIcon size={size} />;
     if (id.includes("grafana")) return <GrafanaIcon size={size} />;
-    if (id.includes("file-generator") || id.includes("data-gen")) return <FileGeneratorIcon size={size} />;
+    if (id.includes("data-generator") || id.includes("data-gen")) return <DataGeneratorIcon size={size} />;
+    if (id.includes("file-generator")) return <FileGeneratorIcon size={size} />;
     if (id.includes("s3-file-browser") || id.includes("s3-browser")) return <S3FileBrowserIcon size={size} />;
     if (id.includes("iceberg")) return <IcebergIcon size={size} />;
     if (id.includes("trino")) return <TrinoIcon size={size} />;

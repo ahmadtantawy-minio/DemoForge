@@ -7,7 +7,7 @@ image: trinodb/trino:latest
 description: "Distributed SQL query engine for analytics on MinIO data via Iceberg or direct S3"
 
 resources:
-  memory: "1g"
+  memory: "2g"
   cpu: 1.0
 
 ports:
@@ -27,7 +27,13 @@ health_check:
   interval: 15s
   timeout: 10s
 
-secrets: []
+secrets:
+  - key: TRINO_USER
+    label: "Username"
+    default: "admin"
+  - key: TRINO_PASSWORD
+    label: "Password"
+    default: "(any or blank — dev mode)"
 
 web_ui:
   - name: trino-ui
@@ -65,6 +71,12 @@ connections:
           label: "Hive/S3 Catalog Name"
           type: string
           default: "minio"
+    - type: aistor-tables
+      config_schema:
+        - key: catalog_name
+          label: "AIStor Tables Catalog Name"
+          type: string
+          default: "aistor"
 
 variants:
   default:

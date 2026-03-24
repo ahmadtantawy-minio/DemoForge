@@ -17,6 +17,7 @@ interface ClusterNodeData {
   config: Record<string, string>;
   health?: string;
   mcpEnabled?: boolean;
+  aistorTablesEnabled?: boolean;
 }
 
 export default function ClusterNode({ id, data, selected }: NodeProps) {
@@ -31,6 +32,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "mcp-tools" | "ai-chat">("overview");
   const mcpEnabled = nodeData.mcpEnabled !== false;
+  const aistorTablesEnabled = nodeData.aistorTablesEnabled === true;
 
   // Find running instances matching this cluster's synthetic nodes
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
@@ -190,6 +192,14 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                   title="MCP AI Tools enabled — right-click for AI Chat"
                 >
                   MCP
+                </span>
+              )}
+              {aistorTablesEnabled && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-700/15 text-blue-400 border border-blue-700/30"
+                  title="AIStor Tables enabled — can connect directly to Trino"
+                >
+                  Tables
                 </span>
               )}
             </div>

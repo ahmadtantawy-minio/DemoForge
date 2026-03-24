@@ -119,9 +119,16 @@ async def forward_request(
     content = upstream_resp.content
     content_type = upstream_resp.headers.get("content-type", "")
 
-    # For HTML responses, inject a <base> tag so absolute asset paths resolve through proxy
+    # For HTML responses, inject a <base> tag so relative asset paths resolve through proxy
     if "text/html" in content_type:
-        content = _inject_base_tag(content, proxy_prefix)
+        # Use the directory of the actual request path so relative assets resolve correctly
+        # e.g. for /ui/login.html → base should be /proxy/.../trino-ui/ui/
+        if subpath:
+            subdir = "/".join(subpath.split("/")[:-1])  # directory part
+            base_path = f"{proxy_prefix}/{subdir}/" if subdir else f"{proxy_prefix}/"
+        else:
+            base_path = f"{proxy_prefix}/"
+        content = _inject_base_tag(content, base_path)
 
     return Response(
         content=content,
@@ -145,14 +152,14 @@ def _rewrite_cookie_path(cookie: str, proxy_prefix: str) -> str:
         return re.sub(r'Path=/[^;]*', f'Path={proxy_prefix}/', cookie)
     return cookie + f"; Path={proxy_prefix}/"
 
-def _inject_base_tag(content: bytes, proxy_prefix: str) -> bytes:
-    """Inject a <base href> tag into HTML so absolute paths resolve through the proxy."""
+def _inject_base_tag(content: bytes, base_href: str) -> bytes:
+    """Inject a <base href> tag into HTML so relative paths resolve through the proxy."""
     try:
         html = content.decode("utf-8")
     except UnicodeDecodeError:
         return content
 
-    base_tag = f'<base href="{proxy_prefix}/">'
+    base_tag = f'<base href="{base_href}">'
 
     # Insert after <head> if present
     if "<head>" in html:

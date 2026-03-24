@@ -83,6 +83,9 @@ connections:
     - type: tiering
       port: 9000
       description: "ILM tiering source (hot tier)"
+    - type: aistor-tables
+      port: 9000
+      description: "AIStor Tables — direct Trino connection (requires aistor_tables_enabled)"
   accepts:
     - type: load-balance
       config_schema: []
@@ -130,6 +133,25 @@ connections:
           default: "STANDARD"
     - type: file-push
       config_schema: []
+    - type: structured-data
+      config_schema:
+        - key: target_bucket
+          label: "Target Bucket"
+          type: string
+          default: "data-lake"
+        - key: format
+          label: "File Format"
+          type: select
+          options: ["parquet", "json", "csv"]
+          default: "parquet"
+        - key: rows_per_file
+          label: "Rows per File"
+          type: number
+          default: "1000"
+        - key: rate
+          label: "Files per Minute"
+          type: number
+          default: "1"
 
 variants:
   single:

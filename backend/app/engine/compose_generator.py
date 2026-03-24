@@ -343,9 +343,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         env.update(node.config)
 
-        # Auto-resolve S3 endpoint from s3 edges
+        # Auto-resolve S3 endpoint from s3/structured-data/file-push edges
+        s3_edge_types = ("s3", "structured-data", "file-push", "aistor-tables")
         for edge in demo.edges:
-            if edge.connection_type != "s3":
+            if edge.connection_type not in s3_edge_types:
                 continue
             # Determine the MinIO peer: if this node is target, peer is source; if source, peer is target
             if edge.target == node.id:
@@ -354,17 +355,37 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 peer_id = edge.target
             else:
                 continue
+            # Check nodes first, then clusters, then cluster LBs
             peer_component = next((n.component for n in demo.nodes if n.id == peer_id), "")
+            peer_cluster = next((c for c in demo.clusters if c.id == peer_id), None)
+            if peer_cluster:
+                peer_component = peer_cluster.component
+            # Also detect cluster LB nodes (e.g. minio-cluster-3-lb → nginx, but backed by MinIO cluster)
+            is_cluster_lb = peer_id.endswith("-lb") and peer_component == "nginx"
+            if is_cluster_lb:
+                cluster_id_from_lb = peer_id[:-3]  # strip "-lb"
+                lb_cluster = next((c for c in demo.clusters if c.id == cluster_id_from_lb), None)
+                if lb_cluster:
+                    peer_component = lb_cluster.component
             if peer_component not in ("minio", "minio-aistore"):
                 continue
-            s3_service_name = peer_id
-            s3_port = 9000
+            # Use the full container name (project_name-peer_id) for Docker DNS
+            if peer_cluster:
+                s3_service_name = f"{project_name}-{peer_id}-lb"
+                s3_port = 80
+            elif is_cluster_lb:
+                s3_service_name = f"{project_name}-{peer_id}"
+                s3_port = 80
+            else:
+                s3_service_name = f"{project_name}-{peer_id}"
+                s3_port = 9000
             s3_endpoint_host = f"{s3_service_name}:{s3_port}"
-            # Inject S3 endpoint for known env var patterns
+            s3_endpoint_url = f"http://{s3_service_name}:{s3_port}"
+            # Inject S3 endpoint for known env var patterns (some need http:// prefix)
             if "CATALOG_S3_ENDPOINT" in env:
-                env["CATALOG_S3_ENDPOINT"] = s3_endpoint_host
+                env["CATALOG_S3_ENDPOINT"] = s3_endpoint_url
             if "S3_ENDPOINT" in env:
-                env["S3_ENDPOINT"] = s3_endpoint_host
+                env["S3_ENDPOINT"] = s3_endpoint_url
             break  # Use first s3 edge
 
         # Determine which networks this node joins
@@ -567,6 +588,24 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             lines.append(f"  echo 'Waiting for {alias_name}... attempt $attempt'")
             lines.append(f"  sleep 10")
             lines.append(f"done")
+
+        # Create warehouse bucket on MinIO nodes connected to Iceberg REST catalog
+        iceberg_nodes = [n for n in demo.nodes if n.component == "iceberg-rest"]
+        if iceberg_nodes:
+            for edge in demo.edges:
+                if edge.connection_type == "s3":
+                    source_node = next((n for n in demo.nodes if n.id == edge.source), None)
+                    target_node = next((n for n in demo.nodes if n.id == edge.target), None)
+                    # Find the MinIO node in this s3 edge
+                    minio_node = None
+                    if source_node and source_node.component in ("minio", "minio-aistore"):
+                        minio_node = source_node
+                    elif target_node and target_node.component in ("minio", "minio-aistore"):
+                        minio_node = target_node
+                    if minio_node:
+                        alias = re.sub(r"[^a-zA-Z0-9_]", "_", minio_node.display_name) if minio_node.display_name else minio_node.id
+                        lines.append(f"# Create warehouse bucket for Iceberg on {alias}")
+                        lines.append(f"mc mb '{alias}/warehouse' --ignore-existing 2>/dev/null || true")
 
         lines.append("echo 'mc aliases configured.'")
 

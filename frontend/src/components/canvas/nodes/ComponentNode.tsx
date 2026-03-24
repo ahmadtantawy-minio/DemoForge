@@ -12,7 +12,7 @@ export default function ComponentNode({ id, data }: NodeProps) {
   const { instances, activeDemoId, demos, resilienceProbes } = useDemoStore();
 
   const isResilienceTester = nodeData.componentId === "resilience-tester";
-  const isGenerator = nodeData.componentId === "file-generator";
+  const isGenerator = nodeData.componentId === "file-generator" || nodeData.componentId === "data-generator";
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
 

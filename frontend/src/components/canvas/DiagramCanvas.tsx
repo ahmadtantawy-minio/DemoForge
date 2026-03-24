@@ -129,6 +129,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           credentials: c.credentials || {},
           config: c.config || {},
           mcpEnabled: c.mcp_enabled !== false,
+          aistorTablesEnabled: c.aistor_tables_enabled === true,
         },
       }));
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
@@ -326,6 +327,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             credentials: { root_user: "minioadmin", root_password: "minioadmin" },
             config: {},
             mcpEnabled: true,
+            aistorTablesEnabled: false,
           },
         };
         addNode(newCluster);

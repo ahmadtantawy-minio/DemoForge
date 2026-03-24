@@ -51,12 +51,15 @@ export default function NodeContextMenu({
       },
       destructive: false,
     }] : []),
-    ...(componentId === "file-generator" && isRunning && instance ? [
+    ...((componentId === "file-generator" || componentId === "data-generator") && isRunning && instance ? [
       {
         label: "▶ Start Generating",
         action: () => {
           toast.info("Starting data generation...");
-          execCommand(demoId, nodeId, "sh -c 'nohup sh /generate.sh > /tmp/gen.log 2>&1 & echo started'")
+          const cmd = componentId === "data-generator"
+            ? "sh -c 'nohup python3 /app/generate.py > /tmp/gen.log 2>&1 & PID=$!; echo $PID > /tmp/gen.pid; echo started'"
+            : "sh -c 'nohup sh /generate.sh > /tmp/gen.log 2>&1 & echo started'";
+          execCommand(demoId, nodeId, cmd)
             .then(() => toast.success("Data generation started"))
             .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
         },

@@ -57,6 +57,7 @@ class DemoCluster(BaseModel):
     width: float = 280
     height: float = 200
     mcp_enabled: bool = True          # Deploy MCP sidecar for AI tool access
+    aistor_tables_enabled: bool = False  # Enable AIStor Tables (direct Trino connection)
 
 class DemoStickyNote(BaseModel):
     id: str

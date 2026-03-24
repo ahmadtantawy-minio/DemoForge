@@ -1,24 +1,56 @@
+{%- set ns = namespace(iceberg_uri="", s3_endpoint="") %}
 connector.name=iceberg
 iceberg.catalog.type=rest
 {%- for edge in edges %}
 {%- if edge.target == node.id and edge.connection_type == 'iceberg-catalog' %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
 {%- if source_node %}
-iceberg.rest-catalog.uri=http://{{ project_name }}-{{ source_node.id }}:8181
+{%- set ns.iceberg_uri = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":8181" %}
+iceberg.rest-catalog.uri={{ ns.iceberg_uri }}
+{#- Find the MinIO node that the Iceberg REST catalog connects to #}
+{%- for e2 in edges %}
+{%- if e2.source == source_node.id and e2.connection_type == 's3' %}
+{%- set s3_node = nodes | selectattr('id', 'equalto', e2.target) | first %}
+{%- if s3_node %}
+{%- if s3_node.component == 'nginx' %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ s3_node.id ~ ":80" %}
+{%- else %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ s3_node.id ~ ":9000" %}
+{%- endif %}
+{%- endif %}
+{%- elif e2.target == source_node.id and e2.connection_type == 's3' %}
+{%- set s3_node = nodes | selectattr('id', 'equalto', e2.source) | first %}
+{%- if s3_node %}
+{%- if s3_node.component == 'nginx' %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ s3_node.id ~ ":80" %}
+{%- else %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ s3_node.id ~ ":9000" %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
 {%- endif %}
 {%- endif %}
 {%- endfor %}
 iceberg.rest-catalog.warehouse=warehouse
+{#- Check for direct S3/aistor-tables edges to Trino #}
 {%- for edge in edges %}
-{%- if edge.target == node.id and edge.connection_type == 's3' %}
+{%- if edge.target == node.id and edge.connection_type in ['s3', 'aistor-tables'] %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
 {%- if source_node %}
-fs.native-s3.enabled=true
-s3.endpoint=http://{{ project_name }}-{{ source_node.id }}:9000
-s3.path-style-access=true
-s3.aws-access-key=minioadmin
-s3.aws-secret-key=minioadmin
+{%- if source_node.component == 'nginx' %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
+{%- else %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
+{%- endif %}
 {%- endif %}
 {%- endif %}
 {%- endfor %}
+{%- if ns.s3_endpoint %}
+fs.native-s3.enabled=true
+s3.endpoint={{ ns.s3_endpoint }}
+s3.path-style-access=true
+s3.aws-access-key=minioadmin
+s3.aws-secret-key=minioadmin
 s3.region=us-east-1
+{%- endif %}

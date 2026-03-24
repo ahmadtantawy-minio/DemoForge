@@ -17,7 +17,12 @@ export default function AnimatedDataEdge({
   const configStatus = (edgeData as any)?.configStatus as string | undefined; // "pending" | "applied" | "failed" | "paused" | undefined
   const configError = (edgeData as any)?.configError as string | undefined;
   const color = connectionColors[connectionType] ?? "#6b7280";
-  const label = edgeData?.label || connectionLabels[connectionType] || "";
+  const connConfig = (edgeData as any)?.connectionConfig as Record<string, any> | undefined;
+  // For structured-data edges, show the format in the label (e.g. "JSON Data" instead of generic "Data Push")
+  const formatLabel = connectionType === "structured-data" && connConfig?.format
+    ? `${(connConfig.format as string).toUpperCase()} Data`
+    : null;
+  const label = edgeData?.label || formatLabel || connectionLabels[connectionType] || "";
 
   const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
     connectionType === "cluster-site-replication";

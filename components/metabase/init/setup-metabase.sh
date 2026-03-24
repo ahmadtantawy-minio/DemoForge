@@ -84,7 +84,7 @@ if echo "$DB_LIST" | grep -q "Trino"; then
   echo "Trino DB id: $DB_ID"
 else
   echo "Adding Trino database connection (host: $TRINO_HOST, catalog: ${TRINO_CATALOG:-iceberg})..."
-  DB_BODY="{\"name\":\"Trino - MinIO Lakehouse\",\"engine\":\"starburst\",\"details\":{\"host\":\"${TRINO_HOST}\",\"port\":8080,\"catalog\":\"${TRINO_CATALOG:-iceberg}\",\"schema\":\"${TRINO_SCHEMA:-analytics}\",\"user\":\"trino\",\"ssl\":false,\"tunnel-enabled\":false}}"
+  DB_BODY="{\"name\":\"Trino - MinIO Lakehouse\",\"engine\":\"starburst\",\"details\":{\"host\":\"${TRINO_HOST}\",\"port\":8080,\"catalog\":\"${TRINO_CATALOG:-iceberg}\",\"schema-filters-type\":\"all\",\"user\":\"trino\",\"ssl\":false,\"tunnel-enabled\":false}}"
   DB_RESULT=$(http_post "$MB/api/database" "$DB_BODY" "X-Metabase-Session: $SESSION")
   if echo "$DB_RESULT" | grep -q '"id"'; then
     DB_ID=$(echo "$DB_RESULT" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
