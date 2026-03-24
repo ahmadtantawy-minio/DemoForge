@@ -247,20 +247,45 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         else:
             await progress("init_scripts", "done", f"{len(init_results)} init script(s) completed")
 
-        # Register edge automation scripts as "paused" — applied on demand via API
+        # Register edge automation scripts — site-replication auto-activates, others start paused
         from .edge_automation import generate_edge_scripts
         from ..state.store import EdgeConfigResult
         edge_scripts = generate_edge_scripts(demo, project_name)
+        auto_activate = []
         if edge_scripts:
             for script in edge_scripts:
+                # Site replication should auto-activate on deploy
+                is_site_repl = script.connection_type in ("site-replication", "cluster-site-replication")
                 running.edge_configs[script.edge_id] = EdgeConfigResult(
                     edge_id=script.edge_id,
                     connection_type=script.connection_type,
-                    status="paused",
+                    status="pending" if is_site_repl else "paused",
                     description=script.description,
                 )
+                if is_site_repl:
+                    auto_activate.append(script)
             state.set_demo(running)
-            await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) ready — activate via edge context menu")
+            await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) registered")
+
+        # Auto-activate site replication edges
+        for script in auto_activate:
+            ec = running.edge_configs[script.edge_id]
+            try:
+                await progress("edge_config", "running", f"Activating {script.description}...")
+                import shlex
+                exit_code, stdout, stderr = await exec_in_container(
+                    script.container_name, f"sh -c {shlex.quote(script.command)}",
+                )
+                if exit_code != 0:
+                    ec.status = "failed"
+                    ec.error = stderr[:500] if stderr else stdout[:500]
+                else:
+                    ec.status = "applied"
+                    ec.error = ""
+            except Exception as e:
+                ec.status = "failed"
+                ec.error = str(e)[:500]
+            state.set_demo(running)
 
         running.status = "running"
         state.set_demo(running)

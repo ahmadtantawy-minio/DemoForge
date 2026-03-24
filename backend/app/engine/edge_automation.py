@@ -430,25 +430,33 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     source_host = _resolve_cluster_endpoint(source_cluster, project_name)
     target_host = _resolve_cluster_endpoint(target_cluster, project_name)
 
+    # Use the same sanitized alias names as compose_generator's mc-shell init
+    import re as _re
+    source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_cluster.label)
+    target_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", target_cluster.label)
+
     # Smart site-replication activation:
-    # 1. Check if already configured via mc admin replicate info
-    # 2. If "enabled" found → already active, report success
-    # 3. If not → clean ALL target buckets (required for site-repl), then add
-    # 4. Verify replication is actually enabled after adding
+    # 1. Wait for mc-shell init to set up aliases (they're created by compose_generator)
+    # 2. Check if already configured via mc admin replicate info
+    # 3. If "enabled" found → already active, report success
+    # 4. If not → clean target buckets (required for site-repl), then add
+    # 5. Verify replication is actually enabled after adding
     command = (
-        f"mc alias set site1 http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
-        f"mc alias set site2 http://{target_host}:80 {_safe(target_user)} {_safe(target_pass)} && "
-        f"STATUS=$(mc admin replicate info site1 2>&1 | head -1) && "
+        # Wait for aliases to be configured by init.sh
+        f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && break; sleep 2; done && "
+        f"STATUS=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
-        f"*enabled*) echo \"Site replication already active\"; mc admin replicate info site1;; "
+        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info {source_alias};; "
         f"*) echo \"Setting up site replication...\"; "
-        # Clean ALL buckets on both sites to ensure only one has data
-        f"for b in $(mc ls --json site2/ 2>/dev/null | grep -o '\"key\":\"[^\"]*\"' | cut -d'\"' -f4 | tr -d '/'); do "
-        f"echo \"Removing site2/$b\"; mc rb --force site2/$b 2>/dev/null || true; done; "
-        f"mc admin replicate add site1 site2 && "
+        # Clean ALL buckets on target site to ensure only one site has data
+        # Use pure shell — minio/mc image has no awk/grep/cut
+        f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
+        f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
+        f"[ -n \"$b\" ] && echo \"Removing {target_alias}/$b\" && mc rb --force {target_alias}/$b 2>/dev/null; done; "
+        f"mc admin replicate add {source_alias} {target_alias} && "
         # Verify it actually worked
-        f"VERIFY=$(mc admin replicate info site1 2>&1 | head -1) && "
-        f"case \"$VERIFY\" in *enabled*) echo \"Site replication verified active\";; "
+        f"VERIFY=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
+        f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
         f"esac"
     )

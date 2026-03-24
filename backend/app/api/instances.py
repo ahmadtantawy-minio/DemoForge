@@ -43,11 +43,24 @@ async def _check_live_replication_status(running, demo_id: str) -> bool | None:
         return None
 
     try:
+        # Compute the alias name from demo definition (same as compose_generator)
+        import re as _re
+        demo_def = None
+        try:
+            from .demos import _load_demo
+            demo_def = _load_demo(demo_id)
+        except Exception:
+            pass
+        if demo_def and demo_def.clusters:
+            alias = _re.sub(r"[^a-zA-Z0-9_]", "_", demo_def.clusters[0].label)
+        else:
+            return None
         exit_code, stdout, stderr = await exec_in_container(
             mc_shell_name,
-            "sh -c 'mc admin replicate info site1 2>&1 | head -1'",
+            f"sh -c 'mc admin replicate info {alias} 2>&1 | head -1'",
         )
-        enabled = "enabled" in stdout.lower() if exit_code == 0 else False
+        # "SiteReplication enabled for:" vs "SiteReplication is not enabled"
+        enabled = "enabled for" in stdout.lower() if exit_code == 0 else False
         _repl_cache[demo_id] = (now, enabled)
         return enabled
     except Exception:
