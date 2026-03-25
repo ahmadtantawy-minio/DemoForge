@@ -208,7 +208,11 @@ def _write_pid():
 
 
 def _get_writer(fmt: str):
-    """Return the writer module for the given format."""
+    """Return the writer module for the given format.
+
+    Falls back to raw Parquet/JSON/CSV file writers when no Iceberg catalog
+    is available.
+    """
     if fmt == "parquet":
         from src.writers import parquet_writer
         return parquet_writer
@@ -220,6 +224,34 @@ def _get_writer(fmt: str):
         return csv_writer
     else:
         raise ValueError(f"Unsupported format for scenario writer: {fmt}")
+
+
+def _get_iceberg_writer(scenario: dict):
+    """Try to create an IcebergWriter for the Iceberg REST catalog.
+
+    Returns (writer, namespace, table_name) or (None, None, None) if unavailable.
+    """
+    catalog_uri = os.environ.get("ICEBERG_CATALOG_URI", "")
+    if not catalog_uri:
+        return None, None, None
+
+    try:
+        from src.writers.iceberg_writer import IcebergWriter
+        endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
+        iceberg_cfg = scenario.get("iceberg", {}) or {}
+        writer = IcebergWriter(
+            catalog_uri=catalog_uri,
+            warehouse=iceberg_cfg.get("warehouse", "warehouse"),
+            s3_endpoint=endpoint,
+            access_key=S3_ACCESS_KEY,
+            secret_key=S3_SECRET_KEY,
+        )
+        namespace = iceberg_cfg.get("namespace", "demo")
+        table_name = iceberg_cfg.get("table", "orders")
+        return writer, namespace, table_name
+    except Exception as exc:
+        print(f"[scenario] IcebergWriter not available: {exc}")
+        return None, None, None
 
 
 def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
@@ -270,16 +302,30 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             client.create_bucket(Bucket=bucket)
             print(f"[scenario] Created bucket '{bucket}'.")
 
-    # Run table setup (create Iceberg tables, register in Trino if available)
+    # Run table setup (create buckets + warehouse)
     try:
         from src.table_setup import run_setup
         endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
-        run_setup(scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY)
+        trino_host = os.environ.get("TRINO_HOST", "")
+        run_setup(scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY, trino_host=trino_host or None)
         print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
     except Exception as exc:
         print(f"[scenario] Table setup skipped: {exc}")
 
-    writer = _get_writer(fmt)
+    # Try to use Iceberg writer (writes through Iceberg REST catalog)
+    # Falls back to raw file writer if no catalog available
+    iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)
+    use_iceberg = iceberg_writer is not None
+    if use_iceberg:
+        # Ensure table exists in the catalog
+        try:
+            iceberg_writer.ensure_table(ice_ns, ice_table, columns)
+            print(f"[scenario] Using Iceberg writer → {ice_ns}.{ice_table}")
+        except Exception as exc:
+            print(f"[scenario] Iceberg table creation failed: {exc} — falling back to file writer")
+            use_iceberg = False
+
+    writer = _get_writer(fmt) if not use_iceberg else None
 
     rows_generated = 0
     batches_sent = 0
@@ -328,21 +374,27 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
 
         try:
             rows = generate_batch(columns, effective_rows)
-            key = writer.write_batch(
-                rows=rows,
-                columns=columns,
-                partition_cfg=partition_cfg,
-                s3_client=client,
-                bucket=bucket,
-            )
+
+            if use_iceberg:
+                count = iceberg_writer.write_batch(rows, columns, ice_ns, ice_table)
+                key = f"iceberg/{ice_ns}.{ice_table}"
+            else:
+                key = writer.write_batch(
+                    rows=rows,
+                    columns=columns,
+                    partition_cfg=partition_cfg,
+                    s3_client=client,
+                    bucket=bucket,
+                )
             rows_generated += len(rows)
             batches_sent += 1
 
             elapsed_total = time.time() - start_time
             rows_per_sec = rows_generated / elapsed_total if elapsed_total > 0 else 0
 
+            dest = f"iceberg://{ice_ns}.{ice_table}" if use_iceberg else f"s3://{bucket}/{key}"
             print(
-                f"[scenario] Wrote {len(rows)} rows ({fmt}) to s3://{bucket}/{key} "
+                f"[scenario] Wrote {len(rows)} rows ({fmt}) to {dest} "
                 f"| total={rows_generated} rate={rows_per_sec:.1f} rows/s"
             )
             print(

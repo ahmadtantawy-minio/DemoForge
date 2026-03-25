@@ -150,15 +150,59 @@ def register_external_table(
         print(f"[table_setup] Warning: DDL failed (may already exist): {exc}")
 
 
+class TrinoRestClient:
+    """Lightweight Trino client using the REST API (no extra dependencies)."""
+
+    def __init__(self, host: str, port: int = 8080, user: str = "demoforge"):
+        self.base_url = f"http://{host}:{port}"
+        self.user = user
+
+    def execute(self, sql: str) -> list:
+        import requests, time
+        resp = requests.post(
+            f"{self.base_url}/v1/statement",
+            data=sql.encode("utf-8"),
+            headers={"X-Trino-User": self.user, "X-Trino-Source": "demoforge-setup"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        rows = data.get("data", [])
+
+        # Follow nextUri until query completes
+        while "nextUri" in data:
+            time.sleep(0.5)
+            resp = requests.get(data["nextUri"], headers={"X-Trino-User": self.user})
+            resp.raise_for_status()
+            data = resp.json()
+            rows.extend(data.get("data", []))
+
+            state = data.get("stats", {}).get("state", "")
+            if state == "FAILED":
+                error = data.get("error", {}).get("message", "Unknown error")
+                raise RuntimeError(f"Trino query failed: {error}")
+
+        return rows
+
+    def cursor(self):
+        """Compatibility shim for register_external_table."""
+        return self
+
+    def fetchall(self):
+        return self._last_result
+
+    def execute_compat(self, sql):
+        self._last_result = self.execute(sql)
+
+
 def run_setup(
     scenario: dict,
     fmt: str,
     s3_endpoint: str,
     s3_access_key: str,
     s3_secret_key: str,
+    trino_host: str = None,
     iceberg_catalog_uri: str = None,
-    trino_connection=None,
-    trino_catalog: str = "external",
+    trino_catalog: str = "iceberg",
     trino_namespace: str = "demo",
 ) -> None:
     """
@@ -166,8 +210,9 @@ def run_setup(
     """
     s3_client = make_s3_client(s3_endpoint, s3_access_key, s3_secret_key)
 
-    # Step 1: create buckets
+    # Step 1: create buckets (including warehouse for Iceberg)
     create_buckets(scenario, s3_client)
+    ensure_bucket(s3_client, "warehouse")
 
     # Step 2: create Iceberg table if format=iceberg
     if fmt == "iceberg" and iceberg_catalog_uri:
@@ -184,13 +229,53 @@ def run_setup(
         except Exception as exc:
             print(f"[table_setup] Iceberg table setup failed: {exc}")
 
-    # Step 3: register external Trino table for file-based formats
-    if fmt in ("parquet", "json", "csv") and trino_connection is not None:
-        register_external_table(
-            scenario=scenario,
-            fmt=fmt,
-            trino_connection=trino_connection,
-            catalog=trino_catalog,
-            namespace=trino_namespace,
-            s3_endpoint=f"s3a://{scenario.get('buckets', {}).get(fmt, 'data')}/",
-        )
+    # Step 3: register Iceberg table in Trino for file-based formats
+    if fmt in ("parquet", "json", "csv") and trino_host:
+        try:
+            import time as _time
+            # Wait for Trino to be ready (it starts slower than MinIO)
+            trino = TrinoRestClient(trino_host)
+            for attempt in range(12):
+                try:
+                    import requests as _req
+                    r = _req.get(f"http://{trino_host}:8080/v1/info", timeout=3)
+                    if r.status_code == 200:
+                        info = r.json()
+                        if not info.get("starting", True):
+                            print(f"[table_setup] Trino is ready (attempt {attempt+1}).")
+                            break
+                        print(f"[table_setup] Trino is starting up... (attempt {attempt+1}/12)")
+                except Exception:
+                    pass
+                print(f"[table_setup] Waiting for Trino... (attempt {attempt+1}/12)")
+                _time.sleep(10)
+            else:
+                print(f"[table_setup] Trino not available after 120s — skipping DDL.")
+                return
+            iceberg_cfg = scenario.get("iceberg", {}) or {}
+            table_name = iceberg_cfg.get("table", scenario.get("id", "data").replace("-", "_"))
+            bucket = scenario.get("buckets", {}).get(fmt)
+            # Use the S3_BUCKET override if available
+            bucket_override = os.environ.get("S3_BUCKET", "")
+            if bucket_override and bucket_override != "raw-data":
+                bucket = bucket_override
+
+            if not bucket:
+                print(f"[table_setup] No bucket for format '{fmt}' — skipping DDL.")
+                return
+
+            # Create schema
+            trino.execute(f"CREATE SCHEMA IF NOT EXISTS {trino_catalog}.{trino_namespace}")
+            print(f"[table_setup] Schema '{trino_catalog}.{trino_namespace}' ensured.")
+
+            # Create Iceberg table (Trino manages data lifecycle)
+            col_defs = _trino_column_defs(scenario.get("columns", []), fmt)
+            ddl = (
+                f"CREATE TABLE IF NOT EXISTS {trino_catalog}.{trino_namespace}.{table_name} (\n"
+                f"{col_defs}\n"
+                f") WITH (format = 'PARQUET')"
+            )
+            trino.execute(ddl)
+            print(f"[table_setup] Iceberg table '{trino_catalog}.{trino_namespace}.{table_name}' ready.")
+        except Exception as exc:
+            print(f"[table_setup] Trino table registration failed: {exc}")

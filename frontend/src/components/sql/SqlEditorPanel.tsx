@@ -108,7 +108,7 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0">
+      <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0 bg-card text-foreground">
         <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
           <DialogTitle className="text-base font-semibold">SQL Editor</DialogTitle>
         </DialogHeader>
@@ -210,13 +210,13 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
                     )}
                   </div>
                   <div className="overflow-x-auto border border-border rounded">
-                    <table className="w-full text-xs font-mono border-collapse">
+                    <table className="w-full text-xs font-mono border-collapse text-foreground">
                       <thead>
                         <tr className="bg-muted/50">
                           {result.columns.map((col) => (
                             <th
                               key={col}
-                              className="text-left px-3 py-1.5 text-muted-foreground font-medium border-b border-border whitespace-nowrap"
+                              className="text-left px-3 py-1.5 text-muted-foreground font-semibold border-b border-border whitespace-nowrap"
                             >
                               {col}
                             </th>
@@ -232,7 +232,7 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
                             {row.map((cell, j) => (
                               <td
                                 key={j}
-                                className="px-3 py-1 border-b border-border/50 whitespace-nowrap max-w-[300px] truncate"
+                                className="px-3 py-1.5 border-b border-border/50 whitespace-nowrap max-w-[300px] truncate text-foreground"
                                 title={cell !== null && cell !== undefined ? String(cell) : "NULL"}
                               >
                                 {cell === null || cell === undefined ? (

@@ -405,6 +405,18 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
             break  # Use first s3 edge
 
+        # Auto-inject ICEBERG_CATALOG_URI for data generators if an iceberg-rest node exists
+        if node.component == "data-generator" and "ICEBERG_CATALOG_URI" not in env:
+            iceberg_node = next((n for n in demo.nodes if n.component == "iceberg-rest"), None)
+            if iceberg_node:
+                env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{iceberg_node.id}:8181"
+
+        # Auto-inject TRINO_HOST for data generators if a Trino node exists in the demo
+        if node.component == "data-generator" and "TRINO_HOST" not in env:
+            trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
+            if trino_node:
+                env["TRINO_HOST"] = f"{project_name}-{trino_node.id}"
+
         # Determine which networks this node joins
         # If node.networks is empty, join all demo networks
         if node.networks:
