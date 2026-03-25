@@ -405,11 +405,56 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
             break  # Use first s3 edge
 
-        # Auto-inject ICEBERG_CATALOG_URI for data generators if an iceberg-rest node exists
+        # Auto-inject ICEBERG_CATALOG_URI for data generators
+        # Strategy: follow the generator's edge to its target MinIO cluster, then:
+        #   - If the cluster has aistor_tables_enabled → use cluster LB's /_iceberg endpoint
+        #   - Otherwise → find iceberg-rest node connected to that cluster
         if node.component == "data-generator" and "ICEBERG_CATALOG_URI" not in env:
-            iceberg_node = next((n for n in demo.nodes if n.component == "iceberg-rest"), None)
-            if iceberg_node:
-                env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{iceberg_node.id}:8181"
+            # Find this generator's target cluster/node via edges
+            target_cluster_id = None
+            target_lb_id = None
+            for edge in demo.edges:
+                if edge.source == node.id and edge.connection_type in s3_edge_types:
+                    target_id = edge.target
+                    # Could be a cluster LB (after expansion) or cluster ID
+                    if target_id.endswith("-lb"):
+                        target_lb_id = target_id
+                        target_cluster_id = target_id[:-3]
+                    else:
+                        # Check if it's a cluster
+                        tc = next((c for c in demo.clusters if c.id == target_id), None)
+                        if tc:
+                            target_cluster_id = tc.id
+                            target_lb_id = f"{tc.id}-lb"
+                    break
+
+            if target_cluster_id:
+                target_cluster = next((c for c in demo.clusters if c.id == target_cluster_id), None)
+                if target_cluster and getattr(target_cluster, 'aistor_tables_enabled', False):
+                    # AIStor Tables: use the cluster's /_iceberg endpoint
+                    env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{target_lb_id or target_cluster_id + '-lb'}:80/_iceberg"
+                    env["ICEBERG_WAREHOUSE"] = "analytics"
+                    env["ICEBERG_SIGV4"] = "true"
+                else:
+                    # External Iceberg REST: find iceberg-rest connected to this cluster
+                    for edge in demo.edges:
+                        if edge.connection_type == "s3":
+                            # iceberg-rest → cluster or cluster → iceberg-rest
+                            peer = None
+                            if edge.source == target_cluster_id or (target_lb_id and edge.source == target_lb_id):
+                                peer = edge.target
+                            elif edge.target == target_cluster_id or (target_lb_id and edge.target == target_lb_id):
+                                peer = edge.source
+                            if peer:
+                                peer_node = next((n for n in demo.nodes if n.id == peer and n.component == "iceberg-rest"), None)
+                                if peer_node:
+                                    env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{peer_node.id}:8181"
+                                    break
+                    else:
+                        # Fallback: find any iceberg-rest in the demo
+                        iceberg_node = next((n for n in demo.nodes if n.component == "iceberg-rest"), None)
+                        if iceberg_node:
+                            env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{iceberg_node.id}:8181"
 
         # Auto-inject TRINO_HOST for data generators if a Trino node exists in the demo
         if node.component == "data-generator" and "TRINO_HOST" not in env:
