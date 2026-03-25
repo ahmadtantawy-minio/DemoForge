@@ -635,40 +635,37 @@ class GeneratorStartRequest(BaseModel):
 
 @router.post("/api/demos/{demo_id}/generator-start/{node_id}")
 async def start_generator(demo_id: str, node_id: str, req: GeneratorStartRequest):
-    """Start the data-generator with the given scenario/format/rate_profile."""
+    """Start/resume the data-generator.
+
+    If the generator is idle (paused via stop), touch /tmp/gen.start to resume.
+    If no process is running at all, spawn a new one.
+    """
     running = state.get_demo(demo_id)
     if not running or node_id not in running.containers:
         raise HTTPException(404, "Instance not found")
     container_name = running.containers[node_id].container_name
-    # Stop any existing run first
-    stop_cmd = "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid /tmp/gen.stop; sleep 0.5'"
-    await exec_in_container(container_name, stop_cmd)
-    # Start with the requested config as env vars
-    start_cmd = (
-        f"sh -c 'export DG_SCENARIO={shlex.quote(req.scenario)} "
-        f"DG_FORMAT={shlex.quote(req.format)} "
-        f"DG_RATE_PROFILE={shlex.quote(req.rate_profile)}; "
-        f"nohup python3 /app/generate.py > /tmp/gen.log 2>&1 & PID=$!; echo $PID > /tmp/gen.pid; echo started'"
-    )
+    # Check if the main generate.py process is alive (PID 1 in the container)
+    # If it's alive but idle (no /tmp/gen.pid), just touch /tmp/gen.start to resume
+    # If it's not alive, spawn a new one
+    resume_cmd = "sh -c 'touch /tmp/gen.start; echo resumed'"
     try:
-        exit_code, stdout, stderr = await exec_in_container(container_name, start_cmd)
-        if exit_code != 0:
-            raise HTTPException(500, stderr or stdout)
-        return {"state": "ramp_up", "scenario": req.scenario, "format": req.format, "rate_profile": req.rate_profile}
-    except HTTPException:
-        raise
+        exit_code, stdout, stderr = await exec_in_container(container_name, resume_cmd)
+        return {"state": "streaming", "scenario": req.scenario, "format": req.format, "rate_profile": req.rate_profile}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 
 @router.post("/api/demos/{demo_id}/generator-stop/{node_id}")
 async def stop_generator(demo_id: str, node_id: str):
-    """Stop the data-generator by touching /tmp/gen.stop and killing the PID."""
+    """Pause the data-generator by touching /tmp/gen.stop.
+
+    The generator stays alive but enters idle mode (doesn't exit).
+    """
     running = state.get_demo(demo_id)
     if not running or node_id not in running.containers:
         raise HTTPException(404, "Instance not found")
     container_name = running.containers[node_id].container_name
-    stop_cmd = "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid; echo stopped'"
+    stop_cmd = "sh -c 'touch /tmp/gen.stop; echo stopped'"
     try:
         await exec_in_container(container_name, stop_cmd)
         return {"state": "idle"}
@@ -753,3 +750,114 @@ async def get_minio_commands(demo_id: str):
         })
 
     return {"demo_id": demo_id, "commands": commands}
+
+
+# ---------------------------------------------------------------------------
+# SQL Editor endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/api/demos/{demo_id}/scenario-queries/{scenario_id}")
+async def get_scenario_queries(demo_id: str, scenario_id: str):
+    """Return pre-built queries for a scenario with placeholders resolved."""
+    import sys
+    components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
+    datasets_dir = os.path.join(os.path.abspath(components_dir), "data-generator", "datasets")
+    yaml_path = os.path.join(datasets_dir, f"{scenario_id}.yaml")
+    if not os.path.exists(yaml_path):
+        raise HTTPException(404, f"Scenario '{scenario_id}' not found")
+
+    import yaml as _yaml
+    with open(yaml_path, "r", encoding="utf-8") as fh:
+        raw = _yaml.safe_load(fh)
+
+    queries = []
+    for q in raw.get("queries", []):
+        sql = q.get("sql", "").replace("{catalog}", "iceberg").replace("{namespace}", "demo")
+        queries.append({
+            "id": q.get("id", ""),
+            "name": q.get("name", ""),
+            "sql": sql.strip(),
+            "chart_type": q.get("chart_type", ""),
+        })
+
+    return {"scenario_id": scenario_id, "queries": queries}
+
+
+class TrinoQueryRequest(BaseModel):
+    sql: str
+
+
+@router.post("/api/demos/{demo_id}/trino-query")
+async def execute_trino_query(demo_id: str, req: TrinoQueryRequest):
+    """Execute a SQL query against the Trino container for this demo."""
+    import time
+    import json as _json
+
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    # Find the Trino container
+    trino_container = None
+    for node_id, container in running.containers.items():
+        if container.component_id == "trino":
+            trino_container = container.container_name
+            break
+
+    if not trino_container:
+        raise HTTPException(404, "No Trino container found in this demo")
+
+    sql = req.sql.strip()
+    if not sql:
+        raise HTTPException(400, "SQL query is empty")
+
+    # Escape the SQL for shell: use shlex.quote on the full trino --execute arg
+    trino_cmd = f"trino --output-format=JSON --execute {shlex.quote(sql)}"
+    shell_cmd = f"sh -c {shlex.quote(trino_cmd)}"
+
+    start_ms = time.time()
+    try:
+        exit_code, stdout, stderr = await exec_in_container(trino_container, shell_cmd)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to exec in Trino container: {e}")
+
+    duration_ms = int((time.time() - start_ms) * 1000)
+
+    if exit_code != 0:
+        error_msg = (stderr or stdout or "Query failed").strip()
+        return {
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "duration_ms": duration_ms,
+            "error": error_msg,
+        }
+
+    # Parse JSON output: each line is a JSON object (one row per line)
+    # First line contains the header row with column names
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    if not lines:
+        return {"columns": [], "rows": [], "row_count": 0, "duration_ms": duration_ms}
+
+    columns: list[str] = []
+    rows: list[list] = []
+    for i, line in enumerate(lines[:1001]):  # cap at 1001 to detect overflow
+        try:
+            obj = _json.loads(line)
+        except Exception:
+            continue
+        if i == 0:
+            columns = list(obj.keys())
+        rows.append([obj.get(col) for col in columns])
+
+    truncated = len(rows) > 1000
+    if truncated:
+        rows = rows[:1000]
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "duration_ms": duration_ms,
+        "truncated": truncated,
+    }

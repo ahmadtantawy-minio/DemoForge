@@ -295,13 +295,26 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
 
     while True:
         if _check_stop_file():
-            print(f"[scenario] Stop file detected — shutting down.")
-            print(f"STATUS: scenario={scenario_id} format={fmt} state=idle")
+            print(f"[scenario] Stop file detected — pausing.")
+            print(f"STATUS: scenario={scenario_id} format={fmt} state=idle rows={rows_generated} rate=0 batches={batches_sent} errors={errors}")
             try:
                 os.remove("/tmp/gen.stop")
+                os.remove("/tmp/gen.pid")
             except Exception:
                 pass
-            break
+            # Stay alive but idle — don't exit (Docker would restart us)
+            while not os.path.exists("/tmp/gen.start"):
+                time.sleep(2)
+            # Resume signal received
+            os.remove("/tmp/gen.start")
+            _write_pid()
+            print(f"[scenario] Resuming generation...")
+            print(f"STATUS: scenario={scenario_id} format={fmt} state=streaming")
+            start_time = time.time()
+            rows_generated = 0
+            batches_sent = 0
+            errors = 0
+            continue
 
         batch_start = time.time()
 
@@ -368,12 +381,19 @@ def main():
 
     while True:
         if _check_stop_file():
-            print("Stop file detected — shutting down.")
+            print("Stop file detected — pausing.")
             try:
                 os.remove("/tmp/gen.stop")
+                os.remove("/tmp/gen.pid")
             except Exception:
                 pass
-            break
+            # Stay alive but idle
+            while not os.path.exists("/tmp/gen.start"):
+                time.sleep(2)
+            os.remove("/tmp/gen.start")
+            _write_pid()
+            print("Resuming generation...")
+            continue
 
         for _ in range(DG_BATCH_SIZE):
             try:

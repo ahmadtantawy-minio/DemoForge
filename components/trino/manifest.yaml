@@ -34,6 +34,12 @@ secrets:
   - key: TRINO_PASSWORD
     label: "Password"
     default: "(any or blank — dev mode)"
+  - key: TRINO_JDBC_URL
+    label: "JDBC URL"
+    default: "jdbc:trino://{host}:8080/iceberg/demo"
+  - key: TRINO_JDBC_DRIVER
+    label: "JDBC Driver"
+    default: "io.trino.jdbc.TrinoDriver"
 
 web_ui:
   - name: trino-ui
