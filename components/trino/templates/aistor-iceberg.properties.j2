@@ -6,7 +6,6 @@
 {%- if source_node.component == 'minio-aistore' %}
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
 {%- elif source_node.component == 'nginx' and source_node.id.endswith('-lb') %}
-{#- Cluster LB node — use the LB endpoint on port 80, _iceberg path still works through LB #}
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
 {%- endif %}
 {%- endif %}
@@ -17,14 +16,18 @@ connector.name=iceberg
 iceberg.catalog.type=rest
 iceberg.rest-catalog.uri={{ ns.aistor_endpoint }}/_iceberg
 iceberg.rest-catalog.warehouse=analytics
-iceberg.rest-catalog.security=OAUTH2
+iceberg.rest-catalog.security=SIGV4
 iceberg.rest-catalog.vended-credentials-enabled=true
+iceberg.rest-catalog.signing-name=s3tables
+iceberg.rest-catalog.view-endpoints-enabled=true
+iceberg.unique-table-location=true
 fs.native-s3.enabled=true
+fs.hadoop.enabled=false
 s3.endpoint={{ ns.aistor_endpoint }}
 s3.path-style-access=true
 s3.aws-access-key=minioadmin
 s3.aws-secret-key=minioadmin
-s3.region=us-east-1
+s3.region=local
 {%- else %}
 connector.name=memory
 {%- endif %}
