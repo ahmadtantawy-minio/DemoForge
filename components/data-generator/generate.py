@@ -245,7 +245,12 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
     interval_s = 60.0 / batches_per_minute if batches_per_minute > 0 else 5.0
     ramp_up_seconds = scenario.get("volume", {}).get("ramp_up_seconds", 0)
 
-    bucket = get_bucket(scenario, fmt)
+    # Use S3_BUCKET from edge config if explicitly set (not the default),
+    # otherwise use the scenario-defined bucket name
+    if S3_BUCKET and S3_BUCKET != "raw-data":
+        bucket = S3_BUCKET
+    else:
+        bucket = get_bucket(scenario, fmt)
     partition_cfg = get_partitioning(scenario, fmt)
 
     print(
