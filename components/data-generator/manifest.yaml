@@ -22,6 +22,8 @@ environment:
   DG_FILE_SIZE_ROWS: "1000"
   DG_RATE: "1"
   DG_BATCH_SIZE: "10"
+  DG_SCENARIO: "ecommerce-orders"
+  DG_RATE_PROFILE: "medium"
   PARTITION_BY_DATE: "true"
 
 secrets:

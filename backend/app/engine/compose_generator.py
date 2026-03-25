@@ -396,6 +396,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "format": "DG_FORMAT",
                     "rows_per_file": "DG_FILE_SIZE_ROWS",
                     "rate": "DG_RATE",
+                    "scenario": "DG_SCENARIO",
+                    "rate_profile": "DG_RATE_PROFILE",
                 }
                 for cfg_key, env_key in _edge_env_map.items():
                     if cfg_key in edge_cfg and edge_cfg[cfg_key]:
