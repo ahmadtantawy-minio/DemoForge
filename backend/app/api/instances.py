@@ -758,28 +758,58 @@ async def get_minio_commands(demo_id: str):
 
 @router.get("/api/demos/{demo_id}/scenario-queries/{scenario_id}")
 async def get_scenario_queries(demo_id: str, scenario_id: str):
-    """Return pre-built queries for a scenario with placeholders resolved."""
-    import sys
+    """Return pre-built queries for a scenario with placeholders resolved.
+
+    When scenario_id is 'all', returns queries for all scenarios grouped:
+      { "scenarios": [{ "id": ..., "name": ..., "queries": [...] }] }
+
+    Otherwise returns the single-scenario format (backward compat):
+      { "scenario_id": ..., "queries": [...] }
+    """
+    import yaml as _yaml
+
     components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
     datasets_dir = os.path.join(os.path.abspath(components_dir), "data-generator", "datasets")
+
+    def _load_queries_from_yaml(yaml_path: str) -> list:
+        with open(yaml_path, "r", encoding="utf-8") as fh:
+            raw = _yaml.safe_load(fh)
+        queries = []
+        for q in raw.get("queries", []):
+            sql = q.get("sql", "").replace("{catalog}", "iceberg").replace("{namespace}", "demo")
+            queries.append({
+                "id": q.get("id", ""),
+                "name": q.get("name", ""),
+                "sql": sql.strip(),
+                "chart_type": q.get("chart_type", ""),
+            })
+        return raw, queries
+
+    if scenario_id == "all":
+        if not os.path.isdir(datasets_dir):
+            return {"scenarios": []}
+        scenarios = []
+        for fname in sorted(os.listdir(datasets_dir)):
+            if not fname.endswith(".yaml"):
+                continue
+            sid = fname[: -len(".yaml")]
+            yaml_path = os.path.join(datasets_dir, fname)
+            try:
+                raw, queries = _load_queries_from_yaml(yaml_path)
+                scenarios.append({
+                    "id": raw.get("id", sid),
+                    "name": raw.get("name", sid),
+                    "queries": queries,
+                })
+            except Exception:
+                pass
+        return {"scenarios": scenarios}
+
     yaml_path = os.path.join(datasets_dir, f"{scenario_id}.yaml")
     if not os.path.exists(yaml_path):
         raise HTTPException(404, f"Scenario '{scenario_id}' not found")
 
-    import yaml as _yaml
-    with open(yaml_path, "r", encoding="utf-8") as fh:
-        raw = _yaml.safe_load(fh)
-
-    queries = []
-    for q in raw.get("queries", []):
-        sql = q.get("sql", "").replace("{catalog}", "iceberg").replace("{namespace}", "demo")
-        queries.append({
-            "id": q.get("id", ""),
-            "name": q.get("name", ""),
-            "sql": sql.strip(),
-            "chart_type": q.get("chart_type", ""),
-        })
-
+    raw, queries = _load_queries_from_yaml(yaml_path)
     return {"scenario_id": scenario_id, "queries": queries}
 
 

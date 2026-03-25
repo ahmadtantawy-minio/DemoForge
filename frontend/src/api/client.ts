@@ -362,6 +362,15 @@ export const fetchScenarioQueries = (demoId: string, scenarioId: string) =>
     queries: Array<{ id: string; name: string; sql: string; chart_type: string }>;
   }>(`/api/demos/${demoId}/scenario-queries/${scenarioId}`);
 
+export const fetchAllScenarioQueries = (demoId: string) =>
+  apiFetch<{
+    scenarios: Array<{
+      id: string;
+      name: string;
+      queries: Array<{ id: string; name: string; sql: string; chart_type: string }>;
+    }>;
+  }>(`/api/demos/${demoId}/scenario-queries/all`);
+
 export const executeTrinoQuery = (demoId: string, sql: string) =>
   apiFetch<{
     columns: string[];

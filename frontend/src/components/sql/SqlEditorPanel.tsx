@@ -1,12 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { fetchScenarioQueries, executeTrinoQuery } from "../../api/client";
+import { fetchAllScenarioQueries, executeTrinoQuery } from "../../api/client";
 
 interface ScenarioQuery {
   id: string;
   name: string;
   sql: string;
   chart_type: string;
+}
+
+interface ScenarioTab {
+  id: string;
+  name: string;
+  queries: ScenarioQuery[];
 }
 
 interface Props {
@@ -34,10 +40,12 @@ const CHART_TYPE_LABELS: Record<string, string> = {
   scalar: "KPI",
   stacked_area: "Area",
   pivot_table: "Pivot",
+  table: "Table",
 };
 
 export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId }: Props) {
-  const [queries, setQueries] = useState<ScenarioQuery[]>([]);
+  const [allScenarios, setAllScenarios] = useState<ScenarioTab[]>([]);
+  const [activeTab, setActiveTab] = useState<string>(scenarioId ?? "ecommerce-orders");
   const [sql, setSql] = useState("");
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -45,17 +53,31 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
   const [loadingQueries, setLoadingQueries] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load scenario queries when panel opens or scenarioId changes
+  // Load all scenarios' queries when panel opens or demoId changes
   useEffect(() => {
-    if (!open || !demoId || !scenarioId) return;
+    if (!open || !demoId) return;
     setLoadingQueries(true);
-    fetchScenarioQueries(demoId, scenarioId)
+    fetchAllScenarioQueries(demoId)
       .then((res) => {
-        setQueries(res.queries);
+        setAllScenarios(res.scenarios);
+        // Set active tab to the current scenario if provided, else first scenario
+        if (scenarioId && res.scenarios.some((s) => s.id === scenarioId)) {
+          setActiveTab(scenarioId);
+        } else if (res.scenarios.length > 0) {
+          setActiveTab(res.scenarios[0].id);
+        }
       })
-      .catch(() => setQueries([]))
+      .catch(() => setAllScenarios([]))
       .finally(() => setLoadingQueries(false));
-  }, [open, demoId, scenarioId]);
+  }, [open, demoId]);
+
+  // When scenarioId prop changes (user switched scenario in properties panel),
+  // update the active tab if that scenario exists
+  useEffect(() => {
+    if (scenarioId && allScenarios.some((s) => s.id === scenarioId)) {
+      setActiveTab(scenarioId);
+    }
+  }, [scenarioId, allScenarios]);
 
   // Reset state when closed
   useEffect(() => {
@@ -65,10 +87,27 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
     }
   }, [open]);
 
+  const activeScenario = allScenarios.find((s) => s.id === activeTab);
+  const queries = activeScenario?.queries ?? [];
+
+  // Group queries by chart_type
+  const grouped = queries.reduce<Record<string, ScenarioQuery[]>>((acc, q) => {
+    const group = q.chart_type || "other";
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(q);
+    return acc;
+  }, {});
+
   const loadQuery = (q: ScenarioQuery) => {
     setSelectedQueryId(q.id);
     setSql(q.sql);
     setResult(null);
+  };
+
+  // Clear selected query when switching tabs
+  const switchTab = (tabId: string) => {
+    setActiveTab(tabId);
+    setSelectedQueryId(null);
   };
 
   const runQuery = async () => {
@@ -98,14 +137,6 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
     }
   };
 
-  // Group queries by chart_type
-  const grouped = queries.reduce<Record<string, ScenarioQuery[]>>((acc, q) => {
-    const group = q.chart_type || "other";
-    if (!acc[group]) acc[group] = [];
-    acc[group].push(q);
-    return acc;
-  }, {});
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0 bg-card text-foreground">
@@ -113,37 +144,57 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
           <DialogTitle className="text-base font-semibold">SQL Editor</DialogTitle>
         </DialogHeader>
 
+        {/* Scenario tabs */}
+        {!loadingQueries && allScenarios.length > 0 && (
+          <div className="flex border-b border-border shrink-0 bg-muted/10">
+            {allScenarios.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => switchTab(s.id)}
+                className={`px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
+                  activeTab === s.id
+                    ? "border-primary text-primary bg-background"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {loadingQueries && (
+          <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border shrink-0">
+            Loading scenarios...
+          </div>
+        )}
+
         <div className="flex flex-1 min-h-0">
           {/* Left sidebar: pre-built queries */}
-          {queries.length > 0 || loadingQueries ? (
+          {queries.length > 0 ? (
             <div className="w-48 shrink-0 border-r border-border overflow-y-auto bg-muted/20">
               <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
                 Pre-built Queries
               </div>
-              {loadingQueries ? (
-                <div className="px-3 py-4 text-xs text-muted-foreground">Loading...</div>
-              ) : (
-                Object.entries(grouped).map(([chartType, qs]) => (
-                  <div key={chartType}>
-                    <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-muted-foreground/60 font-medium">
-                      {CHART_TYPE_LABELS[chartType] ?? chartType}
-                    </div>
-                    {qs.map((q) => (
-                      <button
-                        key={q.id}
-                        onClick={() => loadQuery(q)}
-                        className={`w-full text-left px-3 py-2 text-xs transition-colors border-b border-border/50 ${
-                          selectedQueryId === q.id
-                            ? "bg-primary/15 text-primary border-l-2 border-l-primary"
-                            : "text-foreground hover:bg-accent"
-                        }`}
-                      >
-                        {q.name}
-                      </button>
-                    ))}
+              {Object.entries(grouped).map(([chartType, qs]) => (
+                <div key={chartType}>
+                  <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-muted-foreground/60 font-medium">
+                    {CHART_TYPE_LABELS[chartType] ?? chartType}
                   </div>
-                ))
-              )}
+                  {qs.map((q) => (
+                    <button
+                      key={q.id}
+                      onClick={() => loadQuery(q)}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors border-b border-border/50 ${
+                        selectedQueryId === q.id
+                          ? "bg-primary/15 text-primary border-l-2 border-l-primary"
+                          : "text-foreground hover:bg-accent"
+                      }`}
+                    >
+                      {q.name}
+                    </button>
+                  ))}
+                </div>
+              ))}
             </div>
           ) : null}
 
