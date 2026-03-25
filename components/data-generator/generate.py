@@ -257,6 +257,15 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             client.create_bucket(Bucket=bucket)
             print(f"[scenario] Created bucket '{bucket}'.")
 
+    # Run table setup (create Iceberg tables, register in Trino if available)
+    try:
+        from src.table_setup import run_setup
+        endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
+        run_setup(scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY)
+        print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
+    except Exception as exc:
+        print(f"[scenario] Table setup skipped: {exc}")
+
     writer = _get_writer(fmt)
 
     rows_generated = 0

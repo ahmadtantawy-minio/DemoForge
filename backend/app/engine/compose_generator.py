@@ -386,6 +386,21 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 env["CATALOG_S3_ENDPOINT"] = s3_endpoint_url
             if "S3_ENDPOINT" in env:
                 env["S3_ENDPOINT"] = s3_endpoint_url
+
+            # Apply edge config to environment (e.g. target_bucket, format, rate)
+            edge_cfg = edge.connection_config or {}
+            if edge_cfg:
+                _edge_env_map = {
+                    "target_bucket": "S3_BUCKET",
+                    "bucket": "S3_BUCKET",
+                    "format": "DG_FORMAT",
+                    "rows_per_file": "DG_FILE_SIZE_ROWS",
+                    "rate": "DG_RATE",
+                }
+                for cfg_key, env_key in _edge_env_map.items():
+                    if cfg_key in edge_cfg and edge_cfg[cfg_key]:
+                        env[env_key] = str(edge_cfg[cfg_key])
+
             break  # Use first s3 edge
 
         # Determine which networks this node joins
