@@ -43,5 +43,5 @@ export const connectionLabels: Record<string, string> = {
   "hdfs": "HDFS",
   "failover": "Failover",
   "structured-data": "Data Push",
-  "aistor-tables": "AIStor Tables",
+  "aistor-tables": "AIStor Tables (SigV4 Iceberg)",
 };

@@ -128,7 +128,7 @@ async def forward_request(
             base_path = f"{proxy_prefix}/{subdir}/" if subdir else f"{proxy_prefix}/"
         else:
             base_path = f"{proxy_prefix}/"
-        content = _inject_base_tag(content, base_path)
+        content = _inject_base_tag(content, base_path, proxy_prefix)
 
     return Response(
         content=content,
@@ -152,20 +152,42 @@ def _rewrite_cookie_path(cookie: str, proxy_prefix: str) -> str:
         return re.sub(r'Path=/[^;]*', f'Path={proxy_prefix}/', cookie)
     return cookie + f"; Path={proxy_prefix}/"
 
-def _inject_base_tag(content: bytes, base_href: str) -> bytes:
-    """Inject a <base href> tag into HTML so relative paths resolve through the proxy."""
+def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> bytes:
+    """Inject a <base href> tag and fetch interceptor into HTML.
+
+    The base tag fixes relative CSS/JS paths. The fetch interceptor rewrites
+    absolute API paths (like /ui/api/...) through the proxy prefix so that
+    SPAs with hardcoded fetch() calls work correctly.
+    """
     try:
         html = content.decode("utf-8")
     except UnicodeDecodeError:
         return content
 
+    # Use the proxy prefix (without subdir) for fetch rewriting
+    proxy_base = proxy_prefix.rstrip("/") if proxy_prefix else base_href.rstrip("/")
+
     base_tag = f'<base href="{base_href}">'
+    # Intercept fetch() to rewrite absolute paths through the proxy
+    fetch_interceptor = (
+        f'<script>'
+        f'(function(){{var _f=window.fetch;window.fetch=function(u,o){{'
+        f'if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith("{proxy_base}")){{u="{proxy_base}"+u;}}'
+        f'return _f.call(this,u,o);}};'
+        f'var _x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){{'
+        f'if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith("{proxy_base}")){{u="{proxy_base}"+u;}}'
+        f'return _x.apply(this,arguments);}};'
+        f'}})();'
+        f'</script>'
+    )
+
+    inject = base_tag + fetch_interceptor
 
     # Insert after <head> if present
     if "<head>" in html:
-        html = html.replace("<head>", f"<head>{base_tag}", 1)
+        html = html.replace("<head>", f"<head>{inject}", 1)
     elif "<HEAD>" in html:
-        html = html.replace("<HEAD>", f"<HEAD>{base_tag}", 1)
+        html = html.replace("<HEAD>", f"<HEAD>{inject}", 1)
     elif "<html" in html.lower():
         # Fallback: insert at the start of body or after first tag
         html = base_tag + html
