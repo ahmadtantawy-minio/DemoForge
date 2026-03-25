@@ -279,6 +279,36 @@ export const getFailoverStatus = (demoId: string) =>
     `/api/demos/${demoId}/failover-status`
   );
 
+// Generator control
+export const getGeneratorStatus = (demoId: string, nodeId: string) =>
+  apiFetch<{
+    state: string;
+    scenario?: string;
+    format?: string;
+    rate_profile?: string;
+    rows_generated?: number;
+    rows_per_sec?: number;
+    batches_sent?: number;
+    last_batch_ts?: string;
+    errors?: number;
+  }>(`/api/demos/${demoId}/generator-status/${nodeId}`);
+
+export const startGenerator = (
+  demoId: string,
+  nodeId: string,
+  config: { scenario: string; format: string; rate_profile: string }
+) =>
+  apiFetch<{ state: string; scenario: string; format: string; rate_profile: string }>(
+    `/api/demos/${demoId}/generator-start/${nodeId}`,
+    { method: "POST", body: JSON.stringify(config) }
+  );
+
+export const stopGenerator = (demoId: string, nodeId: string) =>
+  apiFetch<{ state: string }>(
+    `/api/demos/${demoId}/generator-stop/${nodeId}`,
+    { method: "POST" }
+  );
+
 // Resilience tester status
 export const getResilienceStatus = (demoId: string) =>
   apiFetch<{

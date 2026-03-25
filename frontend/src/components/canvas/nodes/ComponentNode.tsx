@@ -68,6 +68,11 @@ export default function ComponentNode({ id, data }: NodeProps) {
         <div>
           <div className="font-semibold text-sm text-foreground">{nodeData.displayName || nodeData.label}</div>
           <div className="text-xs text-muted-foreground">{nodeData.displayName ? nodeData.label : ""} {nodeData.variant}</div>
+          {nodeData.componentId === "data-generator" && nodeData.config?.DG_SCENARIO && (
+            <div className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
+              {{"ecommerce-orders": "E-commerce Orders", "iot-telemetry": "IoT Sensor Telemetry", "financial-txn": "Financial Transactions"}[nodeData.config.DG_SCENARIO] ?? nodeData.config.DG_SCENARIO}
+            </div>
+          )}
         </div>
         {nodeData.health && (
           <span

@@ -656,6 +656,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             mcpEnabled={isCluster ? (ctxNode?.data as any)?.mcpEnabled !== false : false}
             instance={instance}
             demoId={activeDemoId ?? ""}
+            nodeConfig={(ctxNode?.data as any)?.config}
             onOpenAdmin={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "overview" }) : undefined}
             onOpenMcpTools={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "mcp-tools" }) : undefined}
             onOpenAiChat={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}

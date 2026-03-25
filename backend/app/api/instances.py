@@ -3,6 +3,7 @@ import logging
 import os
 import shlex
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from ..state.store import state, EdgeConfigResult
 from ..registry.loader import get_component
 from ..engine.docker_manager import get_container_health, restart_container, exec_in_container, docker_client
@@ -592,6 +593,85 @@ async def reset_cluster(demo_id: str, cluster_id: str):
 
         removed = [line[len("REMOVED:"):] for line in stdout.splitlines() if line.startswith("REMOVED:")]
         return {"status": "reset", "cluster_id": cluster_id, "buckets_removed": len(removed)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.get("/api/demos/{demo_id}/generator-status/{node_id}")
+async def get_generator_status(demo_id: str, node_id: str):
+    """Read generator status from /tmp/gen.status inside the container."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    try:
+        exit_code, stdout, stderr = await exec_in_container(
+            container_name,
+            "sh -c '[ -f /tmp/gen.status ] && cat /tmp/gen.status || echo STATE=idle'",
+        )
+        parsed: dict = {"state": "idle", "rows_generated": 0, "batches_sent": 0, "errors": 0}
+        for line in stdout.splitlines():
+            line = line.strip()
+            if "=" in line:
+                k, _, v = line.partition("=")
+                parsed[k.lower()] = v
+        # Normalise numeric fields
+        for field in ("rows_generated", "batches_sent", "errors", "rows_per_sec"):
+            if field in parsed:
+                try:
+                    parsed[field] = float(parsed[field]) if field == "rows_per_sec" else int(parsed[field])
+                except (ValueError, TypeError):
+                    parsed[field] = 0
+        return parsed
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+class GeneratorStartRequest(BaseModel):
+    scenario: str = "ecommerce-orders"
+    format: str = "parquet"
+    rate_profile: str = "medium"
+
+
+@router.post("/api/demos/{demo_id}/generator-start/{node_id}")
+async def start_generator(demo_id: str, node_id: str, req: GeneratorStartRequest):
+    """Start the data-generator with the given scenario/format/rate_profile."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    # Stop any existing run first
+    stop_cmd = "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid /tmp/gen.stop; sleep 0.5'"
+    await exec_in_container(container_name, stop_cmd)
+    # Start with the requested config as env vars
+    start_cmd = (
+        f"sh -c 'export DG_SCENARIO={shlex.quote(req.scenario)} "
+        f"DG_FORMAT={shlex.quote(req.format)} "
+        f"DG_RATE_PROFILE={shlex.quote(req.rate_profile)}; "
+        f"nohup python3 /app/generate.py > /tmp/gen.log 2>&1 & PID=$!; echo $PID > /tmp/gen.pid; echo started'"
+    )
+    try:
+        exit_code, stdout, stderr = await exec_in_container(container_name, start_cmd)
+        if exit_code != 0:
+            raise HTTPException(500, stderr or stdout)
+        return {"state": "ramp_up", "scenario": req.scenario, "format": req.format, "rate_profile": req.rate_profile}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.post("/api/demos/{demo_id}/generator-stop/{node_id}")
+async def stop_generator(demo_id: str, node_id: str):
+    """Stop the data-generator by touching /tmp/gen.stop and killing the PID."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    stop_cmd = "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid; echo stopped'"
+    try:
+        await exec_in_container(container_name, stop_cmd)
+        return {"state": "idle"}
     except Exception as e:
         raise HTTPException(500, str(e))
 

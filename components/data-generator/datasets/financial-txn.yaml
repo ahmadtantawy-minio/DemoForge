@@ -1,0 +1,211 @@
+id: financial-txn
+name: "Financial transactions"
+description: "Banking transactions with risk scoring and compliance flags. Compliance/audit demo."
+
+schema:
+  columns:
+    - name: txn_id
+      type: string
+      generator: uuid
+
+    - name: txn_ts
+      type: timestamp
+      generator: now_jitter
+
+    - name: account_from
+      type: string
+      generator: {type: pattern, template: "ACC-{seq:06d}", seq_range: [100000, 999999]}
+
+    - name: account_to
+      type: string
+      generator: {type: pattern, template: "ACC-{seq:06d}", seq_range: [100000, 999999]}
+
+    - name: amount
+      type: float64
+      generator: {type: lognormal, mean: 5.5, sigma: 2.0, min: 0.50, max: 500000.0, precision: 2}
+
+    - name: currency
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "USD": 0.40
+          "EUR": 0.22
+          "GBP": 0.12
+          "AED": 0.10
+          "JPY": 0.06
+          "CHF": 0.05
+          "SGD": 0.05
+
+    - name: txn_type
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "transfer": 0.35
+          "payment": 0.30
+          "deposit": 0.20
+          "withdrawal": 0.15
+
+    - name: channel
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "mobile_app": 0.40
+          "web_portal": 0.25
+          "branch": 0.15
+          "api": 0.12
+          "atm": 0.08
+
+    - name: country
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "US": 0.30
+          "UK": 0.15
+          "UAE": 0.12
+          "DE": 0.10
+          "SG": 0.08
+          "JP": 0.08
+          "CH": 0.07
+          "FR": 0.05
+          "Other": 0.05
+
+    - name: risk_score
+      type: float64
+      generator: {type: beta, alpha: 2.0, beta: 8.0, precision: 3}
+      # Beta(2,8) produces mostly low scores with a long right tail — realistic
+
+    - name: flagged
+      type: boolean
+      generator: {type: computed, expression: "risk_score > 0.65"}
+
+    - name: compliance_status
+      type: string
+      generator:
+        type: computed
+        expression: >
+          'blocked' if risk_score > 0.85 else ('review' if risk_score > 0.65 else 'cleared')
+
+partitioning:
+  parquet:
+    keys: [currency]
+    time_column: txn_ts
+    time_granularity: day
+  json: flat
+  csv: flat
+
+iceberg:
+  warehouse: analytics
+  namespace: demo
+  table: transactions
+  partition_spec: "PARTITIONED BY (currency, days(txn_ts))"
+  sort_order: "txn_ts"
+
+buckets:
+  parquet: "txn-parquet"
+  json: "txn-json"
+  csv: "txn-csv"
+
+volume:
+  default_rows_per_batch: 300
+  default_batches_per_minute: 10
+  profiles:
+    low:    {rows_per_batch: 50, batches_per_minute: 4}
+    medium: {rows_per_batch: 300, batches_per_minute: 10}
+    high:   {rows_per_batch: 1000, batches_per_minute: 20}
+  ramp_up_seconds: 20
+
+queries:
+  - id: volume_by_currency
+    name: "Transaction volume by currency"
+    sql: >
+      SELECT currency,
+             COUNT(*) AS txn_count,
+             ROUND(SUM(amount), 2) AS total_volume
+      FROM {catalog}.{namespace}.transactions
+      GROUP BY currency
+      ORDER BY total_volume DESC
+    chart_type: bar
+
+  - id: txn_per_minute
+    name: "Transactions per minute"
+    sql: >
+      SELECT date_trunc('minute', txn_ts) AS minute,
+             COUNT(*) AS txns
+      FROM {catalog}.{namespace}.transactions
+      WHERE txn_ts > current_timestamp - interval '30' minute
+      GROUP BY 1
+      ORDER BY 1
+    chart_type: line
+    auto_refresh_seconds: 10
+
+  - id: flagged_rate
+    name: "Flagged transactions over time"
+    sql: >
+      SELECT date_trunc('minute', txn_ts) AS minute,
+             compliance_status,
+             COUNT(*) AS count
+      FROM {catalog}.{namespace}.transactions
+      GROUP BY 1, 2
+      ORDER BY 1
+    chart_type: stacked_area
+
+  - id: channel_breakdown
+    name: "Transactions by channel"
+    sql: >
+      SELECT channel,
+             COUNT(*) AS count,
+             ROUND(AVG(amount), 2) AS avg_amount
+      FROM {catalog}.{namespace}.transactions
+      GROUP BY channel
+    chart_type: horizontal_bar
+
+  - id: high_risk_accounts
+    name: "High risk accounts"
+    sql: >
+      SELECT account_from,
+             COUNT(*) AS flagged_txns,
+             ROUND(SUM(amount), 2) AS total_flagged_amount,
+             ROUND(MAX(risk_score), 3) AS max_risk
+      FROM {catalog}.{namespace}.transactions
+      WHERE flagged = true
+      GROUP BY account_from
+      ORDER BY flagged_txns DESC
+      LIMIT 20
+    chart_type: table
+
+  - id: kpis
+    name: "Transaction KPIs"
+    sql: >
+      SELECT COUNT(*) AS total_txns,
+             ROUND(SUM(amount), 2) AS total_volume,
+             ROUND(AVG(amount), 2) AS avg_txn_size,
+             SUM(CASE WHEN flagged THEN 1 ELSE 0 END) AS flagged_count,
+             ROUND(100.0 * SUM(CASE WHEN flagged THEN 1 ELSE 0 END) / COUNT(*), 2) AS flag_rate_pct
+      FROM {catalog}.{namespace}.transactions
+    chart_type: scalar
+
+  - id: country_heatmap
+    name: "Volume by country and type"
+    sql: >
+      SELECT country,
+             txn_type,
+             COUNT(*) AS txns
+      FROM {catalog}.{namespace}.transactions
+      GROUP BY 1, 2
+    chart_type: pivot_table
+
+metabase_dashboard:
+  name: "Financial Transactions Monitor"
+  description: "Real-time transaction monitoring with risk scoring"
+  layout:
+    - {query: kpis, row: 0, col: 0, width: 18, height: 3}
+    - {query: txn_per_minute, row: 3, col: 0, width: 12, height: 5}
+    - {query: volume_by_currency, row: 3, col: 12, width: 6, height: 5}
+    - {query: flagged_rate, row: 8, col: 0, width: 12, height: 5}
+    - {query: channel_breakdown, row: 8, col: 12, width: 6, height: 5}
+    - {query: high_risk_accounts, row: 13, col: 0, width: 12, height: 5}
+    - {query: country_heatmap, row: 13, col: 12, width: 6, height: 5}

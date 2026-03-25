@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import type { ContainerInstance } from "../../../types";
-import { proxyUrl, restartInstance, execCommand } from "../../../api/client";
+import { proxyUrl, restartInstance, execCommand, startGenerator, stopGenerator } from "../../../api/client";
 
 interface Props {
   x: number;
@@ -14,6 +14,7 @@ interface Props {
   instance: ContainerInstance | undefined;
   demoId: string;
   isRunning: boolean;
+  nodeConfig?: Record<string, string>;
   onOpenTerminal: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   onOpenAdmin?: () => void;
@@ -23,7 +24,7 @@ interface Props {
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onClose,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -56,12 +57,19 @@ export default function NodeContextMenu({
         label: "▶ Start Generating",
         action: () => {
           toast.info("Starting data generation...");
-          const cmd = componentId === "data-generator"
-            ? "sh -c 'nohup python3 /app/generate.py > /tmp/gen.log 2>&1 & PID=$!; echo $PID > /tmp/gen.pid; echo started'"
-            : "sh -c 'nohup sh /generate.sh > /tmp/gen.log 2>&1 & echo started'";
-          execCommand(demoId, nodeId, cmd)
-            .then(() => toast.success("Data generation started"))
-            .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
+          if (componentId === "data-generator") {
+            startGenerator(demoId, nodeId, {
+              scenario: nodeConfig?.DG_SCENARIO ?? "ecommerce-orders",
+              format: nodeConfig?.DG_FORMAT ?? "parquet",
+              rate_profile: nodeConfig?.DG_RATE_PROFILE ?? "medium",
+            })
+              .then(() => toast.success("Data generation started"))
+              .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
+          } else {
+            execCommand(demoId, nodeId, "sh -c 'nohup sh /generate.sh > /tmp/gen.log 2>&1 & echo started'")
+              .then(() => toast.success("Data generation started"))
+              .catch((err: any) => toast.error("Failed to start generation", { description: err.message }));
+          }
         },
         destructive: false,
       },
@@ -69,9 +77,15 @@ export default function NodeContextMenu({
         label: "⏹ Stop Generating",
         action: () => {
           toast.info("Stopping data generation...");
-          execCommand(demoId, nodeId, "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid; echo stopped'")
-            .then(() => toast.success("Data generation stopped"))
-            .catch((err: any) => toast.error("Failed to stop generation", { description: err.message }));
+          if (componentId === "data-generator") {
+            stopGenerator(demoId, nodeId)
+              .then(() => toast.success("Data generation stopped"))
+              .catch((err: any) => toast.error("Failed to stop generation", { description: err.message }));
+          } else {
+            execCommand(demoId, nodeId, "sh -c 'touch /tmp/gen.stop; [ -f /tmp/gen.pid ] && kill $(cat /tmp/gen.pid) 2>/dev/null; rm -f /tmp/gen.pid; echo stopped'")
+              .then(() => toast.success("Data generation stopped"))
+              .catch((err: any) => toast.error("Failed to stop generation", { description: err.message }));
+          }
         },
         destructive: false,
       },

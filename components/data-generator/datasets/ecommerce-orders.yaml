@@ -1,0 +1,258 @@
+id: ecommerce-orders
+name: "E-commerce orders"
+description: "Retail order stream — products, customers, regions. Good for bar charts, KPIs, time-series."
+
+schema:
+  columns:
+    - name: order_id
+      type: string
+      generator: uuid
+
+    - name: order_ts
+      type: timestamp
+      generator: now_jitter    # Current time +/- 0-2 seconds jitter for realism
+
+    - name: customer_id
+      type: int64
+      generator: {type: range, min: 1000, max: 9999}
+
+    - name: customer_name
+      type: string
+      generator: {type: fake, method: name}
+
+    - name: product_name
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "Wireless Headphones": 0.15
+          "USB-C Hub": 0.12
+          "Mechanical Keyboard": 0.10
+          "4K Monitor": 0.08
+          "Laptop Stand": 0.10
+          "Webcam HD": 0.09
+          "Portable SSD 2TB": 0.08
+          "Smart Mouse": 0.07
+          "Desk Lamp": 0.06
+          "Cable Kit": 0.15
+
+    - name: category
+      type: string
+      generator:
+        type: derived_from
+        source_column: product_name
+        mapping:
+          "Wireless Headphones": "Audio"
+          "USB-C Hub": "Accessories"
+          "Mechanical Keyboard": "Input Devices"
+          "4K Monitor": "Displays"
+          "Laptop Stand": "Accessories"
+          "Webcam HD": "Video"
+          "Portable SSD 2TB": "Storage"
+          "Smart Mouse": "Input Devices"
+          "Desk Lamp": "Office"
+          "Cable Kit": "Accessories"
+
+    - name: quantity
+      type: int32
+      generator: {type: range, min: 1, max: 10, distribution: exponential, lambda: 2.0}
+
+    - name: unit_price
+      type: float64
+      generator:
+        type: derived_from
+        source_column: product_name
+        mapping:
+          "Wireless Headphones": 79.99
+          "USB-C Hub": 45.99
+          "Mechanical Keyboard": 129.99
+          "4K Monitor": 449.99
+          "Laptop Stand": 59.99
+          "Webcam HD": 89.99
+          "Portable SSD 2TB": 159.99
+          "Smart Mouse": 39.99
+          "Desk Lamp": 34.99
+          "Cable Kit": 19.99
+
+    - name: total_amount
+      type: float64
+      generator: {type: computed, expression: "quantity * unit_price"}
+
+    - name: region
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "US-East": 0.30
+          "US-West": 0.25
+          "EU-West": 0.20
+          "APAC": 0.15
+          "LATAM": 0.10
+
+    - name: payment_method
+      type: string
+      generator: {type: enum, values: ["Credit Card", "PayPal", "Wire Transfer", "Crypto"]}
+
+    - name: status
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "completed": 0.75
+          "processing": 0.15
+          "refunded": 0.05
+          "cancelled": 0.05
+
+partitioning:
+  parquet:
+    keys: [region]
+    time_column: order_ts
+    time_granularity: day        # bucket/region=US-East/year=2026/month=03/day=24/*.parquet
+  json: flat                      # bucket/*.ndjson
+  csv: flat                       # bucket/*.csv
+
+iceberg:
+  warehouse: analytics
+  namespace: demo
+  table: orders
+  partition_spec: "PARTITIONED BY (region, days(order_ts))"
+  sort_order: "order_ts"
+
+buckets:
+  parquet: "orders-parquet"
+  json: "orders-json"
+  csv: "orders-csv"
+  iceberg: null                   # Iceberg manages its own storage location
+
+volume:
+  default_rows_per_batch: 500
+  default_batches_per_minute: 12  # ~100 rows/sec
+  profiles:
+    low:    {rows_per_batch: 100, batches_per_minute: 6}
+    medium: {rows_per_batch: 500, batches_per_minute: 12}
+    high:   {rows_per_batch: 2000, batches_per_minute: 30}
+  ramp_up_seconds: 30             # Gradual start for demo effect
+
+queries:
+  - id: revenue_by_region
+    name: "Revenue by region"
+    sql: >
+      SELECT region,
+             ROUND(SUM(total_amount), 2) AS revenue,
+             COUNT(*) AS order_count
+      FROM {catalog}.{namespace}.orders
+      GROUP BY region
+      ORDER BY revenue DESC
+    chart_type: bar
+    chart_config:
+      x: region
+      y: revenue
+      series: null
+
+  - id: orders_per_minute
+    name: "Orders per minute"
+    sql: >
+      SELECT date_trunc('minute', order_ts) AS minute,
+             COUNT(*) AS orders
+      FROM {catalog}.{namespace}.orders
+      WHERE order_ts > current_timestamp - interval '30' minute
+      GROUP BY 1
+      ORDER BY 1
+    chart_type: line
+    chart_config:
+      x: minute
+      y: orders
+    auto_refresh_seconds: 10
+
+  - id: top_products
+    name: "Top 10 products by quantity"
+    sql: >
+      SELECT product_name,
+             SUM(quantity) AS total_qty,
+             ROUND(SUM(total_amount), 2) AS total_revenue
+      FROM {catalog}.{namespace}.orders
+      GROUP BY product_name
+      ORDER BY total_qty DESC
+      LIMIT 10
+    chart_type: horizontal_bar
+    chart_config:
+      x: total_qty
+      y: product_name
+
+  - id: category_revenue
+    name: "Revenue by category"
+    sql: >
+      SELECT category,
+             ROUND(SUM(total_amount), 2) AS revenue
+      FROM {catalog}.{namespace}.orders
+      GROUP BY category
+    chart_type: pie
+    chart_config:
+      dimension: category
+      metric: revenue
+
+  - id: payment_distribution
+    name: "Payment methods"
+    sql: >
+      SELECT payment_method,
+             COUNT(*) AS count
+      FROM {catalog}.{namespace}.orders
+      GROUP BY payment_method
+    chart_type: donut
+    chart_config:
+      dimension: payment_method
+      metric: count
+
+  - id: kpis
+    name: "Key metrics"
+    sql: >
+      SELECT COUNT(*) AS total_orders,
+             ROUND(SUM(total_amount), 2) AS total_revenue,
+             ROUND(AVG(total_amount), 2) AS avg_order_value,
+             COUNT(DISTINCT customer_id) AS unique_customers
+      FROM {catalog}.{namespace}.orders
+    chart_type: scalar
+    chart_config:
+      metrics: [total_orders, total_revenue, avg_order_value, unique_customers]
+
+  - id: status_over_time
+    name: "Order status over time"
+    sql: >
+      SELECT date_trunc('minute', order_ts) AS minute,
+             status,
+             COUNT(*) AS count
+      FROM {catalog}.{namespace}.orders
+      GROUP BY 1, 2
+      ORDER BY 1
+    chart_type: stacked_area
+    chart_config:
+      x: minute
+      y: count
+      series: status
+
+  - id: region_time_heatmap
+    name: "Volume by region and hour"
+    sql: >
+      SELECT region,
+             hour(order_ts) AS hour_of_day,
+             COUNT(*) AS orders
+      FROM {catalog}.{namespace}.orders
+      GROUP BY 1, 2
+    chart_type: pivot_table
+    chart_config:
+      rows: region
+      columns: hour_of_day
+      values: orders
+
+metabase_dashboard:
+  name: "Live Orders Analytics"
+  description: "Real-time e-commerce order monitoring"
+  layout:
+    - {query: kpis, row: 0, col: 0, width: 18, height: 3}
+    - {query: orders_per_minute, row: 3, col: 0, width: 12, height: 5}
+    - {query: revenue_by_region, row: 3, col: 12, width: 6, height: 5}
+    - {query: top_products, row: 8, col: 0, width: 9, height: 5}
+    - {query: category_revenue, row: 8, col: 9, width: 4, height: 5}
+    - {query: payment_distribution, row: 8, col: 13, width: 5, height: 5}
+    - {query: status_over_time, row: 13, col: 0, width: 12, height: 5}
+    - {query: region_time_heatmap, row: 13, col: 12, width: 6, height: 5}
