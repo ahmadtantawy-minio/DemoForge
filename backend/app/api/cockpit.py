@@ -133,7 +133,7 @@ async def get_cockpit_data(demo_id: str):
         batch_script = (
             f'for b in $(mc ls {alias} 2>/dev/null | tr -s " " | cut -d" " -f5 | tr -d "/"); do '
             f'[ -z "$b" ] && continue; '
-            f'count=$(mc ls {alias}/$b/ --json 2>/dev/null | wc -l); '
+            f'count=$(mc ls --recursive {alias}/$b/ --json 2>/dev/null | wc -l); '
             f'size=$(mc du {alias}/$b --json 2>/dev/null | tail -1); '
             f'echo "BUCKET:$b:$count:$size"; '
             f'done'

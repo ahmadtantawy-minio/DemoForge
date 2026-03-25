@@ -191,7 +191,15 @@ def _check_stop_file():
     return os.path.exists("/tmp/gen.stop")
 
 
+def _clean_stop_file():
+    """Remove stale stop file from previous runs."""
+    try:
+        os.remove("/tmp/gen.stop")
+    except FileNotFoundError:
+        pass
+
 def _write_pid():
+    _clean_stop_file()
     try:
         with open("/tmp/gen.pid", "w") as fh:
             fh.write(str(os.getpid()))
