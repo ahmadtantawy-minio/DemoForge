@@ -354,3 +354,23 @@ export const callMcpTool = (demoId: string, clusterId: string, toolName: string,
     `/api/demos/${demoId}/minio/${clusterId}/mcp/tools/call`,
     { method: "POST", body: JSON.stringify({ tool_name: toolName, arguments: args }) }
   );
+
+// SQL Editor
+export const fetchScenarioQueries = (demoId: string, scenarioId: string) =>
+  apiFetch<{
+    scenario_id: string;
+    queries: Array<{ id: string; name: string; sql: string; chart_type: string }>;
+  }>(`/api/demos/${demoId}/scenario-queries/${scenarioId}`);
+
+export const executeTrinoQuery = (demoId: string, sql: string) =>
+  apiFetch<{
+    columns: string[];
+    rows: any[][];
+    row_count: number;
+    duration_ms: number;
+    truncated?: boolean;
+    error?: string;
+  }>(`/api/demos/${demoId}/trino-query`, {
+    method: "POST",
+    body: JSON.stringify({ sql }),
+  });

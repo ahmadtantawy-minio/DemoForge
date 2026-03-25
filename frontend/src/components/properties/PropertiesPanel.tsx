@@ -15,6 +15,7 @@ import {
 import ConfigSchemaForm from "./ConfigSchemaForm";
 import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
 import { Eye, EyeOff } from "lucide-react";
+import SqlEditorPanel from "../sql/SqlEditorPanel";
 
 // --- Data Generator scenario metadata ---
 const DG_SCENARIOS = [
@@ -72,9 +73,10 @@ interface DataGeneratorPanelProps {
   isRunning: boolean;
   config: Record<string, string>;
   updateConfig: (key: string, value: string) => void;
+  onOpenSqlEditor?: (scenarioId: string) => void;
 }
 
-function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig }: DataGeneratorPanelProps) {
+function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig, onOpenSqlEditor }: DataGeneratorPanelProps) {
   const scenario = config["DG_SCENARIO"] ?? "ecommerce-orders";
   const format = config["DG_FORMAT"] ?? "parquet";
   const rateProfile = config["DG_RATE_PROFILE"] ?? "medium";
@@ -227,6 +229,17 @@ function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig }:
           ) : null}
         </div>
       )}
+
+      {onOpenSqlEditor && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <button
+            onClick={() => onOpenSqlEditor(scenario)}
+            className="w-full py-1.5 text-xs font-medium rounded border border-emerald-700/50 text-emerald-400 bg-emerald-950/30 hover:bg-emerald-900/40 transition-colors"
+          >
+            Open SQL Editor
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -276,6 +289,8 @@ export default function PropertiesPanel() {
   const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes, setEdges, componentManifests } = useDiagramStore();
   const { instances, activeDemoId, demos } = useDemoStore();
   const [components, setComponents] = useState<ComponentSummary[]>([]);
+  const [sqlEditorOpen, setSqlEditorOpen] = useState(false);
+  const [sqlEditorScenarioId, setSqlEditorScenarioId] = useState("ecommerce-orders");
 
   useEffect(() => {
     fetchComponents()
@@ -760,6 +775,10 @@ export default function PropertiesPanel() {
           isRunning={demos.find((d) => d.id === activeDemoId)?.status === "running"}
           config={data.config}
           updateConfig={updateConfig}
+          onOpenSqlEditor={(scenarioId) => {
+            setSqlEditorScenarioId(scenarioId);
+            setSqlEditorOpen(true);
+          }}
         />
       )}
 
@@ -794,6 +813,15 @@ export default function PropertiesPanel() {
             </div>
           )}
         </div>
+      )}
+
+      {activeDemoId && (
+        <SqlEditorPanel
+          open={sqlEditorOpen}
+          onOpenChange={setSqlEditorOpen}
+          demoId={activeDemoId}
+          scenarioId={sqlEditorScenarioId}
+        />
       )}
     </div>
   );

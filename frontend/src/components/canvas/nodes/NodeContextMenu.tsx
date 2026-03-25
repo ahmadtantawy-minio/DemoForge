@@ -20,11 +20,12 @@ interface Props {
   onOpenAdmin?: () => void;
   onOpenMcpTools?: () => void;
   onOpenAiChat?: () => void;
+  onOpenSqlEditor?: () => void;
   onClose: () => void;
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onClose,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -137,7 +138,18 @@ export default function NodeContextMenu({
           )}
         </>
       )}
-      {menuItems.length === 0 && !isCluster && (
+      {componentId === "trino" && isRunning && onOpenSqlEditor && (
+        <>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+            onClick={() => { onOpenSqlEditor(); onClose(); }}
+          >
+            SQL Editor
+          </button>
+        </>
+      )}
+      {menuItems.length === 0 && !isCluster && componentId !== "trino" && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground">
           Not deployed yet
         </div>

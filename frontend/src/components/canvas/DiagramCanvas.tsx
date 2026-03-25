@@ -22,6 +22,7 @@ import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
 import MinioAdminPanel from "../minio/MinioAdminPanel";
+import SqlEditorPanel from "../sql/SqlEditorPanel";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -85,6 +86,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
   const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: string } | null>(null);
+  const [sqlEditorPanel, setSqlEditorPanel] = useState<{ scenarioId: string } | null>(null);
 
   // Track selected nodes for multi-select grouping
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
@@ -660,6 +662,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             onOpenAdmin={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "overview" }) : undefined}
             onOpenMcpTools={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "mcp-tools" }) : undefined}
             onOpenAiChat={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}
+            onOpenSqlEditor={(ctxNode?.data as any)?.componentId === "trino" ? () => setSqlEditorPanel({ scenarioId: "ecommerce-orders" }) : undefined}
             isRunning={isRunning}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
@@ -846,6 +849,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           clusterId={adminPanel.clusterId}
           clusterLabel={adminPanel.clusterLabel}
           defaultTab={(adminPanel.defaultTab as any) || "overview"}
+        />
+      )}
+
+      {sqlEditorPanel && activeDemoId && (
+        <SqlEditorPanel
+          open={!!sqlEditorPanel}
+          onOpenChange={(open) => { if (!open) setSqlEditorPanel(null); }}
+          demoId={activeDemoId}
+          scenarioId={sqlEditorPanel.scenarioId}
         />
       )}
     </div>
