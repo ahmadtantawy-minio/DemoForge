@@ -1,0 +1,117 @@
+# Template metadata
+_template:
+  name: "RAG Pipeline — Enterprise AI on MinIO"
+  category: "ai"
+  tags: ["rag", "llm", "ollama", "qdrant", "vector-db", "ai", "embeddings"]
+  description: "Documents stored in MinIO, embedded via Ollama, vectors in Qdrant, local LLM answers questions. Full audit trail in MinIO."
+  objective: "Demonstrate MinIO as the unified data foundation for a RAG pipeline"
+  minio_value: "MinIO serves as the single data layer: source documents, vector DB snapshots, and query audit trails."
+  estimated_resources:
+    memory: "6GB"
+    cpu: 4
+    containers: 4
+  external_dependencies:
+    - "Internet required for first Ollama model download (~1.8GB). Cached on subsequent deploys."
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy. Wait for all 4 components to turn green. Ollama downloads models (~1.8GB) on first run."
+    - step: "Verify models"
+      description: "Click Ollama node — properties should show nomic-embed-text and llama3.2:3b."
+    - step: "Load sample documents"
+      description: "Click RAG Pipeline node → 'Load sample docs'. Uploads 5 MinIO docs, creates ~130 embeddings."
+    - step: "Ask questions"
+      description: "Open Chat UI. Ask: 'How many drive failures can MinIO tolerate with EC:4?' — answer cites erasure-coding doc."
+    - step: "Check audit trail"
+      description: "Open MinIO Console → rag-audit-log bucket. Each question is logged as JSON."
+    - step: "Upload your own document"
+      description: "In chat UI, upload any PDF or text file, then ask about its content."
+    - step: "Inspect vectors"
+      description: "Open Qdrant Dashboard → documents collection — each point is a text chunk."
+
+# Standard demo definition
+id: template-rag-pipeline
+name: "RAG Pipeline — Enterprise AI on MinIO"
+description: "Documents in MinIO, embeddings via Ollama, vectors in Qdrant, LLM answers with citations. Full audit trail."
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 100, y: 250}
+    display_name: "MinIO"
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+
+  - id: ollama-1
+    component: ollama
+    variant: default
+    position: {x: 400, y: 50}
+    display_name: "Ollama"
+
+  - id: qdrant-1
+    component: qdrant
+    variant: default
+    position: {x: 400, y: 450}
+    display_name: "Qdrant"
+
+  - id: rag-1
+    component: rag-app
+    variant: default
+    position: {x: 700, y: 250}
+    display_name: "RAG Pipeline"
+
+clusters: []
+
+edges:
+  - id: e-rag-minio
+    source: rag-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Docs + audit logs"
+    connection_config:
+      documents_bucket: "documents"
+      audit_bucket: "rag-audit-log"
+
+  - id: e-rag-ollama
+    source: rag-1
+    target: ollama-1
+    connection_type: llm-api
+    auto_configure: true
+    label: "Embed + generate"
+    connection_config:
+      embedding_model: "nomic-embed-text"
+      chat_model: "llama3.2:3b"
+
+  - id: e-rag-qdrant
+    source: rag-1
+    target: qdrant-1
+    connection_type: vector-db
+    auto_configure: true
+    label: "Vector search"
+
+  - id: e-qdrant-minio
+    source: qdrant-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Snapshot backup"
+    connection_config:
+      snapshot_bucket: "qdrant-snapshots"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: "512m"
+  default_cpu: 0.5
+  max_memory: "4g"
+  max_cpu: 2.0
+  total_memory: "8g"
+  total_cpu: 6.0

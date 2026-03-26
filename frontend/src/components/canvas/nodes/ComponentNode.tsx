@@ -13,6 +13,8 @@ export default function ComponentNode({ id, data }: NodeProps) {
 
   const isResilienceTester = nodeData.componentId === "resilience-tester";
   const isGenerator = nodeData.componentId === "file-generator" || nodeData.componentId === "data-generator";
+  const isRagApp = nodeData.componentId === "rag-app";
+  const isOllama = nodeData.componentId === "ollama";
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
 
@@ -33,6 +35,49 @@ export default function ComponentNode({ id, data }: NodeProps) {
     genTimerRef.current = setInterval(poll, 5000);
     return () => { if (genTimerRef.current) clearInterval(genTimerRef.current); };
   }, [activeDemoId, id, isGenerator, isRunning]);
+
+  // Poll RAG app status
+  const [ragStatus, setRagStatus] = useState<{ documents_ingested?: number; chunks_stored?: number } | null>(null);
+  const ragTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!activeDemoId || !isRagApp || !isRunning) {
+      setRagStatus(null);
+      return;
+    }
+    const poll = () => {
+      execCommand(activeDemoId, id, "wget -qO- http://localhost:8080/status 2>/dev/null")
+        .then((res) => { if (res.exit_code === 0) setRagStatus(JSON.parse(res.stdout)); })
+        .catch(() => setRagStatus(null));
+    };
+    poll();
+    ragTimerRef.current = setInterval(poll, 8000);
+    return () => { if (ragTimerRef.current) clearInterval(ragTimerRef.current); };
+  }, [activeDemoId, id, isRagApp, isRunning]);
+
+  // Poll Ollama models status
+  const [ollamaReady, setOllamaReady] = useState<boolean | null>(null);
+  const ollamaTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!activeDemoId || !isOllama || !isRunning) {
+      setOllamaReady(null);
+      return;
+    }
+    const poll = () => {
+      execCommand(activeDemoId, id, "ollama list 2>/dev/null")
+        .then((res) => {
+          if (res.exit_code === 0) {
+            const lines = res.stdout.trim().split("\n").slice(1);
+            setOllamaReady(lines.length >= 2);
+          } else {
+            setOllamaReady(false);
+          }
+        })
+        .catch(() => setOllamaReady(null));
+    };
+    poll();
+    ollamaTimerRef.current = setInterval(poll, 10000);
+    return () => { if (ollamaTimerRef.current) clearInterval(ollamaTimerRef.current); };
+  }, [activeDemoId, id, isOllama, isRunning]);
 
   const resilienceProbe = isResilienceTester ? resilienceProbes.find((p) => p.node_id === id) : null;
 
@@ -71,6 +116,16 @@ export default function ComponentNode({ id, data }: NodeProps) {
           {nodeData.componentId === "data-generator" && nodeData.config?.DG_SCENARIO && (
             <div className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
               {{"ecommerce-orders": "E-commerce Orders", "iot-telemetry": "IoT Sensor Telemetry", "financial-txn": "Financial Transactions"}[nodeData.config.DG_SCENARIO] ?? nodeData.config.DG_SCENARIO}
+            </div>
+          )}
+          {isRagApp && isRunning && ragStatus && (
+            <div className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
+              {ragStatus.documents_ingested} docs / {ragStatus.chunks_stored} chunks
+            </div>
+          )}
+          {isOllama && isRunning && ollamaReady !== null && (
+            <div className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
+              {ollamaReady ? "Models ready" : "Downloading..."}
             </div>
           )}
         </div>
