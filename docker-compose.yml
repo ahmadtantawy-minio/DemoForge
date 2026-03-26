@@ -17,6 +17,8 @@ services:
       - DEMOFORGE_DEMOS_DIR=/app/demos
       - DEMOFORGE_DATA_DIR=/app/data
       - DEMOFORGE_TEMPLATES_DIR=/app/demo-templates
+      # IMPORTANT: These must resolve to the DemoForge project root, not a subdirectory.
+      # The backend auto-detects the correct paths from docker.sock if these are wrong.
       - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components
       - DEMOFORGE_HOST_DATA_DIR=${PWD}/data
     labels:

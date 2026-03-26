@@ -23,8 +23,54 @@ def _mem_bytes(mem_str: str) -> int:
     return int(mem_str) if mem_str.isdigit() else 0
 
 # Host-side paths for bind mounts (needed when backend runs in Docker)
+# Auto-detect from Docker if env vars point to wrong directory (e.g. run from subdirectory)
 HOST_COMPONENTS_DIR = os.environ.get("DEMOFORGE_HOST_COMPONENTS_DIR", "")
 HOST_DATA_DIR = os.environ.get("DEMOFORGE_HOST_DATA_DIR", "")
+
+
+def _validate_host_paths():
+    """Validate and auto-correct HOST_*_DIR paths.
+
+    If docker compose was run from a subdirectory, ${PWD} resolves wrong.
+    Detect this by checking if HOST_DATA_DIR ends with a known project subdirectory
+    (e.g. frontend/data instead of data), and fix it by inspecting our own mounts.
+    """
+    global HOST_COMPONENTS_DIR, HOST_DATA_DIR
+    import docker as _docker
+
+    # Quick sanity check: HOST_DATA_DIR should end with /data, not /frontend/data etc.
+    if HOST_DATA_DIR and not HOST_DATA_DIR.rstrip("/").endswith("/data"):
+        logger.warning(f"HOST_DATA_DIR looks suspicious: {HOST_DATA_DIR}")
+
+    try:
+        client = _docker.from_env()
+        # Find our own container by the demoforge.role=backend label
+        containers = client.containers.list(filters={"label": "demoforge.role=backend"})
+        if not containers:
+            return
+        backend = containers[0]
+        for mount in backend.attrs.get("Mounts", []):
+            dest = mount.get("Destination", "")
+            src = mount.get("Source", "")
+            if dest == "/app/data" and src:
+                if HOST_DATA_DIR != src:
+                    logger.warning(
+                        f"AUTO-FIX: HOST_DATA_DIR was '{HOST_DATA_DIR}', "
+                        f"corrected to '{src}' (from Docker mount)"
+                    )
+                    HOST_DATA_DIR = src
+            elif dest == "/app/components" and src:
+                if HOST_COMPONENTS_DIR != src:
+                    logger.warning(
+                        f"AUTO-FIX: HOST_COMPONENTS_DIR was '{HOST_COMPONENTS_DIR}', "
+                        f"corrected to '{src}' (from Docker mount)"
+                    )
+                    HOST_COMPONENTS_DIR = src
+    except Exception as exc:
+        logger.debug(f"Could not auto-detect host paths: {exc}")
+
+
+_validate_host_paths()
 
 
 def _to_host_path(container_path: str, path_type: str) -> str:
