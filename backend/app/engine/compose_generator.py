@@ -395,6 +395,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     env["MINIO_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
                 env["MINIO_ENDPOINT"] = s3_endpoint_url
 
+            # Forward MinIO credentials for MLflow and ML Trainer
+            if node.component in ("mlflow", "ml-trainer"):
+                peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+                if peer_node_obj:
+                    env["AWS_ACCESS_KEY_ID"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
+                    env["AWS_SECRET_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+                env["MLFLOW_S3_ENDPOINT_URL"] = s3_endpoint_url
+
             # Apply edge config to environment (e.g. target_bucket, format, rate)
             edge_cfg = edge.connection_config or {}
             if edge_cfg:
@@ -411,6 +419,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "snapshot_bucket": "QDRANT_SNAPSHOT_BUCKET",
                     "embedding_model": "EMBEDDING_MODEL",
                     "chat_model": "CHAT_MODEL",
+                    "artifact_bucket": "MLFLOW_ARTIFACTS_BUCKET",
+                    "training_bucket": "TRAINING_BUCKET",
+                    "source_bucket": "LABELING_SOURCE_BUCKET",
+                    "output_bucket": "LABELING_OUTPUT_BUCKET",
+                    "milvus_bucket": "MINIO_BUCKET_NAME",
+                    "dag_bucket": "AIRFLOW_DAG_BUCKET",
+                    "log_bucket": "AIRFLOW_LOG_BUCKET",
                     "sink_bucket": "S3_BUCKET",
                     "sink_format": "S3_SINK_FORMAT",
                     "flush_size": "S3_FLUSH_SIZE",
@@ -521,6 +536,139 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if peer_manifest:
                 vdb_port = next((p.container for p in peer_manifest.ports if p.name == "http"), 6333)
                 env["QDRANT_ENDPOINT"] = f"http://{project_name}-{peer_id}:{vdb_port}"
+            break
+
+        # Auto-resolve MLflow tracking URI from mlflow-tracking edges
+        for edge in demo.edges:
+            if edge.connection_type != "mlflow-tracking":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                mlflow_port = next((p.container for p in peer_manifest.ports if p.name == "web"), 5000)
+                env["MLFLOW_TRACKING_URI"] = f"http://{project_name}-{peer_id}:{mlflow_port}"
+                # MLflow client needs S3 endpoint for artifact access
+                env["MLFLOW_S3_ENDPOINT_URL"] = env.get("MINIO_ENDPOINT", env.get("S3_ENDPOINT", ""))
+            break
+
+        # Auto-resolve Milvus S3 storage from s3 edges (special handling)
+        if node.component == "milvus":
+            for edge in demo.edges:
+                if edge.connection_type != "s3":
+                    continue
+                if edge.source == node.id:
+                    peer_id = edge.target
+                elif edge.target == node.id:
+                    peer_id = edge.source
+                else:
+                    continue
+                peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+                if peer_node and peer_node.component in ("minio", "minio-aistore"):
+                    env["MINIO_ADDRESS"] = f"{project_name}-{peer_id}"
+                    env["MINIO_PORT"] = "9000"
+                    edge_cfg = edge.connection_config or {}
+                    env["MINIO_BUCKET_NAME"] = edge_cfg.get("milvus_bucket", "milvus-data")
+                    break
+
+        # Auto-resolve etcd endpoint from etcd edges
+        for edge in demo.edges:
+            if edge.connection_type != "etcd":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            env["ETCD_ENDPOINTS"] = f"{project_name}-{peer_id}:2379"
+            break
+
+        # Auto-resolve Label Studio URL from labeling-api edges
+        for edge in demo.edges:
+            if edge.connection_type != "labeling-api":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                ls_port = next((p.container for p in peer_manifest.ports if p.name == "web"), 8080)
+                env["LABEL_STUDIO_URL"] = f"http://{project_name}-{peer_id}:{ls_port}"
+            break
+
+        # Auto-resolve Airflow URL from workflow-api edges
+        for edge in demo.edges:
+            if edge.connection_type != "workflow-api":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                airflow_port = next((p.container for p in peer_manifest.ports if p.name == "web"), 8080)
+                env["AIRFLOW_API_URL"] = f"http://{project_name}-{peer_id}:{airflow_port}"
+            break
+
+        # Auto-resolve LLM gateway from llm-gateway edges
+        for edge in demo.edges:
+            if edge.connection_type != "llm-gateway":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                gw_port = next((p.container for p in peer_manifest.ports if p.name == "api"), 4000)
+                env["LLM_GATEWAY_URL"] = f"http://{project_name}-{peer_id}:{gw_port}"
+                env["OPENAI_API_BASE"] = f"http://{project_name}-{peer_id}:{gw_port}/v1"
+            break
+
+        # Auto-resolve Milvus vector-db-milvus endpoint
+        for edge in demo.edges:
+            if edge.connection_type != "vector-db-milvus":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                milvus_port = next((p.container for p in peer_manifest.ports if p.name == "grpc"), 19530)
+                env["MILVUS_ENDPOINT"] = f"http://{project_name}-{peer_id}:{milvus_port}"
             break
 
         # Auto-resolve Kafka broker endpoint from kafka edges

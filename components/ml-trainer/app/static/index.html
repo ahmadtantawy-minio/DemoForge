@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ML Trainer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3e;
+      --text:      #e2e8f0;
+      --muted:     #8892a4;
+      --accent:    #6366f1;
+      --accent-h:  #818cf8;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --yellow:    #eab308;
+      --radius:    8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .title-group h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+    .title-group p {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 2px;
+    }
+
+    .connections {
+      display: flex;
+      gap: 12px;
+    }
+    .conn-dot {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.3s;
+    }
+    .dot.ok  { background: var(--green); }
+    .dot.err { background: var(--red); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card h2 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* Status badge */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--border);
+      color: var(--muted);
+    }
+    .badge.idle     { background: rgba(99,102,241,0.15); color: var(--accent-h); }
+    .badge.ready    { background: rgba(34,197,94,0.15);  color: var(--green); }
+    .badge.training,
+    .badge.sweeping,
+    .badge.preparing { background: rgba(234,179,8,0.15);  color: var(--yellow); }
+    .badge.error    { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+    .pulse {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 9px 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .btn:last-child { margin-bottom: 0; }
+    .btn:hover:not(:disabled) {
+      background: rgba(255,255,255,0.05);
+      border-color: var(--accent);
+    }
+    .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .btn.primary:hover:not(:disabled) { background: var(--accent-h); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn .icon { font-size: 15px; }
+
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .busy .spinner { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Results */
+    .empty-state {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .metric-good  { color: var(--green); font-weight: 500; }
+    .metric-ok    { color: var(--yellow); font-weight: 500; }
+    .metric-bad   { color: var(--red); font-weight: 500; }
+
+    /* Log */
+    .log {
+      margin-top: 20px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-family: "Fira Code", "JetBrains Mono", "Courier New", monospace;
+      font-size: 12px;
+      color: var(--muted);
+      max-height: 140px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log .entry { display: block; }
+    .log .entry.info  { color: #94a3b8; }
+    .log .entry.ok    { color: var(--green); }
+    .log .entry.err   { color: var(--red); }
+
+    /* Sweep summary */
+    .sweep-summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .stat-box {
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .stat-box .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .stat-box .value { font-size: 16px; font-weight: 600; color: var(--text); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="title-group">
+    <h1>ML Trainer</h1>
+    <p>Scikit-learn experiments &rarr; MLflow</p>
+  </div>
+  <div class="connections">
+    <div class="conn-dot">
+      <div class="dot" id="dot-minio"></div>
+      <span>MinIO</span>
+    </div>
+    <div class="conn-dot">
+      <div class="dot" id="dot-mlflow"></div>
+      <span>MLflow</span>
+    </div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- Left: Controls -->
+  <div>
+    <div class="card" style="margin-bottom:20px">
+      <h2>Status</h2>
+      <div class="status-row">
+        <span class="badge idle" id="status-badge">
+          <span class="pulse"></span>
+          <span id="status-text">idle</span>
+        </span>
+        <span style="color:var(--muted);font-size:12px" id="experiment-name"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Actions</h2>
+
+      <button class="btn" id="btn-prepare" onclick="prepareData()">
+        <span class="icon">&#x1F4E6;</span>
+        <span style="flex:1">Prepare Data</span>
+        <div class="spinner"></div>
+      </button>
+
+      <button class="btn primary" id="btn-quick" onclick="quickTrain()" disabled>
+        <span class="icon">&#x26A1;</span>
+        <span style="flex:1">Quick Train (3 runs)</span>
+        <div class="spinner"></div>
+      </button>
+
+      <button class="btn" id="btn-sweep" onclick="hyperSweep()" disabled>
+        <span class="icon">&#x1F50D;</span>
+        <span style="flex:1">Hyperparameter Sweep</span>
+        <div class="spinner"></div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Right: Results -->
+  <div>
+    <div class="card">
+      <h2>Results</h2>
+      <div id="sweep-summary" style="display:none"></div>
+      <div id="results-container">
+        <div class="empty-state">
+          Prepare data, then run training to see results here.
+        </div>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const BASE = "";
+  let busy = false;
+  let dataReady = false;
+
+  function log(msg, type = "info") {
+    const el = document.getElementById("log");
+    const ts = new Date().toLocaleTimeString();
+    const entry = document.createElement("span");
+    entry.className = `entry ${type}`;
+    entry.textContent = `[${ts}] ${msg}`;
+    el.appendChild(entry);
+    el.appendChild(document.createElement("br"));
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setStatus(s) {
+    const badge = document.getElementById("status-badge");
+    const text  = document.getElementById("status-text");
+    badge.className = `badge ${s}`;
+    text.textContent = s;
+    // show pulse spinner only while active
+    const pulse = badge.querySelector(".pulse");
+    if (pulse) pulse.style.display = ["training","sweeping","preparing"].includes(s) ? "block" : "block";
+  }
+
+  function setBusy(val) {
+    busy = val;
+    document.getElementById("btn-prepare").disabled = val;
+    document.getElementById("btn-quick").disabled   = val || !dataReady;
+    document.getElementById("btn-sweep").disabled   = val || !dataReady;
+
+    ["btn-prepare","btn-quick","btn-sweep"].forEach(id => {
+      const btn = document.getElementById(id);
+      const spinner = btn.querySelector(".spinner");
+      if (spinner) spinner.style.display = (val && !btn.disabled) ? "block" : "none";
+    });
+  }
+
+  function setActiveSpinner(btnId, on) {
+    const btn = document.getElementById(btnId);
+    const spinner = btn.querySelector(".spinner");
+    if (spinner) spinner.style.display = on ? "block" : "none";
+  }
+
+  function colorMetric(val, good, bad, lowerBetter = true) {
+    if (lowerBetter) {
+      if (val <= good) return "metric-good";
+      if (val >= bad)  return "metric-bad";
+      return "metric-ok";
+    } else {
+      if (val >= good) return "metric-good";
+      if (val <= bad)  return "metric-bad";
+      return "metric-ok";
+    }
+  }
+
+  function renderQuickResults(runs) {
+    document.getElementById("sweep-summary").style.display = "none";
+    const container = document.getElementById("results-container");
+    if (!runs || runs.length === 0) {
+      container.innerHTML = '<div class="empty-state">No results returned.</div>';
+      return;
+    }
+    let html = `<table>
+      <thead>
+        <tr>
+          <th>Model</th><th>RMSE</th><th>MAE</th><th>R&sup2;</th><th>Time (s)</th>
+        </tr>
+      </thead>
+      <tbody>`;
+    runs.forEach(r => {
+      const rmseClass = colorMetric(r.rmse, 5, 50, true);
+      const r2Class   = colorMetric(r.r2, 0.7, 0.3, false);
+      html += `<tr>
+        <td>${r.model}</td>
+        <td class="${rmseClass}">${r.rmse.toFixed(4)}</td>
+        <td>${r.mae.toFixed(4)}</td>
+        <td class="${r2Class}">${r.r2.toFixed(4)}</td>
+        <td>${r.train_time}s</td>
+      </tr>`;
+    });
+    html += "</tbody></table>";
+    container.innerHTML = html;
+  }
+
+  function renderSweepResults(data) {
+    const summary = document.getElementById("sweep-summary");
+    summary.style.display = "grid";
+    summary.innerHTML = `
+      <div class="stat-box">
+        <div class="label">Total Runs</div>
+        <div class="value">${data.total_runs}</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Best RMSE</div>
+        <div class="value">${typeof data.best_rmse === "number" ? data.best_rmse.toFixed(4) : "—"}</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Best Run ID</div>
+        <div class="value" style="font-size:11px;word-break:break-all">${data.best_run_id ? data.best_run_id.slice(0,8) + "…" : "—"}</div>
+      </div>`;
+
+    const container = document.getElementById("results-container");
+    const topN = (data.results || []).slice().sort((a, b) => a.rmse - b.rmse).slice(0, 8);
+    if (!topN.length) { container.innerHTML = '<div class="empty-state">No sweep results.</div>'; return; }
+
+    let html = `<table>
+      <thead>
+        <tr><th>#</th><th>n_estimators</th><th>max_depth</th><th>RMSE</th><th>R&sup2;</th></tr>
+      </thead><tbody>`;
+    topN.forEach((r, i) => {
+      const rmseClass = colorMetric(r.rmse, 5, 50, true);
+      const r2Class   = colorMetric(r.r2, 0.7, 0.3, false);
+      html += `<tr>
+        <td>${i + 1}</td>
+        <td>${r.config.n_estimators}</td>
+        <td>${r.config.max_depth}</td>
+        <td class="${rmseClass}">${r.rmse.toFixed(4)}</td>
+        <td class="${r2Class}">${r.r2.toFixed(4)}</td>
+      </tr>`;
+    });
+    html += "</tbody></table>";
+    container.innerHTML = html;
+  }
+
+  async function prepareData() {
+    if (busy) return;
+    setBusy(true);
+    setActiveSpinner("btn-prepare", true);
+    setStatus("preparing");
+    log("Preparing data from raw-data bucket…");
+    try {
+      const res = await fetch(`${BASE}/prepare-data`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      dataReady = true;
+      setStatus("ready");
+      log(`Data ready — train: ${data.train_rows} rows, test: ${data.test_rows} rows`, "ok");
+      document.getElementById("results-container").innerHTML =
+        `<div class="empty-state">Data prepared. ${data.train_rows} train / ${data.test_rows} test rows. Ready to train.</div>`;
+    } catch (e) {
+      setStatus("error");
+      log(`Prepare failed: ${e.message}`, "err");
+    } finally {
+      setBusy(false);
+      setActiveSpinner("btn-prepare", false);
+    }
+  }
+
+  async function quickTrain() {
+    if (busy || !dataReady) return;
+    setBusy(true);
+    setActiveSpinner("btn-quick", true);
+    setStatus("training");
+    log("Starting quick training (3 models)…");
+    try {
+      const res = await fetch(`${BASE}/train/quick`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n_runs: 3 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      setStatus("idle");
+      log(`Training complete — ${data.runs.length} models trained`, "ok");
+      renderQuickResults(data.runs);
+    } catch (e) {
+      setStatus("error");
+      log(`Training failed: ${e.message}`, "err");
+    } finally {
+      setBusy(false);
+      setActiveSpinner("btn-quick", false);
+    }
+  }
+
+  async function hyperSweep() {
+    if (busy || !dataReady) return;
+    setBusy(true);
+    setActiveSpinner("btn-sweep", true);
+    setStatus("sweeping");
+    log("Starting hyperparameter sweep (12 variations)…");
+    try {
+      const res = await fetch(`${BASE}/train/sweep`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n_variations: 12 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      setStatus("idle");
+      log(`Sweep complete — ${data.total_runs} runs, best RMSE: ${typeof data.best_rmse === "number" ? data.best_rmse.toFixed(4) : "—"}`, "ok");
+      renderSweepResults(data);
+    } catch (e) {
+      setStatus("error");
+      log(`Sweep failed: ${e.message}`, "err");
+    } finally {
+      setBusy(false);
+      setActiveSpinner("btn-sweep", false);
+    }
+  }
+
+  async function pollHealth() {
+    try {
+      const res = await fetch(`${BASE}/health`);
+      const data = await res.json();
+      document.getElementById("dot-minio").className  = "dot " + (data.minio_connected  ? "ok" : "err");
+      document.getElementById("dot-mlflow").className = "dot " + (data.mlflow_connected ? "ok" : "err");
+    } catch {
+      document.getElementById("dot-minio").className  = "dot err";
+      document.getElementById("dot-mlflow").className = "dot err";
+    }
+  }
+
+  async function pollStatus() {
+    try {
+      const res = await fetch(`${BASE}/status`);
+      const data = await res.json();
+      if (!busy) {
+        setStatus(data.status);
+        if (data.status === "ready" || data.last_result) dataReady = true;
+        document.getElementById("btn-quick").disabled = !dataReady;
+        document.getElementById("btn-sweep").disabled = !dataReady;
+      }
+      if (data.experiment_name) {
+        document.getElementById("experiment-name").textContent = data.experiment_name;
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Init
+  pollHealth();
+  pollStatus();
+  setInterval(pollHealth, 15000);
+  setInterval(pollStatus, 5000);
+  log("Dashboard ready.");
+</script>
+
+</body>
+</html>

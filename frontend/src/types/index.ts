@@ -1,5 +1,5 @@
 // --- Connection types ---
-export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query" | "s3-queue" | "spark-submit" | "hdfs" | "failover" | "llm-api" | "vector-db" | "structured-data" | "kafka" | "kafka-connect" | "dremio-sql" | "dremio-flight" | "schema-registry";
+export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query" | "s3-queue" | "spark-submit" | "hdfs" | "failover" | "llm-api" | "vector-db" | "mlflow-tracking" | "labeling-api" | "vector-db-milvus" | "etcd" | "workflow-api" | "llm-gateway" | "structured-data" | "kafka" | "kafka-connect" | "dremio-sql" | "dremio-flight" | "schema-registry";
 
 // --- Edge data ---
 export interface ComponentEdgeData {

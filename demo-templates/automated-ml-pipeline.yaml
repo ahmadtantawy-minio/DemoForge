@@ -1,0 +1,119 @@
+_template:
+  name: "Automated ML Pipeline"
+  category: "ai"
+  tags: ["airflow", "mlflow", "pipeline", "mlops", "automation"]
+  description: "Airflow orchestrates end-to-end ML: data generation → feature engineering → model training → MLflow registration. All data in MinIO."
+  objective: "Demonstrate MinIO as the backbone of an automated MLOps pipeline"
+  minio_value: "Every stage reads from and writes to MinIO — raw data, feature sets, model artifacts, pipeline logs. Airflow DAGs trigger the flow, MinIO holds the data."
+  estimated_resources:
+    memory: "5GB"
+    cpu: 3
+    containers: 5
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy"
+      description: "Click Deploy. Airflow initializes with pre-loaded DAGs."
+    - step: "Start data flow"
+      description: "Start the data generator. Raw data flows into MinIO."
+    - step: "Trigger the pipeline"
+      description: "Open Airflow UI → trigger the 'ml_training_pipeline' DAG."
+    - step: "Watch it run"
+      description: "The DAG reads data from MinIO, trains models, logs to MLflow — all automated."
+    - step: "Check results"
+      description: "Open MLflow — trained model registered. Open MinIO — artifacts stored."
+
+id: template-automated-ml-pipeline
+name: "Automated ML Pipeline"
+description: "Airflow-orchestrated ML pipeline: data → features → training → MLflow. All data in MinIO."
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 100, y: 250}
+    display_name: "MinIO"
+
+  - id: data-gen
+    component: data-generator
+    variant: default
+    position: {x: -200, y: 250}
+    display_name: "Data Generator"
+
+  - id: airflow-1
+    component: airflow
+    variant: default
+    position: {x: 400, y: 100}
+    display_name: "Airflow"
+
+  - id: mlflow-1
+    component: mlflow
+    variant: default
+    position: {x: 700, y: 100}
+    display_name: "MLflow"
+
+  - id: trainer-1
+    component: ml-trainer
+    variant: default
+    position: {x: 700, y: 400}
+    display_name: "ML Trainer"
+
+clusters: []
+
+edges:
+  - id: e-datagen-minio
+    source: data-gen
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Raw data"
+    connection_config:
+      bucket: "raw-data"
+
+  - id: e-airflow-minio
+    source: airflow-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "DAGs + logs"
+
+  - id: e-airflow-trainer
+    source: airflow-1
+    target: trainer-1
+    connection_type: workflow-api
+    auto_configure: true
+    label: "Trigger training"
+
+  - id: e-trainer-minio
+    source: trainer-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Training data"
+
+  - id: e-trainer-mlflow
+    source: trainer-1
+    target: mlflow-1
+    connection_type: mlflow-tracking
+    auto_configure: true
+    label: "Log experiments"
+
+  - id: e-mlflow-minio
+    source: mlflow-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Model artifacts"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: "512m"
+  default_cpu: 0.5
+  total_memory: "8g"
+  total_cpu: 4.0

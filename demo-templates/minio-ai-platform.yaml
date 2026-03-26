@@ -1,0 +1,123 @@
+_template:
+  name: "MinIO AI Platform"
+  category: "ai"
+  tags: ["platform", "full-stack", "rag", "mlflow", "jupyter", "label-studio", "milvus"]
+  description: "The complete AI data platform: labeling, training, experiment tracking, vector search, RAG — all on MinIO."
+  objective: "Show MinIO as the single data foundation for the entire AI lifecycle"
+  minio_value: "One storage platform for: raw data, labeled datasets, training artifacts, model weights, vector embeddings, inference logs, and audit trails."
+  estimated_resources:
+    memory: "12GB"
+    cpu: 8
+    containers: 10
+  external_dependencies:
+    - "Ollama model download requires internet on first deploy (~1.8GB)"
+  walkthrough:
+    - step: "Deploy the platform"
+      description: "Click Deploy. 10 containers start — all connected through MinIO."
+    - step: "Data ingestion"
+      description: "Start Data Generator → raw data flows into MinIO."
+    - step: "Label data"
+      description: "Open Label Studio → annotate support tickets from MinIO."
+    - step: "Train models"
+      description: "Open JupyterLab → run training notebook → logs to MLflow, artifacts in MinIO."
+    - step: "Build knowledge base"
+      description: "Upload documents to MinIO → RAG pipeline embeds them → Milvus stores vectors in MinIO."
+    - step: "Ask questions"
+      description: "Chat UI → ask about your documents → grounded answers with citations."
+    - step: "View everything in MinIO"
+      description: "Open MinIO Console → every bucket tells a story: raw-data, labeled-output, mlflow-artifacts, milvus-data, documents, rag-audit-log."
+
+id: template-minio-ai-platform
+name: "MinIO AI Platform"
+description: "Complete AI lifecycle on MinIO: label → train → track → embed → query → audit"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 400, y: 300}
+    display_name: "MinIO AIStor"
+
+  - id: data-gen
+    component: data-generator
+    variant: default
+    position: {x: 50, y: 300}
+    display_name: "Data Generator"
+
+  - id: label-studio-1
+    component: label-studio
+    variant: default
+    position: {x: 100, y: 50}
+    display_name: "Label Studio"
+
+  - id: jupyter-1
+    component: jupyterlab
+    variant: default
+    position: {x: 100, y: 550}
+    display_name: "JupyterLab"
+
+  - id: mlflow-1
+    component: mlflow
+    variant: default
+    position: {x: 400, y: 50}
+    display_name: "MLflow"
+
+  - id: trainer-1
+    component: ml-trainer
+    variant: default
+    position: {x: 400, y: 550}
+    display_name: "ML Trainer"
+
+  - id: etcd-1
+    component: etcd
+    variant: default
+    position: {x: 600, y: 550}
+    display_name: "etcd"
+
+  - id: milvus-1
+    component: milvus
+    variant: standalone
+    position: {x: 700, y: 400}
+    display_name: "Milvus"
+
+  - id: ollama-1
+    component: ollama
+    variant: default
+    position: {x: 700, y: 50}
+    display_name: "Ollama"
+
+  - id: rag-1
+    component: rag-app
+    variant: default
+    position: {x: 900, y: 250}
+    display_name: "RAG Pipeline"
+
+clusters: []
+
+edges:
+  - {id: e1, source: data-gen, target: minio-1, connection_type: s3, auto_configure: true, label: "Raw data"}
+  - {id: e2, source: label-studio-1, target: minio-1, connection_type: s3, auto_configure: true, label: "Label data"}
+  - {id: e3, source: jupyter-1, target: minio-1, connection_type: s3, auto_configure: true, label: "Explore data"}
+  - {id: e4, source: jupyter-1, target: mlflow-1, connection_type: mlflow-tracking, auto_configure: true, label: "Log experiments"}
+  - {id: e5, source: mlflow-1, target: minio-1, connection_type: s3, auto_configure: true, label: "Artifacts"}
+  - {id: e6, source: trainer-1, target: minio-1, connection_type: s3, auto_configure: true, label: "Training data"}
+  - {id: e7, source: trainer-1, target: mlflow-1, connection_type: mlflow-tracking, auto_configure: true, label: "Track runs"}
+  - {id: e8, source: milvus-1, target: minio-1, connection_type: s3, auto_configure: true, label: "Vector storage"}
+  - {id: e9, source: milvus-1, target: etcd-1, connection_type: etcd, auto_configure: true, label: "Metadata"}
+  - {id: e10, source: rag-1, target: milvus-1, connection_type: vector-db-milvus, auto_configure: true, label: "Vector search"}
+  - {id: e11, source: rag-1, target: ollama-1, connection_type: llm-api, auto_configure: true, label: "Embed + generate"}
+  - {id: e12, source: rag-1, target: minio-1, connection_type: s3, auto_configure: true, label: "Docs + audit"}
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: "512m"
+  default_cpu: 0.5
+  total_memory: "16g"
+  total_cpu: 8.0
