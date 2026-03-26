@@ -7,6 +7,7 @@ import { stopInstance, startInstance, resetCluster } from "../../../api/client";
 import { toast } from "sonner";
 import ComponentIcon from "../../shared/ComponentIcon";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
+import McpPanel from "../../minio/McpPanel";
 
 interface ClusterNodeData {
   label: string;
@@ -30,7 +31,9 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const [clusterMenu, setClusterMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
-  const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "mcp-tools" | "ai-chat">("overview");
+  const [adminDefaultTab, setAdminDefaultTab] = useState<"overview">("overview");
+  const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
+  const [mcpDefaultTab, setMcpDefaultTab] = useState<"mcp-tools" | "ai-chat">("mcp-tools");
   const mcpEnabled = nodeData.mcpEnabled !== false;
   const aistorTablesEnabled = nodeData.aistorTablesEnabled === true;
 
@@ -360,6 +363,22 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           >
             MinIO Admin
           </button>
+          {mcpEnabled && (
+            <>
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+                onClick={() => { setMcpDefaultTab("mcp-tools"); setMcpPanelOpen(true); setClusterMenu(null); }}
+              >
+                MCP Tools
+              </button>
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+                onClick={() => { setMcpDefaultTab("ai-chat"); setMcpPanelOpen(true); setClusterMenu(null); }}
+              >
+                AI Chat
+              </button>
+            </>
+          )}
           <button
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
             onClick={() => { setActiveView("control-plane"); setClusterMenu(null); }}
@@ -416,6 +435,17 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         clusterLabel={nodeData.label || "MinIO Cluster"}
         defaultTab={adminDefaultTab}
       />
+
+      {mcpPanelOpen && activeDemoId && (
+        <McpPanel
+          open={mcpPanelOpen}
+          onOpenChange={setMcpPanelOpen}
+          demoId={activeDemoId}
+          clusterId={id}
+          clusterLabel={nodeData.label || "MinIO Cluster"}
+          defaultTab={mcpDefaultTab}
+        />
+      )}
     </>
   );
 }

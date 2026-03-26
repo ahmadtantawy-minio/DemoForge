@@ -22,6 +22,7 @@ import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
 import MinioAdminPanel from "../minio/MinioAdminPanel";
+import McpPanel from "../minio/McpPanel";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +87,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
   const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: string } | null>(null);
+  const [mcpPanel, setMcpPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: "mcp-tools" | "ai-chat" } | null>(null);
   const [sqlEditorPanel, setSqlEditorPanel] = useState<{ scenarioId: string } | null>(null);
 
   // Track selected nodes for multi-select grouping
@@ -660,8 +662,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             demoId={activeDemoId ?? ""}
             nodeConfig={(ctxNode?.data as any)?.config}
             onOpenAdmin={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "overview" }) : undefined}
-            onOpenMcpTools={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "mcp-tools" }) : undefined}
-            onOpenAiChat={isCluster ? () => setAdminPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}
+            onOpenMcpTools={isCluster ? () => setMcpPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "mcp-tools" }) : undefined}
+            onOpenAiChat={isCluster ? () => setMcpPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}
             onOpenSqlEditor={(ctxNode?.data as any)?.componentId === "trino" ? () => setSqlEditorPanel({ scenarioId: "ecommerce-orders" }) : undefined}
             isRunning={isRunning}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
@@ -849,6 +851,17 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           clusterId={adminPanel.clusterId}
           clusterLabel={adminPanel.clusterLabel}
           defaultTab={(adminPanel.defaultTab as any) || "overview"}
+        />
+      )}
+
+      {mcpPanel && activeDemoId && (
+        <McpPanel
+          open={!!mcpPanel}
+          onOpenChange={(open) => { if (!open) setMcpPanel(null); }}
+          demoId={activeDemoId}
+          clusterId={mcpPanel.clusterId}
+          clusterLabel={mcpPanel.clusterLabel}
+          defaultTab={mcpPanel.defaultTab}
         />
       )}
 
