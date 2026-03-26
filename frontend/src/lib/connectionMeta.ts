@@ -22,6 +22,12 @@ export const connectionColors: Record<string, string> = {
   "aistor-tables": "#1565c0",
   "llm-api": "#a855f7",
   "vector-db": "#06b6d4",
+  "mlflow-tracking": "#0ea5e9",
+  "labeling-api": "#f472b6",
+  "vector-db-milvus": "#14b8a6",
+  "etcd": "#78716c",
+  "workflow-api": "#f59e0b",
+  "llm-gateway": "#8b5cf6",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -48,4 +54,10 @@ export const connectionLabels: Record<string, string> = {
   "aistor-tables": "AIStor Tables (SigV4 Iceberg)",
   "llm-api": "LLM API",
   "vector-db": "Vector DB",
+  "mlflow-tracking": "MLflow Tracking",
+  "labeling-api": "Labeling API",
+  "vector-db-milvus": "Milvus Vector DB",
+  "etcd": "etcd",
+  "workflow-api": "Workflow API",
+  "llm-gateway": "LLM Gateway",
 };

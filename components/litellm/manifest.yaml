@@ -1,0 +1,73 @@
+id: litellm
+name: LiteLLM
+category: ai
+icon: litellm
+version: "latest"
+image: ghcr.io/berriai/litellm:main-latest
+description: "LLM gateway/proxy — unified API for multiple models with logging"
+
+resources:
+  memory: "256m"
+  cpu: 0.25
+
+ports:
+  - name: api
+    container: 4000
+    protocol: tcp
+
+environment:
+  LITELLM_LOG: "DEBUG"
+  STORE_MODEL_IN_DB: "false"
+
+volumes: []
+
+command: ["--config", "/app/config.yaml", "--port", "4000", "--host", "0.0.0.0"]
+
+health_check:
+  endpoint: /health/liveliness
+  port: 4000
+  interval: 10s
+  timeout: 5s
+  start_period: "15s"
+
+secrets: []
+
+web_ui:
+  - name: api
+    port: 4000
+    path: /
+    description: "LiteLLM proxy — OpenAI-compatible API"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "LiteLLM proxy container."
+  quick_actions:
+    - label: "Health check"
+      command: "wget -qO- http://localhost:4000/health/liveliness 2>/dev/null || echo 'Not ready'"
+    - label: "List models"
+      command: "wget -qO- http://localhost:4000/v1/models 2>/dev/null | head -50"
+
+connections:
+  provides:
+    - type: llm-gateway
+      port: 4000
+      description: "OpenAI-compatible API gateway"
+  accepts:
+    - type: llm-api
+      config_schema:
+        - key: model_alias
+          label: "Model Alias"
+          type: string
+          default: "gpt-3.5-turbo"
+          description: "Name clients use to request this model"
+
+variants:
+  default:
+    description: "Single-model proxy (routes to Ollama)"
+
+template_mounts:
+  - template: litellm-config.yaml.j2
+    mount_path: /app/config.yaml
+
+static_mounts: []
+init_scripts: []

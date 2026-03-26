@@ -1,0 +1,127 @@
+_template:
+  name: "ML Experiment Lab"
+  category: "ai"
+  tags: ["mlflow", "jupyter", "training", "experiment-tracking", "sklearn"]
+  description: "Train ML models on MinIO data, track experiments in MLflow, browse artifacts. JupyterLab for interactive exploration."
+  objective: "Demonstrate MinIO as the artifact store and data lake for the ML lifecycle"
+  minio_value: "MLflow stores all model artifacts, training plots, and evaluation datasets in MinIO. JupyterLab reads training data from MinIO. The entire ML lifecycle runs on one storage platform."
+  estimated_resources:
+    memory: "4GB"
+    cpu: 3
+    containers: 5
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy and generate data"
+      description: "Click Deploy. Start the data generator with E-commerce orders scenario to populate MinIO with training data."
+    - step: "Prepare training data"
+      description: "Open ML Trainer → click 'Prepare data' to split raw data into train/test sets in MinIO."
+    - step: "Run training experiments"
+      description: "Click 'Run quick training' — 3 different models train on MinIO data, log to MLflow."
+    - step: "Compare in MLflow"
+      description: "Open MLflow UI → compare runs → click the best model → browse artifacts (stored in MinIO)."
+    - step: "Explore in JupyterLab"
+      description: "Open JupyterLab → run notebook 03 → see real training with mlflow.log_model()."
+    - step: "Check MinIO"
+      description: "Open MinIO Console → mlflow-artifacts bucket → model files, plots, metrics all stored as objects."
+
+id: template-ml-experiment-lab
+name: "ML Experiment Lab"
+description: "Train models on MinIO data, track in MLflow, explore in JupyterLab"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 100, y: 250}
+    display_name: "MinIO"
+
+  - id: data-gen
+    component: data-generator
+    variant: default
+    position: {x: -200, y: 250}
+    display_name: "Data Generator"
+
+  - id: mlflow-1
+    component: mlflow
+    variant: default
+    position: {x: 400, y: 100}
+    display_name: "MLflow"
+
+  - id: jupyter-1
+    component: jupyterlab
+    variant: default
+    position: {x: 400, y: 400}
+    display_name: "JupyterLab"
+
+  - id: trainer-1
+    component: ml-trainer
+    variant: default
+    position: {x: 700, y: 250}
+    display_name: "ML Trainer"
+
+clusters: []
+
+edges:
+  - id: e-datagen-minio
+    source: data-gen
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Raw data"
+    connection_config:
+      bucket: "raw-data"
+      format: "parquet"
+      scenario: "ecommerce-orders"
+
+  - id: e-mlflow-minio
+    source: mlflow-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Model artifacts"
+    connection_config:
+      artifact_bucket: "mlflow-artifacts"
+
+  - id: e-jupyter-minio
+    source: jupyter-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Read/write data"
+
+  - id: e-jupyter-mlflow
+    source: jupyter-1
+    target: mlflow-1
+    connection_type: mlflow-tracking
+    auto_configure: true
+    label: "Log experiments"
+
+  - id: e-trainer-minio
+    source: trainer-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Training data"
+    connection_config:
+      training_bucket: "training-data"
+
+  - id: e-trainer-mlflow
+    source: trainer-1
+    target: mlflow-1
+    connection_type: mlflow-tracking
+    auto_configure: true
+    label: "Track experiments"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: "512m"
+  default_cpu: 0.5
+  total_memory: "6g"
+  total_cpu: 4.0
