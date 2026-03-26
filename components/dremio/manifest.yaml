@@ -21,7 +21,12 @@ ports:
     container: 32010
     protocol: tcp
 
-environment: {}
+environment:
+  DREMIO_JAVA_SERVER_EXTRA_OPTS: "-Dpaths.dist=file:///opt/dremio/data/dist"
+
+volumes:
+  - name: data
+    path: /opt/dremio/data
 
 health_check:
   endpoint: /apiv2/server_status

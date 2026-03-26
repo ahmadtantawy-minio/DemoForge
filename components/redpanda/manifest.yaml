@@ -3,7 +3,8 @@ name: Redpanda
 category: streaming
 icon: redpanda
 version: "latest"
-image: docker.redpanda.com/redpandadata/redpanda:latest
+image: demoforge/redpanda:latest
+build_context: "."
 description: "Kafka-compatible streaming platform — single binary, no ZooKeeper"
 
 resources:
@@ -26,13 +27,14 @@ ports:
 
 environment: {}
 
-command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "512M", "--reserve-memory", "0M", "--node-id", "0", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://localhost:19092", "--schema-registry-addr", "internal://0.0.0.0:8081,external://0.0.0.0:18081", "--pandaproxy-addr", "internal://0.0.0.0:8082,external://0.0.0.0:18082", "--mode", "dev-container", "--default-log-level=warn"]
+command: []
 
 health_check:
   endpoint: /v1/status/ready
   port: 9644
   interval: 10s
   timeout: 5s
+  start_period: 15s
 
 web_ui: []
 

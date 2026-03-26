@@ -21,7 +21,7 @@ environment:
   KAFKA_SCHEMAREGISTRY_URLS: ""
 
 health_check:
-  endpoint: /api/health
+  endpoint: /admin/health
   port: 8080
   interval: 10s
   timeout: 5s

@@ -24,7 +24,11 @@ health_check:
   interval: 10s
   timeout: 5s
 
-web_ui: []
+web_ui:
+  - name: api
+    port: 19120
+    path: "/"
+    description: "Nessie REST API — browse branches, tags, and commit history"
 
 terminal:
   shell: /bin/sh

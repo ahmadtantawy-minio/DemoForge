@@ -119,6 +119,14 @@ edges:
     auto_configure: true
     label: "Manage"
 
+  - id: e-console-schema-registry
+    source: rp-console
+    target: redpanda-1
+    connection_type: schema-registry
+    network: default
+    auto_configure: true
+    label: ""
+
   # Kafka Connect → Redpanda (consume)
   - id: e-connect-redpanda
     source: kafka-connect-1

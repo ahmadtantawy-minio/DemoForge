@@ -27,9 +27,9 @@ export default function AnimatedDataEdge({
     const nodeConfig = (sourceNode?.data as any)?.config as Record<string, string> | undefined;
 
     // Resolve format: edge config > node config > default
-    const fmt = connConfig?.format || nodeConfig?.DG_FORMAT;
-    // Resolve scenario: edge config > node config
-    const scenario = connConfig?.scenario || nodeConfig?.DG_SCENARIO;
+    const fmt = connConfig?.format || nodeConfig?.DG_FORMAT || "parquet";
+    // Resolve scenario: edge config > node config > default
+    const scenario = connConfig?.scenario || nodeConfig?.DG_SCENARIO || "ecommerce-orders";
     // Target bucket from edge config
     const bucket = connConfig?.target_bucket;
 
@@ -38,8 +38,9 @@ export default function AnimatedDataEdge({
     if (scenario) {
       parts.push(scenario.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()));
     }
-    if (bucket) parts.push(`→ ${bucket}`);
-    formatLabel = parts.length > 0 ? parts.join(" · ") : null;
+    let base = parts.length > 0 ? parts.join(" · ") : null;
+    if (base && bucket) base += ` → ${bucket}`;
+    formatLabel = base;
   }
   const label = edgeData?.label || formatLabel || connectionLabels[connectionType] || "";
 
@@ -140,7 +141,7 @@ export default function AnimatedDataEdge({
           <div
             style={{
               position: "absolute",
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - 12}px)`,
               pointerEvents: "none",
               backgroundColor: `${color}15`,
               border: `1px solid ${color}40`,
