@@ -411,6 +411,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "snapshot_bucket": "QDRANT_SNAPSHOT_BUCKET",
                     "embedding_model": "EMBEDDING_MODEL",
                     "chat_model": "CHAT_MODEL",
+                    "sink_bucket": "S3_BUCKET",
+                    "sink_format": "S3_SINK_FORMAT",
+                    "flush_size": "S3_FLUSH_SIZE",
+                    "source_name": "DREMIO_SOURCE_NAME",
+                    "topic": "KAFKA_TOPIC",
                 }
                 for cfg_key, env_key in _edge_env_map.items():
                     if cfg_key in edge_cfg and edge_cfg[cfg_key]:
@@ -516,6 +521,92 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if peer_manifest:
                 vdb_port = next((p.container for p in peer_manifest.ports if p.name == "http"), 6333)
                 env["QDRANT_ENDPOINT"] = f"http://{project_name}-{peer_id}:{vdb_port}"
+            break
+
+        # Auto-resolve Kafka broker endpoint from kafka edges
+        for edge in demo.edges:
+            if edge.connection_type != "kafka":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                kafka_port = next((p.container for p in peer_manifest.ports if p.name == "kafka"), 9092)
+                kafka_addr = f"{project_name}-{peer_id}:{kafka_port}"
+                if "CONNECT_BOOTSTRAP_SERVERS" in env:
+                    env["CONNECT_BOOTSTRAP_SERVERS"] = kafka_addr
+                elif "KAFKA_BROKERS" in env:
+                    env["KAFKA_BROKERS"] = kafka_addr
+                else:
+                    env["KAFKA_BOOTSTRAP_SERVERS"] = kafka_addr
+            edge_cfg = edge.connection_config or {}
+            if edge_cfg.get("topic"):
+                env["KAFKA_TOPIC"] = edge_cfg["topic"]
+            break
+
+        # Auto-resolve schema registry endpoint from schema-registry edges
+        for edge in demo.edges:
+            if edge.connection_type != "schema-registry":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                sr_port = next((p.container for p in peer_manifest.ports if p.name == "schema-registry"), 8081)
+                env["KAFKA_SCHEMAREGISTRY_URLS"] = f"http://{project_name}-{peer_id}:{sr_port}"
+            break
+
+        # Auto-resolve Dremio SQL endpoint from dremio-sql edges
+        for edge in demo.edges:
+            if edge.connection_type != "dremio-sql":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                dremio_port = next((p.container for p in peer_manifest.ports if p.name == "client"), 31010)
+                env["DREMIO_HOST"] = f"{project_name}-{peer_id}"
+                env["DREMIO_PORT"] = str(dremio_port)
+            break
+
+        # Auto-resolve Kafka Connect endpoint from kafka-connect edges
+        for edge in demo.edges:
+            if edge.connection_type != "kafka-connect":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                kc_port = next((p.container for p in peer_manifest.ports if p.name == "api"), 8083)
+                env["KAFKA_CONNECT_URL"] = f"http://{project_name}-{peer_id}:{kc_port}"
             break
 
         # Determine which networks this node joins

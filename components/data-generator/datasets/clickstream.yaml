@@ -1,0 +1,173 @@
+id: clickstream
+name: "Web clickstream"
+description: "User browsing events — page views, clicks, sessions. High-volume streaming scenario."
+
+schema:
+  columns:
+    - name: event_id
+      type: string
+      generator: uuid
+
+    - name: event_ts
+      type: timestamp
+      generator: now_jitter
+
+    - name: session_id
+      type: string
+      generator: {type: pattern, template: "sess-{seq:06d}", seq_range: [1, 5000]}
+
+    - name: user_id
+      type: string
+      generator: {type: pattern, template: "user-{seq:04d}", seq_range: [1, 500]}
+
+    - name: page_url
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "/": 0.15
+          "/products": 0.20
+          "/products/detail": 0.18
+          "/cart": 0.12
+          "/checkout": 0.08
+          "/search": 0.10
+          "/account": 0.07
+          "/about": 0.05
+          "/blog": 0.05
+
+    - name: event_type
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "page_view": 0.50
+          "click": 0.25
+          "scroll": 0.10
+          "add_to_cart": 0.08
+          "purchase": 0.03
+          "search": 0.04
+
+    - name: referrer
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "direct": 0.30
+          "google": 0.25
+          "social": 0.15
+          "email": 0.12
+          "paid_ad": 0.10
+          "affiliate": 0.08
+
+    - name: device_type
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "mobile": 0.55
+          "desktop": 0.35
+          "tablet": 0.10
+
+    - name: country
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "US": 0.35
+          "UK": 0.12
+          "DE": 0.10
+          "FR": 0.08
+          "JP": 0.07
+          "IN": 0.08
+          "BR": 0.06
+          "CA": 0.05
+          "AU": 0.04
+          "Other": 0.05
+
+    - name: duration_sec
+      type: int32
+      generator: {type: lognormal, mean: 3.0, sigma: 1.2, min: 1, max: 600, precision: 0}
+
+partitioning:
+  parquet:
+    keys: [event_type]
+    time_column: event_ts
+    time_granularity: hour
+  json: flat
+  csv: flat
+
+iceberg:
+  warehouse: warehouse
+  namespace: demo
+  table: clickstream
+
+buckets:
+  parquet: "clickstream-parquet"
+  json: "clickstream-json"
+  csv: "clickstream-csv"
+
+volume:
+  default_rows_per_batch: 200
+  default_batches_per_minute: 30
+  profiles:
+    low:    {rows_per_batch: 50, batches_per_minute: 6}
+    medium: {rows_per_batch: 200, batches_per_minute: 30}
+    high:   {rows_per_batch: 1000, batches_per_minute: 60}
+  ramp_up_seconds: 10
+
+queries:
+  - id: events_per_minute
+    name: "Events per minute"
+    sql: >
+      SELECT date_trunc('minute', event_ts) AS minute,
+             COUNT(*) AS events
+      FROM {catalog}.{namespace}.clickstream
+      WHERE event_ts > current_timestamp - interval '30' minute
+      GROUP BY 1 ORDER BY 1
+    chart_type: line
+
+  - id: top_pages
+    name: "Top pages"
+    sql: >
+      SELECT page_url, COUNT(*) AS views
+      FROM {catalog}.{namespace}.clickstream
+      GROUP BY page_url ORDER BY views DESC
+    chart_type: horizontal_bar
+
+  - id: conversion_funnel
+    name: "Conversion funnel"
+    sql: >
+      SELECT event_type,
+             COUNT(*) AS count
+      FROM {catalog}.{namespace}.clickstream
+      WHERE event_type IN ('page_view', 'click', 'add_to_cart', 'purchase')
+      GROUP BY event_type
+    chart_type: bar
+
+  - id: device_breakdown
+    name: "Device breakdown"
+    sql: >
+      SELECT device_type, COUNT(*) AS count
+      FROM {catalog}.{namespace}.clickstream
+      GROUP BY device_type
+    chart_type: donut
+
+  - id: kpis
+    name: "Clickstream KPIs"
+    sql: >
+      SELECT COUNT(*) AS total_events,
+             COUNT(DISTINCT session_id) AS sessions,
+             COUNT(DISTINCT user_id) AS users,
+             SUM(CASE WHEN event_type = 'purchase' THEN 1 ELSE 0 END) AS purchases
+      FROM {catalog}.{namespace}.clickstream
+    chart_type: scalar
+
+metabase_dashboard:
+  name: "Real-time Clickstream"
+  description: "Live web analytics"
+  layout:
+    - {query: kpis, row: 0, col: 0, width: 18, height: 3}
+    - {query: events_per_minute, row: 3, col: 0, width: 12, height: 5}
+    - {query: device_breakdown, row: 3, col: 12, width: 6, height: 5}
+    - {query: top_pages, row: 8, col: 0, width: 9, height: 5}
+    - {query: conversion_funnel, row: 8, col: 9, width: 9, height: 5}

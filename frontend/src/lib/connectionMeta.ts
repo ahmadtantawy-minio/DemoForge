@@ -22,6 +22,11 @@ export const connectionColors: Record<string, string> = {
   "aistor-tables": "#1565c0",
   "llm-api": "#a855f7",
   "vector-db": "#06b6d4",
+  "kafka": "#e11d48",
+  "kafka-connect": "#be123c",
+  "schema-registry": "#f43f5e",
+  "dremio-sql": "#7c3aed",
+  "dremio-flight": "#6d28d9",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -48,4 +53,9 @@ export const connectionLabels: Record<string, string> = {
   "aistor-tables": "AIStor Tables (SigV4 Iceberg)",
   "llm-api": "LLM API",
   "vector-db": "Vector DB",
+  "kafka": "Kafka",
+  "kafka-connect": "Kafka Connect",
+  "schema-registry": "Schema Registry",
+  "dremio-sql": "SQL (Dremio)",
+  "dremio-flight": "Arrow Flight",
 };

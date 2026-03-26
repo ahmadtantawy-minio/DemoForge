@@ -1,0 +1,186 @@
+# Template metadata
+_template:
+  name: "Dremio Lakehouse"
+  category: "analytics"
+  tags: ["dremio", "iceberg", "trino", "metabase", "lakehouse", "parquet", "catalog"]
+  description: "Dremio + MinIO lakehouse: structured Parquet data lands in MinIO, Iceberg REST manages the table catalog, and both Dremio and Trino query the same tables — Metabase delivers unified dashboards from both engines."
+  objective: "Demonstrate MinIO as the shared lakehouse storage backing both Dremio and Trino through a common Iceberg catalog — two query engines, one data layer"
+  minio_value: "MinIO is the single source of truth for the entire lakehouse. Dremio and Trino both read Parquet files directly from MinIO via the Iceberg REST catalog — no data copies, no ETL, no storage silos"
+  estimated_resources:
+    memory: "6GB"
+    cpu: 6
+    containers: 6
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start all components. Wait for all health indicators to turn green (~90s for Dremio)."
+    - step: "Generate Parquet data"
+      description: "Right-click Data Generator → Start Generating to push Parquet files into MinIO's raw-data bucket."
+    - step: "Browse data in MinIO"
+      description: "Open MinIO Console → raw-data bucket to see Parquet files accumulating."
+    - step: "Query with Dremio"
+      description: "Open Dremio UI → Add Source → Iceberg REST Catalog → browse and query the raw-data tables using Dremio's SQL editor."
+    - step: "Query with Trino"
+      description: "Open Trino terminal → SELECT * FROM iceberg.raw.events LIMIT 100; — Trino reads the same Iceberg tables from MinIO."
+    - step: "Build Metabase dashboard"
+      description: "Open Metabase → connect to Dremio or Trino → build dashboards comparing query results from both engines on the same underlying data."
+
+# Standard demo definition
+id: template-dremio-lakehouse
+name: "Dremio Lakehouse"
+description: "Dremio + MinIO lakehouse: Data Generator → MinIO → Iceberg REST → Dremio + Trino → Metabase"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  # Structured data producer
+  - id: data-gen
+    component: data-generator
+    variant: default
+    position: { x: -200, y: 150 }
+    display_name: "Data Generator"
+    config: {}
+
+  # Core storage
+  - id: minio-1
+    component: minio
+    variant: single
+    position: { x: 100, y: 150 }
+    display_name: "MinIO"
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+
+  # Table catalog
+  - id: iceberg-rest
+    component: iceberg-rest
+    variant: default
+    position: { x: 400, y: 50 }
+    display_name: "Iceberg REST Catalog"
+    config: {}
+
+  # Query engine — Dremio
+  - id: dremio-1
+    component: dremio
+    variant: default
+    position: { x: 700, y: 50 }
+    display_name: "Dremio"
+    config: {}
+
+  # Query engine — Trino
+  - id: trino-1
+    component: trino
+    variant: default
+    position: { x: 700, y: 280 }
+    display_name: "Trino"
+    config: {}
+
+  # BI visualization
+  - id: metabase-1
+    component: metabase
+    variant: default
+    position: { x: 1000, y: 150 }
+    display_name: "Metabase"
+    config: {}
+
+clusters: []
+
+edges:
+  # Data Generator → MinIO (structured Parquet)
+  - id: e-datagen-minio
+    source: data-gen
+    target: minio-1
+    connection_type: structured-data
+    network: default
+    auto_configure: true
+    label: "Parquet"
+    connection_config:
+      format: "parquet"
+      target_bucket: "raw-data"
+
+  # MinIO → Iceberg REST (warehouse storage)
+  - id: e-minio-iceberg
+    source: minio-1
+    target: iceberg-rest
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 warehouse"
+    connection_config:
+      warehouse_bucket: "warehouse"
+
+  # Dremio → MinIO (direct S3 access)
+  - id: e-dremio-minio
+    source: dremio-1
+    target: minio-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3"
+    connection_config:
+      bucket: "raw-data"
+
+  # Dremio → Iceberg REST (catalog)
+  - id: e-dremio-iceberg
+    source: dremio-1
+    target: iceberg-rest
+    connection_type: iceberg-catalog
+    network: default
+    auto_configure: true
+    label: "Iceberg catalog"
+    connection_config:
+      catalog_name: "iceberg"
+
+  # Trino → MinIO (direct S3 access)
+  - id: e-trino-minio
+    source: trino-1
+    target: minio-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3"
+    connection_config:
+      catalog_name: "minio"
+
+  # Trino → Iceberg REST (catalog)
+  - id: e-trino-iceberg
+    source: trino-1
+    target: iceberg-rest
+    connection_type: iceberg-catalog
+    network: default
+    auto_configure: true
+    label: "Iceberg catalog"
+    connection_config:
+      catalog_name: "iceberg"
+
+  # Metabase → Dremio (SQL)
+  - id: e-metabase-dremio
+    source: metabase-1
+    target: dremio-1
+    connection_type: dremio-sql
+    network: default
+    auto_configure: true
+    label: "Dremio SQL"
+
+  # Metabase → Trino (SQL)
+  - id: e-metabase-trino
+    source: metabase-1
+    target: trino-1
+    connection_type: sql-query
+    network: default
+    auto_configure: true
+    label: "SQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 6g
+  total_cpu: 6.0

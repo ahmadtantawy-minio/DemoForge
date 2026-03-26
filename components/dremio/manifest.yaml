@@ -1,0 +1,82 @@
+id: dremio
+name: Dremio
+category: analytics
+icon: dremio
+version: "latest"
+image: dremio/dremio-oss:latest
+description: "Lakehouse query engine with Iceberg and S3-compatible storage support"
+
+resources:
+  memory: "4g"
+  cpu: 1.0
+
+ports:
+  - name: web
+    container: 9047
+    protocol: tcp
+  - name: client
+    container: 31010
+    protocol: tcp
+  - name: flight
+    container: 32010
+    protocol: tcp
+
+environment: {}
+
+health_check:
+  endpoint: /apiv2/server_status
+  port: 9047
+  start_period: 90s
+  interval: 30s
+  timeout: 15s
+
+web_ui:
+  - name: console
+    port: 9047
+    path: "/"
+    description: "Dremio Console — query editor, data lake browser, and admin"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Dremio lakehouse query engine."
+  quick_actions:
+    - label: "Check server status"
+      command: "curl -s http://localhost:9047/apiv2/server_status"
+    - label: "Tail server logs"
+      command: "tail -f /opt/dremio/log/server.log"
+
+connections:
+  provides:
+    - type: dremio-sql
+      port: 31010
+      description: "Dremio JDBC/ODBC client endpoint"
+    - type: dremio-flight
+      port: 32010
+      description: "Apache Arrow Flight endpoint"
+  accepts:
+    - type: s3
+      config_schema:
+        - key: bucket
+          label: "S3 Bucket"
+          type: string
+          default: "data-lake"
+    - type: iceberg-catalog
+      config_schema:
+        - key: catalog_name
+          label: "Catalog Name"
+          type: string
+          default: "nessie"
+
+variants:
+  default:
+    description: "Single-node Dremio OSS coordinator+executor"
+
+template_mounts: []
+static_mounts: []
+
+init_scripts:
+  - command: "sh -c 'timeout=120; until curl -sf http://localhost:9047/apiv2/server_status > /dev/null 2>&1; do sleep 5; timeout=$((timeout-5)); if [ $timeout -le 0 ]; then echo \"Dremio health check timed out\"; exit 1; fi; done; echo \"Dremio is ready\"'"
+    wait_for_healthy: true
+    timeout: 120
+    order: 1
+    description: "Wait for Dremio to become healthy"

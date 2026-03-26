@@ -1,0 +1,81 @@
+id: kafka-connect-s3
+name: Kafka Connect S3
+category: streaming
+icon: kafka-connect-s3
+version: "latest"
+image: demoforge/kafka-connect-s3:latest
+build_context: "."
+description: "Kafka Connect worker with Aiven S3 sink connector — streams Kafka topics to S3-compatible object storage"
+
+resources:
+  memory: "1g"
+  cpu: 0.5
+
+ports:
+  - name: api
+    container: 8083
+    protocol: tcp
+
+environment:
+  CONNECT_BOOTSTRAP_SERVERS: ""
+  CONNECT_REST_PORT: "8083"
+  CONNECT_GROUP_ID: "demoforge-connect"
+  CONNECT_CONFIG_STORAGE_TOPIC: "connect-configs"
+  CONNECT_OFFSET_STORAGE_TOPIC: "connect-offsets"
+  CONNECT_STATUS_STORAGE_TOPIC: "connect-status"
+  CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+  CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+  CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+  CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+  CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+  CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+
+health_check:
+  endpoint: /connectors
+  port: 8083
+  interval: 15s
+  timeout: 10s
+
+web_ui: []
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Kafka Connect with Aiven S3 sink connector."
+  quick_actions:
+    - label: "List connectors"
+      command: "curl -s http://localhost:8083/connectors | jq ."
+    - label: "List plugins"
+      command: "curl -s http://localhost:8083/connector-plugins | jq .[].class"
+    - label: "Connector status"
+      command: "curl -s http://localhost:8083/connectors/s3-sink/status | jq . 2>/dev/null || echo 'No s3-sink connector deployed'"
+
+connections:
+  provides:
+    - type: kafka-connect
+      port: 8083
+      description: "Kafka Connect REST API"
+  accepts:
+    - type: kafka
+      config_schema:
+        - key: broker_url
+          label: "Kafka Broker URL"
+          type: string
+          default: "redpanda:9092"
+    - type: s3
+      config_schema:
+        - key: bucket
+          label: "Target S3 Bucket"
+          type: string
+          default: "kafka-sink"
+        - key: prefix
+          label: "Object Prefix"
+          type: string
+          default: "kafka/"
+
+variants:
+  default:
+    description: "Single Kafka Connect worker with Aiven S3 sink plugin"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

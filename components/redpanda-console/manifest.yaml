@@ -1,0 +1,64 @@
+id: redpanda-console
+name: Redpanda Console
+category: streaming
+icon: redpanda-console
+version: "latest"
+image: docker.redpanda.com/redpandadata/console:latest
+description: "Web UI for Kafka and Redpanda — topic browser, consumer groups, schema registry"
+
+resources:
+  memory: "256m"
+  cpu: 0.25
+
+ports:
+  - name: web
+    container: 8080
+    protocol: tcp
+
+environment:
+  KAFKA_BROKERS: ""
+  KAFKA_SCHEMAREGISTRY_ENABLED: "true"
+  KAFKA_SCHEMAREGISTRY_URLS: ""
+
+health_check:
+  endpoint: /api/health
+  port: 8080
+  interval: 10s
+  timeout: 5s
+
+web_ui:
+  - name: console
+    port: 8080
+    path: "/"
+    description: "Redpanda Console — topic browser, consumer groups, and schema registry"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Redpanda Console web UI."
+  quick_actions:
+    - label: "Check health"
+      command: "wget -qO- http://localhost:8080/api/health"
+
+connections:
+  provides: []
+  accepts:
+    - type: kafka
+      config_schema:
+        - key: broker_url
+          label: "Kafka Broker URL"
+          type: string
+          default: "redpanda:9092"
+    - type: schema-registry
+      config_schema:
+        - key: schema_registry_url
+          label: "Schema Registry URL"
+          type: string
+          default: "http://redpanda:8081"
+
+variants:
+  default:
+    description: "Single-instance Redpanda Console"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

@@ -56,6 +56,7 @@ const DG_FORMATS = [
   { id: "json", name: "JSON (NDJSON)" },
   { id: "csv", name: "CSV" },
   { id: "iceberg", name: "Iceberg (native)" },
+  { id: "kafka", name: "Kafka (streaming)" },
 ] as const;
 
 function rowsPerSec(scenario: string, profile: string): string {

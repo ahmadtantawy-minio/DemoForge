@@ -20,7 +20,7 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "raw-data")
 PARTITION_BY_DATE = os.environ.get("PARTITION_BY_DATE", "true").lower() == "true"
 
 # New controls
-DG_FORMAT = os.environ.get("DG_FORMAT", "parquet").lower()          # parquet | json | csv | iceberg
+DG_FORMAT = os.environ.get("DG_FORMAT", "parquet").lower()          # parquet | json | csv | iceberg | kafka
 DG_FILE_SIZE_ROWS = int(os.environ.get("DG_FILE_SIZE_ROWS", "1000"))  # rows per file
 DG_RATE = float(os.environ.get("DG_RATE", "1"))                       # files per minute
 DG_BATCH_SIZE = int(os.environ.get("DG_BATCH_SIZE", "10"))            # files per batch
@@ -222,6 +222,9 @@ def _get_writer(fmt: str):
     elif fmt == "csv":
         from src.writers import csv_writer
         return csv_writer
+    elif fmt == "kafka":
+        from src.writers import kafka_writer
+        return kafka_writer
     else:
         raise ValueError(f"Unsupported format for scenario writer: {fmt}")
 
@@ -305,30 +308,9 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
     )
     print(f"STATUS: scenario={scenario_id} format={fmt} state=starting")
 
-    client = wait_for_minio(timeout=180)
-
-    # Ensure bucket exists
-    try:
-        client.head_bucket(Bucket=bucket)
-    except ClientError as exc:
-        if exc.response["Error"]["Code"] in ("404", "NoSuchBucket"):
-            client.create_bucket(Bucket=bucket)
-            print(f"[scenario] Created bucket '{bucket}'.")
-
-    # Run table setup (create buckets + warehouse)
-    try:
-        from src.table_setup import run_setup
-        endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
-        trino_host = os.environ.get("TRINO_HOST", "")
-        run_setup(scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY, trino_host=trino_host or None)
-        print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
-    except Exception as exc:
-        print(f"[scenario] Table setup skipped: {exc}")
-
-    # Determine write strategy:
-    # 1. PyIceberg writer (preferred — decoupled, writes directly to Iceberg catalog)
-    # 2. Trino INSERT writer (fallback for AIStor SigV4 which PyIceberg can't auth)
-    # 3. Raw file writer (last resort)
+    # Kafka path — skip all MinIO/S3 setup
+    use_kafka = fmt == "kafka"
+    client = None
     use_iceberg = False
     use_trino_writer = False
     trino_table_name = None
@@ -336,38 +318,68 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
     iceberg_writer = None
     ice_ns = None
     ice_table = None
-
-    iceberg_cfg = scenario.get("iceberg", {}) or {}
-    trino_table_name = iceberg_cfg.get("table", "orders")
-    trino_host = os.environ.get("TRINO_HOST", "")
-    is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
-
-    # Try PyIceberg first (decoupled from Trino)
-    iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)
-    use_iceberg = iceberg_writer is not None
-    if use_iceberg:
-        try:
-            # Store data in the user-specified bucket, not the default warehouse
-            table_location = f"s3://{bucket}/{ice_table}/" if bucket else None
-            iceberg_writer.ensure_table(ice_ns, ice_table, columns, location=table_location)
-            print(f"[scenario] Using Iceberg writer → {ice_ns}.{ice_table} (location: {table_location or 'default'})")
-        except Exception as exc:
-            print(f"[scenario] Iceberg table creation failed: {exc} — trying Trino writer")
-            use_iceberg = False
-
-    # Fallback to Trino INSERT writer (only if PyIceberg fails and not AIStor path)
-    if not use_iceberg and not is_sigv4 and trino_host:
-        trino_catalog = "iceberg"
-        try:
-            from src.writers import trino_writer
-            use_trino_writer = True
-            print(f"[scenario] Using Trino INSERT writer → {trino_catalog}.demo.{trino_table_name}")
-        except Exception as exc:
-            print(f"[scenario] Trino writer not available: {exc}")
-
     writer = None
-    if not use_iceberg and not use_trino_writer:
-        writer = _get_writer(fmt)
+
+    if use_kafka:
+        kafka_bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+        kafka_topic = os.environ.get("KAFKA_TOPIC", "data-generator")
+        from src.writers.kafka_writer import KafkaWriter
+        kafka_writer_instance = KafkaWriter(
+            bootstrap_servers=kafka_bootstrap,
+            topic=kafka_topic,
+        )
+        print(f"[scenario] Using Kafka writer → kafka://{kafka_topic}")
+    else:
+        client = wait_for_minio(timeout=180)
+
+        # Ensure bucket exists
+        try:
+            client.head_bucket(Bucket=bucket)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in ("404", "NoSuchBucket"):
+                client.create_bucket(Bucket=bucket)
+                print(f"[scenario] Created bucket '{bucket}'.")
+
+        # Run table setup (create buckets + warehouse)
+        try:
+            from src.table_setup import run_setup
+            endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
+            trino_host = os.environ.get("TRINO_HOST", "")
+            run_setup(scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY, trino_host=trino_host or None)
+            print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
+        except Exception as exc:
+            print(f"[scenario] Table setup skipped: {exc}")
+
+        iceberg_cfg = scenario.get("iceberg", {}) or {}
+        trino_table_name = iceberg_cfg.get("table", "orders")
+        trino_host = os.environ.get("TRINO_HOST", "")
+        is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
+
+        # Try PyIceberg first (decoupled from Trino)
+        iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)
+        use_iceberg = iceberg_writer is not None
+        if use_iceberg:
+            try:
+                # Store data in the user-specified bucket, not the default warehouse
+                table_location = f"s3://{bucket}/{ice_table}/" if bucket else None
+                iceberg_writer.ensure_table(ice_ns, ice_table, columns, location=table_location)
+                print(f"[scenario] Using Iceberg writer → {ice_ns}.{ice_table} (location: {table_location or 'default'})")
+            except Exception as exc:
+                print(f"[scenario] Iceberg table creation failed: {exc} — trying Trino writer")
+                use_iceberg = False
+
+        # Fallback to Trino INSERT writer (only if PyIceberg fails and not AIStor path)
+        if not use_iceberg and not is_sigv4 and trino_host:
+            trino_catalog = "iceberg"
+            try:
+                from src.writers import trino_writer
+                use_trino_writer = True
+                print(f"[scenario] Using Trino INSERT writer → {trino_catalog}.demo.{trino_table_name}")
+            except Exception as exc:
+                print(f"[scenario] Trino writer not available: {exc}")
+
+        if not use_iceberg and not use_trino_writer:
+            writer = _get_writer(fmt)
 
     rows_generated = 0
     batches_sent = 0
@@ -417,7 +429,10 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
         try:
             rows = generate_batch(columns, effective_rows)
 
-            if use_iceberg:
+            if use_kafka:
+                kafka_writer_instance.write_batch(rows, columns)
+                key = f"kafka/{kafka_topic}"
+            elif use_iceberg:
                 count = iceberg_writer.write_batch(rows, columns, ice_ns, ice_table)
                 key = f"iceberg/{ice_ns}.{ice_table}"
             elif use_trino_writer:
@@ -445,8 +460,10 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             elapsed_total = time.time() - start_time
             rows_per_sec = rows_generated / elapsed_total if elapsed_total > 0 else 0
 
-            dest = f"iceberg://{ice_ns}.{ice_table}" if use_iceberg else (
-                f"trino://{trino_catalog}.demo.{trino_table_name}" if use_trino_writer else f"s3://{bucket}/{key}"
+            dest = f"kafka://{kafka_topic}" if use_kafka else (
+                f"iceberg://{ice_ns}.{ice_table}" if use_iceberg else (
+                    f"trino://{trino_catalog}.demo.{trino_table_name}" if use_trino_writer else f"s3://{bucket}/{key}"
+                )
             )
             print(
                 f"[scenario] Wrote {len(rows)} rows ({fmt}) to {dest} "

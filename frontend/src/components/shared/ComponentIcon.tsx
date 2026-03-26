@@ -153,6 +153,42 @@ function HDFSIcon({ size }: { size: number }) {
   );
 }
 
+function DremioIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#7c3aed" />
+      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="Arial, sans-serif">D</text>
+    </svg>
+  );
+}
+
+function RedpandaIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#e11d48" />
+      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold" fontFamily="Arial, sans-serif">RP</text>
+    </svg>
+  );
+}
+
+function NessieIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#1565c0" />
+      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="Arial, sans-serif">N</text>
+    </svg>
+  );
+}
+
+function KafkaConnectIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#be123c" />
+      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold" fontFamily="Arial, sans-serif">KC</text>
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -180,6 +216,10 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("clickhouse")) return <ClickHouseIcon size={size} />;
     if (id.includes("spark")) return <SparkIcon size={size} />;
     if (id.includes("hdfs")) return <HDFSIcon size={size} />;
+    if (id.includes("dremio")) return <DremioIcon size={size} />;
+    if (id.includes("redpanda")) return <RedpandaIcon size={size} />;
+    if (id.includes("nessie")) return <NessieIcon size={size} />;
+    if (id.includes("kafka-connect")) return <KafkaConnectIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

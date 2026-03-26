@@ -1,0 +1,171 @@
+# Template metadata
+_template:
+  name: "Real-time Streaming Lakehouse"
+  category: "analytics"
+  tags: ["streaming", "redpanda", "kafka-connect", "s3-sink", "trino", "metabase", "lakehouse"]
+  description: "Real-time streaming pipeline: Data Generator produces Kafka events, Redpanda brokers them, Kafka Connect S3 Sink lands them in MinIO, and Trino + Metabase deliver live SQL analytics."
+  objective: "Demonstrate MinIO as the landing zone for real-time Kafka streams — events flow from producer to object storage with zero code via Kafka Connect S3 Sink"
+  minio_value: "MinIO is the stream landing zone: Kafka Connect writes every Kafka event as Parquet/JSON objects into MinIO buckets, turning the message bus into a queryable data lake — no custom ETL, no separate storage tier"
+  estimated_resources:
+    memory: "6GB"
+    cpu: 7
+    containers: 7
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start all components. Wait for all health indicators to turn green (~60s)."
+    - step: "Generate streaming events"
+      description: "Right-click Data Generator → Start Generating to produce clickstream events into Redpanda's clickstream topic."
+    - step: "Inspect events in Redpanda Console"
+      description: "Open Redpanda Console → Topics → clickstream to browse live messages as they arrive."
+    - step: "Verify Kafka Connect S3 Sink"
+      description: "Open MinIO Console → streaming-data bucket to see JSON/Parquet files landing from Kafka Connect."
+    - step: "Query with Trino"
+      description: "Open Trino terminal → SELECT count(*) FROM minio.streaming_data.clickstream; to query the streamed objects directly."
+    - step: "Build Metabase dashboard"
+      description: "Open Metabase → New Question → Trino database → select the clickstream table and visualize event trends in real time."
+
+# Standard demo definition
+id: template-streaming-lakehouse
+name: "Real-time Streaming Lakehouse"
+description: "Real-time streaming pipeline: Data Generator → Redpanda → Kafka Connect S3 Sink → MinIO → Trino → Metabase"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  # Event producer
+  - id: data-gen
+    component: data-generator
+    variant: default
+    position: { x: -200, y: 150 }
+    display_name: "Data Generator"
+    config:
+      DG_SCENARIO: "clickstream"
+      DG_FORMAT: "kafka"
+
+  # Message broker
+  - id: redpanda-1
+    component: redpanda
+    variant: default
+    position: { x: 100, y: 150 }
+    display_name: "Redpanda"
+    config: {}
+
+  # Broker UI
+  - id: rp-console
+    component: redpanda-console
+    variant: default
+    position: { x: 100, y: 350 }
+    display_name: "Redpanda Console"
+    config: {}
+
+  # Stream-to-object connector
+  - id: kafka-connect-1
+    component: kafka-connect-s3
+    variant: default
+    position: { x: 400, y: 150 }
+    display_name: "Kafka Connect S3"
+    config: {}
+
+  # Core storage
+  - id: minio-1
+    component: minio
+    variant: single
+    position: { x: 700, y: 150 }
+    display_name: "MinIO"
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+
+  # SQL query engine
+  - id: trino-1
+    component: trino
+    variant: default
+    position: { x: 1000, y: 50 }
+    display_name: "Trino"
+    config: {}
+
+  # BI visualization
+  - id: metabase-1
+    component: metabase
+    variant: default
+    position: { x: 1300, y: 150 }
+    display_name: "Metabase"
+    config: {}
+
+clusters: []
+
+edges:
+  # Data Generator → Redpanda (Kafka producer)
+  - id: e-datagen-redpanda
+    source: data-gen
+    target: redpanda-1
+    connection_type: kafka
+    network: default
+    auto_configure: true
+    label: "Produce events"
+    connection_config:
+      topic: "clickstream"
+
+  # Redpanda Console → Redpanda (management)
+  - id: e-console-redpanda
+    source: rp-console
+    target: redpanda-1
+    connection_type: kafka
+    network: default
+    auto_configure: true
+    label: "Manage"
+
+  # Kafka Connect → Redpanda (consume)
+  - id: e-connect-redpanda
+    source: kafka-connect-1
+    target: redpanda-1
+    connection_type: kafka
+    network: default
+    auto_configure: true
+    label: "Consume"
+
+  # Kafka Connect → MinIO (S3 sink)
+  - id: e-connect-minio
+    source: kafka-connect-1
+    target: minio-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 Sink"
+    connection_config:
+      sink_bucket: "streaming-data"
+
+  # Trino → MinIO (S3 query)
+  - id: e-trino-minio
+    source: trino-1
+    target: minio-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 query"
+    connection_config:
+      catalog_name: "minio"
+
+  # Metabase → Trino (SQL)
+  - id: e-metabase-trino
+    source: metabase-1
+    target: trino-1
+    connection_type: sql-query
+    network: default
+    auto_configure: true
+    label: "SQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 6g
+  total_cpu: 6.0
