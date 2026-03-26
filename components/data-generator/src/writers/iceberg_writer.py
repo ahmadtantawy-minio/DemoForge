@@ -88,7 +88,7 @@ class IcebergWriter:
     """
 
     def __init__(self, catalog_uri: str, warehouse: str, s3_endpoint: str,
-                 access_key: str, secret_key: str):
+                 access_key: str, secret_key: str, sigv4: bool = False):
         if not _PYICEBERG_AVAILABLE:
             raise RuntimeError(
                 "pyiceberg is not installed. Install it with: pip install pyiceberg[s3fs]"
@@ -98,25 +98,33 @@ class IcebergWriter:
         self._s3_endpoint = s3_endpoint
         self._access_key = access_key
         self._secret_key = secret_key
+        self._sigv4 = sigv4
         self._catalog = None
 
     def _get_catalog(self):
         if self._catalog is not None:
             return self._catalog
         from pyiceberg.catalog.rest import RestCatalog
-        self._catalog = RestCatalog(
-            name="demo",
-            **{
-                "uri": self._catalog_uri,
-                "warehouse": self._warehouse,
-                "s3.endpoint": self._s3_endpoint,
-                "s3.access-key-id": self._access_key,
-                "s3.secret-access-key": self._secret_key,
-                "s3.path-style-access": "true",
-                "s3.region": "us-east-1",
-                "py-io-impl": "pyiceberg.io.fsspec.FsspecFileIO",
-            },
-        )
+        props = {
+            "uri": self._catalog_uri,
+            "warehouse": self._warehouse,
+            "s3.endpoint": self._s3_endpoint,
+            "s3.access-key-id": self._access_key,
+            "s3.secret-access-key": self._secret_key,
+            "s3.path-style-access": "true",
+            "s3.region": "us-east-1",
+            "py-io-impl": "pyiceberg.io.fsspec.FsspecFileIO",
+        }
+        if self._sigv4:
+            import os as _os
+            # SigV4 signing uses boto3's credential chain — set AWS env vars
+            _os.environ.setdefault("AWS_ACCESS_KEY_ID", self._access_key)
+            _os.environ.setdefault("AWS_SECRET_ACCESS_KEY", self._secret_key)
+            _os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+            props["rest.sigv4-enabled"] = "true"
+            props["rest.signing-region"] = "us-east-1"
+            props["rest.signing-name"] = "s3tables"
+        self._catalog = RestCatalog(name="demo", **props)
         return self._catalog
 
     def ensure_table(self, namespace: str, table_name: str, columns: list,

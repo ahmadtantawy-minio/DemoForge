@@ -242,25 +242,32 @@ def _get_iceberg_writer(scenario: dict):
     if not catalog_uri:
         return None, None, None
 
-    # AIStor Tables manages Iceberg metadata over raw files in MinIO.
-    # The generator just writes raw parquet/json files — no catalog interaction needed.
-    # AIStor Tables auto-discovers files; Trino reads via the /_iceberg connector.
-    if os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes"):
-        print("[scenario] AIStor Tables path — writing raw files, AIStor manages Iceberg metadata")
-        return None, None, None
+    is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
 
     try:
         from src.writers.iceberg_writer import IcebergWriter
         endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
         iceberg_cfg = scenario.get("iceberg", {}) or {}
-        wh = iceberg_cfg.get("warehouse", "warehouse")
-        wh_uri = wh if wh.startswith("s3://") else f"s3://{wh}/"
+        wh = os.environ.get("ICEBERG_WAREHOUSE", iceberg_cfg.get("warehouse", "warehouse"))
+        # AIStor Tables expects bare warehouse name (e.g. "analytics"),
+        # external Iceberg REST expects s3:// URI (e.g. "s3://warehouse/")
+        wh_uri = wh if is_sigv4 else (wh if wh.startswith("s3://") else f"s3://{wh}/")
+
+        # For AIStor (SigV4), connect to the /_iceberg endpoint on the MinIO node directly
+        # (nginx LB may not proxy SigV4 correctly)
+        sigv4_uri = catalog_uri
+        if is_sigv4 and "-lb:" in catalog_uri:
+            # Replace LB with node-1 for SigV4 reliability
+            sigv4_uri = catalog_uri.replace("-lb:", "-node-1:").replace(":80/", ":9000/")
+            print(f"[scenario] AIStor SigV4: using direct node {sigv4_uri}")
+
         writer = IcebergWriter(
-            catalog_uri=catalog_uri,
+            catalog_uri=sigv4_uri if is_sigv4 else catalog_uri,
             warehouse=wh_uri,
             s3_endpoint=endpoint,
             access_key=S3_ACCESS_KEY,
             secret_key=S3_SECRET_KEY,
+            sigv4=is_sigv4,
         )
         namespace = iceberg_cfg.get("namespace", "demo")
         table_name = iceberg_cfg.get("table", "orders")
