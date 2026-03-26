@@ -1,0 +1,106 @@
+id: mlflow
+name: MLflow
+category: ai
+icon: mlflow
+version: "latest"
+image: ghcr.io/mlflow/mlflow:latest
+description: "ML experiment tracking, model registry, and artifact management"
+
+resources:
+  memory: "512m"
+  cpu: 0.5
+
+ports:
+  - name: web
+    container: 5000
+    protocol: tcp
+
+environment:
+  MLFLOW_S3_ENDPOINT_URL: ""
+  AWS_ACCESS_KEY_ID: "minioadmin"
+  AWS_SECRET_ACCESS_KEY: "minioadmin"
+  MLFLOW_S3_IGNORE_TLS: "true"
+  MLFLOW_ARTIFACTS_DESTINATION: "s3://mlflow-artifacts/"
+  MLFLOW_BACKEND_STORE_URI: "sqlite:///mlflow/mlflow.db"
+
+volumes:
+  - name: data
+    path: /mlflow
+    size: 1g
+
+command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000",
+          "--backend-store-uri", "sqlite:///mlflow/mlflow.db",
+          "--default-artifact-root", "s3://mlflow-artifacts/",
+          "--serve-artifacts",
+          "--artifacts-destination", "s3://mlflow-artifacts/"]
+
+health_check:
+  endpoint: /health
+  port: 5000
+  interval: 10s
+  timeout: 5s
+  start_period: "15s"
+
+secrets:
+  - key: AWS_ACCESS_KEY_ID
+    label: "MinIO Access Key"
+    default: "minioadmin"
+  - key: AWS_SECRET_ACCESS_KEY
+    label: "MinIO Secret Key"
+    default: "minioadmin"
+
+web_ui:
+  - name: dashboard
+    port: 5000
+    path: /
+    description: "MLflow UI — experiments, runs, model registry, artifact browser"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "MLflow tracking server. Artifacts stored in MinIO."
+  quick_actions:
+    - label: "List experiments"
+      command: "mlflow experiments search 2>/dev/null || echo 'Server starting...'"
+    - label: "Check MinIO connection"
+      command: "python3 -c \"import boto3; s3=boto3.client('s3', endpoint_url='$MLFLOW_S3_ENDPOINT_URL', aws_access_key_id='$AWS_ACCESS_KEY_ID', aws_secret_access_key='$AWS_SECRET_ACCESS_KEY'); print(s3.list_buckets()['Buckets'])\""
+    - label: "Server status"
+      command: "curl -s http://localhost:5000/health || echo 'Not ready'"
+
+connections:
+  provides:
+    - type: mlflow-tracking
+      port: 5000
+      description: "MLflow Tracking API — log experiments, register models"
+  accepts:
+    - type: s3
+      config_schema:
+        - key: artifact_bucket
+          label: "Artifact Bucket"
+          type: string
+          default: "mlflow-artifacts"
+
+variants:
+  default:
+    description: "SQLite backend (single-node, simple)"
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000",
+              "--backend-store-uri", "sqlite:///mlflow/mlflow.db",
+              "--default-artifact-root", "s3://mlflow-artifacts/",
+              "--serve-artifacts",
+              "--artifacts-destination", "s3://mlflow-artifacts/"]
+  with-postgres:
+    description: "PostgreSQL backend (multi-user, production-like)"
+    command: ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000",
+              "--backend-store-uri", "postgresql://mlflow:mlflow@postgres:5432/mlflow",
+              "--default-artifact-root", "s3://mlflow-artifacts/",
+              "--serve-artifacts",
+              "--artifacts-destination", "s3://mlflow-artifacts/"]
+
+template_mounts: []
+static_mounts: []
+
+init_scripts:
+  - command: "sh -c 'pip install boto3 psycopg2-binary 2>/dev/null; echo done'"
+    wait_for_healthy: false
+    timeout: 60
+    order: 0
+    description: "Install S3 and PostgreSQL drivers"

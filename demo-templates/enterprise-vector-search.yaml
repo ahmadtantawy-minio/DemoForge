@@ -1,0 +1,112 @@
+_template:
+  name: "Enterprise Vector Search"
+  category: "ai"
+  tags: ["milvus", "vector-db", "embeddings", "rag", "search"]
+  description: "Milvus vector database with MinIO as primary storage. All vectors, indexes, and WAL segments live in MinIO."
+  objective: "Demonstrate MinIO as the persistence layer for enterprise-scale vector search"
+  minio_value: "Milvus doesn't manage its own storage — MinIO handles all persistence. Vectors, indexes, and logs are MinIO objects. Your embeddings get the same durability, replication, and encryption as the rest of your data."
+  estimated_resources:
+    memory: "5GB"
+    cpu: 3
+    containers: 5
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy"
+      description: "Click Deploy. Milvus takes ~30s to initialize with MinIO as its backend."
+    - step: "Check MinIO"
+      description: "Open MinIO Console → milvus-data bucket appears automatically. This is where Milvus stores everything."
+    - step: "Ingest documents"
+      description: "Start the data generator, then use the RAG app to ingest and embed sample documents."
+    - step: "Query vectors"
+      description: "Ask questions in the RAG chat UI — Milvus handles the vector search, backed by MinIO."
+    - step: "Inspect storage"
+      description: "Open MinIO Console → browse the milvus-data bucket → see segment files, index files, and WAL logs."
+
+id: template-enterprise-vector-search
+name: "Enterprise Vector Search (Milvus)"
+description: "Milvus vector database with MinIO as primary storage backend"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  - id: minio-1
+    component: minio
+    variant: single
+    position: {x: 100, y: 250}
+    display_name: "MinIO"
+
+  - id: etcd-1
+    component: etcd
+    variant: default
+    position: {x: 350, y: 450}
+    display_name: "etcd"
+
+  - id: milvus-1
+    component: milvus
+    variant: standalone
+    position: {x: 400, y: 250}
+    display_name: "Milvus"
+
+  - id: ollama-1
+    component: ollama
+    variant: default
+    position: {x: 650, y: 100}
+    display_name: "Ollama"
+
+  - id: rag-1
+    component: rag-app
+    variant: default
+    position: {x: 700, y: 350}
+    display_name: "RAG Pipeline"
+
+clusters: []
+
+edges:
+  - id: e-milvus-minio
+    source: milvus-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Primary storage"
+    connection_config:
+      milvus_bucket: "milvus-data"
+
+  - id: e-milvus-etcd
+    source: milvus-1
+    target: etcd-1
+    connection_type: etcd
+    auto_configure: true
+    label: "Metadata"
+
+  - id: e-rag-milvus
+    source: rag-1
+    target: milvus-1
+    connection_type: vector-db-milvus
+    auto_configure: true
+    label: "Vector search"
+
+  - id: e-rag-ollama
+    source: rag-1
+    target: ollama-1
+    connection_type: llm-api
+    auto_configure: true
+    label: "Embed + generate"
+
+  - id: e-rag-minio
+    source: rag-1
+    target: minio-1
+    connection_type: s3
+    auto_configure: true
+    label: "Docs + audit"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: "512m"
+  default_cpu: 0.5
+  total_memory: "8g"
+  total_cpu: 4.0

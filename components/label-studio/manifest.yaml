@@ -1,0 +1,93 @@
+id: label-studio
+name: Label Studio
+category: ai
+icon: label-studio
+version: "latest"
+image: heartexlabs/label-studio:latest
+description: "Multi-type data labeling and annotation tool with S3 storage"
+
+resources:
+  memory: "512m"
+  cpu: 0.5
+
+ports:
+  - name: web
+    container: 8080
+    protocol: tcp
+
+environment:
+  LABEL_STUDIO_HOST: "http://localhost:8080"
+  LABEL_STUDIO_USERNAME: "demo@demoforge.local"
+  LABEL_STUDIO_PASSWORD: "DemoForge123!"
+  LABEL_STUDIO_USER_TOKEN: ""
+  DJANGO_DB: "sqlite"
+  LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED: "true"
+  LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: "/label-studio/data"
+
+volumes:
+  - name: data
+    path: /label-studio/data
+    size: 2g
+
+command: ["label-studio", "start", "--no-browser",
+          "--username", "demo@demoforge.local",
+          "--password", "DemoForge123!"]
+
+health_check:
+  endpoint: /health
+  port: 8080
+  interval: 15s
+  timeout: 10s
+  start_period: "30s"
+
+secrets:
+  - key: LABEL_STUDIO_USERNAME
+    label: "Admin Email"
+    default: "demo@demoforge.local"
+  - key: LABEL_STUDIO_PASSWORD
+    label: "Admin Password"
+    default: "DemoForge123!"
+
+web_ui:
+  - name: app
+    port: 8080
+    path: /
+    description: "Label Studio — data annotation, project management, labeling interface"
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Label Studio container."
+  quick_actions:
+    - label: "Health check"
+      command: "curl -s http://localhost:8080/health || echo 'Not ready'"
+    - label: "List projects"
+      command: "curl -s -H 'Authorization: Token $LABEL_STUDIO_USER_TOKEN' http://localhost:8080/api/projects/ 2>/dev/null | python3 -m json.tool || echo 'Not ready'"
+
+connections:
+  provides:
+    - type: labeling-api
+      port: 8080
+      description: "Label Studio API — project management, data import/export"
+  accepts:
+    - type: s3
+      config_schema:
+        - key: source_bucket
+          label: "Source Data Bucket"
+          type: string
+          default: "labeling-data"
+          description: "MinIO bucket containing data to label (images, text, audio)"
+        - key: output_bucket
+          label: "Labeled Output Bucket"
+          type: string
+          default: "labeled-output"
+          description: "MinIO bucket for exported annotations"
+
+variants:
+  default:
+    description: "SQLite backend (single-user, simple)"
+  with-postgres:
+    description: "PostgreSQL backend (multi-user, production-like)"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

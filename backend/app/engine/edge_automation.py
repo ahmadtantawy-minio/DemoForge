@@ -281,6 +281,30 @@ def _gen_llm_api(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> lis
 def _gen_vector_db(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []  # Template-driven (env vars set by compose_generator)
 
+@_register("mlflow-tracking")
+def _gen_mlflow_tracking(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
+@_register("labeling-api")
+def _gen_labeling_api(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
+@_register("vector-db-milvus")
+def _gen_vector_db_milvus(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
+@_register("etcd")
+def _gen_etcd(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
+@_register("workflow-api")
+def _gen_workflow_api(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
+@_register("llm-gateway")
+def _gen_llm_gateway(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
 
 # ---------------------------------------------------------------------------
 # Helpers for cluster-level operations
