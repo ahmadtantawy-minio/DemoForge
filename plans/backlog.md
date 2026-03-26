@@ -407,6 +407,19 @@
   - MinIO single node: 256MB | Ollama (tinyllama): 1.5GB | Qdrant: 256MB | RAG app: 256MB
   - Total AI stack: ~2.3GB | With MinIO cluster (4-node): ~3.5GB | Leaves ~8GB for OS/Docker
 
+## Backlog — Analytics & Data Pipeline
+
+- [ ] **Metabase dashboard timing on deploy** — step 7 (setup-metabase) runs too early; Metabase isn't fully ready with Trino DB connection. Increase wait or add retry loop checking Metabase DB sync status before creating dashboards.
+- [ ] **AIStor warehouse auto-creation on deploy** — currently requires manual `mc table warehouse create`. Wire into deploy validator or mc-shell init script (aistor mc image already used). Handle the nginx LB SigV4 proxy issue (direct node access needed).
+- [ ] **Metabase dashboard cards show 0 cards** — "Live Orders Analytics" dashboard exists but shows 0 cards. The ecommerce dashboard was created by metabase-init sidecar (old flow) with empty layout. Need to reconcile or recreate.
+- [ ] **Edge labels for Iceberg mode** — when `DG_WRITE_MODE=iceberg`, edge label should say "Iceberg" not "JSON" or "PARQUET" (format is meaningless in Iceberg mode, always writes Parquet internally)
+- [ ] **Format selector locked in Iceberg mode** — when write mode is "iceberg", disable/hide the format dropdown since Iceberg always uses Parquet internally
+- [ ] **Hive external table for JSON format** — test and validate JSON format with Hive external tables (CSV is working, Parquet untested, JSON needs verification)
+- [ ] **Clickstream scenario** — no generator configured for clickstream yet. Add to a template or make available as a scenario option.
+- [ ] **Nginx LB SigV4 passthrough** — the nginx LB doesn't properly forward SigV4 headers for `/_iceberg` paths. Trino and PyIceberg connect to nodes directly as workaround. Fix nginx config to pass through SigV4 headers.
+- [ ] **Setup Tables button for all catalogs** — the Trino context menu "Setup Tables" only creates in iceberg+aistor catalogs. Extend to also create Hive external tables and handle format-specific requirements.
+- [ ] **Metabase data source auto-sync** — after creating tables, trigger Metabase DB sync so new tables appear in the browse UI without manual refresh.
+
 ## Future — Experience & Sharing (Phase 5)
 
 - [ ] Demo Export/Import as archive
