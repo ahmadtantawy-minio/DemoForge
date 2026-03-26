@@ -368,9 +368,9 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
                 print(f"[scenario] Iceberg table creation failed: {exc} — trying Trino writer")
                 use_iceberg = False
 
-        # Fallback to Trino INSERT writer (only if PyIceberg fails and not AIStor path)
-        if not use_iceberg and not is_sigv4 and trino_host:
-            trino_catalog = "iceberg"
+        # Fallback to Trino INSERT writer (when PyIceberg unavailable or AIStor SigV4)
+        if not use_iceberg and trino_host:
+            trino_catalog = "aistor" if is_sigv4 else "iceberg"
             try:
                 from src.writers import trino_writer
                 use_trino_writer = True

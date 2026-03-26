@@ -891,3 +891,116 @@ async def execute_trino_query(demo_id: str, req: TrinoQueryRequest):
         "duration_ms": duration_ms,
         "truncated": truncated,
     }
+
+
+@router.post("/api/demos/{demo_id}/setup-tables")
+async def setup_tables(demo_id: str):
+    """Ensure all Iceberg tables exist for all dataset scenarios.
+
+    Creates missing tables in Trino's iceberg.demo schema based on
+    the scenario YAML definitions. Safe to call multiple times.
+    """
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    # Find Trino container
+    trino_container = None
+    for node_id, container in running.containers.items():
+        if container.component_id == "trino":
+            trino_container = container.container_name
+            break
+    if not trino_container:
+        raise HTTPException(404, "No Trino container found in this demo")
+
+    # Load all scenario YAMLs
+    import os as _os
+    import yaml as _yaml
+    datasets_dir = _os.path.join(
+        _os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components"),
+        "data-generator", "datasets"
+    )
+
+    results = []
+    type_map = {
+        "string": "VARCHAR", "int32": "INTEGER", "int64": "BIGINT",
+        "float32": "REAL", "float64": "DOUBLE", "boolean": "BOOLEAN",
+        "timestamp": "TIMESTAMP", "date": "DATE",
+    }
+
+    # Ensure schema exists
+    schema_cmd = 'trino --execute "CREATE SCHEMA IF NOT EXISTS iceberg.demo"'
+    await exec_in_container(trino_container, schema_cmd)
+
+    if not _os.path.isdir(datasets_dir):
+        return {"results": [{"table": "?", "status": "error", "detail": f"Datasets dir not found: {datasets_dir}"}]}
+
+    for fname in sorted(_os.listdir(datasets_dir)):
+        if not fname.endswith(".yaml"):
+            continue
+        fpath = _os.path.join(datasets_dir, fname)
+        with open(fpath, "r") as f:
+            scenario = _yaml.safe_load(f)
+
+        iceberg_cfg = scenario.get("iceberg", {}) or {}
+        table_name = iceberg_cfg.get("table", scenario.get("id", fname.replace(".yaml", "")).replace("-", "_"))
+        full_table = f"iceberg.demo.{table_name}"
+
+        # Check if table exists
+        check_cmd = f'trino --execute "SELECT 1 FROM {full_table} LIMIT 1"'
+        exit_code, _, _ = await exec_in_container(trino_container, check_cmd)
+        if exit_code == 0:
+            results.append({"table": full_table, "status": "exists"})
+            continue
+
+        # Build and create table
+        schema_block = scenario.get("schema", {})
+        columns = schema_block.get("columns", []) if isinstance(schema_block, dict) else schema_block
+        if not columns:
+            results.append({"table": full_table, "status": "skipped", "detail": "No columns in schema"})
+            continue
+
+        col_defs = ", ".join(
+            f"{col['name']} {type_map.get(col.get('type', 'string'), 'VARCHAR')}"
+            for col in columns
+        )
+
+        # Check if any generator in this demo targets a bucket for this scenario
+        # If so, create with external_location so existing raw files are queryable
+        demo_def = None
+        for demo_file in ["demos", "demo-templates"]:
+            dpath = _os.path.join(_os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos"), f"{demo_id}.yaml")
+            if _os.path.isfile(dpath):
+                with open(dpath) as df:
+                    demo_def = _yaml.safe_load(df)
+                break
+
+        external_bucket = None
+        scenario_id = scenario.get("id", fname.replace(".yaml", ""))
+        if demo_def:
+            for node in demo_def.get("nodes", []):
+                if node.get("component") == "data-generator":
+                    node_scenario = node.get("config", {}).get("DG_SCENARIO", "ecommerce-orders")
+                    if node_scenario == scenario_id:
+                        # Find the edge from this generator to get the target bucket
+                        for edge in demo_def.get("edges", []):
+                            if edge.get("source") == node.get("id"):
+                                cc = edge.get("connection_config", {}) or {}
+                                external_bucket = cc.get("target_bucket") or cc.get("bucket")
+                                break
+                        break
+
+        if external_bucket:
+            create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET', external_location = 's3a://{external_bucket}/')"
+        else:
+            create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET')"
+        create_cmd = f'trino --execute "{create_sql}"'
+        exit_code, stdout, stderr = await exec_in_container(trino_container, create_cmd)
+        if exit_code == 0:
+            results.append({"table": full_table, "status": "created"})
+        else:
+            # Clean jline warnings from stderr
+            clean_err = "\n".join(l for l in (stderr or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
+            results.append({"table": full_table, "status": "error", "detail": clean_err[:200]})
+
+    return {"results": results}

@@ -264,10 +264,8 @@ async def validate_and_reconcile(
             _record(results, "iceberg_table", "ok", f"Table {full_table} accessible")
             continue
 
-        # Table doesn't exist or is stale — clean up stale metadata
-        # Don't create the table here; the generator will create it with the
-        # correct location (target bucket) via PyIceberg's ensure_table.
-        await progress("validation", "running", f"Step 4/5: Cleaning stale metadata for {full_table}...")
+        # Table doesn't exist or is stale — clean up and recreate
+        await progress("validation", "running", f"Step 4/5: Recreating {full_table}...")
 
         # Try to drop stale table (may fail if metadata is corrupt — that's ok)
         await _exec(trino_container, f'trino --execute "DROP TABLE IF EXISTS {full_table}"', progress)
@@ -275,7 +273,6 @@ async def validate_and_reconcile(
         # If drop failed due to corrupt metadata, try purging via Iceberg REST API
         if iceberg_rest_container:
             for gen2 in generators:
-                # Use a generator container that has requests/python
                 exit_code2, _, _ = await _exec(
                     gen2["container"],
                     f'python3 -c "import requests; '
@@ -284,9 +281,33 @@ async def validate_and_reconcile(
                     f'print(f\'Purge: {{r.status_code}}\')"',
                     progress,
                 )
-                break  # only need one generator to run this
+                break
 
-        _record(results, "iceberg_table", "ok", f"Cleaned stale metadata for {full_table} — generator will create with correct location")
+        # Build column defs from scenario YAML and create the table
+        schema_block = scenario_data.get("schema", {})
+        columns = schema_block.get("columns", []) if isinstance(schema_block, dict) else schema_block
+        if columns:
+            type_map = {
+                "string": "VARCHAR", "int32": "INTEGER", "int64": "BIGINT",
+                "float32": "REAL", "float64": "DOUBLE", "boolean": "BOOLEAN",
+                "timestamp": "TIMESTAMP", "date": "DATE",
+            }
+            col_defs = ", ".join(
+                f"{col['name']} {type_map.get(col.get('type', 'string'), 'VARCHAR')}"
+                for col in columns
+            )
+            create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET')"
+            exit_code, stdout, stderr = await _exec(
+                trino_container,
+                f'trino --execute "{create_sql}"',
+                progress,
+            )
+            if exit_code == 0 or "already exists" in (stderr or "").lower():
+                _record(results, "iceberg_table", "ok", f"Table {full_table} created")
+            else:
+                _record(results, "iceberg_table", "error", f"Failed to create {full_table}: {stderr[:100]}")
+        else:
+            _record(results, "iceberg_table", "warning", f"No columns found for {table_name} — skipped")
 
     # ── Step 5: Validate catalog connectivity ──────────────────────
     await progress("validation", "running", "Step 5/5: Validating catalog connectivity...")

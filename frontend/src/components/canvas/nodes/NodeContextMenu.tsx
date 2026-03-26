@@ -138,14 +138,37 @@ export default function NodeContextMenu({
           )}
         </>
       )}
-      {componentId === "trino" && isRunning && onOpenSqlEditor && (
+      {componentId === "trino" && isRunning && (
         <>
           <div className="border-t border-border my-1" />
+          {onOpenSqlEditor && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+              onClick={() => { onOpenSqlEditor(); onClose(); }}
+            >
+              SQL Editor
+            </button>
+          )}
           <button
-            className="w-full text-left px-3 py-1.5 text-sm text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-            onClick={() => { onOpenSqlEditor(); onClose(); }}
+            className="w-full text-left px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-500/10 transition-colors"
+            onClick={async () => {
+              onClose();
+              const { toast } = await import("sonner");
+              toast.info("Setting up tables...");
+              try {
+                const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+                const res = await fetch(`${API_BASE}/api/demos/${demoId}/setup-tables`, { method: "POST" });
+                const data = await res.json();
+                const created = data.results?.filter((r: any) => r.status === "created") || [];
+                const exists = data.results?.filter((r: any) => r.status === "exists") || [];
+                const errors = data.results?.filter((r: any) => r.status === "error") || [];
+                toast.success(`Tables: ${exists.length} exist, ${created.length} created${errors.length ? `, ${errors.length} failed` : ""}`);
+              } catch (e: any) {
+                toast.error("Setup tables failed", { description: e.message });
+              }
+            }}
           >
-            SQL Editor
+            Setup Tables
           </button>
         </>
       )}

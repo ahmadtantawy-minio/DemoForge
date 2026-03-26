@@ -27,7 +27,12 @@ class TrinoInsertWriter:
         resp = requests.post(
             f"{self.base_url}/v1/statement",
             data=sql.encode("utf-8"),
-            headers={"X-Trino-User": self.user, "X-Trino-Source": "demoforge-gen"},
+            headers={
+                "X-Trino-User": self.user,
+                "X-Trino-Source": "demoforge-gen",
+                "X-Trino-Catalog": self.catalog,
+                "X-Trino-Schema": self.namespace,
+            },
             timeout=30,
         )
         resp.raise_for_status()
