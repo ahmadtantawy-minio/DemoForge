@@ -156,8 +156,10 @@ function HDFSIcon({ size }: { size: number }) {
 function DremioIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="4" fill="#7c3aed" />
-      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="Arial, sans-serif">D</text>
+      <rect width="32" height="32" rx="4" fill="#00BFA5" />
+      {/* Dremio swoosh: a bold "D" shape with a curved cutout suggesting speed/query */}
+      <path d="M9 7h6c5 0 8 3.5 8 9s-3 9-8 9H9V7z" fill="white" />
+      <path d="M13 11h2c2.5 0 4 1.8 4 5s-1.5 5-4 5h-2V11z" fill="#00BFA5" />
     </svg>
   );
 }
@@ -165,8 +167,21 @@ function DremioIcon({ size }: { size: number }) {
 function RedpandaIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="4" fill="#e11d48" />
-      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold" fontFamily="Arial, sans-serif">RP</text>
+      <rect width="32" height="32" rx="4" fill="#DC382D" />
+      {/* Stylized panda face: round head with two ear bumps */}
+      {/* Ears */}
+      <circle cx="10" cy="10" r="4" fill="#DC382D" stroke="white" strokeWidth="1.5" />
+      <circle cx="22" cy="10" r="4" fill="#DC382D" stroke="white" strokeWidth="1.5" />
+      {/* Face */}
+      <circle cx="16" cy="18" r="8" fill="white" />
+      {/* Eye patches */}
+      <ellipse cx="13" cy="16.5" rx="2.2" ry="2.5" fill="#DC382D" />
+      <ellipse cx="19" cy="16.5" rx="2.2" ry="2.5" fill="#DC382D" />
+      {/* Eyes */}
+      <circle cx="13" cy="16.5" r="1" fill="white" />
+      <circle cx="19" cy="16.5" r="1" fill="white" />
+      {/* Nose */}
+      <ellipse cx="16" cy="20" rx="1.5" ry="1" fill="#DC382D" />
     </svg>
   );
 }
@@ -174,8 +189,17 @@ function RedpandaIcon({ size }: { size: number }) {
 function NessieIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="4" fill="#1565c0" />
-      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="13" fontWeight="bold" fontFamily="Arial, sans-serif">N</text>
+      <rect width="32" height="32" rx="4" fill="#4CAF50" />
+      {/* Git branching: a trunk that forks into two paths */}
+      {/* Main stem */}
+      <line x1="16" y1="26" x2="16" y2="18" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+      {/* Branch fork */}
+      <path d="M16 18 Q16 14 10 10" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+      <path d="M16 18 Q16 14 22 10" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+      {/* Commit nodes */}
+      <circle cx="10" cy="10" r="3" fill="white" />
+      <circle cx="22" cy="10" r="3" fill="white" />
+      <circle cx="16" cy="26" r="3" fill="white" />
     </svg>
   );
 }
@@ -183,8 +207,242 @@ function NessieIcon({ size }: { size: number }) {
 function KafkaConnectIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="4" fill="#be123c" />
-      <text x="50%" y="56%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold" fontFamily="Arial, sans-serif">KC</text>
+      <rect width="32" height="32" rx="4" fill="#FF6D00" />
+      {/* Two nodes connected by a line — connector metaphor */}
+      {/* Left node: filled circle */}
+      <circle cx="8" cy="16" r="4" fill="white" />
+      {/* Right node: filled circle */}
+      <circle cx="24" cy="16" r="4" fill="white" />
+      {/* Connection line with arrow */}
+      <line x1="12" y1="16" x2="20" y2="16" stroke="white" strokeWidth="2" strokeLinecap="round" />
+      {/* Arrow head pointing right */}
+      <path d="M18 13l4 3-4 3" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Center plug indicator */}
+      <circle cx="16" cy="16" r="1.5" fill="#FF6D00" />
+    </svg>
+  );
+}
+
+function MLflowIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#0194E2" />
+      {/* MLflow logo: a stylized flow/wave with an "ML" suggestion */}
+      {/* Three horizontal bars tapering like a flow chart */}
+      <rect x="5" y="8" width="14" height="4" rx="2" fill="white" />
+      <rect x="5" y="14" width="20" height="4" rx="2" fill="white" opacity="0.85" />
+      <rect x="5" y="20" width="11" height="4" rx="2" fill="white" opacity="0.65" />
+      {/* Arrow indicating flow direction */}
+      <path d="M22 21l4-3-4-3" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function AirflowIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#017CEE" />
+      {/* Airflow DAG: three nodes with directed edges */}
+      {/* Top-left node */}
+      <circle cx="8" cy="12" r="3.5" fill="white" />
+      {/* Top-right node */}
+      <circle cx="24" cy="12" r="3.5" fill="white" />
+      {/* Bottom-center node */}
+      <circle cx="16" cy="24" r="3.5" fill="white" />
+      {/* Edges */}
+      <line x1="11" y1="13" x2="21" y2="13" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="10" y1="15" x2="14" y2="21" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="22" y1="15" x2="18" y2="21" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function LabelStudioIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#FF5733" />
+      {/* Annotation/label tag shape */}
+      <path d="M7 10h12l5 6-5 6H7V10z" fill="none" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+      {/* Label dot */}
+      <circle cx="13" cy="16" r="2" fill="white" />
+    </svg>
+  );
+}
+
+function JupyterLabIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#F37626" />
+      {/* Jupyter logo: three orbital dots around a center */}
+      {/* Large center circle */}
+      <circle cx="16" cy="16" r="5" fill="white" />
+      {/* Three orbital dots */}
+      <circle cx="16" cy="5" r="2.5" fill="white" />
+      <circle cx="6" cy="24" r="2.5" fill="white" />
+      <circle cx="26" cy="24" r="2.5" fill="white" />
+    </svg>
+  );
+}
+
+function OllamaIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#1a1a2e" />
+      {/* Simplified llama head: readable at small sizes */}
+      {/* Body/torso */}
+      <rect x="10" y="16" width="12" height="11" rx="3" fill="white" opacity="0.9" />
+      {/* Head */}
+      <circle cx="16" cy="12" r="6" fill="white" />
+      {/* Two ear bumps on top */}
+      <circle cx="12" cy="7" r="2.5" fill="white" />
+      <circle cx="20" cy="7" r="2.5" fill="white" />
+      {/* Eyes */}
+      <circle cx="14" cy="12" r="1.2" fill="#1a1a2e" />
+      <circle cx="18" cy="12" r="1.2" fill="#1a1a2e" />
+    </svg>
+  );
+}
+
+function LiteLLMIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#6366F1" />
+      {/* LLM gateway: stacked layers suggesting model abstraction */}
+      <rect x="6" y="7" width="20" height="5" rx="2.5" fill="white" />
+      <rect x="6" y="14" width="20" height="5" rx="2.5" fill="white" opacity="0.7" />
+      <rect x="6" y="21" width="20" height="5" rx="2.5" fill="white" opacity="0.4" />
+      {/* Router arrow on left side */}
+      <path d="M3 16l3-3v6l-3-3z" fill="white" />
+    </svg>
+  );
+}
+
+function EtcdIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#419EDA" />
+      {/* etcd: distributed key-value — three nodes in a ring */}
+      <circle cx="16" cy="7" r="3.5" fill="white" />
+      <circle cx="7" cy="23" r="3.5" fill="white" />
+      <circle cx="25" cy="23" r="3.5" fill="white" />
+      {/* Connection lines between nodes */}
+      <line x1="13" y1="9" x2="9.5" y2="20" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="19" y1="9" x2="22.5" y2="20" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="10.5" y1="23" x2="21.5" y2="23" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MilvusIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#00A1EA" />
+      {/* Vector database: a grid of dots suggesting embedding space */}
+      <circle cx="9" cy="9" r="2" fill="white" />
+      <circle cx="16" cy="9" r="2" fill="white" />
+      <circle cx="23" cy="9" r="2" fill="white" />
+      <circle cx="9" cy="16" r="2" fill="white" opacity="0.7" />
+      <circle cx="16" cy="16" r="2.5" fill="white" />
+      <circle cx="23" cy="16" r="2" fill="white" opacity="0.7" />
+      <circle cx="9" cy="23" r="2" fill="white" opacity="0.4" />
+      <circle cx="16" cy="23" r="2" fill="white" opacity="0.7" />
+      <circle cx="23" cy="23" r="2" fill="white" opacity="0.4" />
+      {/* Highlight lines from center suggesting nearest-neighbor search */}
+      <line x1="16" y1="16" x2="9" y2="9" stroke="white" strokeWidth="1" strokeDasharray="2 1.5" opacity="0.6" />
+      <line x1="16" y1="16" x2="23" y2="9" stroke="white" strokeWidth="1" strokeDasharray="2 1.5" opacity="0.6" />
+    </svg>
+  );
+}
+
+function RedpandaConsoleIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#a01f1a" />
+      {/* Console: terminal with a stream of messages */}
+      <rect x="5" y="7" width="22" height="18" rx="2" fill="none" stroke="white" strokeWidth="1.5" />
+      <line x1="9" y1="12" x2="23" y2="12" stroke="white" strokeWidth="1.2" strokeLinecap="round" opacity="0.9" />
+      <line x1="9" y1="16" x2="19" y2="16" stroke="white" strokeWidth="1.2" strokeLinecap="round" opacity="0.7" />
+      <line x1="9" y1="20" x2="21" y2="20" stroke="white" strokeWidth="1.2" strokeLinecap="round" opacity="0.5" />
+      {/* Blinking cursor */}
+      <rect x="9" y="22.5" width="4" height="1.5" rx="0.5" fill="white" />
+    </svg>
+  );
+}
+
+function MetabaseIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#509EE3" />
+      {/* Bar chart with a trend line — Metabase analytics */}
+      <rect x="6" y="20" width="4" height="6" rx="1" fill="white" />
+      <rect x="12" y="14" width="4" height="12" rx="1" fill="white" />
+      <rect x="18" y="17" width="4" height="9" rx="1" fill="white" />
+      <rect x="24" y="10" width="4" height="16" rx="1" fill="white" opacity="0.7" />
+      {/* Trend line */}
+      <path d="M8 19 L14 13 L20 16 L26 9" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.9" />
+    </svg>
+  );
+}
+
+function QdrantIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#DC244C" />
+      {/* Qdrant: a hexagon (their logo shape) */}
+      <polygon
+        points="16,5 25,10 25,22 16,27 7,22 7,10"
+        fill="none"
+        stroke="white"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      {/* Inner dot */}
+      <circle cx="16" cy="16" r="3.5" fill="white" />
+    </svg>
+  );
+}
+
+function RAGAppIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#7C3AED" />
+      {/* Document with magnifier overlay — retrieval-augmented generation */}
+      {/* Document */}
+      <rect x="5" y="6" width="14" height="18" rx="2" fill="none" stroke="white" strokeWidth="1.8" />
+      <line x1="8" y1="11" x2="16" y2="11" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.8" />
+      <line x1="8" y1="15" x2="14" y2="15" stroke="white" strokeWidth="1.3" strokeLinecap="round" opacity="0.8" />
+      {/* Magnifying glass overlaid bottom-right */}
+      <circle cx="21" cy="21" r="5" fill="#7C3AED" stroke="white" strokeWidth="2" />
+      <line x1="24.5" y1="24.5" x2="27" y2="27" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MLTrainerIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#059669" />
+      {/* Neural network: 2-3-2 layer diagram */}
+      {/* Input layer */}
+      <circle cx="7" cy="12" r="2.5" fill="white" />
+      <circle cx="7" cy="20" r="2.5" fill="white" />
+      {/* Hidden layer */}
+      <circle cx="16" cy="9" r="2.5" fill="white" />
+      <circle cx="16" cy="16" r="2.5" fill="white" />
+      <circle cx="16" cy="23" r="2.5" fill="white" />
+      {/* Output layer */}
+      <circle cx="25" cy="12" r="2.5" fill="white" />
+      <circle cx="25" cy="20" r="2.5" fill="white" />
+      {/* Connections (input to hidden) */}
+      <line x1="9.5" y1="12" x2="13.5" y2="10" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      <line x1="9.5" y1="12" x2="13.5" y2="16" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      <line x1="9.5" y1="20" x2="13.5" y2="16" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      <line x1="9.5" y1="20" x2="13.5" y2="23" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      {/* Connections (hidden to output) */}
+      <line x1="18.5" y1="10" x2="22.5" y2="12" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      <line x1="18.5" y1="16" x2="22.5" y2="12" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      <line x1="18.5" y1="16" x2="22.5" y2="20" stroke="white" strokeWidth="0.8" opacity="0.5" />
+      <line x1="18.5" y1="23" x2="22.5" y2="20" stroke="white" strokeWidth="0.8" opacity="0.5" />
     </svg>
   );
 }
@@ -217,9 +475,22 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("spark")) return <SparkIcon size={size} />;
     if (id.includes("hdfs")) return <HDFSIcon size={size} />;
     if (id.includes("dremio")) return <DremioIcon size={size} />;
+    if (id.includes("redpanda-console") || id.includes("redpanda_console")) return <RedpandaConsoleIcon size={size} />;
     if (id.includes("redpanda")) return <RedpandaIcon size={size} />;
     if (id.includes("nessie")) return <NessieIcon size={size} />;
-    if (id.includes("kafka-connect")) return <KafkaConnectIcon size={size} />;
+    if (id.includes("kafka-connect") || id.includes("kafka_connect")) return <KafkaConnectIcon size={size} />;
+    if (id.includes("mlflow") || id === "ml-flow") return <MLflowIcon size={size} />;
+    if (id.includes("airflow")) return <AirflowIcon size={size} />;
+    if (id.includes("label-studio") || id.includes("label_studio")) return <LabelStudioIcon size={size} />;
+    if (id.includes("jupyter")) return <JupyterLabIcon size={size} />;
+    if (id.includes("ollama")) return <OllamaIcon size={size} />;
+    if (id.includes("litellm")) return <LiteLLMIcon size={size} />;
+    if (id.includes("etcd")) return <EtcdIcon size={size} />;
+    if (id.includes("milvus")) return <MilvusIcon size={size} />;
+    if (id.includes("metabase")) return <MetabaseIcon size={size} />;
+    if (id.includes("qdrant")) return <QdrantIcon size={size} />;
+    if (id === "rag" || id.startsWith("rag-") || id.endsWith("-rag")) return <RAGAppIcon size={size} />;
+    if (id.includes("ml-trainer") || id.includes("ml_trainer")) return <MLTrainerIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

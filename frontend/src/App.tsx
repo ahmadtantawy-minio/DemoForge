@@ -23,6 +23,8 @@ export default function App() {
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(200);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(192);
+  const [rightPanelWidth, setRightPanelWidth] = useState(288);
   const isDragging = useRef(false);
 
   // Initial load + periodic sync of demo status from backend
@@ -143,6 +145,44 @@ export default function App() {
     window.addEventListener("mouseup", onUp);
   }, [terminalHeight]);
 
+  const onLeftResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const startX = e.clientX;
+    const startW = leftPanelWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const newW = Math.max(150, Math.min(400, startW + (ev.clientX - startX)));
+      setLeftPanelWidth(newW);
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [leftPanelWidth]);
+
+  const onRightResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const startX = e.clientX;
+    const startW = rightPanelWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const newW = Math.max(150, Math.min(400, startW + (startX - ev.clientX)));
+      setRightPanelWidth(newW);
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [rightPanelWidth]);
+
   const showSidebars = activeDemoId && activeView === "diagram";
   const showWelcome = !activeDemoId;
 
@@ -168,8 +208,18 @@ export default function App() {
       <div className="flex flex-1 min-h-0">
         {/* Left sidebar - Component Palette (only in diagram view with active demo) */}
         {showSidebars && (
-          <div className="w-48 flex-shrink-0 h-full">
+          <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth }}>
             <ComponentPalette />
+          </div>
+        )}
+
+        {/* Left resize handle */}
+        {showSidebars && (
+          <div
+            className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
+            onMouseDown={onLeftResizeStart}
+          >
+            <div className="h-8 w-0.5 rounded-full bg-zinc-500" />
           </div>
         )}
 
@@ -186,9 +236,19 @@ export default function App() {
           )}
         </div>
 
+        {/* Right resize handle */}
+        {showSidebars && (
+          <div
+            className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
+            onMouseDown={onRightResizeStart}
+          >
+            <div className="h-8 w-0.5 rounded-full bg-zinc-500" />
+          </div>
+        )}
+
         {/* Right sidebar - Properties Panel (always visible in diagram view) */}
         {showSidebars && (
-          <div className="w-72 flex-shrink-0 h-full">
+          <div className="flex-shrink-0 h-full" style={{ width: rightPanelWidth }}>
             {walkthroughOpen
               ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />
               : <PropertiesPanel />}
