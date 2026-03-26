@@ -18,8 +18,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     if (!res.ok) {
       const body = await res.text();
       debugLog("error", "API", `${method} ${path} → ${res.status}`, body);
-      // Toast on non-GET errors (user-initiated actions)
-      if (method !== "GET") {
+      // Toast on non-GET errors (user-initiated actions), skip polling endpoints
+      if (method !== "GET" && !path.endsWith("/exec")) {
         toast.error(`API Error: ${method} ${path}`, {
           description: body.slice(0, 200),
           duration: 10000,
