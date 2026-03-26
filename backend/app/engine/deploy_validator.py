@@ -338,4 +338,63 @@ async def validate_and_reconcile(
         else:
             _record(results, "catalog_connectivity", "warning", f"Trino catalog '{catalog_name}' not accessible: {stderr[:80]}")
 
+    # ── Step 6: Setup all tables (iceberg + aistor + hive) ─────────
+    _log("Step 6/7: Setting up tables across all catalogs...")
+    await progress("validation", "running", "Step 6/7: Setting up tables...")
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(f"http://localhost:9210/api/demos/{demo.id}/setup-tables")
+            if resp.status_code == 200:
+                table_results = resp.json().get("results", [])
+                created = [r for r in table_results if r["status"] == "created"]
+                existing = [r for r in table_results if r["status"] == "exists"]
+                errors = [r for r in table_results if r["status"] == "error"]
+                _record(results, "setup_tables", "ok",
+                        f"{len(existing)} exist, {len(created)} created"
+                        + (f", {len(errors)} errors" if errors else ""))
+            else:
+                _record(results, "setup_tables", "warning", f"setup-tables returned {resp.status_code}")
+    except Exception as exc:
+        _record(results, "setup_tables", "warning", f"Table setup skipped: {str(exc)[:100]}")
+
+    # ── Step 7: Auto-create Metabase dashboards ────────────────────
+    # Only if Metabase is in the demo
+    metabase_in_demo = any(
+        n.component == "metabase" for n in demo.nodes
+    )
+    if metabase_in_demo:
+        _log("Step 7/7: Setting up Metabase dashboards...")
+        await progress("validation", "running", "Step 7/7: Setting up Metabase dashboards...")
+        # Wait for Metabase to be fully ready (it needs more time than health check)
+        await asyncio.sleep(10)
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                # Wait for Metabase health
+                for attempt in range(12):
+                    try:
+                        metabase_container = f"{project_name}-metabase"
+                        r = await client.get(f"http://{metabase_container}:3000/api/health")
+                        if r.status_code == 200:
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(10)
+
+                resp = await client.post(f"http://localhost:9210/api/demos/{demo.id}/setup-metabase")
+                if resp.status_code == 200:
+                    mb_results = resp.json().get("results", [])
+                    created = [r for r in mb_results if r.get("status") == "created"]
+                    existing = [r for r in mb_results if r.get("status") == "exists"]
+                    _record(results, "metabase_dashboards", "ok",
+                            f"{len(existing)} exist, {len(created)} created")
+                else:
+                    _record(results, "metabase_dashboards", "warning",
+                            f"setup-metabase returned {resp.status_code}")
+        except Exception as exc:
+            _record(results, "metabase_dashboards", "warning",
+                    f"Metabase setup skipped: {str(exc)[:100]}")
+    else:
+        _record(results, "metabase_dashboards", "skipped", "No Metabase in this demo")
+
     return results
