@@ -771,12 +771,83 @@ async def get_scenario_queries(demo_id: str, scenario_id: str):
     components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
     datasets_dir = os.path.join(os.path.abspath(components_dir), "data-generator", "datasets")
 
-    def _load_queries_from_yaml(yaml_path: str) -> list:
+    # Build a map of scenario → (catalog, namespace) from running generators
+    _scenario_catalog_map = {}
+    running = state.get_demo(demo_id)
+    if running:
+        demos_dir = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
+        demo_path = os.path.join(demos_dir, f"{demo_id}.yaml")
+        if os.path.isfile(demo_path):
+            with open(demo_path) as _df:
+                demo_def = _yaml.safe_load(_df)
+            for node in demo_def.get("nodes", []):
+                if node.get("component") == "data-generator":
+                    cfg = node.get("config", {})
+                    sc = cfg.get("DG_SCENARIO", "ecommerce-orders")
+                    wm = cfg.get("DG_WRITE_MODE", "iceberg")
+                    is_sigv4 = any(
+                        e.get("source") == node.get("id")
+                        and e.get("connection_config", {}).get("write_mode") == "raw"
+                        for e in demo_def.get("edges", [])
+                    ) or wm == "raw"
+                    if is_sigv4 or wm == "raw":
+                        _scenario_catalog_map[sc] = ("hive", "raw")
+                    else:
+                        # Check if targeting AIStor (SigV4)
+                        for e in demo_def.get("edges", []):
+                            if e.get("source") == node.get("id") and e.get("connection_type") in ("structured-data", "s3"):
+                                target = e.get("target", "")
+                                for cl in demo_def.get("clusters", []):
+                                    if cl.get("id") == target and cl.get("aistor_tables_enabled"):
+                                        _scenario_catalog_map[sc] = ("aistor", "demo")
+                                        break
+                        if sc not in _scenario_catalog_map:
+                            _scenario_catalog_map[sc] = ("iceberg", "demo")
+
+    def _load_queries_from_yaml(yaml_path: str, scenario_id_hint: str = "") -> list:
         with open(yaml_path, "r", encoding="utf-8") as fh:
             raw = _yaml.safe_load(fh)
+        sid = raw.get("id", scenario_id_hint)
+        catalog, namespace = _scenario_catalog_map.get(sid, ("iceberg", "demo"))
+
+        # For Hive CSV tables, all columns are VARCHAR — wrap numeric/timestamp
+        # references with CAST for compatibility
+        schema_cols = raw.get("schema", {})
+        col_types = {}
+        if isinstance(schema_cols, dict):
+            for col in schema_cols.get("columns", []):
+                col_types[col["name"]] = col.get("type", "string")
+
         queries = []
         for q in raw.get("queries", []):
-            sql = q.get("sql", "").replace("{catalog}", "iceberg").replace("{namespace}", "demo")
+            sql = q.get("sql", "").replace("{catalog}", catalog).replace("{namespace}", namespace)
+
+            # Auto-cast for Hive CSV: replace bare column refs with CAST
+            if catalog == "hive":
+                import re
+                cast_map = {
+                    "int32": "INTEGER", "int64": "BIGINT",
+                    "float32": "REAL", "float64": "DOUBLE",
+                    "boolean": "BOOLEAN",
+                }
+                for col_name, col_type in col_types.items():
+                    if col_name not in sql:
+                        continue
+                    if col_type == "timestamp":
+                        # Use from_iso8601_timestamp for ISO format timestamps
+                        sql = re.sub(
+                            rf'\b{re.escape(col_name)}\b(?!\s*\.)',
+                            f"from_iso8601_timestamp({col_name})",
+                            sql,
+                        )
+                    else:
+                        trino_type = cast_map.get(col_type)
+                        if trino_type:
+                            sql = re.sub(
+                                rf'\b{re.escape(col_name)}\b(?!\s*\.)',
+                                f"CAST({col_name} AS {trino_type})",
+                                sql,
+                            )
             queries.append({
                 "id": q.get("id", ""),
                 "name": q.get("name", ""),
@@ -1047,7 +1118,9 @@ async def setup_tables(demo_id: str):
                     )
                 hive_sql = (
                     f"CREATE TABLE IF NOT EXISTS {hive_table} ({col_defs}) "
-                    f"WITH (format = '{gen_fmt}', external_location = 's3a://{gen_bucket}/')"
+                    f"WITH (format = '{gen_fmt}', external_location = 's3a://{gen_bucket}/'"
+                    f"{', skip_header_line_count = 1' if gen_fmt == 'CSV' else ''}"
+                    f")"
                 )
                 hive_cmd = f'trino --execute "{hive_sql}"'
                 exit_h, _, stderr_h = await exec_in_container(trino_container, hive_cmd)
