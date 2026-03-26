@@ -1022,6 +1022,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         lines.append(f"# Create warehouse bucket for Iceberg on {alias}")
                         lines.append(f"mc mb '{alias}/warehouse' --ignore-existing 2>/dev/null || true")
 
+        # Auto-create AIStor Tables warehouse for clusters with aistor_tables_enabled
+        for cluster in demo.clusters:
+            if getattr(cluster, 'aistor_tables_enabled', False):
+                alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+                # Use direct node access (not LB) for mc table commands since LB may not proxy SigV4
+                node_id = f"{cluster.id}-node-1"
+                node_url = f"http://{project_name}-{node_id}:9000"
+                cred_user = cluster.credentials.get("root_user", "minioadmin")
+                cred_pass = cluster.credentials.get("root_password", "minioadmin")
+                lines.append(f"# Setup AIStor Tables warehouse for {alias_name}")
+                lines.append(f"mc alias set '{alias_name}_direct' '{node_url}' '{cred_user}' '{cred_pass}' 2>/dev/null || true")
+                lines.append(f"mc table warehouse create '{alias_name}_direct' analytics --ignore-existing 2>/dev/null || echo 'Warehouse setup skipped (mc table not available)'")
+
         lines.append("echo 'mc aliases configured.'")
 
         # Metabase setup is handled by a separate sidecar (see below)
@@ -1033,8 +1046,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         init_host_path = _to_host_path(os.path.abspath(init_script_path), "data")
 
+        # Use AIStor mc image if any cluster has AIStor features (mc table commands)
+        has_aistor = any(getattr(c, 'aistor_tables_enabled', False) for c in demo.clusters)
+        mc_image = "quay.io/minio/aistor/mc:latest" if has_aistor else "minio/mc:latest"
+
         services["mc-shell"] = {
-            "image": "minio/mc:latest",
+            "image": mc_image,
             "container_name": mc_shell_name,
             "entrypoint": ["/bin/sh", "-c"],
             "command": [f"sh /etc/mc-shell/init.sh"],

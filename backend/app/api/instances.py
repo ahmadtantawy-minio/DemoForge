@@ -964,43 +964,30 @@ async def setup_tables(demo_id: str):
             f"{col['name']} {type_map.get(col.get('type', 'string'), 'VARCHAR')}"
             for col in columns
         )
+        create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET')"
 
-        # Check if any generator in this demo targets a bucket for this scenario
-        # If so, create with external_location so existing raw files are queryable
-        demo_def = None
-        for demo_file in ["demos", "demo-templates"]:
-            dpath = _os.path.join(_os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos"), f"{demo_id}.yaml")
-            if _os.path.isfile(dpath):
-                with open(dpath) as df:
-                    demo_def = _yaml.safe_load(df)
-                break
-
-        external_bucket = None
-        scenario_id = scenario.get("id", fname.replace(".yaml", ""))
-        if demo_def:
-            for node in demo_def.get("nodes", []):
-                if node.get("component") == "data-generator":
-                    node_scenario = node.get("config", {}).get("DG_SCENARIO", "ecommerce-orders")
-                    if node_scenario == scenario_id:
-                        # Find the edge from this generator to get the target bucket
-                        for edge in demo_def.get("edges", []):
-                            if edge.get("source") == node.get("id"):
-                                cc = edge.get("connection_config", {}) or {}
-                                external_bucket = cc.get("target_bucket") or cc.get("bucket")
-                                break
-                        break
-
-        if external_bucket:
-            create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET', external_location = 's3a://{external_bucket}/')"
-        else:
-            create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET')"
+        # Create in the iceberg catalog
         create_cmd = f'trino --execute "{create_sql}"'
         exit_code, stdout, stderr = await exec_in_container(trino_container, create_cmd)
-        if exit_code == 0:
+        clean_err = "\n".join(l for l in (stderr or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
+        if exit_code == 0 or "already exists" in clean_err.lower():
             results.append({"table": full_table, "status": "created"})
         else:
-            # Clean jline warnings from stderr
-            clean_err = "\n".join(l for l in (stderr or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
             results.append({"table": full_table, "status": "error", "detail": clean_err[:200]})
+
+        # Also create in the aistor catalog if it exists
+        aistor_table = f"aistor.demo.{table_name}"
+        aistor_check_cmd = f'trino --execute "SELECT 1 FROM {aistor_table} LIMIT 1"'
+        exit_code_a, _, _ = await exec_in_container(trino_container, aistor_check_cmd)
+        if exit_code_a != 0:
+            # Try to create schema + table in aistor catalog (may fail if no aistor catalog)
+            await exec_in_container(trino_container, 'trino --execute "CREATE SCHEMA IF NOT EXISTS aistor.demo"')
+            aistor_create_sql = f"CREATE TABLE IF NOT EXISTS {aistor_table} ({col_defs}) WITH (format = 'PARQUET')"
+            exit_code_a2, _, stderr_a = await exec_in_container(trino_container, f'trino --execute "{aistor_create_sql}"')
+            clean_err_a = "\n".join(l for l in (stderr_a or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
+            if exit_code_a2 == 0:
+                results.append({"table": aistor_table, "status": "created"})
+            elif "not exist" not in clean_err_a.lower() and "not found" not in clean_err_a.lower():
+                results.append({"table": aistor_table, "status": "error", "detail": clean_err_a[:200]})
 
     return {"results": results}
