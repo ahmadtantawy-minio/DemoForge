@@ -273,6 +273,14 @@ def _gen_hdfs(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[E
 def _gen_failover(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     return []  # Template-driven (NGINX failover config)
 
+@_register("llm-api")
+def _gen_llm_api(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
+@_register("vector-db")
+def _gen_vector_db(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (env vars set by compose_generator)
+
 
 # ---------------------------------------------------------------------------
 # Helpers for cluster-level operations

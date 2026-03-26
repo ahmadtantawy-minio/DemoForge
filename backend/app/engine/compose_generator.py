@@ -387,6 +387,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if "S3_ENDPOINT" in env:
                 env["S3_ENDPOINT"] = s3_endpoint_url
 
+            # Forward MinIO credentials for rag-app
+            if node.component == "rag-app":
+                peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+                if peer_node_obj:
+                    env["MINIO_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
+                    env["MINIO_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+                env["MINIO_ENDPOINT"] = s3_endpoint_url
+
             # Apply edge config to environment (e.g. target_bucket, format, rate)
             edge_cfg = edge.connection_config or {}
             if edge_cfg:
@@ -398,6 +406,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "rate": "DG_RATE",
                     "scenario": "DG_SCENARIO",
                     "rate_profile": "DG_RATE_PROFILE",
+                    "documents_bucket": "DOCUMENTS_BUCKET",
+                    "audit_bucket": "AUDIT_BUCKET",
+                    "snapshot_bucket": "QDRANT_SNAPSHOT_BUCKET",
+                    "embedding_model": "EMBEDDING_MODEL",
+                    "chat_model": "CHAT_MODEL",
                 }
                 for cfg_key, env_key in _edge_env_map.items():
                     if cfg_key in edge_cfg and edge_cfg[cfg_key]:
@@ -461,6 +474,49 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
             if trino_node:
                 env["TRINO_HOST"] = f"{project_name}-{trino_node.id}"
+
+        # Auto-resolve LLM API endpoint from llm-api edges
+        for edge in demo.edges:
+            if edge.connection_type != "llm-api":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                llm_port = next((p.container for p in peer_manifest.ports if p.name == "api"), 11434)
+                env["OLLAMA_ENDPOINT"] = f"http://{project_name}-{peer_id}:{llm_port}"
+            edge_cfg = edge.connection_config or {}
+            if edge_cfg.get("embedding_model"):
+                env["EMBEDDING_MODEL"] = edge_cfg["embedding_model"]
+            if edge_cfg.get("chat_model"):
+                env["CHAT_MODEL"] = edge_cfg["chat_model"]
+            break
+
+        # Auto-resolve vector DB endpoint from vector-db edges
+        for edge in demo.edges:
+            if edge.connection_type != "vector-db":
+                continue
+            if edge.target == node.id:
+                peer_id = edge.source
+            elif edge.source == node.id:
+                peer_id = edge.target
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                vdb_port = next((p.container for p in peer_manifest.ports if p.name == "http"), 6333)
+                env["QDRANT_ENDPOINT"] = f"http://{project_name}-{peer_id}:{vdb_port}"
+            break
 
         # Determine which networks this node joins
         # If node.networks is empty, join all demo networks

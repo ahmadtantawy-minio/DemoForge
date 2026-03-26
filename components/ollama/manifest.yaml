@@ -1,0 +1,74 @@
+id: ollama
+name: Ollama
+category: ai
+icon: ollama
+version: "latest"
+image: ollama/ollama:latest
+description: "Local LLM inference and embedding generation"
+
+resources:
+  memory: "4g"
+  cpu: 2.0
+
+ports:
+  - name: api
+    container: 11434
+    protocol: tcp
+
+environment:
+  OLLAMA_HOST: "0.0.0.0:11434"
+
+volumes:
+  - name: models
+    path: /root/.ollama/models
+    size: 10g
+
+command: []
+
+health_check:
+  endpoint: /api/tags
+  port: 11434
+  interval: 15s
+  timeout: 10s
+  start_period: "30s"
+
+secrets: []
+
+web_ui: []
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Ollama container. Use 'ollama' CLI to manage models."
+  quick_actions:
+    - label: "List models"
+      command: "ollama list"
+    - label: "Pull embedding model"
+      command: "ollama pull nomic-embed-text"
+    - label: "Pull chat model"
+      command: "ollama pull llama3.2:3b"
+    - label: "Test chat"
+      command: "ollama run llama3.2:3b 'What is object storage?' --nowordwrap"
+    - label: "Test embedding"
+      command: "curl -s http://localhost:11434/api/embeddings -d '{\"model\":\"nomic-embed-text\",\"prompt\":\"test\"}' | head -c 200"
+
+connections:
+  provides:
+    - type: llm-api
+      port: 11434
+      description: "Ollama REST API — chat, generate, and embedding endpoints"
+  accepts: []
+
+variants:
+  default:
+    description: "Standard Ollama with CPU inference"
+    command: []
+
+template_mounts: []
+static_mounts: []
+
+init_scripts:
+  - command: "sh -c 'ollama pull nomic-embed-text && ollama pull llama3.2:3b'"
+    wait_for_healthy: true
+    timeout: 300
+    order: 1
+    description: "Pull embedding and chat models (~1.8GB total)"

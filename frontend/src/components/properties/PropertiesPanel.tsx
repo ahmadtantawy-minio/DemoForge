@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import HealthBadge from "../control-plane/HealthBadge";
-import { proxyUrl, fetchComponents, getGeneratorStatus, startGenerator, stopGenerator } from "../../api/client";
+import { proxyUrl, fetchComponents, getGeneratorStatus, startGenerator, stopGenerator, execCommand } from "../../api/client";
 import type { ComponentNodeData, ComponentSummary, ComponentEdgeData, ConnectionType, ConnectionConfigField } from "../../types";
 import { Input } from "@/components/ui/input";
 import {
@@ -239,6 +239,164 @@ function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig, o
             Open SQL Editor
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// --- RAG App Panel ---
+interface RagAppPanelProps {
+  nodeId: string;
+  demoId: string | null;
+  isRunning: boolean;
+}
+
+function RagAppPanel({ nodeId, demoId, isRunning }: RagAppPanelProps) {
+  const [ragStatus, setRagStatus] = useState<{
+    status?: string;
+    minio_connected?: boolean;
+    qdrant_connected?: boolean;
+    models_loaded?: boolean;
+    documents_ingested?: number;
+    chunks_stored?: number;
+  } | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!isRunning || !demoId) {
+      setRagStatus(null);
+      return;
+    }
+    const poll = async () => {
+      try {
+        const healthRes = await execCommand(demoId, nodeId,
+          "wget -qO- http://localhost:8080/health 2>/dev/null");
+        const statusRes = await execCommand(demoId, nodeId,
+          "wget -qO- http://localhost:8080/status 2>/dev/null");
+        const health = healthRes.exit_code === 0 ? JSON.parse(healthRes.stdout) : {};
+        const status = statusRes.exit_code === 0 ? JSON.parse(statusRes.stdout) : {};
+        setRagStatus({ ...health, ...status });
+      } catch {}
+    };
+    poll();
+    pollRef.current = setInterval(poll, 5000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [isRunning, demoId, nodeId]);
+
+  const handleIngestSample = async () => {
+    if (!demoId) return;
+    await execCommand(demoId, nodeId,
+      "wget -qO- --post-data='' http://localhost:8080/ingest/sample 2>/dev/null");
+  };
+
+  const handleAskTest = async () => {
+    if (!demoId) return;
+    await execCommand(demoId, nodeId,
+      "wget -qO- --post-data='{\"question\":\"What is MinIO?\"}' --header='Content-Type: application/json' http://localhost:8080/ask 2>/dev/null");
+  };
+
+  const handleReset = async () => {
+    if (!demoId) return;
+    await execCommand(demoId, nodeId,
+      "wget -qO- --method=DELETE http://localhost:8080/collection 2>/dev/null");
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-3">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">RAG Pipeline</div>
+
+      {ragStatus && (
+        <>
+          <div className="space-y-1 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${ragStatus.minio_connected ? 'bg-green-500' : 'bg-red-500'}`} />
+              MinIO
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${ragStatus.qdrant_connected ? 'bg-green-500' : 'bg-red-500'}`} />
+              Qdrant
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${ragStatus.models_loaded ? 'bg-green-500' : 'bg-yellow-400 animate-pulse'}`} />
+              Ollama models
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <div>Documents: {ragStatus.documents_ingested ?? 0}</div>
+            <div>Chunks: {ragStatus.chunks_stored ?? 0}</div>
+          </div>
+        </>
+      )}
+
+      {isRunning && (
+        <div className="space-y-1.5">
+          <button onClick={handleIngestSample}
+            className="w-full text-xs h-7 px-2 rounded border border-border bg-background hover:bg-muted transition-colors">
+            Load sample docs
+          </button>
+          <button onClick={handleAskTest}
+            className="w-full text-xs h-7 px-2 rounded border border-border bg-background hover:bg-muted transition-colors">
+            Ask test question
+          </button>
+          <button onClick={handleReset}
+            className="w-full text-xs h-7 px-2 rounded border border-border bg-background hover:bg-muted transition-colors text-destructive">
+            Reset collection
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Ollama Panel ---
+interface OllamaPanelProps {
+  nodeId: string;
+  demoId: string | null;
+  isRunning: boolean;
+}
+
+function OllamaPanel({ nodeId, demoId, isRunning }: OllamaPanelProps) {
+  const [models, setModels] = useState<string[]>([]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!isRunning || !demoId) {
+      setModels([]);
+      return;
+    }
+    const poll = async () => {
+      try {
+        const res = await execCommand(demoId, nodeId, "ollama list 2>/dev/null");
+        if (res.exit_code === 0) {
+          const lines = res.stdout.trim().split("\n").slice(1); // skip header
+          setModels(lines.map((l: string) => l.split(/\s+/)[0]).filter(Boolean));
+        }
+      } catch {}
+    };
+    poll();
+    pollRef.current = setInterval(poll, 10000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [isRunning, demoId, nodeId]);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-2">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Ollama Models</div>
+      {models.length > 0 ? (
+        <div className="space-y-1">
+          {models.map((m) => (
+            <div key={m} className="flex items-center gap-2 text-xs">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="font-mono text-foreground">{m}</span>
+            </div>
+          ))}
+        </div>
+      ) : isRunning ? (
+        <div className="text-xs text-muted-foreground flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+          Downloading models...
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground">Not running</div>
       )}
     </div>
   );
@@ -779,6 +937,22 @@ export default function PropertiesPanel() {
             setSqlEditorScenarioId(scenarioId);
             setSqlEditorOpen(true);
           }}
+        />
+      )}
+
+      {data.componentId === "rag-app" && (
+        <RagAppPanel
+          nodeId={selectedNodeId!}
+          demoId={activeDemoId}
+          isRunning={demos.find((d) => d.id === activeDemoId)?.status === "running"}
+        />
+      )}
+
+      {data.componentId === "ollama" && (
+        <OllamaPanel
+          nodeId={selectedNodeId!}
+          demoId={activeDemoId}
+          isRunning={demos.find((d) => d.id === activeDemoId)?.status === "running"}
         />
       )}
 

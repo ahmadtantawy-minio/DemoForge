@@ -20,6 +20,8 @@ export const connectionColors: Record<string, string> = {
   "failover": "#dc2626",
   "structured-data": "#059669",
   "aistor-tables": "#1565c0",
+  "llm-api": "#a855f7",
+  "vector-db": "#06b6d4",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -44,4 +46,6 @@ export const connectionLabels: Record<string, string> = {
   "failover": "Failover",
   "structured-data": "Data Push",
   "aistor-tables": "AIStor Tables (SigV4 Iceberg)",
+  "llm-api": "LLM API",
+  "vector-db": "Vector DB",
 };
