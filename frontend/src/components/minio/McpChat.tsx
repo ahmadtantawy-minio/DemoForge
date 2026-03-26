@@ -32,6 +32,12 @@ const SUGGESTIONS = [
   "Create a bucket called test-data",
 ];
 
+interface McpInfo {
+  mcpUrl: string;
+  llmEndpoint: string;
+  llmModel: string;
+}
+
 export default function McpChat({ demoId, clusterId }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: WELCOME },
@@ -39,8 +45,22 @@ export default function McpChat({ demoId, clusterId }: Props) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<number>>(new Set());
+  const [mcpInfo, setMcpInfo] = useState<McpInfo | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Fetch MCP + LLM connection info
+  useEffect(() => {
+    Promise.all([
+      fetch(`${API_BASE}/api/settings/llm`).then(r => r.ok ? r.json() : null),
+    ]).then(([llmSettings]) => {
+      setMcpInfo({
+        mcpUrl: `http://demoforge-${demoId}-${clusterId}-mcp:8090/mcp`,
+        llmEndpoint: llmSettings?.endpoint || "http://host.docker.internal:11434",
+        llmModel: llmSettings?.model || "qwen2.5:14b",
+      });
+    }).catch(() => {});
+  }, [demoId, clusterId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -192,6 +212,13 @@ export default function McpChat({ demoId, clusterId }: Props) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* Connection info bar */}
+      {mcpInfo && (
+        <div className="mb-2 px-2.5 py-1.5 rounded bg-violet-500/10 border border-violet-500/20 text-[10px] font-mono text-muted-foreground space-y-0.5">
+          <div><span className="text-violet-400">MCP:</span> {mcpInfo.mcpUrl}</div>
+          <div><span className="text-violet-400">LLM:</span> {mcpInfo.llmEndpoint} <span className="text-violet-400/60">({mcpInfo.llmModel})</span></div>
+        </div>
+      )}
       {/* Message list */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0">
         {messages.map((msg, msgIdx) => (
