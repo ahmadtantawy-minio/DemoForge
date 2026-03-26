@@ -93,6 +93,8 @@ template_mounts:
     mount_path: "/etc/trino/catalog/iceberg.properties"
   - template: "aistor-iceberg.properties.j2"
     mount_path: "/etc/trino/catalog/aistor.properties"
+  - template: "hive.properties.j2"
+    mount_path: "/etc/trino/catalog/hive.properties"
 
 static_mounts: []
 init_scripts: []

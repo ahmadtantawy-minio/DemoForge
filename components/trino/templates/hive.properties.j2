@@ -1,0 +1,46 @@
+{#- Resolve S3 endpoint: prefer aistor-tables edge (where raw data lives),
+    then fall back to any direct S3 edge to Trino. -#}
+{%- set ns = namespace(s3_endpoint="") %}
+{#- First: find aistor-tables edge (AIStor cluster = raw data target) -#}
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 'aistor-tables' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node and not ns.s3_endpoint %}
+{%- if source_node.component == 'nginx' %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
+{%- else %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{#- Fallback: any S3/structured-data edge -#}
+{%- if not ns.s3_endpoint %}
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type in ['s3', 'structured-data'] %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node and not ns.s3_endpoint %}
+{%- if source_node.component == 'nginx' %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
+{%- else %}
+{%- set ns.s3_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
+{%- endif %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- if ns.s3_endpoint %}
+connector.name=hive
+hive.metastore=file
+hive.metastore.catalog.dir=s3a://warehouse/hive-metastore/
+hive.non-managed-table-writes-enabled=true
+hive.non-managed-table-creates-enabled=true
+fs.native-s3.enabled=true
+s3.endpoint={{ ns.s3_endpoint }}
+s3.path-style-access=true
+s3.aws-access-key=minioadmin
+s3.aws-secret-key=minioadmin
+s3.region=us-east-1
+{%- else %}
+connector.name=memory
+{%- endif %}

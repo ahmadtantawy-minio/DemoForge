@@ -26,6 +26,8 @@ export default function AnimatedDataEdge({
     const sourceNode = source ? getNode(source) : undefined;
     const nodeConfig = (sourceNode?.data as any)?.config as Record<string, string> | undefined;
 
+    // Resolve write mode: node config > default
+    const writeMode = nodeConfig?.DG_WRITE_MODE || "iceberg";
     // Resolve format: edge config > node config > default
     const fmt = connConfig?.format || nodeConfig?.DG_FORMAT || "parquet";
     // Resolve scenario: edge config > node config > default
@@ -34,7 +36,11 @@ export default function AnimatedDataEdge({
     const bucket = connConfig?.target_bucket;
 
     const parts: string[] = [];
-    if (fmt) parts.push(fmt.toUpperCase());
+    if (writeMode === "raw") {
+      parts.push(`${fmt.toUpperCase()} Raw`);
+    } else {
+      parts.push("Iceberg");
+    }
     if (scenario) {
       parts.push(scenario.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()));
     }

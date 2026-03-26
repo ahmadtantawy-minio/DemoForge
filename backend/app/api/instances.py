@@ -990,4 +990,76 @@ async def setup_tables(demo_id: str):
             elif "not exist" not in clean_err_a.lower() and "not found" not in clean_err_a.lower():
                 results.append({"table": aistor_table, "status": "error", "detail": clean_err_a[:200]})
 
+    # Create Hive external tables for data generators in raw write mode
+    try:
+        demo_def = _load_demo(demo_id)
+        raw_generators = [
+            n for n in demo_def.nodes
+            if n.component == "data-generator"
+            and n.config.get("DG_WRITE_MODE", "iceberg").lower() == "raw"
+        ]
+        if raw_generators:
+            await exec_in_container(
+                trino_container,
+                'trino --execute "CREATE SCHEMA IF NOT EXISTS hive.raw"',
+            )
+            for gen_node in raw_generators:
+                gen_fmt = gen_node.config.get("DG_FORMAT", "parquet").upper()
+                gen_scenario = gen_node.config.get("DG_SCENARIO", "ecommerce-orders")
+                # Find target bucket from edges
+                gen_bucket = gen_node.config.get("S3_BUCKET", "raw-data")
+                for edge in demo_def.edges:
+                    if edge.source == gen_node.id and edge.connection_type in ("s3", "structured-data"):
+                        edge_cfg = edge.connection_config or {}
+                        gen_bucket = edge_cfg.get("target_bucket") or edge_cfg.get("bucket") or gen_bucket
+                        break
+
+                # Load scenario YAML for columns
+                scenario_path = _os.path.join(datasets_dir, f"{gen_scenario}.yaml")
+                if not _os.path.isfile(scenario_path):
+                    continue
+                with open(scenario_path, "r") as f:
+                    scenario_def = _yaml.safe_load(f)
+
+                iceberg_cfg = scenario_def.get("iceberg", {}) or {}
+                table_name = iceberg_cfg.get("table", gen_scenario.replace("-", "_"))
+                hive_table = f"hive.raw.{table_name}"
+
+                # Check if hive table already exists
+                hive_check = f'trino --execute "SELECT 1 FROM {hive_table} LIMIT 1"'
+                exit_hive, _, _ = await exec_in_container(trino_container, hive_check)
+                if exit_hive == 0:
+                    results.append({"table": hive_table, "status": "exists"})
+                    continue
+
+                schema_block = scenario_def.get("schema", {})
+                columns = schema_block.get("columns", []) if isinstance(schema_block, dict) else schema_block
+                if not columns:
+                    continue
+
+                # CSV format requires all VARCHAR columns in Hive
+                if gen_fmt == "CSV":
+                    col_defs = ", ".join(f"{col['name']} VARCHAR" for col in columns)
+                else:
+                    col_defs = ", ".join(
+                        f"{col['name']} {type_map.get(col.get('type', 'string'), 'VARCHAR')}"
+                        for col in columns
+                    )
+                hive_sql = (
+                    f"CREATE TABLE IF NOT EXISTS {hive_table} ({col_defs}) "
+                    f"WITH (format = '{gen_fmt}', external_location = 's3a://{gen_bucket}/')"
+                )
+                hive_cmd = f'trino --execute "{hive_sql}"'
+                exit_h, _, stderr_h = await exec_in_container(trino_container, hive_cmd)
+                clean_h = "\n".join(
+                    l for l in (stderr_h or "").splitlines()
+                    if "jline" not in l and "WARNING" not in l
+                ).strip()
+                if exit_h == 0 or "already exists" in clean_h.lower():
+                    results.append({"table": hive_table, "status": "created"})
+                else:
+                    results.append({"table": hive_table, "status": "error", "detail": clean_h[:200]})
+    except Exception as exc:
+        logger.debug(f"Hive external table creation skipped: {exc}")
+
     return {"results": results}

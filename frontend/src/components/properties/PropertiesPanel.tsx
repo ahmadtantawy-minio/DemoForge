@@ -79,6 +79,7 @@ interface DataGeneratorPanelProps {
 
 function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig, onOpenSqlEditor }: DataGeneratorPanelProps) {
   const scenario = config["DG_SCENARIO"] ?? "ecommerce-orders";
+  const writeMode = config["DG_WRITE_MODE"] ?? "iceberg";
   const format = config["DG_FORMAT"] ?? "parquet";
   const rateProfile = config["DG_RATE_PROFILE"] ?? "medium";
 
@@ -152,7 +153,47 @@ function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig, o
         )}
       </div>
 
-      {/* Format selector */}
+      {/* Write mode selector */}
+      <div className="mb-3">
+        <label className="text-xs text-muted-foreground block mb-1">Write Mode</label>
+        <Select value={writeMode} onValueChange={(v) => updateConfig("DG_WRITE_MODE", v)}>
+          <SelectTrigger className="w-full h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="iceberg">Iceberg (managed)</SelectItem>
+            <SelectItem value="raw">Raw Files (external table)</SelectItem>
+          </SelectContent>
+        </Select>
+        {writeMode === "iceberg" && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Data written as Parquet through Iceberg catalog
+          </p>
+        )}
+        {writeMode === "raw" && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Files written directly to S3. Queryable via Hive external tables in Trino.
+          </p>
+        )}
+      </div>
+
+      {/* Format selector — only shown for raw mode (iceberg always uses Parquet internally) */}
+      {writeMode === "raw" && (
+      <div className="mb-3">
+        <label className="text-xs text-muted-foreground block mb-1">Output Format</label>
+        <Select value={format} onValueChange={(v) => updateConfig("DG_FORMAT", v)}>
+          <SelectTrigger className="w-full h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DG_FORMATS.filter((f) => f.id !== "iceberg" && f.id !== "kafka").map((f) => (
+              <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      )}
+      {writeMode !== "raw" && (
       <div className="mb-3">
         <label className="text-xs text-muted-foreground block mb-1">Output Format</label>
         <Select value={format} onValueChange={(v) => updateConfig("DG_FORMAT", v)}>
@@ -171,6 +212,7 @@ function DataGeneratorPanel({ nodeId, demoId, isRunning, config, updateConfig, o
           </p>
         )}
       </div>
+      )}
 
       {/* Volume profile */}
       <div className="mb-3">
