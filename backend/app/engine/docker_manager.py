@@ -14,7 +14,7 @@ from ..registry.loader import get_component
 logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
 
-COMPOSE_TIMEOUT = 60  # seconds — max wait for compose up/down
+COMPOSE_TIMEOUT = 180  # seconds — max wait for compose up/down
 
 # Per-demo locks to prevent concurrent deploy/stop race conditions
 _demo_locks: dict[str, asyncio.Lock] = {}
@@ -114,6 +114,16 @@ async def _build_custom_images(demo: DemoDefinition, components_dir: str, progre
         if not os.path.isdir(build_path):
             logger.warning(f"Build context not found: {build_path}")
             continue
+
+        # Skip build if image already exists (pre-built locally)
+        try:
+            existing = docker_client.images.get(manifest.image)
+            built.add(manifest.image)
+            logger.info(f"Image {manifest.image} already exists ({existing.short_id}), skipping build")
+            continue
+        except Exception:
+            pass  # image not found, proceed to build
+            pass
 
         await progress("images", "running", f"Building {manifest.image}...")
         logger.info(f"Building image {manifest.image} from {build_path}")
@@ -286,6 +296,20 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
                 ec.status = "failed"
                 ec.error = str(e)[:500]
             state.set_demo(running)
+
+        # Post-deploy validation & reconciliation
+        await progress("validation", "running", "Running post-deploy validation...")
+        from .deploy_validator import validate_and_reconcile
+        validation_results = await validate_and_reconcile(demo, project_name, progress)
+        errors = [r for r in validation_results if r["status"] == "error"]
+        warnings = [r for r in validation_results if r["status"] == "warning"]
+        ok_count = len([r for r in validation_results if r["status"] == "ok"])
+        summary = f"{ok_count} passed"
+        if warnings:
+            summary += f", {len(warnings)} warning(s)"
+        if errors:
+            summary += f", {len(errors)} error(s)"
+        await progress("validation", "warning" if errors else "done", f"Validation complete: {summary}")
 
         running.status = "running"
         state.set_demo(running)

@@ -21,6 +21,7 @@ class TrinoInsertWriter:
         self.catalog = catalog
         self.namespace = namespace
         self.user = "demoforge-generator"
+        self._ensured_tables = set()
 
     def _execute(self, sql: str) -> None:
         resp = requests.post(
@@ -45,7 +46,7 @@ class TrinoInsertWriter:
 
 
 def _sql_value(val, col_type: str) -> str:
-    """Convert a Python value to a Trino SQL literal."""
+    """Convert a Python value to a Trino SQL literal with explicit casts."""
     if val is None:
         return "NULL"
     if col_type in ("string",):
@@ -61,10 +62,18 @@ def _sql_value(val, col_type: str) -> str:
         return f"DATE '{val}'"
     if col_type == "boolean":
         return "true" if val else "false"
+    if col_type in ("int32",):
+        return f"CAST({int(val)} AS INTEGER)"
+    if col_type in ("int64",):
+        return f"CAST({int(val)} AS BIGINT)"
+    if col_type in ("float32",):
+        return f"CAST({float(val)} AS REAL)"
+    if col_type in ("float64",):
+        return f"CAST({float(val)} AS DOUBLE)"
     return str(val)
 
 
-_writer_instance = None
+_writer_instances = {}
 
 
 def write_batch(
@@ -73,17 +82,19 @@ def write_batch(
     partition_cfg,
     s3_client,
     bucket: str,
+    **kwargs,
 ) -> str:
     """Write a batch of rows by INSERTing into the Iceberg table via Trino."""
-    global _writer_instance
-
     if not TRINO_HOST:
         raise RuntimeError("TRINO_HOST not set — cannot use Trino writer")
 
-    if _writer_instance is None:
-        _writer_instance = TrinoInsertWriter(TRINO_HOST)
+    catalog = kwargs.get("catalog", "iceberg")
+    if catalog not in _writer_instances:
+        _writer_instances[catalog] = TrinoInsertWriter(TRINO_HOST, catalog=catalog)
+    writer = _writer_instances[catalog]
 
-    table = f"{_writer_instance.catalog}.{_writer_instance.namespace}.orders"
+    table_name = kwargs.get("table_name", "orders")
+    table = f"{writer.catalog}.{writer.namespace}.{table_name}"
 
     # Build VALUES clause in chunks to avoid huge SQL strings
     chunk_size = 50
@@ -103,7 +114,7 @@ def write_batch(
         col_names = ", ".join(col["name"] for col in columns)
         sql = f"INSERT INTO {table} ({col_names}) VALUES {', '.join(values_parts)}"
 
-        _writer_instance._execute(sql)
+        writer._execute(sql)
         total_inserted += len(chunk)
 
     ts = int(time.time() * 1000)

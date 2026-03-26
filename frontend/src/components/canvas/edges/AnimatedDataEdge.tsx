@@ -18,10 +18,19 @@ export default function AnimatedDataEdge({
   const configError = (edgeData as any)?.configError as string | undefined;
   const color = connectionColors[connectionType] ?? "#6b7280";
   const connConfig = (edgeData as any)?.connectionConfig as Record<string, any> | undefined;
-  // For structured-data edges, show the format in the label (e.g. "JSON Data" instead of generic "Data Push")
-  const formatLabel = connectionType === "structured-data" && connConfig?.format
-    ? `${(connConfig.format as string).toUpperCase()} Data`
-    : null;
+  // For structured-data edges, show format + scenario (e.g. "JSON · E-commerce Orders")
+  let formatLabel: string | null = null;
+  if (connectionType === "structured-data" && connConfig) {
+    const parts: string[] = [];
+    if (connConfig.format) parts.push((connConfig.format as string).toUpperCase());
+    if (connConfig.scenario) {
+      const scenarioName = (connConfig.scenario as string)
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      parts.push(scenarioName);
+    }
+    formatLabel = parts.length > 0 ? parts.join(" · ") : null;
+  }
   const label = edgeData?.label || formatLabel || connectionLabels[connectionType] || "";
 
   const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||

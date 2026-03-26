@@ -230,18 +230,31 @@ def _get_iceberg_writer(scenario: dict):
     """Try to create an IcebergWriter for the Iceberg REST catalog.
 
     Returns (writer, namespace, table_name) or (None, None, None) if unavailable.
+
+    When ICEBERG_SIGV4=true (AIStor Tables), PyIceberg cannot authenticate via
+    SigV4. In that case we skip PyIceberg entirely — data will be written via the
+    Trino INSERT writer or fall back to raw file writer.
     """
     catalog_uri = os.environ.get("ICEBERG_CATALOG_URI", "")
     if not catalog_uri:
+        return None, None, None
+
+    # AIStor Tables manages Iceberg metadata over raw files in MinIO.
+    # The generator just writes raw parquet/json files — no catalog interaction needed.
+    # AIStor Tables auto-discovers files; Trino reads via the /_iceberg connector.
+    if os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes"):
+        print("[scenario] AIStor Tables path — writing raw files, AIStor manages Iceberg metadata")
         return None, None, None
 
     try:
         from src.writers.iceberg_writer import IcebergWriter
         endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
         iceberg_cfg = scenario.get("iceberg", {}) or {}
+        wh = iceberg_cfg.get("warehouse", "warehouse")
+        wh_uri = wh if wh.startswith("s3://") else f"s3://{wh}/"
         writer = IcebergWriter(
             catalog_uri=catalog_uri,
-            warehouse=iceberg_cfg.get("warehouse", "warehouse"),
+            warehouse=wh_uri,
             s3_endpoint=endpoint,
             access_key=S3_ACCESS_KEY,
             secret_key=S3_SECRET_KEY,
@@ -312,20 +325,49 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
     except Exception as exc:
         print(f"[scenario] Table setup skipped: {exc}")
 
-    # Try to use Iceberg writer (writes through Iceberg REST catalog)
-    # Falls back to raw file writer if no catalog available
+    # Determine write strategy:
+    # 1. PyIceberg writer (preferred — decoupled, writes directly to Iceberg catalog)
+    # 2. Trino INSERT writer (fallback for AIStor SigV4 which PyIceberg can't auth)
+    # 3. Raw file writer (last resort)
+    use_iceberg = False
+    use_trino_writer = False
+    trino_table_name = None
+    trino_catalog = "iceberg"
+    iceberg_writer = None
+    ice_ns = None
+    ice_table = None
+
+    iceberg_cfg = scenario.get("iceberg", {}) or {}
+    trino_table_name = iceberg_cfg.get("table", "orders")
+    trino_host = os.environ.get("TRINO_HOST", "")
+    is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
+
+    # Try PyIceberg first (decoupled from Trino)
     iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)
     use_iceberg = iceberg_writer is not None
     if use_iceberg:
-        # Ensure table exists in the catalog
         try:
-            iceberg_writer.ensure_table(ice_ns, ice_table, columns)
-            print(f"[scenario] Using Iceberg writer → {ice_ns}.{ice_table}")
+            # Store data in the user-specified bucket, not the default warehouse
+            table_location = f"s3://{bucket}/{ice_table}/" if bucket else None
+            iceberg_writer.ensure_table(ice_ns, ice_table, columns, location=table_location)
+            print(f"[scenario] Using Iceberg writer → {ice_ns}.{ice_table} (location: {table_location or 'default'})")
         except Exception as exc:
-            print(f"[scenario] Iceberg table creation failed: {exc} — falling back to file writer")
+            print(f"[scenario] Iceberg table creation failed: {exc} — trying Trino writer")
             use_iceberg = False
 
-    writer = _get_writer(fmt) if not use_iceberg else None
+    # Fallback to Trino INSERT writer (only if PyIceberg fails and not AIStor path)
+    if not use_iceberg and not is_sigv4 and trino_host:
+        trino_catalog = "iceberg"
+        try:
+            from src.writers import trino_writer
+            use_trino_writer = True
+            print(f"[scenario] Using Trino INSERT writer → {trino_catalog}.demo.{trino_table_name}")
+        except Exception as exc:
+            print(f"[scenario] Trino writer not available: {exc}")
+
+    writer = None
+    if not use_iceberg and not use_trino_writer:
+        writer = _get_writer(fmt)
 
     rows_generated = 0
     batches_sent = 0
@@ -378,6 +420,17 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             if use_iceberg:
                 count = iceberg_writer.write_batch(rows, columns, ice_ns, ice_table)
                 key = f"iceberg/{ice_ns}.{ice_table}"
+            elif use_trino_writer:
+                from src.writers import trino_writer
+                key = trino_writer.write_batch(
+                    rows=rows,
+                    columns=columns,
+                    partition_cfg=partition_cfg,
+                    s3_client=client,
+                    bucket=bucket,
+                    table_name=trino_table_name,
+                    catalog=trino_catalog,
+                )
             else:
                 key = writer.write_batch(
                     rows=rows,
@@ -392,7 +445,9 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             elapsed_total = time.time() - start_time
             rows_per_sec = rows_generated / elapsed_total if elapsed_total > 0 else 0
 
-            dest = f"iceberg://{ice_ns}.{ice_table}" if use_iceberg else f"s3://{bucket}/{key}"
+            dest = f"iceberg://{ice_ns}.{ice_table}" if use_iceberg else (
+                f"trino://{trino_catalog}.demo.{trino_table_name}" if use_trino_writer else f"s3://{bucket}/{key}"
+            )
             print(
                 f"[scenario] Wrote {len(rows)} rows ({fmt}) to {dest} "
                 f"| total={rows_generated} rate={rows_per_sec:.1f} rows/s"

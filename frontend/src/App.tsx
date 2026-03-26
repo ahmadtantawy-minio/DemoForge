@@ -151,6 +151,7 @@ export default function App() {
       <Toaster
         theme="dark"
         position="bottom-right"
+        closeButton
         toastOptions={{
           style: { background: "#18181b", border: "1px solid #27272a", color: "#fafafa" },
           classNames: {

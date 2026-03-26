@@ -33,7 +33,8 @@ iceberg.rest-catalog.uri={{ ns.iceberg_uri }}
 {%- endif %}
 {%- endfor %}
 iceberg.rest-catalog.warehouse=warehouse
-{#- Check for direct S3/aistor-tables edges to Trino #}
+{#- Only use direct S3/aistor-tables edges if no S3 endpoint was resolved from the Iceberg catalog #}
+{%- if not ns.s3_endpoint %}
 {%- for edge in edges %}
 {%- if edge.target == node.id and edge.connection_type in ['s3', 'aistor-tables'] %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
@@ -46,6 +47,7 @@ iceberg.rest-catalog.warehouse=warehouse
 {%- endif %}
 {%- endif %}
 {%- endfor %}
+{%- endif %}
 {%- if ns.s3_endpoint %}
 fs.native-s3.enabled=true
 s3.endpoint={{ ns.s3_endpoint }}

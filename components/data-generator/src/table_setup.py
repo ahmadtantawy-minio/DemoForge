@@ -230,7 +230,10 @@ def run_setup(
             print(f"[table_setup] Iceberg table setup failed: {exc}")
 
     # Step 3: register Iceberg table in Trino for file-based formats
-    if fmt in ("parquet", "json", "csv") and trino_host:
+    # Skip if ICEBERG_CATALOG_URI is set — PyIceberg will create the table
+    # with the correct storage location (user-specified bucket)
+    catalog_uri = os.environ.get("ICEBERG_CATALOG_URI", "")
+    if fmt in ("parquet", "json", "csv") and trino_host and not catalog_uri:
         try:
             import time as _time
             # Wait for Trino to be ready (it starts slower than MinIO)

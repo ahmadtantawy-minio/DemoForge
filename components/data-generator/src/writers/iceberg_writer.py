@@ -112,14 +112,21 @@ class IcebergWriter:
                 "s3.endpoint": self._s3_endpoint,
                 "s3.access-key-id": self._access_key,
                 "s3.secret-access-key": self._secret_key,
+                "s3.path-style-access": "true",
+                "s3.region": "us-east-1",
+                "py-io-impl": "pyiceberg.io.fsspec.FsspecFileIO",
             },
         )
         return self._catalog
 
     def ensure_table(self, namespace: str, table_name: str, columns: list,
-                     partition_spec_sql: str = None):
-        """Create the Iceberg table if it doesn't exist. Skip if it does."""
-        import pyarrow as pa
+                     location: str = None):
+        """Create the Iceberg table if it doesn't exist.
+
+        Args:
+            location: Optional S3 URI for table data (e.g. 's3://data-lake-2/orders/').
+                      If set, Iceberg stores data files here instead of the default warehouse.
+        """
         from pyiceberg.schema import Schema
         from pyiceberg.types import (
             StringType, LongType, IntegerType, FloatType, DoubleType,
@@ -161,19 +168,37 @@ class IcebergWriter:
         except Exception:
             pass  # namespace may already exist
 
-        catalog.create_table(identifier=full_name, schema=schema)
+        kwargs = {"identifier": full_name, "schema": schema}
+        if location:
+            kwargs["location"] = location
+        catalog.create_table(**kwargs)
 
     def write_batch(self, rows: list, columns: list, namespace: str, table_name: str) -> int:
-        """Append rows to the Iceberg table. Returns number of rows written."""
+        """Append rows to the Iceberg table. Returns number of rows written.
+
+        On failure (e.g. stale table reference after Trino recreated the table),
+        invalidates the cached catalog and retries once with a fresh table load.
+        """
         if not rows:
             return 0
 
         catalog = self._get_catalog()
         full_name = f"{namespace}.{table_name}"
-        table = catalog.load_table(full_name)
-
         arrow_table = _rows_to_arrow_table(rows, columns)
-        table.append(arrow_table)
+
+        for attempt in range(2):
+            try:
+                table = catalog.load_table(full_name)
+                table.append(arrow_table)
+                return len(rows)
+            except Exception as exc:
+                if attempt == 0:
+                    # Invalidate cached catalog and retry — table may have been
+                    # recreated by Trino table_setup with a different UUID.
+                    self._catalog = None
+                    catalog = self._get_catalog()
+                else:
+                    raise
         return len(rows)
 
 

@@ -6,7 +6,6 @@ interface ScenarioQuery {
   id: string;
   name: string;
   sql: string;
-  chart_type: string;
 }
 
 interface ScenarioTab {
@@ -31,17 +30,6 @@ interface QueryResult {
   error?: string;
 }
 
-const CHART_TYPE_LABELS: Record<string, string> = {
-  bar: "Bar",
-  line: "Line",
-  horizontal_bar: "H-Bar",
-  pie: "Pie",
-  donut: "Donut",
-  scalar: "KPI",
-  stacked_area: "Area",
-  pivot_table: "Pivot",
-  table: "Table",
-};
 
 export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId }: Props) {
   const [allScenarios, setAllScenarios] = useState<ScenarioTab[]>([]);
@@ -90,13 +78,6 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
   const activeScenario = allScenarios.find((s) => s.id === activeTab);
   const queries = activeScenario?.queries ?? [];
 
-  // Group queries by chart_type
-  const grouped = queries.reduce<Record<string, ScenarioQuery[]>>((acc, q) => {
-    const group = q.chart_type || "other";
-    if (!acc[group]) acc[group] = [];
-    acc[group].push(q);
-    return acc;
-  }, {});
 
   const loadQuery = (q: ScenarioQuery) => {
     setSelectedQueryId(q.id);
@@ -175,25 +156,18 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
               <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
                 Pre-built Queries
               </div>
-              {Object.entries(grouped).map(([chartType, qs]) => (
-                <div key={chartType}>
-                  <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-muted-foreground/60 font-medium">
-                    {CHART_TYPE_LABELS[chartType] ?? chartType}
-                  </div>
-                  {qs.map((q) => (
-                    <button
-                      key={q.id}
-                      onClick={() => loadQuery(q)}
-                      className={`w-full text-left px-3 py-2 text-xs transition-colors border-b border-border/50 ${
-                        selectedQueryId === q.id
-                          ? "bg-primary/15 text-primary border-l-2 border-l-primary"
-                          : "text-foreground hover:bg-accent"
-                      }`}
-                    >
-                      {q.name}
-                    </button>
-                  ))}
-                </div>
+              {queries.map((q) => (
+                <button
+                  key={q.id}
+                  onClick={() => loadQuery(q)}
+                  className={`w-full text-left px-3 py-2 text-xs transition-colors border-b border-border/50 ${
+                    selectedQueryId === q.id
+                      ? "bg-primary/15 text-primary border-l-2 border-l-primary"
+                      : "text-foreground hover:bg-accent"
+                  }`}
+                >
+                  {q.name}
+                </button>
               ))}
             </div>
           ) : null}
