@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
+import { GripHorizontal, X } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
 
@@ -98,13 +99,53 @@ export default function CockpitOverlay() {
     return () => clearInterval(interval);
   }, [enabled, activeDemoId, isRunning]);
 
-  // Render as a right-side panel (replaces PropertiesPanel when cockpit is on)
+  const toggleCockpit = useDemoStore((s) => s.toggleCockpit);
+
+  // Draggable position
+  const [pos, setPos] = useState({ x: window.innerWidth - 320, y: 60 });
+  const dragRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, posX: pos.x, posY: pos.y };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      setPos({
+        x: Math.max(0, Math.min(window.innerWidth - 280, dragRef.current.posX + ev.clientX - dragRef.current.startX)),
+        y: Math.max(0, Math.min(window.innerHeight - 100, dragRef.current.posY + ev.clientY - dragRef.current.startY)),
+      });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [pos]);
+
   return (
-    <div className="h-full bg-card border-l border-border overflow-y-auto">
-      <div className="p-3">
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          Cockpit
+    <div
+      className="fixed z-50 w-[280px] max-h-[60vh] bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden flex flex-col"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      {/* Draggable header */}
+      <div
+        className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border cursor-move select-none"
+        onMouseDown={onDragStart}
+      >
+        <div className="flex items-center gap-1.5">
+          <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Cockpit</span>
         </div>
+        <button
+          className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-accent transition-colors"
+          onClick={toggleCockpit}
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="overflow-y-auto p-3">
         {data?.host_stats && (
           <div className="mb-3 pb-3 border-b border-border">
             <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
@@ -172,3 +213,5 @@ export default function CockpitOverlay() {
     </div>
   );
 }
+
+// Re-export so App.tsx doesn't need to change the import

@@ -22,7 +22,7 @@ export default function App() {
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
-  const [terminalHeight, setTerminalHeight] = useState(350);
+  const [terminalHeight, setTerminalHeight] = useState(200);
   const isDragging = useRef(false);
 
   // Initial load + periodic sync of demo status from backend
@@ -186,15 +186,18 @@ export default function App() {
           )}
         </div>
 
-        {/* Right sidebar - Properties Panel or Cockpit (only in diagram view with active demo) */}
+        {/* Right sidebar - Properties Panel (always visible in diagram view) */}
         {showSidebars && (
           <div className="w-72 flex-shrink-0 h-full">
             {walkthroughOpen
               ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />
-              : cockpitEnabled ? <CockpitOverlay /> : <PropertiesPanel />}
+              : <PropertiesPanel />}
           </div>
         )}
       </div>
+
+      {/* Floating Cockpit overlay */}
+      {cockpitEnabled && activeDemoId && <CockpitOverlay />}
 
       {/* Bottom - Terminal or Debug Panel (resizable) - only when demo selected */}
       {activeDemoId && (

@@ -622,7 +622,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         deleteKeyCode={null}
         fitView
       >
-        <MiniMap />
+        <MiniMap style={{ width: 120, height: 80 }} />
         <Controls />
         <Background />
       </ReactFlow>
