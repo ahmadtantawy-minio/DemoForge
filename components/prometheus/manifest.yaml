@@ -1,6 +1,6 @@
 id: prometheus
 name: Prometheus
-category: analytics
+category: observability
 icon: prometheus
 version: "latest"
 image: prom/prometheus:latest

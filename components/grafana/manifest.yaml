@@ -1,6 +1,6 @@
 id: grafana
 name: Grafana
-category: analytics
+category: observability
 icon: grafana
 version: "latest"
 image: grafana/grafana:latest

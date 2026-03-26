@@ -5,9 +5,9 @@ import type { ComponentEdgeData, ConnectionType } from "../../../types";
 import { connectionColors, connectionLabels } from "../../../lib/connectionMeta";
 
 export default function AnimatedDataEdge({
-  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
+  id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
 }: EdgeProps) {
-  const { deleteElements } = useReactFlow();
+  const { deleteElements, getNode } = useReactFlow();
   const [hovered, setHovered] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -18,17 +18,27 @@ export default function AnimatedDataEdge({
   const configError = (edgeData as any)?.configError as string | undefined;
   const color = connectionColors[connectionType] ?? "#6b7280";
   const connConfig = (edgeData as any)?.connectionConfig as Record<string, any> | undefined;
-  // For structured-data edges, show format + scenario (e.g. "JSON · E-commerce Orders")
+
+  // For structured-data edges, build a rich label from edge config + source node config
+  // e.g. "PARQUET · Ecommerce Orders → data-lake-1"
   let formatLabel: string | null = null;
-  if (connectionType === "structured-data" && connConfig) {
+  if (connectionType === "structured-data") {
+    const sourceNode = source ? getNode(source) : undefined;
+    const nodeConfig = (sourceNode?.data as any)?.config as Record<string, string> | undefined;
+
+    // Resolve format: edge config > node config > default
+    const fmt = connConfig?.format || nodeConfig?.DG_FORMAT;
+    // Resolve scenario: edge config > node config
+    const scenario = connConfig?.scenario || nodeConfig?.DG_SCENARIO;
+    // Target bucket from edge config
+    const bucket = connConfig?.target_bucket;
+
     const parts: string[] = [];
-    if (connConfig.format) parts.push((connConfig.format as string).toUpperCase());
-    if (connConfig.scenario) {
-      const scenarioName = (connConfig.scenario as string)
-        .replace(/-/g, " ")
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-      parts.push(scenarioName);
+    if (fmt) parts.push(fmt.toUpperCase());
+    if (scenario) {
+      parts.push(scenario.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()));
     }
+    if (bucket) parts.push(`→ ${bucket}`);
     formatLabel = parts.length > 0 ? parts.join(" · ") : null;
   }
   const label = edgeData?.label || formatLabel || connectionLabels[connectionType] || "";
