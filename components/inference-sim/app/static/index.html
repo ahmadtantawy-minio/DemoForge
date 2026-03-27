@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NVIDIA STX: The G3.5 Tier</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --card: #12121a;
+    --border: #1e1e2e;
+    --text: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --g1: #E85D24;
+    --g2: #EF9F27;
+    --g3: #378ADD;
+    --g35: #1D9E75;
+    --g4: #888780;
+    --teal: #14b8a6;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --green: #22c55e;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+
+  /* HEADER */
+  .header {
+    height: 56px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .header-title span { color: var(--g35); }
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .tick-counter {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: background 0.3s, color 0.3s;
+  }
+  .status-badge.running {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--green);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+  }
+  .status-badge.stopped {
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--text-secondary);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  .status-badge.disconnected {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status-badge.running .status-dot {
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: grid;
+    grid-template-columns: 60% 40%;
+    gap: 16px;
+    padding: 16px;
+    min-height: calc(100vh - 56px);
+    align-content: start;
+  }
+  .left-col, .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* CARD */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card-header {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-header .count {
+    font-weight: 400;
+    color: var(--text-secondary);
+    opacity: 0.7;
+  }
+
+  /* GPU COLUMNS */
+  .gpu-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .gpu-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .gpu-card-header {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text);
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tier-row {
+    margin-bottom: 12px;
+  }
+  .tier-row:last-child { margin-bottom: 0; }
+  .tier-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .tier-name {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .tier-desc {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-left: 6px;
+    font-weight: 400;
+  }
+  .tier-capacity {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    white-space: nowrap;
+  }
+
+  /* FILL BAR */
+  .fill-bar-track {
+    width: 100%;
+    height: 32px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .fill-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.4s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.95);
+    min-width: 0;
+    position: relative;
+  }
+  .fill-bar-fill.g1 { background: var(--g1); }
+  .fill-bar-fill.g2 { background: var(--g2); }
+  .fill-bar-fill.g3 { background: var(--g3); }
+  .fill-bar-fill.g35 { background: var(--g35); }
+  .fill-bar-fill.g4 { background: var(--g4); }
+  .fill-bar-pct {
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+
+  /* >90% pulse */
+  @keyframes bar-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.82; }
+  }
+  .fill-bar-fill.critical {
+    animation: bar-pulse 1.5s ease-in-out infinite;
+  }
+
+  /* Disabled / striped pattern */
+  .fill-bar-track.disabled {
+    background: repeating-linear-gradient(
+      -45deg,
+      rgba(255,255,255,0.03),
+      rgba(255,255,255,0.03) 6px,
+      rgba(255,255,255,0.07) 6px,
+      rgba(255,255,255,0.07) 12px
+    );
+  }
+  .fill-bar-track.disabled .fill-bar-fill {
+    opacity: 0.3;
+  }
+
+  /* SHARED SECTION */
+  .shared-card {
+    background: var(--card);
+    border: 1px solid var(--g35);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .shared-card.cmx-off {
+    border-color: var(--border);
+  }
+  .shared-header {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--g35);
+    margin-bottom: 4px;
+  }
+  .shared-subtitle {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+  }
+  .shared-note {
+    text-align: center;
+    font-size: 10px;
+    color: var(--g35);
+    margin-top: 6px;
+    opacity: 0.7;
+  }
+  .cmx-warning {
+    display: none;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--red);
+  }
+  .cmx-off .cmx-warning { display: block; }
+  .cmx-off .shared-header { color: var(--text-secondary); }
+  .cmx-off .shared-note { display: none; }
+
+  /* SESSIONS TABLE */
+  .sessions-table-wrap {
+    max-height: 340px;
+    overflow-y: auto;
+  }
+  .sessions-table-wrap::-webkit-scrollbar { width: 4px; }
+  .sessions-table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .sessions-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  table.sessions {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.sessions th {
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--card);
+  }
+  table.sessions td {
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    color: var(--text-secondary);
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+  }
+  table.sessions tr.active td { color: var(--text); }
+  @keyframes row-pulse {
+    0%, 100% { background: transparent; }
+    50% { background: rgba(255,255,255,0.02); }
+  }
+  table.sessions tr.active {
+    animation: row-pulse 2s ease-in-out infinite;
+  }
+  table.sessions tr.g35-row td {
+    color: var(--g35);
+  }
+  @keyframes teal-flash {
+    0% { background: rgba(20, 184, 166, 0.25); }
+    100% { background: transparent; }
+  }
+  table.sessions tr.migration-flash {
+    animation: teal-flash 1s ease-out;
+  }
+  .tier-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  .tier-badge.g1 { background: rgba(232,93,36,0.2); color: var(--g1); }
+  .tier-badge.g2 { background: rgba(239,159,39,0.2); color: var(--g2); }
+  .tier-badge.g3 { background: rgba(55,138,221,0.2); color: var(--g3); }
+  .tier-badge.g35 { background: rgba(29,158,117,0.2); color: var(--g35); }
+  .tier-badge.g4 { background: rgba(136,135,128,0.2); color: var(--g4); }
+
+  /* EVENT STREAM */
+  .event-list {
+    list-style: none;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .event-list::-webkit-scrollbar { width: 4px; }
+  .event-list::-webkit-scrollbar-track { background: transparent; }
+  .event-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .event-item {
+    padding: 4px 8px;
+    font-size: 11px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .event-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .event-item.promotion { color: var(--g35); }
+  .event-item.recompute { color: var(--red); background: rgba(239,68,68,0.05); }
+  .event-item.cross-gpu { color: var(--teal); }
+
+  /* METRICS GRID */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  .metric-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .metric-value {
+    font-size: 22px;
+    font-weight: 800;
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    line-height: 1.2;
+    transition: color 0.3s;
+  }
+  .metric-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+  .metric-value.green { color: var(--green); }
+  .metric-value.amber { color: var(--amber); }
+  .metric-value.red { color: var(--red); }
+  .metric-value.teal { color: var(--teal); }
+  .metric-value.muted { color: var(--text-secondary); }
+
+  /* CONTROLS */
+  .controls-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .control-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .control-subtitle {
+    font-size: 10px;
+    color: var(--text-secondary);
+    line-height: 1.3;
+  }
+
+  /* G3.5 MODE SELECTOR */
+  .g35-selector { margin-bottom: 16px; }
+  .g35-header { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .g35-options { display: flex; flex-direction: column; gap: 6px; }
+  .g35-option { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+  .g35-option:has(input:checked) { border-color: var(--g35); background: rgba(29,158,117,0.08); }
+  .g35-option input[type="radio"] { margin-top: 3px; accent-color: var(--g35); }
+  .g35-option-title { font-size: 12px; font-weight: 600; color: var(--text); }
+  .g35-option-desc { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* EVICTION POLICY PANEL */
+  .policy-section { font-size: 11px; }
+  .policy-strategy { color: var(--text-secondary); margin-bottom: 10px; }
+  .policy-chain { display: flex; flex-direction: column; gap: 4px; }
+  .policy-tier { padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.03); border-left: 3px solid var(--border); transition: opacity 0.3s; }
+  .policy-tier[data-tier="g1"] { border-left-color: var(--g1); }
+  .policy-tier[data-tier="g2"] { border-left-color: var(--g2); }
+  .policy-tier[data-tier="g3"] { border-left-color: var(--g3); }
+  .policy-tier[data-tier="g35"] { border-left-color: var(--g35); }
+  .policy-tier[data-tier="g4"] { border-left-color: var(--g4); }
+  .policy-tier.disabled { opacity: 0.3; }
+  .policy-tier-name { font-weight: 600; font-size: 11px; }
+  .policy-rule { color: var(--text-secondary); font-size: 10px; }
+  .policy-arrow { color: var(--text-secondary); font-size: 10px; text-align: center; margin: 2px 0; }
+  .policy-idle { margin-top: 10px; color: var(--text-secondary); padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; }
+
+  /* EVENT REASON */
+  .event-reason { display: block; font-size: 9px; color: rgba(255,255,255,0.35); margin-left: 20px; font-style: italic; }
+
+  /* THRESHOLD MARKER */
+  .threshold-marker { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,200,50,0.4); z-index: 2; }
+
+  /* GRAPH TOGGLE */
+  .graph-toggle-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 14px; color: var(--text-secondary); transition: all 0.2s; }
+  .graph-toggle-btn:hover { border-color: var(--g35); color: var(--text); }
+  .graph-toggle-btn.active { background: rgba(29,158,117,0.15); border-color: var(--g35); color: var(--g35); }
+  #metricsCanvas { width: 100%; height: 200px; background: rgba(0,0,0,0.2); border-radius: 6px; }
+
+  /* FOOTER NOTE */
+  .footer-note { text-align: center; font-size: 10px; color: var(--text-secondary); padding: 12px 0; opacity: 0.6; }
+
+  /* CMX TOGGLE (legacy) */
+  .cmx-toggle-wrap {
+    background: rgba(29,158,117,0.06);
+    border: 1px solid rgba(29,158,117,0.2);
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: all 0.3s;
+  }
+  .cmx-toggle-wrap.off {
+    background: rgba(239,68,68,0.04);
+    border-color: rgba(239,68,68,0.15);
+  }
+  .cmx-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .cmx-toggle-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .toggle-switch {
+    position: relative;
+    width: 52px;
+    height: 28px;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .toggle-switch input { display: none; }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #333;
+    border-radius: 14px;
+    transition: background 0.3s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.3s;
+  }
+  .toggle-switch input:checked + .toggle-slider {
+    background: var(--g35);
+    box-shadow: 0 0 16px rgba(29,158,117,0.4);
+  }
+  .toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(24px);
+  }
+  .cmx-toggle-subtitle {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* SLIDER */
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    outline: none;
+    margin-top: 6px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--text);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .slider-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  }
+
+  /* SELECT / DROPDOWN */
+  select.control-select {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  /* SPEED BUTTONS */
+  .speed-btns {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .speed-btn {
+    flex: 1;
+    padding: 6px 0;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .speed-btn.active {
+    background: rgba(255,255,255,0.12);
+    color: var(--text);
+    border-color: var(--text-secondary);
+  }
+
+  /* ACTION BUTTONS */
+  .action-btns {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .btn {
+    flex: 1;
+    padding: 10px 0;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .btn-start {
+    background: var(--green);
+    color: #000;
+  }
+  .btn-start.running {
+    background: var(--red);
+    color: #fff;
+  }
+  .btn-reset {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .btn:hover { filter: brightness(1.1); }
+
+  /* SCENARIO CARDS */
+  .scenarios {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .scenario-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .scenario-card:hover {
+    border-color: var(--text-secondary);
+    background: rgba(255,255,255,0.04);
+  }
+  .scenario-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .scenario-desc {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .scenario-pills {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+
+  /* SCROLLBAR GLOBAL */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-title">NVIDIA STX: <span>The G3.5 Tier</span></div>
+  <div class="header-right">
+    <div class="tick-counter" id="tickCounter">TICK 0</div>
+    <div class="status-badge disconnected" id="statusBadge">
+      <div class="status-dot"></div>
+      <span id="statusText">Disconnected</span>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- LEFT COLUMN -->
+  <div class="left-col">
+    <!-- GPU Tiers -->
+    <div class="gpu-grid">
+      <div class="gpu-card" id="gpuA">
+        <div class="gpu-card-header">GPU-A</div>
+        <div class="tier-row">
+          <div class="tier-label">
+            <div><span class="tier-name" style="color:var(--g1)">G1</span><span class="tier-desc">L2 Cache (Hot)</span></div>
+            <div class="tier-capacity" id="gpuA-g1-cap">0 / 0 GB</div>
+          </div>
+          <div class="fill-bar-track" id="gpuA-g1-track">
+            <div class="fill-bar-fill g1" id="gpuA-g1-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+          </div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label">
+            <div><span class="tier-name" style="color:var(--g2)">G2</span><span class="tier-desc">HBM (Warm)</span></div>
+            <div class="tier-capacity" id="gpuA-g2-cap">0 / 0 GB</div>
+          </div>
+          <div class="fill-bar-track" id="gpuA-g2-track">
+            <div class="fill-bar-fill g2" id="gpuA-g2-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+          </div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label">
+            <div><span class="tier-name" style="color:var(--g3)">G3</span><span class="tier-desc">DRAM (Cool)</span></div>
+            <div class="tier-capacity" id="gpuA-g3-cap">0 / 0 GB</div>
+          </div>
+          <div class="fill-bar-track" id="gpuA-g3-track">
+            <div class="fill-bar-fill g3" id="gpuA-g3-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gpu-card" id="gpuB">
+        <div class="gpu-card-header">GPU-B</div>
+        <div class="tier-row">
+          <div class="tier-label">
+            <div><span class="tier-name" style="color:var(--g1)">G1</span><span class="tier-desc">L2 Cache (Hot)</span></div>
+            <div class="tier-capacity" id="gpuB-g1-cap">0 / 0 GB</div>
+          </div>
+          <div class="fill-bar-track" id="gpuB-g1-track">
+            <div class="fill-bar-fill g1" id="gpuB-g1-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+          </div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label">
+            <div><span class="tier-name" style="color:var(--g2)">G2</span><span class="tier-desc">HBM (Warm)</span></div>
+            <div class="tier-capacity" id="gpuB-g2-cap">0 / 0 GB</div>
+          </div>
+          <div class="fill-bar-track" id="gpuB-g2-track">
+            <div class="fill-bar-fill g2" id="gpuB-g2-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+          </div>
+        </div>
+        <div class="tier-row">
+          <div class="tier-label">
+            <div><span class="tier-name" style="color:var(--g3)">G3</span><span class="tier-desc">DRAM (Cool)</span></div>
+            <div class="tier-capacity" id="gpuB-g3-cap">0 / 0 GB</div>
+          </div>
+          <div class="fill-bar-track" id="gpuB-g3-track">
+            <div class="fill-bar-fill g3" id="gpuB-g3-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shared Tiers -->
+    <div class="shared-card" id="sharedCard">
+      <div class="shared-header">Shared Storage (Pod-Level)</div>
+      <div class="shared-subtitle">MinIO object storage accessible by all GPUs in the pod</div>
+      <div class="cmx-warning" id="cmxWarning">Warning: CMX DISABLED -- G3.5 tier bypassed. KV cache cannot be shared between GPUs. Evicted contexts must be recomputed from scratch.</div>
+
+      <div class="tier-row">
+        <div class="tier-label">
+          <div><span class="tier-name" style="color:var(--g35)">G3.5</span><span class="tier-desc">MinIO CMX (Context Memory)</span></div>
+          <div class="tier-capacity" id="shared-g35-cap">0 / 0 GB</div>
+        </div>
+        <div class="fill-bar-track" id="shared-g35-track">
+          <div class="fill-bar-fill g35" id="shared-g35-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+        </div>
+        <div class="shared-note" id="sharedNote">Blocks from both GPUs land here</div>
+      </div>
+
+      <div class="tier-row" style="margin-top:12px">
+        <div class="tier-label">
+          <div><span class="tier-name" style="color:var(--g4)">G4</span><span class="tier-desc">S3 Cold Storage</span></div>
+          <div class="tier-capacity" id="shared-g4-cap">0 / 0 GB</div>
+        </div>
+        <div class="fill-bar-track" id="shared-g4-track">
+          <div class="fill-bar-fill g4" id="shared-g4-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Sessions -->
+    <div class="card">
+      <div class="card-header">Active Sessions <span class="count" id="sessionCount">(0 total, showing last 20)</span></div>
+      <div class="sessions-table-wrap">
+        <table class="sessions">
+          <thead>
+            <tr><th>Session</th><th>GPU</th><th>Tier</th><th>Status</th><th>Cache</th></tr>
+          </thead>
+          <tbody id="sessionsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Event Stream -->
+    <div class="card">
+      <div class="card-header">Event Stream <span class="count" id="eventCount">(0 events)</span></div>
+      <ul class="event-list" id="eventList"></ul>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div class="right-col">
+    <!-- Metrics -->
+    <div class="card">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Metrics</span>
+        <button class="graph-toggle-btn" id="graphToggle" title="Toggle graph view">&#x1F4C8;</button>
+      </div>
+      <div id="metricsCards" class="metrics-grid">
+        <div class="metric-card"><div class="metric-value muted" id="m-gpuA">&mdash;</div><div class="metric-label">GPU-A Util</div></div>
+        <div class="metric-card"><div class="metric-value muted" id="m-gpuB">&mdash;</div><div class="metric-label">GPU-B Util</div></div>
+        <div class="metric-card"><div class="metric-value muted" id="m-combined">&mdash;</div><div class="metric-label">Combined Avg</div></div>
+        <div class="metric-card"><div class="metric-value muted" id="m-ttft">&mdash;</div><div class="metric-label">Avg TTFT (ms)</div></div>
+        <div class="metric-card"><div class="metric-value muted" id="m-cache">&mdash;</div><div class="metric-label">Cache Hits</div></div>
+        <div class="metric-card"><div class="metric-value teal" id="m-migrations">&mdash;</div><div class="metric-label">Cross-GPU Migr.</div></div>
+        <div class="metric-card"><div class="metric-value teal" id="m-s3ops">&mdash;</div><div class="metric-label">S3 Ops/sec</div></div>
+        <div class="metric-card"><div class="metric-value muted" id="m-recomp">&mdash;</div><div class="metric-label">Recomputations</div></div>
+        <div class="metric-card"><div class="metric-value muted" id="m-sessions">&mdash;</div><div class="metric-label">Active Sessions</div></div>
+      </div>
+      <div id="metricsGraph" style="display:none;">
+        <canvas id="metricsCanvas" width="340" height="200"></canvas>
+        <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;justify-content:center;">
+          <span style="color:#EF9F27;">&#9644; Avg TTFT (ms)</span>
+          <span style="color:#ef4444;">&#9644; Recomputations</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="card">
+      <div class="card-header">Controls</div>
+      <div class="controls-section">
+        <!-- G3.5 Mode Selector -->
+        <div class="g35-selector">
+          <div class="g35-header">G3.5 Context Memory Tier</div>
+          <div class="g35-options">
+            <label class="g35-option" data-mode="disabled">
+              <input type="radio" name="g35mode" value="disabled">
+              <div><div class="g35-option-title">Disabled</div>
+              <div class="g35-option-desc">No G3.5. KV cache: G3 → G4. Cross-GPU = recompute.</div></div>
+            </label>
+            <label class="g35-option" data-mode="standard">
+              <input type="radio" name="g35mode" value="standard">
+              <div><div class="g35-option-title">Standard (S3 / TCP)</div>
+              <div class="g35-option-desc">MinIO AIStor via S3. Any infrastructure. ~5-10 ms.</div></div>
+            </label>
+            <label class="g35-option selected" data-mode="accelerated">
+              <input type="radio" name="g35mode" value="accelerated" checked>
+              <div><div class="g35-option-title">Accelerated (NVMe-oF / RDMA)</div>
+              <div class="g35-option-desc">MinIO on BlueField-4 + Spectrum-X. ~200-500 μs.</div></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Concurrent Sessions -->
+        <div class="control-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="control-label">Concurrent Sessions</div>
+            <div class="slider-value" id="sessionsValue">100</div>
+          </div>
+          <div class="control-subtitle">Number of inference sessions</div>
+          <input type="range" id="sessionsSlider" min="10" max="500" value="100" step="10">
+        </div>
+
+        <!-- Context Length -->
+        <div class="control-group">
+          <div class="control-label">Context Length</div>
+          <div class="control-subtitle">Affects KV cache size per session</div>
+          <select class="control-select" id="contextSelect">
+            <option value="4096">4K</option>
+            <option value="16384">16K</option>
+            <option value="32768" selected>32K</option>
+            <option value="65536">64K</option>
+            <option value="131072">128K</option>
+          </select>
+        </div>
+
+        <!-- Speed -->
+        <div class="control-group">
+          <div class="control-label">Simulation Pace</div>
+          <div class="control-subtitle">Controls how fast events occur</div>
+          <div class="speed-btns">
+            <button class="speed-btn" data-speed="1">Slow (1x)</button>
+            <button class="speed-btn active" data-speed="5">Normal (5x)</button>
+            <button class="speed-btn" data-speed="20">Fast (20x)</button>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-btns">
+          <button class="btn btn-start" id="btnStart">Start</button>
+          <button class="btn btn-reset" id="btnReset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenarios -->
+    <div class="card">
+      <div class="card-header">Scenarios</div>
+      <div class="scenarios">
+        <div class="scenario-card" data-users="100" data-context="32768" data-speed="5" data-cmx="true">
+          <div class="scenario-title">Multi-turn Chat Burst</div>
+          <div class="scenario-desc">High concurrency chat scenario with moderate context windows</div>
+          <div class="scenario-pills">
+            <span class="pill">100 sessions</span>
+            <span class="pill">32K ctx</span>
+            <span class="pill">Normal</span>
+            <span class="pill" style="color:var(--g35)">CMX ON</span>
+          </div>
+        </div>
+        <div class="scenario-card" data-users="10" data-context="131072" data-speed="5" data-cmx="true">
+          <div class="scenario-title">Agentic Deep Reasoning</div>
+          <div class="scenario-desc">Few sessions with very large context windows stressing memory tiers</div>
+          <div class="scenario-pills">
+            <span class="pill">10 sessions</span>
+            <span class="pill">128K ctx</span>
+            <span class="pill">Normal</span>
+            <span class="pill" style="color:var(--g35)">CMX ON</span>
+          </div>
+        </div>
+        <div class="scenario-card" data-users="200" data-context="16384" data-speed="20" data-cmx="true">
+          <div class="scenario-title">GPU Migration Stress Test</div>
+          <div class="scenario-desc">High velocity scheduling to demonstrate cross-GPU migration benefits</div>
+          <div class="scenario-pills">
+            <span class="pill">200 sessions</span>
+            <span class="pill">16K ctx</span>
+            <span class="pill">Fast</span>
+            <span class="pill" style="color:var(--g35)">CMX ON</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Eviction Policy -->
+    <div class="card">
+      <div class="card-header">Eviction Policy</div>
+      <div class="policy-section">
+        <div class="policy-strategy">Strategy: <strong>LRU</strong> (coldest idle session first)</div>
+        <div class="policy-chain">
+          <div class="policy-tier" data-tier="g1"><div class="policy-tier-name" style="color:var(--g1)">G1 GPU HBM</div><div class="policy-rule">Evict &gt; <span id="pol-g1">90</span>%</div><div class="policy-arrow">&#8595; G2</div></div>
+          <div class="policy-tier" data-tier="g2"><div class="policy-tier-name" style="color:var(--g2)">G2 CPU DRAM</div><div class="policy-rule">Evict &gt; <span id="pol-g2">85</span>%</div><div class="policy-arrow">&#8595; G3</div></div>
+          <div class="policy-tier" data-tier="g3"><div class="policy-tier-name" style="color:var(--g3)">G3 Local NVMe</div><div class="policy-rule">Evict &gt; <span id="pol-g3">80</span>%</div><div class="policy-arrow" id="pol-g3-arrow">&#8595; G3.5</div></div>
+          <div class="policy-tier" data-tier="g35" id="pol-g35-tier"><div class="policy-tier-name" style="color:var(--g35)">G3.5 MinIO CMX</div><div class="policy-rule">Evict &gt; <span id="pol-g35">95</span>%</div><div class="policy-arrow">&#8595; G4</div></div>
+          <div class="policy-tier" data-tier="g4"><div class="policy-tier-name" style="color:var(--g4)">G4 Enterprise</div><div class="policy-rule">Last resort</div></div>
+        </div>
+        <div class="policy-idle">Idle timeout: <strong id="pol-idle">20</strong> ticks &#8594; evict G1&#8594;G2</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="footer-note">Simulation uses scaled-down capacities. Real-world Vera Rubin: G1=80GB HBM, G2=512GB DRAM, G3=4TB NVMe per GPU.</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // --- State ---
+  let ws = null;
+  let pollInterval = null;
+  let isRunning = false;
+  let currentTick = 0;
+  let connected = false;
+  let sliderDebounce = null;
+  let allEvents = [];
+  let configSynced = false;  // Only sync controls from server once (on first load)
+  let ttftHistory = [];      // Rolling TTFT history for graph
+  let recompHistory = [];    // Rolling recomp history for graph
+  let graphMode = false;     // Toggle between card metrics and graph view
+
+  // --- DOM refs ---
+  const $ = id => document.getElementById(id);
+  const statusBadge = $('statusBadge');
+  const statusText = $('statusText');
+  const tickCounter = $('tickCounter');
+  const sessionsBody = $('sessionsBody');
+  const sessionCount = $('sessionCount');
+  const eventList = $('eventList');
+  const eventCount = $('eventCount');
+  const sharedCard = $('sharedCard');
+  // cmxToggle removed — now using g35 radio buttons
+  const sessionsSlider = $('sessionsSlider');
+  const sessionsValue = $('sessionsValue');
+  const contextSelect = $('contextSelect');
+  const btnStart = $('btnStart');
+  const btnReset = $('btnReset');
+
+  // --- Connection ---
+  function setStatus(state) {
+    statusBadge.className = 'status-badge ' + state;
+    statusText.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+    connected = (state !== 'disconnected');
+  }
+
+  let wsFailCount = 0;
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = proto + '//' + location.host + '/sim/stream';
+    try {
+      ws = new WebSocket(url);
+    } catch(e) {
+      startPolling();
+      return;
+    }
+    const timeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        ws.close();
+        startPolling();
+      }
+    }, 3000);
+    ws.onopen = () => {
+      clearTimeout(timeout);
+      wsFailCount = 0;
+      setStatus('stopped');
+    };
+    ws.onmessage = (e) => {
+      try { handleData(JSON.parse(e.data)); } catch(err) {}
+    };
+    ws.onclose = () => {
+      clearTimeout(timeout);
+      wsFailCount++;
+      if (wsFailCount >= 2) {
+        // WS not available (proxy doesn't support it) — fall back to REST polling
+        console.log('WebSocket unavailable, switching to REST polling');
+        startPolling();
+      } else if (!pollInterval) {
+        setTimeout(connectWS, 2000);
+      }
+    };
+    ws.onerror = () => {};
+  }
+
+  function startPolling() {
+    ws = null;
+    if (pollInterval) return;
+    pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch('status');
+        if (res.ok) {
+          const data = await res.json();
+          try {
+            handleData(data);
+          } catch(he) {
+            console.error('handleData error:', he);
+          }
+        }
+      } catch(e) {
+        // Network error — don't override status if we already got data
+        if (!isRunning) setStatus('disconnected');
+      }
+    }, 500);
+    setStatus('stopped');
+  }
+
+  // --- Data handling ---
+  function handleData(d) {
+    if (!d) return;
+    currentTick = d.tick || 0;
+    isRunning = !!d.running;
+    setStatus(isRunning ? 'running' : 'stopped');
+    tickCounter.textContent = 'TICK ' + currentTick;
+    btnStart.textContent = isRunning ? 'Stop' : 'Start';
+    btnStart.classList.toggle('running', isRunning);
+
+    // Sync controls from server only on first data (not on every poll)
+    if (d.config && !configSynced) {
+      configSynced = true;
+      const c = d.config;
+      if (c.g35_mode !== undefined) {
+        const radio = document.querySelector(`input[name="g35mode"][value="${c.g35_mode}"]`);
+        if (radio) radio.checked = true;
+        updateG35Visuals(c.g35_mode);
+      }
+      if (c.users !== undefined) {
+        sessionsSlider.value = c.users;
+        sessionsValue.textContent = c.users;
+      }
+      if (c.context_tokens !== undefined) {
+        contextSelect.value = c.context_tokens;
+      }
+      if (c.speed !== undefined) {
+        document.querySelectorAll('.speed-btn').forEach(b => {
+          b.classList.toggle('active', parseInt(b.dataset.speed) === c.speed);
+        });
+      }
+    }
+
+    // GPU tiers (new format)
+    if (d.gpus && Array.isArray(d.gpus)) {
+      d.gpus.forEach(gpu => {
+        const gpuId = gpu.gpu_id || gpu.id || '';
+        const prefix = gpuId === 'gpu-a' ? 'gpuA' : 'gpuB';
+        ['g1','g2','g3'].forEach(tier => {
+          if (gpu[tier]) updateBar(prefix + '-' + tier, gpu[tier]);
+        });
+      });
+    }
+
+    // Shared tiers
+    if (d.shared) {
+      if (d.shared.g35) updateBar('shared-g35', d.shared.g35);
+      if (d.shared.g4) updateBar('shared-g4', d.shared.g4);
+    }
+
+    // Backward compat: old tiers array format
+    if (d.tiers && Array.isArray(d.tiers)) {
+      d.tiers.forEach(t => {
+        const tierName = (t.name || t.tier || '').toLowerCase().replace('.','');
+        // Try to map to new layout
+        if (tierName === 'g1' || tierName === 'g2' || tierName === 'g3') {
+          updateBar('gpuA-' + tierName, t);
+          updateBar('gpuB-' + tierName, t);
+        } else if (tierName === 'g35') {
+          updateBar('shared-g35', t);
+        } else if (tierName === 'g4') {
+          updateBar('shared-g4', t);
+        }
+      });
+    }
+
+    // Metrics
+    if (d.metrics) renderMetrics(d.metrics);
+
+    // Sessions
+    if (d.sessions) renderSessions(d.sessions);
+
+    // Eviction policy
+    if (d.eviction_policy) {
+      const p = d.eviction_policy;
+      const el = id => document.getElementById(id);
+      if (p.g1_threshold) { const e = el('pol-g1'); if (e) e.textContent = p.g1_threshold.replace('%',''); }
+      if (p.g2_threshold) { const e = el('pol-g2'); if (e) e.textContent = p.g2_threshold.replace('%',''); }
+      if (p.g3_threshold) { const e = el('pol-g3'); if (e) e.textContent = p.g3_threshold.replace('%',''); }
+      if (p.g35_threshold) { const e = el('pol-g35'); if (e) e.textContent = p.g35_threshold.replace('%',''); }
+      if (p.idle_timeout_ticks) { const e = el('pol-idle'); if (e) e.textContent = p.idle_timeout_ticks; }
+      if (p.g35_mode) updateG35Visuals(p.g35_mode);
+    }
+
+    // Events
+    if (d.events && d.events.length) {
+      d.events.forEach(ev => allEvents.unshift(ev));
+      if (allEvents.length > 50) allEvents.length = 50;
+      renderEvents();
+    }
+  }
+
+  function updateBar(id, data) {
+    const fill = $(id + '-fill');
+    const cap = $(id + '-cap');
+    const track = $(id + '-track');
+    if (!fill) return;
+    const rawPct = data.pct != null ? data.pct : (data.capacity_gb ? Math.round((data.used_gb / data.capacity_gb) * 100) : 0);
+    const pct = Math.min(100, Math.max(0, rawPct));
+    fill.style.width = pct + '%';
+    fill.querySelector('.fill-bar-pct').textContent = pct > 5 ? pct + '%' : '';
+    fill.classList.toggle('critical', pct > 90);
+    if (cap) {
+      const used = data.used_gb != null ? data.used_gb : 0;
+      const total = data.capacity_gb != null ? data.capacity_gb : 0;
+      cap.textContent = used.toFixed(1) + ' / ' + total.toFixed(0) + ' GB';
+    }
+
+    // Handle G3.5 disabled state
+    if (id === 'shared-g35' && track) {
+      const g35radio = document.querySelector('input[name="g35mode"]:checked');
+      const g35disabled = g35radio ? g35radio.value === 'disabled' : false;
+      track.classList.toggle('disabled', g35disabled);
+    }
+  }
+
+  // --- Metrics ---
+  function renderMetrics(m) {
+    trackHistory(m);
+    setMetric('m-gpuA', m.gpu_a_utilization, '%', colorGpuUtil);
+    setMetric('m-gpuB', m.gpu_b_utilization, '%', colorGpuUtil);
+    const combined = (m.gpu_a_utilization != null && m.gpu_b_utilization != null)
+      ? Math.round((m.gpu_a_utilization + m.gpu_b_utilization) / 2) : null;
+    setMetric('m-combined', combined, '%', colorGpuUtil);
+    setMetric('m-ttft', m.avg_ttft_ms, 'ms', colorTTFT);
+    setMetric('m-cache', m.cache_hit_rate, '%', colorCache);
+    setMetric('m-migrations', m.cross_gpu_migrations, '', () => 'teal');
+    setMetric('m-s3ops', m.s3_ops_per_sec, '', () => 'teal');
+    setMetric('m-recomp', m.recomputations, '', colorRecomp);
+    setMetric('m-sessions', m.active_sessions, '', () => 'muted');
+  }
+
+  function setMetric(id, val, suffix, colorFn) {
+    const el = $(id);
+    if (!el) return;
+    if (val == null || (!isRunning && (val === 0 || val == null))) {
+      el.textContent = '\u2014';
+      el.className = 'metric-value muted';
+    } else {
+      const display = suffix === '%' || suffix === 'ms' ? Math.round(val) : typeof val === 'number' ? Math.round(val * 100) / 100 : val;
+      el.textContent = display + (suffix || '');
+      el.className = 'metric-value ' + (colorFn ? colorFn(val) : 'muted');
+    }
+  }
+
+  function colorGpuUtil(v) { return v > 70 ? 'green' : v >= 40 ? 'amber' : 'red'; }
+  function colorTTFT(v) { return v < 100 ? 'green' : v <= 500 ? 'amber' : 'red'; }
+  function colorCache(v) { return v > 80 ? 'green' : v >= 50 ? 'amber' : 'red'; }
+  function colorRecomp(v) { return v === 0 ? 'green' : v <= 10 ? 'amber' : 'red'; }
+
+  // --- Sessions ---
+  function renderSessions(sessions) {
+    const total = sessions.length;
+    const last20 = sessions.slice(-20);
+    sessionCount.textContent = '(' + total + ' total, showing last 20)';
+    sessionsBody.innerHTML = last20.map(s => {
+      const sid = (s.session_id || '').slice(0, 8);
+      const gpu = (s.gpu_id || '').replace('gpu-', '').toUpperCase();
+      const tier = (s.tier || '').toLowerCase().replace('.', '');
+      const isActive = s.status === 'active';
+      const isG35 = tier === 'g35';
+      const cls = (isActive ? ' active' : '') + (isG35 ? ' g35-row' : '');
+      return '<tr class="' + cls.trim() + '">' +
+        '<td>' + sid + '</td>' +
+        '<td>' + gpu + '</td>' +
+        '<td><span class="tier-badge ' + tier + '">' + (s.tier || '').toUpperCase() + '</span></td>' +
+        '<td>' + (s.status || '') + '</td>' +
+        '<td>' + (s.kv_size_gb != null ? s.kv_size_gb.toFixed(2) + ' GB' : '') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  // --- Events ---
+  function renderEvents() {
+    const last10 = allEvents.slice(0, 10);
+    eventCount.textContent = '(' + allEvents.length + ' events)';
+    eventList.innerHTML = last10.map(ev => {
+      const type = ev.type || '';
+      let icon = '', cls = '', text = '';
+      if (type.includes('EVICT')) {
+        icon = '\u2193'; text = type + ' ' + (ev.session || '') + ' @ ' + (ev.gpu || '');
+      } else if (type.includes('PROMOTE_CROSS')) {
+        icon = '\u2191'; cls = 'cross-gpu';
+        text = type + ' ' + (ev.session || '') + ' ' + (ev.from_gpu || '') + ' \u2192 ' + (ev.to_gpu || '') + ' via ' + (ev.via || '') + ' (cross-GPU migration!)';
+      } else if (type.includes('PROMOTE')) {
+        icon = '\u2191'; cls = 'promotion';
+        text = type + ' ' + (ev.session || '') + ' @ ' + (ev.gpu || '');
+      } else if (type.includes('RECOMPUTE')) {
+        icon = '\u26A1'; cls = 'recompute';
+        text = type + ' ' + (ev.session || '') + ' @ ' + (ev.gpu || '') + (ev.reason ? ' (' + ev.reason + ')' : '');
+      } else if (type.includes('NEW') || type.includes('ARRIVE')) {
+        icon = '+';
+        text = type + ' ' + (ev.session || '');
+      } else if (type.includes('TERMINATE') || type.includes('END')) {
+        icon = '\u00D7';
+        text = type + ' ' + (ev.session || '');
+      } else {
+        icon = '\u2022';
+        text = type + ' ' + (ev.session || '');
+      }
+      const reason = ev.reason ? '<span class="event-reason">' + ev.reason + '</span>' : '';
+      return '<li class="event-item ' + cls + '">' +
+        '<span class="event-icon">' + icon + '</span>' +
+        '<span>' + text + reason + '</span></li>';
+    }).join('');
+  }
+
+  // --- Graph ---
+  const MAX_HISTORY = 300; // ~5 min at 1 sample/sec (polling at 500ms, downsample)
+  let graphSampleCounter = 0;
+
+  function trackHistory(m) {
+    graphSampleCounter++;
+    if (graphSampleCounter % 2 !== 0) return; // Sample every ~1s
+    const ttft = m.avg_ttft_ms != null ? Math.round(m.avg_ttft_ms) : 0;
+    const recomp = m.recomputations || 0;
+    ttftHistory.push(ttft);
+    recompHistory.push(recomp);
+    if (ttftHistory.length > MAX_HISTORY) ttftHistory.shift();
+    if (recompHistory.length > MAX_HISTORY) recompHistory.shift();
+    if (graphMode) drawGraph();
+  }
+
+  function drawGraph() {
+    const canvas = $('metricsCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    // Background grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1;
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    if (ttftHistory.length < 2) {
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Collecting data...', W/2, H/2);
+      return;
+    }
+
+    // Auto-scale Y axes
+    const maxTtft = Math.max(1, ...ttftHistory) * 1.2;
+    const maxRecomp = Math.max(1, ...recompHistory) * 1.2;
+    const len = ttftHistory.length;
+    const xStep = W / (MAX_HISTORY - 1);
+
+    // Draw TTFT line (amber)
+    ctx.strokeStyle = '#EF9F27';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = (MAX_HISTORY - len + i) * xStep;
+      const y = H - (ttftHistory[i] / maxTtft) * (H - 20);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Draw recomp line (red)
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = (MAX_HISTORY - len + i) * xStep;
+      const y = H - (recompHistory[i] / maxRecomp) * (H - 20);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Y-axis labels
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#EF9F27';
+    ctx.fillText(Math.round(maxTtft) + 'ms', 4, 12);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillText(Math.round(maxRecomp) + ' recomp', W - 70, 12);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText('5 min rolling', W/2 - 25, H - 4);
+  }
+
+  $('graphToggle').addEventListener('click', () => {
+    graphMode = !graphMode;
+    $('metricsCards').style.display = graphMode ? 'none' : '';
+    $('metricsGraph').style.display = graphMode ? '' : 'none';
+    $('graphToggle').classList.toggle('active', graphMode);
+    if (graphMode) drawGraph();
+  });
+
+  // --- API Calls ---
+  function sendConfig(cfg) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type: 'config', ...cfg}));
+    } else {
+      fetch('sim/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(cfg)
+      }).catch(() => {});
+    }
+  }
+
+  function sendCommand(cmd) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type: cmd}));
+    } else {
+      fetch('sim/' + cmd, {method: 'POST'}).catch(() => {});
+    }
+  }
+
+  // --- Event Listeners ---
+  // G3.5 mode radio buttons
+  document.querySelectorAll('input[name="g35mode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const mode = radio.value;
+      sendConfig({g35_mode: mode, cmx_enabled: mode !== 'disabled'});
+      updateG35Visuals(mode);
+    });
+  });
+
+  function updateG35Visuals(mode) {
+    const polG35 = document.getElementById('pol-g35-tier');
+    const polG3Arrow = document.getElementById('pol-g3-arrow');
+    const warning = document.getElementById('cmxWarning');
+    if (mode === 'disabled') {
+      if (sharedCard) sharedCard.classList.add('cmx-off');
+      if (polG35) polG35.classList.add('disabled');
+      if (polG3Arrow) polG3Arrow.innerHTML = '&#8595; G4 (skip G3.5)';
+      if (warning) warning.style.display = 'block';
+    } else {
+      if (sharedCard) sharedCard.classList.remove('cmx-off');
+      if (polG35) polG35.classList.remove('disabled');
+      if (polG3Arrow) polG3Arrow.innerHTML = '&#8595; G3.5';
+      if (warning) warning.style.display = 'none';
+    }
+    document.querySelectorAll('.g35-option').forEach(opt => {
+      opt.classList.toggle('selected', opt.dataset.mode === mode);
+    });
+  }
+
+  sessionsSlider.addEventListener('input', () => {
+    sessionsValue.textContent = sessionsSlider.value;
+    clearTimeout(sliderDebounce);
+    sliderDebounce = setTimeout(() => {
+      sendConfig({users: parseInt(sessionsSlider.value)});
+    }, 300);
+  });
+
+  contextSelect.addEventListener('change', () => {
+    sendConfig({context_tokens: parseInt(contextSelect.value)});
+  });
+
+  document.querySelectorAll('.speed-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      sendConfig({speed: parseInt(btn.dataset.speed)});
+    });
+  });
+
+  btnStart.addEventListener('click', () => {
+    sendCommand(isRunning ? 'stop' : 'start');
+  });
+
+  btnReset.addEventListener('click', () => {
+    allEvents = [];
+    renderEvents();
+    sendCommand('reset');
+  });
+
+  // Scenario cards
+  document.querySelectorAll('.scenario-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const users = parseInt(card.dataset.users);
+      const context = parseInt(card.dataset.context);
+      const speed = parseInt(card.dataset.speed);
+      const cmx = card.dataset.cmx === 'true';
+
+      sessionsSlider.value = users;
+      sessionsValue.textContent = users;
+      contextSelect.value = context;
+      const mode = cmx ? 'accelerated' : 'disabled';
+      const radio = document.querySelector(`input[name="g35mode"][value="${mode}"]`);
+      if (radio) radio.checked = true;
+      updateG35Visuals(mode);
+      document.querySelectorAll('.speed-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.speed) === speed);
+      });
+
+      sendConfig({users, context_tokens: context, speed, g35_mode: mode, cmx_enabled: cmx});
+      setTimeout(() => sendCommand('start'), 200);
+    });
+  });
+
+  // --- Init ---
+  updateG35Visuals('accelerated');
+  connectWS();
+})();
+</script>
+</body>
+</html>

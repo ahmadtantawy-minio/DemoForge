@@ -183,7 +183,10 @@ export default function App() {
     window.addEventListener("mouseup", onUp);
   }, [rightPanelWidth]);
 
+  const isExperience = demos.find((d) => d.id === activeDemoId)?.mode === "experience";
   const showSidebars = activeDemoId && activeView === "diagram";
+  const showLeftSidebar = showSidebars && !isExperience;
+  const showRightSidebar = showSidebars && !isExperience;
   const showWelcome = !activeDemoId;
 
   return (
@@ -206,15 +209,15 @@ export default function App() {
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
-        {/* Left sidebar - Component Palette (only in diagram view with active demo) */}
-        {showSidebars && (
+        {/* Left sidebar - Component Palette (hidden in experience mode) */}
+        {showLeftSidebar && (
           <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth }}>
             <ComponentPalette />
           </div>
         )}
 
         {/* Left resize handle */}
-        {showSidebars && (
+        {showLeftSidebar && (
           <div
             className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
             onMouseDown={onLeftResizeStart}
@@ -237,7 +240,7 @@ export default function App() {
         </div>
 
         {/* Right resize handle */}
-        {showSidebars && (
+        {showRightSidebar && (
           <div
             className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
             onMouseDown={onRightResizeStart}
@@ -246,8 +249,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Right sidebar - Properties Panel (always visible in diagram view) */}
-        {showSidebars && (
+        {/* Right sidebar - Properties Panel (hidden in experience mode) */}
+        {showRightSidebar && (
           <div className="flex-shrink-0 h-full" style={{ width: rightPanelWidth }}>
             {walkthroughOpen
               ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />

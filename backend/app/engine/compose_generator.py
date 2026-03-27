@@ -433,6 +433,24 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if "S3_ENDPOINT" in env:
                 env["S3_ENDPOINT"] = s3_endpoint_url
 
+            # Forward MinIO endpoint + credentials for inference-sim (tier_role based)
+            if node.component == "inference-sim":
+                edge_cfg = edge.connection_config or {}
+                tier_role = edge_cfg.get("tier_role", "g35-cmx")
+                if tier_role == "g35-cmx":
+                    env["MINIO_ENDPOINT_G35"] = s3_endpoint_url
+                elif tier_role == "g4-archive":
+                    env["MINIO_ENDPOINT_G4"] = s3_endpoint_url
+                # Resolve credentials from node or cluster
+                if peer_cluster:
+                    env["MINIO_ACCESS_KEY"] = peer_cluster.credentials.get("root_user", "minioadmin")
+                    env["MINIO_SECRET_KEY"] = peer_cluster.credentials.get("root_password", "minioadmin")
+                else:
+                    peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+                    if peer_node_obj:
+                        env["MINIO_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
+                        env["MINIO_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+
             # Forward MinIO credentials for rag-app
             if node.component == "rag-app":
                 peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
@@ -482,7 +500,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     if cfg_key in edge_cfg and edge_cfg[cfg_key]:
                         env[env_key] = str(edge_cfg[cfg_key])
 
-            break  # Use first s3 edge
+            # inference-sim needs multiple S3 edges (G3.5 + G4 tiers)
+            if node.component != "inference-sim":
+                break  # Use first s3 edge for other components
 
         # Auto-inject ICEBERG_CATALOG_URI for data generators
         # Strategy: follow the generator's edge to its target MinIO cluster, then:
@@ -563,6 +583,25 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 env["EMBEDDING_MODEL"] = edge_cfg["embedding_model"]
             if edge_cfg.get("chat_model"):
                 env["CHAT_MODEL"] = edge_cfg["chat_model"]
+            break
+
+        # Auto-resolve inference API endpoint from inference-api edges
+        for edge in demo.edges:
+            if edge.connection_type != "inference-api":
+                continue
+            if edge.source == node.id:
+                peer_id = edge.target
+            elif edge.target == node.id:
+                peer_id = edge.source
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if peer_manifest:
+                api_port = next((p.container for p in peer_manifest.ports if p.name == "web"), 8095)
+                env["INFERENCE_ENDPOINT"] = f"{project_name}-{peer_id}:{api_port}"
             break
 
         # Auto-resolve vector DB endpoint from vector-db edges
@@ -874,7 +913,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             service["entrypoint"] = manifest.entrypoint
 
         # Healthcheck
-        if manifest.health_check:
+        if manifest.health_check and not getattr(manifest.health_check, 'disabled', False) and manifest.health_check.port:
             hc = manifest.health_check
             if node.id in cluster_health_override:
                 endpoint = cluster_health_override[node.id]

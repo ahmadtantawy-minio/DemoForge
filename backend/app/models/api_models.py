@@ -23,6 +23,7 @@ class DemoSummary(BaseModel):
     description: str
     node_count: int
     status: str                   # "stopped", "deploying", "running", "error"
+    mode: str = "standard"        # "standard" | "experience"
 
 class DemoListResponse(BaseModel):
     demos: list[DemoSummary]

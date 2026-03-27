@@ -33,6 +33,7 @@ export const connectionColors: Record<string, string> = {
   "schema-registry": "#f43f5e",
   "dremio-sql": "#7c3aed",
   "dremio-flight": "#6d28d9",
+  "inference-api": "#76b900",
 };
 
 export const connectionLabels: Record<string, string> = {
@@ -70,4 +71,5 @@ export const connectionLabels: Record<string, string> = {
   "schema-registry": "Schema Registry",
   "dremio-sql": "SQL (Dremio)",
   "dremio-flight": "Arrow Flight",
+  "inference-api": "Inference API",
 };

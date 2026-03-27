@@ -888,6 +888,7 @@ export default function PropertiesPanel() {
   const instance = instances.find((i) => i.node_id === selectedNodeId);
   const componentDef = components.find((c) => c.id === data.componentId);
   const variants = componentDef?.variants ?? [];
+  const isExperience = demos.find((d) => d.id === activeDemoId)?.mode === "experience";
 
   const updateData = (patch: Partial<ComponentNodeData>) => {
     setNodes(
@@ -909,13 +910,17 @@ export default function PropertiesPanel() {
 
       <div className="mb-3">
         <label className="text-xs text-muted-foreground block mb-1">Display Name</label>
-        <Input
-          type="text"
-          value={data.displayName ?? ""}
-          onChange={(e) => updateData({ displayName: e.target.value })}
-          placeholder={data.label || data.componentId}
-          className="h-8 text-sm"
-        />
+        {isExperience ? (
+          <div className="text-sm font-medium text-foreground">{data.displayName || data.label || data.componentId}</div>
+        ) : (
+          <Input
+            type="text"
+            value={data.displayName ?? ""}
+            onChange={(e) => updateData({ displayName: e.target.value })}
+            placeholder={data.label || data.componentId}
+            className="h-8 text-sm"
+          />
+        )}
       </div>
 
       <div className="mb-3">
@@ -931,7 +936,9 @@ export default function PropertiesPanel() {
 
       <div className="mb-3">
         <label className="text-xs text-muted-foreground block mb-1">Variant</label>
-        {variants.length > 0 ? (
+        {isExperience ? (
+          <div className="text-sm text-muted-foreground">{data.variant}</div>
+        ) : variants.length > 0 ? (
           <Select value={data.variant} onValueChange={(v) => updateData({ variant: v })}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
@@ -954,16 +961,20 @@ export default function PropertiesPanel() {
 
       {Object.keys(data.config).length > 0 && (
         <div className="mb-3">
-          <div className="text-xs text-muted-foreground mb-1">Environment Overrides</div>
+          <div className="text-xs text-muted-foreground mb-1">Environment{isExperience ? "" : " Overrides"}</div>
           {Object.entries(data.config).map(([key, value]) => (
             <div key={key} className="flex gap-1 mb-1">
               <div className="text-xs text-muted-foreground w-1/2 truncate pt-1">{key}</div>
-              <Input
-                type="text"
-                value={value}
-                onChange={(e) => updateConfig(key, e.target.value)}
-                className="flex-1 h-7 text-xs"
-              />
+              {isExperience ? (
+                <div className="flex-1 text-xs font-mono text-foreground pt-1 truncate">{value}</div>
+              ) : (
+                <Input
+                  type="text"
+                  value={value}
+                  onChange={(e) => updateConfig(key, e.target.value)}
+                  className="flex-1 h-7 text-xs"
+                />
+              )}
             </div>
           ))}
         </div>

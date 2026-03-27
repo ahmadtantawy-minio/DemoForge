@@ -1,0 +1,53 @@
+id: inference-client
+name: Inference Client
+category: simulation
+icon: inference-client
+version: "1.0"
+image: curlimages/curl:latest
+description: "Simulates inference API requests to the GPU server"
+
+resources:
+  memory: "64m"
+  cpu: 0.1
+
+ports: []
+
+environment:
+  INFERENCE_ENDPOINT: ""
+  REQUEST_RATE: "10"
+  CONTEXT_LENGTH: "32768"
+
+volumes: []
+command: ["sh", "-c", "while true; do sleep 3600; done"]
+
+health_check:
+  endpoint: ""
+  port: 0
+  disabled: true
+
+secrets: []
+web_ui: []
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Inference client — generates simulated LLM requests."
+  quick_actions:
+    - label: "Send test request"
+      command: "wget -qO- http://$INFERENCE_ENDPOINT/health 2>/dev/null || echo 'Simulator not ready'"
+    - label: "Start simulation"
+      command: "wget -qO- --post-data='' http://$INFERENCE_ENDPOINT/sim/start 2>/dev/null || echo 'Failed'"
+
+connections:
+  provides:
+    - type: inference-api
+      port: 0
+      description: "Sends inference requests"
+  accepts: []
+
+variants:
+  default:
+    description: "Inference request generator"
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

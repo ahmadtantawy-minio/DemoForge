@@ -108,6 +108,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         }}
       >
         <Handle type="target" position={Position.Left} id="data-in" />
+        <Handle type="target" position={Position.Top} id="data-in-top" className="!left-1/3 !w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
         {/* Cluster-level handles — both source+target at top and bottom for bidirectional dragging */}
         <Handle
           type="source"

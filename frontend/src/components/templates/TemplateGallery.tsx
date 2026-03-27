@@ -21,6 +21,7 @@ const categoryColors: Record<string, string> = {
   replication:    "bg-purple-500/15 text-purple-400 border-purple-500/30",
   analytics:      "bg-green-500/15 text-green-400 border-green-500/30",
   ai:             "bg-pink-500/15 text-pink-400 border-pink-500/30",
+  simulation:     "bg-violet-500/15 text-violet-400 border-violet-500/30",
   general:        "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
 };
 
@@ -112,7 +113,12 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
     setCreating(templateId);
     try {
       const demo = await createFromTemplate(templateId);
-      toast.success(`Demo "${demo.name}" created from template`);
+      const isExp = selectedTemplate?.mode === "experience" || (selectedTemplate as any)?.mode === "experience";
+      toast.success(
+        isExp
+          ? `Experience "${demo.name}" created — deploy and interact with the simulation`
+          : `Demo "${demo.name}" created from template`
+      );
       setDetailOpen(false);
       onCreateDemo(demo.id);
     } catch (err: any) {
@@ -301,7 +307,14 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               <div className="p-4 flex-1 flex flex-col gap-2">
                 {/* Category + resource hint row */}
                 <div className="flex items-center justify-between gap-2">
-                  <CategoryPill category={t.category} />
+                  <div className="flex items-center gap-1.5">
+                    <CategoryPill category={t.category} />
+                    {(t as any).mode === "experience" && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                        Experience
+                      </span>
+                    )}
+                  </div>
                   <span
                     className="text-[10px] text-muted-foreground flex items-center gap-1"
                     title={`${t.container_count} container${t.container_count !== 1 ? "s" : ""}`}

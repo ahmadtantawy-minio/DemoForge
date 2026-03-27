@@ -56,6 +56,7 @@ def _template_summary(fname: str, raw: dict) -> dict:
         "tags": meta.get("tags", []),
         "objective": meta.get("objective", ""),
         "minio_value": meta.get("minio_value", ""),
+        "mode": meta.get("mode", raw.get("mode", "standard")),
         "component_count": node_count + len(raw.get("clusters", [])),
         "container_count": container_count,
         "estimated_resources": resources,
@@ -93,6 +94,9 @@ async def get_template(template_id: str):
     summary["clusters"] = raw.get("clusters", [])
     summary["networks"] = raw.get("networks", [])
     summary["groups"] = raw.get("groups", [])
+    summary["annotations"] = raw.get("annotations", [])
+    summary["schematics"] = raw.get("schematics", [])
+    summary["sticky_notes"] = raw.get("sticky_notes", [])
     return summary
 
 
@@ -143,5 +147,5 @@ async def create_from_template(template_id: str):
 
     return DemoSummary(
         id=demo.id, name=demo.name, description=demo.description,
-        node_count=len(demo.nodes), status="stopped",
+        node_count=len(demo.nodes), status="stopped", mode=demo.mode,
     )

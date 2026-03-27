@@ -13,12 +13,15 @@ import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
-import { saveDiagram, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
+import { saveDiagram, saveLayout, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
 import StickyNoteNode from "./nodes/StickyNoteNode";
 import ClusterNode from "./nodes/ClusterNode";
+import AnnotationNode from "./nodes/AnnotationNode";
+import SchematicNode from "./nodes/SchematicNode";
 import AnimatedDataEdge from "./edges/AnimatedDataEdge";
+import AnnotationPointerEdge from "./edges/AnnotationPointerEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
 import MinioAdminPanel from "../minio/MinioAdminPanel";
@@ -29,10 +32,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MousePointerClick, Group } from "lucide-react";
+import { MousePointerClick, Group, Save, Check, X, Loader2 } from "lucide-react";
 
-const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode };
-const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge };
+const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode };
+const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
 
 let nodeCounter = 0;
 let groupCounter = 0;
@@ -52,7 +55,9 @@ interface DiagramCanvasProps {
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests } = useDiagramStore();
   const { activeDemoId, instances, demos } = useDemoStore();
-  const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
+  const activeDemo = demos.find((d) => d.id === activeDemoId);
+  const isRunning = activeDemo?.status === "running";
+  const isExperience = activeDemo?.mode === "experience";
 
   // Track dark/light theme reactively
   const [isDark, setIsDark] = useState(document.documentElement.classList.contains("dark"));
@@ -81,6 +86,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
 
   const reactFlowInstance = useReactFlow();
   const { deleteElements } = reactFlowInstance;
+  // Experience mode visibility toggles
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const [showSchematics, setShowSchematics] = useState(true);
+  const [layoutSaveStatus, setLayoutSaveStatus] = useState<"" | "saving" | "saved" | "error">("");
+
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string; confirm: boolean } | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
@@ -143,6 +153,50 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         style: { width: s.width || 200, height: s.height || 120 },
         data: { text: s.text || "", color: s.color || "#eab308" },
       }));
+      const isExp = demo.mode === "experience";
+      const rfAnnotations = (demo.annotations || []).map((a: any) => ({
+        id: a.id,
+        type: "annotation",
+        position: a.position || { x: 0, y: 0 },
+        draggable: true,  // Always draggable — cosmetic repositioning
+        selectable: true,
+        deletable: !isExp,
+        data: {
+          title: a.title || "",
+          body: a.body || "",
+          style: a.style || "info",
+          stepNumber: a.step_number,
+          width: a.width || 300,
+          pointerTarget: a.pointer_target,
+        },
+      }));
+      // Create annotation pointer edges
+      const rfAnnotationEdges = (demo.annotations || [])
+        .filter((a: any) => a.pointer_target)
+        .map((a: any) => ({
+          id: `ann-${a.id}-ptr`,
+          source: a.id,
+          target: a.pointer_target,
+          type: "annotation-pointer",
+        }));
+      const rfSchematics = (demo.schematics || []).map((s: any) => ({
+        id: s.id,
+        type: "schematic",
+        position: s.position || { x: 0, y: 0 },
+        ...(s.parent_group ? { parentId: s.parent_group, extent: "parent" as const } : {}),
+        draggable: true,
+        selectable: false,
+        deletable: false,
+        connectable: false,
+        data: {
+          label: s.label,
+          sublabel: s.sublabel || "",
+          variant: s.variant || "generic",
+          children: s.children || [],
+          width: s.width,
+          height: s.height,
+        },
+      }));
       const rfNodes = (demo.nodes || []).map((n: any) => ({
         id: n.id,
         type: "component",
@@ -170,6 +224,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           connectionType: e.connection_type,
           network: e.network,
           label: e.label || "",
+          protocol: e.protocol || "",
+          latency: e.latency || "",
+          bandwidth: e.bandwidth || "",
           status: "idle",
           connectionConfig: e.connection_config || {},
           autoConfigure: e.auto_configure ?? true,
@@ -193,8 +250,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return isNaN(num) ? max : Math.max(max, num);
       }, 0);
       groupCounter = maxGroupId;
-      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfNodes]);
-      setEdges(rfEdges);
+      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfAnnotations, ...rfSchematics, ...rfNodes]);
+      setEdges([...rfEdges, ...rfAnnotationEdges]);
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges]);
 
@@ -207,24 +264,61 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     }, 500)
   ).current;
 
+  // Layout save for experience mode (positions only)
+  const layoutSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doLayoutSave = useCallback((demoId: string) => {
+    if (layoutSaveTimeout.current) clearTimeout(layoutSaveTimeout.current);
+    layoutSaveTimeout.current = setTimeout(() => {
+      const ns = useDiagramStore.getState().nodes;
+      const positions = ns.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
+      setLayoutSaveStatus("saving");
+      saveLayout(demoId, positions)
+        .then(() => {
+          setLayoutSaveStatus("saved");
+          setTimeout(() => setLayoutSaveStatus(""), 2000);
+        })
+        .catch(() => {
+          setLayoutSaveStatus("error");
+          setTimeout(() => setLayoutSaveStatus(""), 3000);
+        });
+    }, 1000);
+  }, []);
+
   const handleNodesChange = useCallback(
     (changes: any) => {
+      if (isExperience) {
+        // Allow position (drag), selection, and dimension changes — block add/remove
+        const allowed = changes.filter((c: any) =>
+          c.type === "position" || c.type === "select" || c.type === "dimensions"
+        );
+        if (allowed.length > 0) onNodesChange(allowed);
+        // Save layout on any position change (debounced)
+        if (activeDemoId && allowed.some((c: any) => c.type === "position")) {
+          doLayoutSave(activeDemoId);
+        }
+        return;
+      }
       onNodesChange(changes);
       if (activeDemoId) {
         debouncedSave(activeDemoId, useDiagramStore.getState().nodes, useDiagramStore.getState().edges);
       }
     },
-    [onNodesChange, activeDemoId, debouncedSave]
+    [onNodesChange, activeDemoId, debouncedSave, doLayoutSave, isExperience]
   );
 
   const handleEdgesChange = useCallback(
     (changes: any) => {
+      if (isExperience) {
+        const allowed = changes.filter((c: any) => c.type === "select");
+        if (allowed.length > 0) onEdgesChange(allowed);
+        return;
+      }
       onEdgesChange(changes);
       if (activeDemoId) {
         debouncedSave(activeDemoId, useDiagramStore.getState().nodes, useDiagramStore.getState().edges);
       }
     },
-    [onEdgesChange, activeDemoId, debouncedSave]
+    [onEdgesChange, activeDemoId, debouncedSave, isExperience]
   );
 
   const handleEdgeClick = useCallback(
@@ -259,7 +353,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
-      if (isRunning) return;
+      if (isRunning || isExperience) return;
 
       const isGroup = e.dataTransfer.getData("isGroup") === "true";
       const isSticky = e.dataTransfer.getData("isSticky") === "true";
@@ -602,24 +696,89 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     return () => window.removeEventListener("click", handler);
   }, [contextMenu, selectionMenu]);
 
+  // Filter nodes/edges by visibility toggles in experience mode
+  const visibleNodes = isExperience
+    ? nodes.filter((n) => {
+        if (n.type === "annotation" && !showAnnotations) return false;
+        if (n.type === "schematic" && !showSchematics) return false;
+        return true;
+      })
+    : nodes;
+  const hiddenAnnotationIds = new Set(
+    nodes.filter((n) => n.type === "annotation" && !showAnnotations).map((n) => n.id)
+  );
+  const visibleEdges = isExperience
+    ? edges.filter((e) => {
+        if (e.type === "annotation-pointer") return showAnnotations;
+        if (hiddenAnnotationIds.has(e.source) || hiddenAnnotationIds.has(e.target)) return false;
+        return true;
+      })
+    : edges;
+
   return (
     <div className="w-full h-full relative" onDrop={onDrop} onDragOver={onDragOver}>
+      {/* Experience mode banner + toggles */}
+      {isExperience && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2">
+          <div className="bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs px-3 py-1.5 rounded-full backdrop-blur-sm">
+            Experience mode
+          </div>
+          <button
+            onClick={() => setShowAnnotations(!showAnnotations)}
+            className={`text-[11px] px-2.5 py-1 rounded-full border backdrop-blur-sm transition-all ${
+              showAnnotations
+                ? "bg-blue-500/15 border-blue-500/30 text-blue-300"
+                : "bg-zinc-500/10 border-zinc-500/30 text-zinc-500"
+            }`}
+          >
+            {showAnnotations ? "Hide" : "Show"} Annotations
+          </button>
+          <button
+            onClick={() => setShowSchematics(!showSchematics)}
+            className={`text-[11px] px-2.5 py-1 rounded-full border backdrop-blur-sm transition-all ${
+              showSchematics
+                ? "bg-purple-500/15 border-purple-500/30 text-purple-300"
+                : "bg-zinc-500/10 border-zinc-500/30 text-zinc-500"
+            }`}
+          >
+            {showSchematics ? "Hide" : "Show"} GPU Internals
+          </button>
+        </div>
+      )}
+      {/* Save indicator — top right */}
+      {isExperience && layoutSaveStatus && (
+        <div className="absolute top-2 right-2 z-50 flex items-center gap-1.5 px-2 py-1 rounded-md backdrop-blur-sm border transition-all text-[11px]"
+          style={{
+            background: layoutSaveStatus === "saving" ? "rgba(234,179,8,0.1)" : layoutSaveStatus === "saved" ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+            borderColor: layoutSaveStatus === "saving" ? "rgba(234,179,8,0.3)" : layoutSaveStatus === "saved" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)",
+            color: layoutSaveStatus === "saving" ? "#eab308" : layoutSaveStatus === "saved" ? "#22c55e" : "#ef4444",
+          }}
+        >
+          {layoutSaveStatus === "saving" && <Loader2 className="w-3 h-3 animate-spin" />}
+          {layoutSaveStatus === "saved" && <Check className="w-3 h-3" />}
+          {layoutSaveStatus === "error" && <X className="w-3 h-3" />}
+          {layoutSaveStatus === "saving" ? "Saving" : layoutSaveStatus === "saved" ? "Saved" : "Failed"}
+        </div>
+      )}
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={visibleNodes}
+        edges={visibleEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
-        onConnect={onConnect}
+        onConnect={isExperience ? undefined : onConnect}
         onEdgeClick={handleEdgeClick}
-        onEdgeContextMenu={handleEdgeContextMenu}
+        onEdgeContextMenu={isExperience ? undefined : handleEdgeContextMenu}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeContextMenu={onNodeContextMenu}
-        onSelectionContextMenu={onSelectionContextMenu}
+        onSelectionContextMenu={isExperience ? undefined : onSelectionContextMenu}
         onSelectionChange={onSelectionChange}
-        onNodeDragStop={onNodeDragStop}
+        onNodeDragStop={isExperience ? undefined : onNodeDragStop}
         colorMode={isDark ? "dark" : "light"}
         deleteKeyCode={null}
+        nodesDraggable={true}
+        nodesConnectable={!isExperience}
+        elementsSelectable={true}
         fitView
       >
         <MiniMap style={{ width: 120, height: 80 }} />

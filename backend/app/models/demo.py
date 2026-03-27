@@ -30,6 +30,9 @@ class DemoEdge(BaseModel):
     connection_config: dict[str, Any] = {}  # Type-specific config
     auto_configure: bool = True             # Auto-generate init scripts
     label: str = ""
+    protocol: str = ""                # e.g. "NVMe-oF / RDMA", "S3 over TCP"
+    latency: str = ""                 # e.g. "~200-500 μs", "~5-50 ms"
+    bandwidth: str = ""               # e.g. "800 Gb/s"
     source_handle: str | None = None  # React Flow handle ID
     target_handle: str | None = None  # React Flow handle ID
 
@@ -67,6 +70,34 @@ class DemoStickyNote(BaseModel):
     width: float = 200
     height: float = 120
 
+class SchematicChild(BaseModel):
+    id: str
+    label: str
+    detail: str = ""
+    color: str = "gray"          # "red" | "amber" | "blue" | "teal" | "gray"
+
+class DemoSchematicNode(BaseModel):
+    id: str
+    position: NodePosition
+    label: str
+    sublabel: str = ""
+    variant: str = "generic"      # "gpu" | "tier" | "generic"
+    children: list[SchematicChild] = []
+    parent_group: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+class DemoAnnotation(BaseModel):
+    id: str
+    position: NodePosition
+    width: int = 300
+    title: str = ""
+    body: str = ""
+    style: str = "info"                      # "info" | "callout" | "warning" | "step"
+    step_number: int | None = None
+    pointer_target: str | None = None
+    collapsed: bool = False
+
 class DemoNetwork(BaseModel):
     name: str
     subnet: str = "172.20.0.0/16"
@@ -87,10 +118,13 @@ class DemoDefinition(BaseModel):
     id: str
     name: str
     description: str = ""
+    mode: str = "standard"          # "standard" | "experience"
     networks: list[DemoNetwork] = [DemoNetwork(name="default")]
     nodes: list[DemoNode] = []
     edges: list[DemoEdge] = []
     groups: list[DemoGroup] = []
     sticky_notes: list[DemoStickyNote] = []
+    annotations: list[DemoAnnotation] = []
+    schematics: list[DemoSchematicNode] = []
     clusters: list[DemoCluster] = []
     resources: DemoResourceSettings = DemoResourceSettings()

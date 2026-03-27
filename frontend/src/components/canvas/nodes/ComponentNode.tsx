@@ -108,6 +108,7 @@ export default function ComponentNode({ id, data }: NodeProps) {
       onDoubleClick={handleDoubleClick}
     >
       <Handle type="target" position={Position.Left} />
+      <Handle type="source" id="bottom-out" position={Position.Bottom} className="!left-1/2 !w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
       <div className="flex items-center gap-2">
         <ComponentIcon icon={nodeData.componentId} size={28} />
         <div>

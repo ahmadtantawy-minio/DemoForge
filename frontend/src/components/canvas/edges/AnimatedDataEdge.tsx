@@ -50,6 +50,19 @@ export default function AnimatedDataEdge({
   }
   const label = edgeData?.label || formatLabel || connectionLabels[connectionType] || "";
 
+  const protocol = (edgeData as any)?.protocol as string | undefined;
+  const edgeLatency = (edgeData as any)?.latency as string | undefined;
+  const edgeBandwidth = (edgeData as any)?.bandwidth as string | undefined;
+
+  // Protocol-based edge styling
+  const protoStyle: React.CSSProperties = (() => {
+    if (!protocol) return {};
+    if (protocol.includes("RDMA") || protocol.includes("NVMe")) return { stroke: "#1D9E75", strokeWidth: 2.5 };
+    if (protocol.includes("gRPC")) return { stroke: "#378ADD", strokeWidth: 1.5, strokeDasharray: "6 3" };
+    if (protocol === "HTTP") return { stroke: "var(--color-muted-foreground, #666)", strokeWidth: 1, strokeDasharray: "2 2" };
+    return {};
+  })();
+
   const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
     connectionType === "cluster-site-replication";
   const isFailover = connectionType === "failover";
@@ -108,10 +121,10 @@ export default function AnimatedDataEdge({
         id={id}
         path={edgePath}
         style={{
-          stroke: isFailoverActive ? "#22c55e" : isFailoverStandby ? "#6b7280" : configStatus === "failed" ? "#ef4444" : color,
-          strokeWidth: isFailoverActive ? 2.5 : 2,
+          stroke: isFailoverActive ? "#22c55e" : isFailoverStandby ? "#6b7280" : configStatus === "failed" ? "#ef4444" : protoStyle.stroke || color,
+          strokeWidth: isFailoverActive ? 2.5 : protoStyle.strokeWidth || 2,
           strokeOpacity: isFailoverStandby ? 0.3 : configStatus === "pending" || configStatus === "paused" ? 0.4 : configStatus === "failed" ? 0.5 : 0.8,
-          strokeDasharray: isFailoverStandby ? "4 4" : configStatus === "failed" ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : undefined,
+          strokeDasharray: isFailoverStandby ? "4 4" : configStatus === "failed" ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : protoStyle.strokeDasharray || undefined,
           markerEnd: `url(#${markerId})`,
           markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
         }}
@@ -182,6 +195,32 @@ export default function AnimatedDataEdge({
               <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 shrink-0" title="Standby — ready for failover" />
             )}
             {label}
+          </div>
+        )}
+        {(protocol || edgeLatency || edgeBandwidth) && (
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, 0) translate(${labelX}px,${labelY - 2}px)`,
+              pointerEvents: "none",
+            }}
+            className="nodrag nopan flex items-center gap-1"
+          >
+            {protocol && (
+              <span className="text-[9px] font-mono text-teal-400/80 bg-teal-500/10 px-1 py-0.5 rounded whitespace-nowrap border border-teal-500/20">
+                {protocol}
+              </span>
+            )}
+            {edgeLatency && (
+              <span className="text-[9px] text-amber-400/80 bg-amber-500/10 px-1 py-0.5 rounded whitespace-nowrap border border-amber-500/20">
+                {edgeLatency}
+              </span>
+            )}
+            {edgeBandwidth && (
+              <span className="text-[9px] text-blue-400/80 bg-blue-500/10 px-1 py-0.5 rounded whitespace-nowrap border border-blue-500/20">
+                {edgeBandwidth}
+              </span>
+            )}
           </div>
         )}
         {hovered && !confirmDelete && (

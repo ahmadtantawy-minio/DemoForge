@@ -447,6 +447,37 @@ function MLTrainerIcon({ size }: { size: number }) {
   );
 }
 
+function InferenceClientIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#1a1a2e" />
+      {/* Terminal/client icon */}
+      <rect x="6" y="8" width="20" height="16" rx="2" stroke="#76b900" strokeWidth="1.5" fill="none" />
+      <text x="16" y="19" textAnchor="middle" fill="#76b900" fontSize="8" fontWeight="bold" fontFamily="monospace">&gt;_</text>
+    </svg>
+  );
+}
+
+function InferenceSimIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#1a1a2e" />
+      {/* GPU chip outline */}
+      <rect x="8" y="8" width="16" height="16" rx="2" stroke="#76b900" strokeWidth="1.5" fill="#76b900" fillOpacity="0.15" />
+      {/* Memory tier bars */}
+      <rect x="10" y="10" width="12" height="2" rx="0.5" fill="#ef4444" opacity="0.9" />
+      <rect x="10" y="13.5" width="10" height="2" rx="0.5" fill="#f97316" opacity="0.9" />
+      <rect x="10" y="17" width="8" height="2" rx="0.5" fill="#eab308" opacity="0.9" />
+      <rect x="10" y="20.5" width="12" height="2" rx="0.5" fill="#22c55e" opacity="0.9" />
+      {/* NVIDIA green accent */}
+      <line x1="6" y1="16" x2="8" y2="16" stroke="#76b900" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="24" y1="16" x2="26" y2="16" stroke="#76b900" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="16" y1="6" x2="16" y2="8" stroke="#76b900" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="16" y1="24" x2="16" y2="26" stroke="#76b900" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -491,6 +522,8 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("qdrant")) return <QdrantIcon size={size} />;
     if (id === "rag" || id.startsWith("rag-") || id.endsWith("-rag")) return <RAGAppIcon size={size} />;
     if (id.includes("ml-trainer") || id.includes("ml_trainer")) return <MLTrainerIcon size={size} />;
+    if (id.includes("inference-client") || id.includes("inference_client")) return <InferenceClientIcon size={size} />;
+    if (id.includes("inference-sim") || id.includes("inference_sim")) return <InferenceSimIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

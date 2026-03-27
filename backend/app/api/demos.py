@@ -40,6 +40,7 @@ async def list_demos():
                         description=d.description,
                         node_count=len(d.nodes),
                         status=running.status if running else "stopped",
+                        mode=d.mode,
                     ))
     return DemoListResponse(demos=demos)
 
@@ -53,7 +54,7 @@ async def create_demo(req: CreateDemoRequest):
         networks=[DemoNetwork(name="default")],
     )
     _save_demo(demo)
-    return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="stopped")
+    return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="stopped", mode=demo.mode)
 
 @router.get("/api/demos/{demo_id}")
 async def get_demo(demo_id: str):
@@ -78,7 +79,7 @@ async def update_demo(demo_id: str, req: dict):
     running = state.get_demo(demo_id)
     status = running.status if running else "stopped"
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description,
-                       node_count=len(demo.nodes), status=status)
+                       node_count=len(demo.nodes), status=status, mode=demo.mode)
 
 @router.put("/api/demos/{demo_id}/diagram")
 async def save_diagram(demo_id: str, req: SaveDiagramRequest):
@@ -86,12 +87,20 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     if not demo:
         raise HTTPException(404, "Demo not found")
 
-    # Convert React Flow nodes → DemoNodes (skip group/sticky-type nodes)
+    # Experience mode demos are read-only — skip saving
+    if demo.mode == "experience":
+        return {"status": "saved"}
+
+    # Convert React Flow nodes → DemoNodes (skip group/sticky/annotation-type nodes)
     demo.nodes = []
     demo.groups = []
     demo.sticky_notes = []
     demo.clusters = []
     for rf_node in req.nodes:
+        # Annotation and schematic nodes are preserved from the template, not from the frontend
+        if rf_node.get("type") in ("annotation", "schematic"):
+            continue
+
         # Sticky note nodes are stored separately
         if rf_node.get("type") == "sticky":
             s_data = rf_node.get("data", {})
@@ -170,6 +179,9 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
 
     demo.edges = []
     for rf_edge in req.edges:
+        # Skip annotation pointer edges — they're generated from annotations
+        if rf_edge.get("type") == "annotation-pointer":
+            continue
         edge_data = rf_edge.get("data", {})
         demo.edges.append(DemoEdge(
             id=rf_edge["id"],
@@ -180,12 +192,48 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
             connection_config=edge_data.get("connectionConfig", {}),
             auto_configure=edge_data.get("autoConfigure", True),
             label=edge_data.get("label", rf_edge.get("label", "")),
+            protocol=edge_data.get("protocol", ""),
+            latency=edge_data.get("latency", ""),
+            bandwidth=edge_data.get("bandwidth", ""),
             source_handle=rf_edge.get("sourceHandle"),
             target_handle=rf_edge.get("targetHandle"),
         ))
 
     _save_demo(demo)
     return {"status": "saved"}
+
+@router.put("/api/demos/{demo_id}/layout")
+async def save_layout(demo_id: str, req: dict):
+    """Save node positions without changing structure. Used by Experience mode."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+
+    positions = {p["id"]: (p["x"], p["y"]) for p in req.get("positions", [])}
+
+    for node in demo.nodes:
+        if node.id in positions:
+            node.position.x, node.position.y = positions[node.id]
+
+    for ann in getattr(demo, "annotations", []):
+        if ann.id in positions:
+            ann.position.x, ann.position.y = positions[ann.id]
+
+    for cluster in demo.clusters:
+        if cluster.id in positions:
+            cluster.position.x, cluster.position.y = positions[cluster.id]
+
+    for group in demo.groups:
+        if group.id in positions:
+            group.position.x, group.position.y = positions[group.id]
+
+    for sch in getattr(demo, "schematics", []):
+        if sch.id in positions:
+            sch.position.x, sch.position.y = positions[sch.id]
+
+    _save_demo(demo)
+    return {"status": "saved", "positions_updated": len(positions)}
+
 
 @router.get("/api/demos/{demo_id}/walkthrough")
 async def get_walkthrough(demo_id: str):

@@ -70,6 +70,12 @@ export const fetchGeneratedConfig = (id: string) =>
 export const fetchConfigScript = (id: string) =>
   apiFetch<{ demo_id: string; script: string; sections: { name: string; commands: string[] }[] }>(`/api/demos/${id}/config-script`);
 
+export const saveLayout = (id: string, positions: { id: string; x: number; y: number }[]) =>
+  apiFetch<{ status: string; positions_updated: number }>(`/api/demos/${id}/layout`, {
+    method: "PUT",
+    body: JSON.stringify({ positions }),
+  });
+
 export const saveDiagram = (id: string, nodes: any[], edges: any[]) =>
   apiFetch<any>(`/api/demos/${id}/diagram`, {
     method: "PUT",
