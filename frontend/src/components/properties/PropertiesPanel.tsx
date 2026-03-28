@@ -16,6 +16,7 @@ import ConfigSchemaForm from "./ConfigSchemaForm";
 import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
 import { Eye, EyeOff } from "lucide-react";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
+import SqlPlaybookPanel from "./SqlPlaybookPanel";
 
 // --- Data Generator scenario metadata ---
 const DG_SCENARIOS = [
@@ -627,6 +628,18 @@ export default function PropertiesPanel() {
   // --- Node properties view ---
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   if (!selectedNode) {
+    // Check if demo is running with data-generator + trino → show playbook
+    const activeDemo = demos.find((d) => d.id === activeDemoId);
+    const isRunning = activeDemo?.status === "running";
+    const hasDataGen = nodes.some((n) => (n.data as any)?.componentId === "data-generator");
+    const hasTrino = nodes.some((n) => (n.data as any)?.componentId === "trino");
+    if (isRunning && hasDataGen && hasTrino && activeDemoId) {
+      return (
+        <div className="w-full h-full bg-card border-l border-border overflow-y-auto">
+          <SqlPlaybookPanel demoId={activeDemoId} />
+        </div>
+      );
+    }
     return (
       <div className="w-full h-full bg-card border-l border-border p-3 flex items-center justify-center">
         <p className="text-xs text-muted-foreground">Select a node or edge to view properties</p>

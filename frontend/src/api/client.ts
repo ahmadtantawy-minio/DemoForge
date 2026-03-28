@@ -389,3 +389,28 @@ export const executeTrinoQuery = (demoId: string, sql: string) =>
     method: "POST",
     body: JSON.stringify({ sql }),
   });
+
+// SQL Playbook
+export const fetchPlaybook = (demoId: string) =>
+  apiFetch<{
+    scenario_id: string;
+    scenario_name: string;
+    steps: { step: number; title: string; description: string; sql: string; expected: string }[];
+  }>(`/api/demos/${demoId}/playbook`);
+
+export const executeSql = (demoId: string, sql: string, catalog?: string, schema_name?: string) =>
+  apiFetch<{
+    success: boolean;
+    columns: { name: string; type: string }[];
+    rows: any[][];
+    row_count: number;
+    error: string;
+    execution_time_ms: number;
+  }>(`/api/demos/${demoId}/sql`, {
+    method: "POST",
+    body: JSON.stringify({ sql, catalog: catalog || "iceberg", schema_name: schema_name || "default" }),
+  });
+
+// SE Guide
+export const fetchTemplateGuide = (templateId: string) =>
+  apiFetch<any>(`/api/templates/${templateId}/guide`);

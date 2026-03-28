@@ -1,0 +1,164 @@
+id: customer-360
+name: "Customer 360"
+description: "Customer analytics with transactions"
+
+schema:
+  columns:
+    - name: txn_id
+      type: string
+      generator: uuid
+
+    - name: customer_id
+      type: string
+      generator: {type: sequential_id, prefix: "CUST-", digits: 6}
+
+    - name: customer_name
+      type: string
+      generator: {type: fake, method: name}
+
+    - name: segment
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "retail": 0.50
+          "business": 0.30
+          "premium": 0.15
+          "vip": 0.05
+
+    - name: country
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "AE": 0.40
+          "SA": 0.20
+          "EG": 0.15
+          "UK": 0.10
+          "US": 0.15
+
+    - name: account_type
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "savings": 0.40
+          "checking": 0.30
+          "investment": 0.20
+          "loan": 0.10
+
+    - name: amount
+      type: float64
+      generator: {type: lognormal, mean: 4.5, sigma: 1.5}
+
+    - name: txn_type
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "purchase": 0.40
+          "transfer": 0.25
+          "withdrawal": 0.20
+          "deposit": 0.15
+
+    - name: merchant
+      type: string
+      generator:
+        type: weighted_enum
+        values:
+          "Amazon": 0.15
+          "Noon": 0.12
+          "Carrefour": 0.10
+          "Lulu Hypermarket": 0.09
+          "IKEA": 0.08
+          "Apple Store": 0.07
+          "H&M": 0.07
+          "Starbucks": 0.08
+          "McDonald's": 0.08
+          "Uber": 0.08
+          "Netflix": 0.08
+
+    - name: txn_date
+      type: timestamp
+      generator: now_jitter
+
+volume:
+  default_rows_per_batch: 200
+  default_batches_per_minute: 10
+  profiles:
+    low:    {rows_per_batch: 50,   batches_per_minute: 4}
+    medium: {rows_per_batch: 200,  batches_per_minute: 10}
+    high:   {rows_per_batch: 1000, batches_per_minute: 30}
+  ramp_up_seconds: 30
+
+buckets:
+  parquet: "customer-data"
+  iceberg: null                   # Iceberg manages its own storage location
+
+partitioning:
+  parquet:
+    keys: [country]
+    time_column: txn_date
+    time_granularity: day
+  json: flat
+  csv: flat
+
+iceberg:
+  warehouse: analytics
+  namespace: default
+  table: customer_360
+  partition_spec: "PARTITIONED BY (country, days(txn_date))"
+  sort_order: "txn_date"
+
+playbook:
+  - step: 1
+    title: "Verify data"
+    description: "Confirm that the data generator has written records to the Iceberg table."
+    sql: "SELECT count(*) as total_rows FROM iceberg.default.customer_360"
+    expected: "Should return a positive count."
+  - step: 2
+    title: "Customer 360 view"
+    description: "Aggregate transaction totals per customer."
+    sql: |
+      SELECT customer_id, customer_name, segment,
+             ROUND(SUM(amount), 2) as total_amount,
+             COUNT(*) as txn_count
+      FROM iceberg.default.customer_360
+      GROUP BY customer_id, customer_name, segment
+      ORDER BY total_amount DESC
+      LIMIT 20
+    expected: "Top 20 customers by total transaction amount."
+  - step: 3
+    title: "Revenue by country and segment"
+    description: "Break down transaction volume by country and customer segment."
+    sql: |
+      SELECT country, segment,
+             ROUND(SUM(amount), 2) as total_amount,
+             COUNT(*) as txn_count
+      FROM iceberg.default.customer_360
+      GROUP BY country, segment
+      ORDER BY country, total_amount DESC
+    expected: "Revenue matrix across countries and segments."
+  - step: 4
+    title: "Top merchants"
+    description: "Find the highest-volume merchants by transaction count and spend."
+    sql: |
+      SELECT merchant,
+             ROUND(SUM(amount), 2) as total_amount,
+             COUNT(*) as txn_count
+      FROM iceberg.default.customer_360
+      GROUP BY merchant
+      ORDER BY total_amount DESC
+    expected: "Merchant leaderboard by total spend."
+  - step: 5
+    title: "Transaction type breakdown"
+    description: "Distribution of transaction types across the dataset."
+    sql: |
+      SELECT txn_type,
+             COUNT(*) as txn_count,
+             ROUND(SUM(amount), 2) as total_amount,
+             ROUND(AVG(amount), 2) as avg_amount
+      FROM iceberg.default.customer_360
+      GROUP BY txn_type
+      ORDER BY txn_count DESC
+    expected: "Shows purchase, transfer, withdrawal, deposit distribution."

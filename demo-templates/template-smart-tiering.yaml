@@ -134,6 +134,9 @@ edges:
     source: data-gen
     target: nginx-hot
     connection_type: file-push
+    protocol: S3 (HTTP)
+    latency: <1 ms
+    bandwidth: 10 Gb/s
     connection_config:
       file_size: "1MB"
       file_count: "50"
@@ -158,6 +161,9 @@ edges:
     source: minio-hot-1
     target: minio-cold-1
     connection_type: tiering
+    protocol: S3 (HTTP)
+    latency: ~5 ms
+    bandwidth: 10 Gb/s
     connection_config:
       policy_name: "auto-archive"
       transition_days: "7"
@@ -184,3 +190,33 @@ edges:
     source: prometheus
     target: grafana
     connection_type: metrics-query
+
+annotations:
+  - id: ann-ilm-explain
+    position: { x: -300, y: 50 }
+    width: 280
+    title: "ILM Tiering"
+    body: "ILM (Information Lifecycle Management) automatically moves data between storage tiers based on age and access patterns. Hot data stays on fast NVMe, cold data migrates to cheaper HDD storage."
+    style: info
+  - id: ann-hot
+    position: { x: 100, y: -80 }
+    width: 220
+    title: "Hot tier"
+    body: "Hot tier — NVMe storage for recent, frequently accessed data. Objects land here first."
+    style: step
+    step_number: 1
+    pointer_target: nginx-hot
+  - id: ann-cold
+    position: { x: 750, y: 100 }
+    width: 220
+    title: "Cold tier"
+    body: "Cold tier — HDD storage for aged data. ILM policies automatically transition objects here after the configured period."
+    style: step
+    step_number: 2
+    pointer_target: minio-cold-1
+  - id: ann-transparent
+    position: { x: -300, y: 400 }
+    width: 280
+    title: "Transparent to applications"
+    body: "The transition is transparent to applications — they continue using the same S3 endpoint. MinIO handles the data movement behind the scenes."
+    style: callout

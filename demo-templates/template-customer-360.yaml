@@ -1,0 +1,233 @@
+# Template metadata
+_template:
+  name: "Customer 360 analytics"
+  tier: advanced
+  category: lakehouse
+  tags: ["customer-360", "analytics", "segments", "iceberg", "trino"]
+  description: "Denormalized customer analytics with transactions, segments, and merchant analysis on MinIO + Iceberg + Trino."
+  objective: "Demonstrate MinIO as the storage foundation for a Customer 360 analytics platform — real-time transaction data flows into MinIO, gets cataloged as Iceberg tables, and queried by Trino for customer segmentation and merchant analysis."
+  minio_value: "MinIO stores all customer transaction data as Parquet files via the S3 API. Iceberg provides schema evolution and partition pruning on top of MinIO, while Trino delivers sub-second SQL over millions of transactions — no data warehouse required."
+  estimated_resources:
+    memory: "5GB"
+    cpu: 5
+    containers: 7
+  external_dependencies: []
+  walkthrough:
+    - step: "Deploy the demo"
+      description: "Click Deploy to start all components. Wait for health indicators to turn green (~90s for Metabase)."
+    - step: "Generate customer data"
+      description: "Right-click Data Generator → Start Generating to push transaction data into MinIO's customer-data bucket."
+    - step: "Query with Trino"
+      description: "Open Trino terminal → run playbook queries to explore customer segments, merchant rankings, and country breakdowns."
+    - step: "Open Metabase"
+      description: "Right-click Metabase → Open Dashboard. Login with admin@demoforge.local / DemoForge123! — the Trino connection is pre-configured."
+    - step: "Build a Customer 360 dashboard"
+      description: "In Metabase: New → Question → pick the Trino database → select iceberg.default.customer_360 → add segment filters and visualizations."
+    - step: "Monitor with Grafana"
+      description: "Open Grafana to see MinIO throughput and storage metrics as transaction data flows through the pipeline."
+  se_guide:
+    pitch: "Show how MinIO + Iceberg + Trino powers a Customer 360 analytics platform in minutes — full customer segmentation, merchant analysis, and country breakdowns with no proprietary warehouse."
+    audience: "Data engineers, analytics leads, and architects in financial services, retail, or telecom evaluating open-source alternatives to Snowflake or Databricks."
+    talking_points:
+      - "All customer transaction data lands on MinIO as Parquet files via the S3 API — the same interface any application uses."
+      - "Iceberg sits on top of MinIO and gives you schema evolution, time travel, and partition pruning — no data movement, just metadata."
+      - "Trino queries directly from MinIO through the Iceberg catalog — Customer 360 views, segment aggregations, and merchant rankings run sub-second."
+      - "The denormalized schema means one scan gives you customer attributes, transaction details, and merchant data — optimized for analytical queries."
+      - "This architecture is fully open-source and runs on your infrastructure — you own the storage, the compute, and the customer data."
+      - "Scale from a laptop demo to petabytes by swapping the single MinIO node for a distributed cluster — the S3 API and Iceberg tables never change."
+    demo_flow:
+      - step: 1
+        action: "Click Deploy and wait for all nodes to turn green."
+        say: "This spins up the complete Customer 360 stack — MinIO for storage, Iceberg REST for the catalog, Trino for SQL, and Metabase for dashboards. Seven containers, one click."
+      - step: 2
+        action: "Right-click Data Generator → Start Generating. Watch object counts rise in the Cockpit panel."
+        say: "The generator is writing synthetic customer transaction data as Parquet files to MinIO's customer-data bucket — retail, business, premium, and VIP segments across five countries."
+      - step: 3
+        action: "Open the Trino terminal. Run the playbook queries starting with the Customer 360 view."
+        say: "Trino reads the Parquet files from MinIO through the Iceberg catalog. This is a live query over data sitting in object storage — no ETL, no data warehouse."
+      - step: 4
+        action: "Open Metabase. Navigate to the Trino database and build a question on iceberg.default.customer_360."
+        say: "Metabase is querying Trino, which is reading from MinIO. You can slice by segment, country, or merchant in real time — all backed by S3-compatible storage."
+      - step: 5
+        action: "Open Grafana and show the MinIO metrics dashboard."
+        say: "You can see S3 API call rates, bytes in and out, and bucket-level throughput — standard MinIO observability as customer data flows through the pipeline."
+    common_questions:
+      - q: "How does this handle PII and data governance?"
+        a: "MinIO supports IAM policies, bucket-level policies, and per-prefix access — the same model as AWS S3. You layer your Iceberg catalog's ACLs on top for table-level governance and column masking."
+      - q: "Can we add more customer attributes without downtime?"
+        a: "Yes — Iceberg supports schema evolution. You add a column to the table definition and the generator starts populating it. Old Parquet files are still readable with null for the new column."
+      - q: "What about real-time vs batch — can this handle streaming?"
+        a: "The data generator simulates a streaming ingest pattern. For production, you'd replace it with Kafka + Flink writing Parquet to MinIO — the storage and catalog layers stay identical."
+      - q: "How does performance scale with millions of customers?"
+        a: "Iceberg's partition pruning means Trino only reads the files for the country or date range you query. MinIO's throughput scales horizontally — the architecture handles petabyte-scale without changes."
+    mc_commands:
+      - label: "List customer data bucket"
+        command: "mc ls minio/customer-data"
+        context: "Shows Parquet files written by the data generator — partitioned by country and date."
+      - label: "List warehouse bucket"
+        command: "mc ls minio/warehouse"
+        context: "Shows the Iceberg metadata and Parquet data files managed by the catalog."
+      - label: "Count transaction files"
+        command: "mc find minio/customer-data --name '*.parquet' | wc -l"
+        context: "Demonstrates how many Parquet files hold the customer transaction data."
+      - label: "View storage usage"
+        command: "mc du minio/"
+        context: "Shows total storage consumed across all buckets in the Customer 360 stack."
+
+# Standard demo definition
+id: template-customer-360
+name: "Customer 360 analytics"
+description: "Customer analytics: MinIO → Iceberg → Trino → Metabase dashboards"
+
+networks:
+  - name: default
+    subnet: 172.20.0.0/16
+    driver: bridge
+
+nodes:
+  # Customer transaction data generator
+  - id: data-gen
+    component: data-generator
+    variant: default
+    position: { x: -200, y: 150 }
+    display_name: "Data Generator"
+    config:
+      DG_SCENARIO: "customer-360"
+
+  # Core storage
+  - id: minio-1
+    component: minio
+    variant: single
+    position: { x: 100, y: 150 }
+    display_name: "MinIO"
+    config:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+
+  # Catalog
+  - id: iceberg-rest
+    component: iceberg-rest
+    variant: default
+    position: { x: 400, y: 50 }
+    display_name: "Iceberg REST Catalog"
+    config: {}
+
+  # SQL engine
+  - id: trino
+    component: trino
+    variant: default
+    position: { x: 700, y: 50 }
+    display_name: "Trino"
+    config: {}
+
+  # BI visualization
+  - id: metabase
+    component: metabase
+    variant: default
+    position: { x: 1000, y: 150 }
+    display_name: "Metabase"
+    config: {}
+
+  # Monitoring
+  - id: prometheus
+    component: prometheus
+    variant: default
+    position: { x: 400, y: 300 }
+    display_name: "Prometheus"
+    config: {}
+
+  - id: grafana
+    component: grafana
+    variant: default
+    position: { x: 700, y: 300 }
+    display_name: "Grafana"
+    config: {}
+
+clusters: []
+
+edges:
+  # Data flow: Data Generator → MinIO (Parquet)
+  - id: e-datagen-minio
+    source: data-gen
+    target: minio-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "Parquet data"
+    connection_config:
+      bucket: "customer-data"
+
+  # MinIO → Iceberg REST (warehouse storage)
+  - id: e-minio-iceberg
+    source: minio-1
+    target: iceberg-rest
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3 warehouse"
+    connection_config:
+      warehouse_bucket: "warehouse"
+
+  # Iceberg REST → Trino (catalog)
+  - id: e-iceberg-trino
+    source: iceberg-rest
+    target: trino
+    connection_type: iceberg-catalog
+    network: default
+    auto_configure: true
+    label: "Iceberg catalog"
+    connection_config:
+      catalog_name: "iceberg"
+
+  # MinIO → Trino (S3 direct)
+  - id: e-minio-trino
+    source: minio-1
+    target: trino
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: "S3"
+    connection_config:
+      catalog_name: "minio"
+
+  # Trino → Metabase (SQL query)
+  - id: e-trino-metabase
+    source: trino
+    target: metabase
+    connection_type: sql-query
+    network: default
+    auto_configure: true
+    label: "SQL"
+    connection_config:
+      catalog: "iceberg"
+      schema: "default"
+
+  # MinIO → Prometheus (metrics)
+  - id: e-minio-prom
+    source: minio-1
+    target: prometheus
+    connection_type: metrics
+    network: default
+    auto_configure: true
+    source_handle: data-out
+    label: "Metrics"
+
+  # Prometheus → Grafana
+  - id: e-prom-grafana
+    source: prometheus
+    target: grafana
+    connection_type: metrics-query
+    network: default
+    auto_configure: true
+    label: "PromQL"
+
+groups: []
+sticky_notes: []
+
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 8g
+  total_cpu: 8.0
