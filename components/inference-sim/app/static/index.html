@@ -612,8 +612,11 @@
   .gc-controls { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
   .gc-skip { font-size: 10px; color: rgba(255,255,255,0.3); background: none; border: none; padding: 4px 8px; cursor: pointer; }
   .gc-skip:hover { color: rgba(255,255,255,0.5); }
-  .gc-next { font-size: 11px; color: #1D9E75; background: rgba(29,158,117,0.15); border: 1px solid rgba(29,158,117,0.3); padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  .gc-next { font-size: 11px; color: #1D9E75; background: rgba(29,158,117,0.15); border: 1px solid rgba(29,158,117,0.3); padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.3s; }
   .gc-next:hover { background: rgba(29,158,117,0.25); }
+  .gc-next.gc-loading { opacity: 0.4; cursor: wait; pointer-events: none; }
+  .gc-next.gc-loading::after { content: ''; display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(29,158,117,0.3); border-top-color: #1D9E75; border-radius: 50%; animation: gc-spin 0.8s linear infinite; margin-left: 6px; vertical-align: middle; }
+  @keyframes gc-spin { to { transform: rotate(360deg); } }
   .gc-gain { color: #1D9E75; font-weight: 700; font-size: 12px; }
   .gc-gain-bad { color: #E85D24; }
   .gc-step-indicator { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 1px; }
@@ -2082,7 +2085,11 @@
     guidedProgressTrack.style.display = 'block';
     guidedProgressEl.style.width = Math.round(((idx + 1) / GUIDED_SCRIPT.length) * 100) + '%';
 
-    // If step has an action (mode switch), apply it
+    // Determine if next button should be delayed
+    const needsDelay = step.phase === 'show' || step.useCapture;
+    const delayMs = needsDelay ? 12000 : 0;
+
+    // Apply action immediately (mode switch)
     if (step.action && step.action.mode) {
       sendConfig({g35_mode: step.action.mode, cmx_enabled: step.action.mode !== 'disabled'});
       updateG35Visuals(step.action.mode);
@@ -2091,7 +2098,7 @@
     }
 
     if (step.phase === 'show') {
-      // Show phase: start simulation, show small running card
+      // Show phase: start simulation immediately
       sendCommand('reset');
       setTimeout(() => sendCommand('start'), 500);
       const modeLabel = step.mode === 'disabled' ? 'No G3.5' : step.mode === 'standard' ? 'S3/TCP' : 'RDMA';
@@ -2100,7 +2107,7 @@
           '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div class="gc-running-dot"></div><strong style="color:rgba(255,255,255,0.8);">Running: ' + modeLabel + '</strong></div>' +
           '<div class="gc-body">' + (step.body || '') + '</div>' +
-          '<div class="gc-controls"><button class="gc-skip" id="gc-skip-btn">End</button><button class="gc-next" id="gc-next-btn">Capture & Next \u2192</button></div>' +
+          '<div class="gc-controls"><button class="gc-skip" id="gc-skip-btn">End</button><button class="gc-next gc-loading" id="gc-next-btn" disabled>Collecting data\u2026</button></div>' +
         '</div>';
     } else {
       // Tell phase
@@ -2110,20 +2117,46 @@
       }
       const formatted = body.replace(/\n\n/g, '</p><p>').replace(/\n\u2022/g, '<br>\u2022').replace(/\n(\d)\./g, '<br>$1.');
       const nextLabel = (idx < GUIDED_SCRIPT.length - 1) ? 'Next \u2192' : 'Finish';
+      const loadingClass = needsDelay ? ' gc-loading' : '';
+      const disabledAttr = needsDelay ? ' disabled' : '';
+      const btnText = needsDelay ? 'Collecting data\u2026' : nextLabel;
       guidedCardEl.innerHTML =
         '<div class="gc-card ' + (step.isFinale ? 'gc-finale' : '') + '">' +
           '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
           (step.icon ? '<div class="gc-icon">' + step.icon + '</div>' : '') +
           '<div class="gc-title">' + (step.title || '') + '</div>' +
           '<div class="gc-body"><p>' + formatted + '</p></div>' +
-          '<div class="gc-controls"><button class="gc-skip" id="gc-skip-btn">End</button><button class="gc-next" id="gc-next-btn">' + nextLabel + '</button></div>' +
+          '<div class="gc-controls"><button class="gc-skip" id="gc-skip-btn">End</button><button class="gc-next' + loadingClass + '" id="gc-next-btn"' + disabledAttr + '>' + btnText + '</button></div>' +
         '</div>';
     }
     guidedCardEl.style.display = 'block';
 
+    // Enable next button after delay
+    if (needsDelay) {
+      setTimeout(function() {
+        var nb = document.getElementById('gc-next-btn');
+        if (nb && guidedStep === idx) {
+          nb.classList.remove('gc-loading');
+          nb.disabled = false;
+          if (step.phase === 'show') {
+            nb.textContent = 'Capture & Next \u2192';
+          } else {
+            nb.textContent = (idx < GUIDED_SCRIPT.length - 1) ? 'Next \u2192' : 'Finish';
+          }
+          // If results step, refresh the body with latest captured data
+          if (step.useCapture && latestMetrics && latestGpus) {
+            guidedCaptures[step.useCapture] = buildSnapshot(latestMetrics, latestGpus, step.useCapture);
+            var bodyEl = guidedCardEl.querySelector('.gc-body');
+            if (bodyEl) bodyEl.innerHTML = '<p>' + guidedBuildResultsBody(step).replace(/\n\n/g, '</p><p>') + '</p>';
+          }
+        }
+      }, delayMs);
+    }
+
     // Bind buttons
     var nb = document.getElementById('gc-next-btn');
     if (nb) nb.addEventListener('click', function() {
+      if (nb.disabled) return;
       // If show phase, capture metrics before advancing
       if (step.phase === 'show' && latestMetrics && latestGpus) {
         guidedCaptures[step.mode] = buildSnapshot(latestMetrics, latestGpus, step.mode);
