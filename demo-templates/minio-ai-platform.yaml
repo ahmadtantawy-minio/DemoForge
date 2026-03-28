@@ -1,6 +1,7 @@
 _template:
-  name: "MinIO AI Platform"
-  category: "ai"
+  name: "MinIO AI platform"
+  tier: advanced
+  category: ai
   tags: ["platform", "full-stack", "rag", "mlflow", "jupyter", "label-studio", "milvus"]
   description: "The complete AI data platform: labeling, training, experiment tracking, vector search, RAG — all on MinIO."
   objective: "Show MinIO as the single data foundation for the entire AI lifecycle"

@@ -30,6 +30,7 @@ export interface DemoTemplate {
   id: string;
   name: string;
   description: string;
+  tier: "essentials" | "advanced" | "experience";
   category: string;
   tags: string[];
   objective: string;
@@ -44,6 +45,7 @@ export interface DemoTemplate {
   };
   walkthrough: { step: string; description: string }[];
   external_dependencies: string[];
+  has_se_guide: boolean;
 }
 
 // --- Demo Template Detail (includes demo definition fields) ---

@@ -1,6 +1,7 @@
 _template:
-  name: "Site Replication with Failover"
-  category: "replication"
+  name: "Site replication with failover"
+  tier: essentials
+  category: infrastructure
   tags: ["site-replication", "failover", "active-passive", "high-availability", "resilience", "nginx"]
   description: "Two MinIO sites with bidirectional replication and an active-passive failover gateway. Stop a site to see traffic automatically switch to the backup — data stays accessible with zero downtime."
   objective: "Demonstrate MinIO site replication with automatic failover — proving data availability even during site outages"
@@ -27,6 +28,55 @@ _template:
       description: "Right-click Site A → Start nodes. Within 10 seconds, the tester switches back to Site A."
     - step: "Verify re-sync"
       description: "Open Site A console — all objects written during the outage are replicated back from Site B."
+  se_guide:
+    pitch: "The DR story in real time: Site A goes down, the failover gateway switches to Site B in seconds, writes continue uninterrupted, and when Site A comes back it resyncs automatically. Zero data loss, zero downtime."
+    audience: "Enterprise architects, DR planners, and CTOs who need to demonstrate RTO/RPO guarantees to regulators, auditors, or boards."
+    talking_points:
+      - "The resilience tester writes sequenced objects continuously and reports which site it's talking to — you can literally watch the failover happen with no gap in sequence numbers."
+      - "The NGINX failover gateway does active health checks every second — the moment Site A stops responding, it promotes Site B and the application endpoint never changes."
+      - "Site replication means Site B isn't a cold standby — it's been accepting and syncing all writes since deploy. When failover happens, all data is already there."
+      - "Recovery is equally automatic: when Site A comes back online, the failover gateway detects it, switches back, and MinIO site replication catches Site A up on everything written during the outage."
+      - "This demo is fully scripted and deterministic — you can run the failover in front of a customer, hit stop on Site A, and the sequence numbers will prove zero data loss every time."
+    demo_flow:
+      - step: 1
+        action: "Click Deploy and wait for all nodes to go green. Check the Resilience Tester terminal — it should show [OK] with Site A as upstream."
+        say: "The resilience tester is writing and reading sequenced objects through the failover gateway. Green means no gaps — every write is confirmed."
+      - step: 2
+        action: "Right-click the site replication edge → Activate. Wait for both consoles to show the same buckets."
+        say: "Site replication is now active — both sites are syncing bidirectionally. Any write on either site appears on the other."
+      - step: 3
+        action: "Open MinIO Console for both sites side by side. Show the same objects on both."
+        say: "Site A and Site B are identical. This is our baseline — both sites are healthy, data is in sync."
+      - step: 4
+        action: "Right-click Site A cluster → Stop both nodes. Watch the Resilience Tester terminal."
+        say: "Site A is down. Watch the tester — it switches upstream to Site B within seconds. No sequence gap, no failed writes."
+      - step: 5
+        action: "Right-click Site A → Start both nodes. Watch the tester switch back after ~10 seconds."
+        say: "Site A is back. The gateway promotes it back to primary. MinIO site replication immediately starts syncing everything written during the outage back to Site A."
+    common_questions:
+      - q: "How long does the failover actually take — what's the RTO?"
+        a: "In this demo, the NGINX health check interval is 1 second with a 2-failure threshold — so RTO is 2-3 seconds. In production you tune that interval based on your SLA requirements."
+      - q: "What's the RPO — can we lose data during the failover window?"
+        a: "With site replication active, RPO is effectively zero for objects that completed their write before Site A failed. Asynchronous replication means objects in-flight at the moment of failure could theoretically be lost, but the replication queue is typically sub-second."
+      - q: "Does the application need to change its endpoint when failover happens?"
+        a: "No — that's the entire point of the failover gateway. The application always connects to the same NGINX endpoint. Failover is completely transparent to the application."
+      - q: "Can this pattern extend to three or more sites?"
+        a: "Yes — MinIO site replication supports up to 16 peers. You'd configure the NGINX gateway with additional backup upstreams. The replication mesh handles keeping all sites in sync."
+      - q: "What's the difference between this and the basic site replication demo?"
+        a: "The basic demo shows replication and data consistency. This demo adds the failover gateway and resilience tester to prove RTO/RPO in a live DR scenario — it's the customer-facing version of the DR story."
+    mc_commands:
+      - label: "Check site replication health"
+        command: "mc admin replicate info minio-site-a/"
+        context: "Shows both peer sites, replication lag, and any errors — run this before and after simulating the failure."
+      - label: "Watch replication queue drain"
+        command: "mc admin replicate status minio-site-a/"
+        context: "After Site A restarts, watch the pending queue count drop to zero as it catches up."
+      - label: "List objects written during outage"
+        command: "mc ls minio-site-b/failover-test --recursive | tail -20"
+        context: "Shows the most recently written objects — all written to Site B during the outage window."
+      - label: "Verify Site A caught up"
+        command: "mc diff minio-site-a/failover-test minio-site-b/failover-test"
+        context: "Confirms both sites have identical objects after resync completes — the definitive proof of zero data loss."
 
 id: template-site-replication-failover
 name: "Site Replication with Failover"

@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Hadoop to MinIO Migration"
-  category: "analytics"
+  name: "HDFS to MinIO migration"
+  tier: advanced
+  category: infrastructure
   tags: ["migration", "hadoop", "hdfs", "spark", "modernization", "s3a"]
   description: "Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector. Shows the modernization path from Hadoop to an S3-native data lake."
   objective: "Show how Spark bridges HDFS and MinIO for data lake modernization — read from legacy HDFS, transform, write to MinIO"

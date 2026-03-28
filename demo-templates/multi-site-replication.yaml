@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Multi-Site Replication"
-  category: "replication"
+  name: "Site replication"
+  tier: essentials
+  category: infrastructure
   tags: ["replication", "multi-site", "high-availability"]
   description: "Two MinIO clusters with bucket replication and a file generator. Data written to Site A automatically replicates to Site B."
   objective: "Demonstrate MinIO's cross-site bucket replication for disaster recovery"
@@ -20,6 +21,53 @@ _template:
       description: "Open both MinIO consoles to see data appearing on Site B"
     - step: "Test failover"
       description: "Stop Site A and verify that Site B still serves all replicated data"
+  se_guide:
+    pitch: "Show MinIO site replication — full IAM, bucket policies, and object data synchronized across two independent clusters. Stop one site and the other has everything."
+    audience: "Enterprise architects and storage leads evaluating disaster recovery and multi-site data strategies for regulated industries."
+    talking_points:
+      - "MinIO site replication is more than bucket replication — it syncs IAM users, groups, policies, and bucket configurations across all sites, not just objects."
+      - "This is an active-active topology: both Site A and Site B accept reads and writes. You can route traffic to either site based on geography or load."
+      - "Unlike bucket replication, site replication is configured at the cluster level once — every new bucket and IAM change is automatically propagated to all peer sites."
+      - "For regulated industries, site replication provides a compliance-grade DR posture: a second fully independent copy of all data and configuration at a separate physical location."
+      - "The file generator writes continuously to Site A — open both consoles and watch the same objects appear on Site B within seconds."
+    demo_flow:
+      - step: 1
+        action: "Click Deploy and wait for both 2-node clusters and the file generator to go green."
+        say: "Two independent MinIO clusters — Site A and Site B — each with two nodes. Site replication is pre-configured between them."
+      - step: 2
+        action: "Open the MinIO Console for Site A. Show the demo-bucket filling with objects from the file generator."
+        say: "The generator is writing to Site A continuously. Every object landing here will replicate to Site B."
+      - step: 3
+        action: "Open the MinIO Console for Site B side by side."
+        say: "Same objects, same bucket, appearing on Site B within seconds — without any application change. Site B is a fully independent copy."
+      - step: 4
+        action: "Right-click Site A cluster → Stop both nodes. Try to list objects on Site B."
+        say: "Site A is completely down. Site B still has all the data — it's not a replica, it's an equal peer. Applications can failover to Site B's endpoint immediately."
+      - step: 5
+        action: "Open Grafana and show replication lag metrics."
+        say: "Grafana shows replication throughput from both sites. In production, you'd alert on replication lag exceeding your RPO threshold."
+    common_questions:
+      - q: "What's the difference between site replication and bucket replication?"
+        a: "Bucket replication copies objects between specific buckets — you configure it per bucket. Site replication syncs everything: all buckets, all IAM users, groups, policies, and configurations. One setup, entire cluster."
+      - q: "Can we have more than two sites?"
+        a: "Yes — MinIO site replication supports up to 16 peer sites. There's a separate 3-way replication demo that shows that topology."
+      - q: "Is site replication synchronous or asynchronous?"
+        a: "Asynchronous. Writes complete on the local site immediately and replicate in the background. This gives you low write latency with eventual consistency across sites."
+      - q: "What's the RPO — how much data can we lose in a site failure?"
+        a: "RPO depends on replication lag, which is typically seconds on a healthy network. MinIO exposes replication queue depth and lag as Prometheus metrics so you can measure and alert on your actual RPO."
+    mc_commands:
+      - label: "Check site replication status"
+        command: "mc admin replicate info minio-site-a/"
+        context: "Shows peer sites, replication health, and any lag or error conditions."
+      - label: "List replicated bucket on Site B"
+        command: "mc ls minio-site-b/demo-bucket-replica"
+        context: "Confirms objects written to Site A are appearing on Site B."
+      - label: "Check replication queue depth"
+        command: "mc admin replicate status minio-site-a/"
+        context: "Shows pending replication operations — should drain to zero on a healthy network."
+      - label: "Verify IAM sync"
+        command: "mc admin user list minio-site-b/"
+        context: "Shows IAM users synced from Site A — demonstrates site replication covers more than just objects."
 
 # Standard demo definition
 id: template-multi-site-replication

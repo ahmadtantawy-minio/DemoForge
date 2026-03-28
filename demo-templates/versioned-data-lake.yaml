@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Versioned Data Lake"
-  category: "analytics"
+  name: "Versioned data lake (Nessie)"
+  tier: advanced
+  category: lakehouse
   tags: ["nessie", "dremio", "iceberg", "versioning", "data-lake", "git-like", "branching"]
   description: "Git-like data versioning: Data Generator writes to MinIO, Dremio uses Project Nessie as the versioned Iceberg catalog, enabling branches, tags, and time-travel queries — visualized in Metabase."
   objective: "Demonstrate MinIO + Nessie as a versioned data lake where every table mutation is tracked like a git commit — enabling safe schema evolution, rollback, and multi-branch experimentation"

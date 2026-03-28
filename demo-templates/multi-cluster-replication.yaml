@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Multi-Cluster with Replication"
-  category: "replication"
+  name: "Multi-cluster replication"
+  tier: advanced
+  category: infrastructure
   tags: ["replication", "multi-cluster", "disaster-recovery", "nvme", "hdd", "load-balancer", "monitoring"]
   description: "Two MinIO clusters — a high-performance NVMe primary and an HDD disaster recovery cluster — each fronted by NGINX, with async bucket replication from primary to DR. Monitored with Prometheus and Grafana."
   objective: "Demonstrate a production-grade primary-to-DR replication architecture with separate storage tiers and independent load balancers"
@@ -26,7 +27,8 @@ _template:
       description: "Check Prometheus for replication lag metrics to understand your RPO in practice"
 
 # Standard demo definition
-name: "Multi-Cluster with Replication"
+id: template-multi-cluster-replication
+name: "Multi-cluster replication"
 description: "Two MinIO clusters (NVMe + HDD) with NGINX load balancers and bucket replication between them. Prometheus + Grafana for monitoring."
 
 networks:

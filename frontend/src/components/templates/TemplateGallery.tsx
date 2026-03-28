@@ -20,9 +20,16 @@ const categoryColors: Record<string, string> = {
   infrastructure: "bg-blue-500/15 text-blue-400 border-blue-500/30",
   replication:    "bg-purple-500/15 text-purple-400 border-purple-500/30",
   analytics:      "bg-green-500/15 text-green-400 border-green-500/30",
+  lakehouse:      "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   ai:             "bg-pink-500/15 text-pink-400 border-pink-500/30",
   simulation:     "bg-violet-500/15 text-violet-400 border-violet-500/30",
   general:        "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+};
+
+const tierLabels: Record<string, string> = {
+  essentials: "Essentials",
+  advanced: "Advanced",
+  experience: "Experiences",
 };
 
 // Pill used both in cards and filter bar
@@ -63,6 +70,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   const [creating, setCreating] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [activeTier, setActiveTier] = useState<string>("essentials");
 
   // Editable fields in the detail dialog
   const [editDescription, setEditDescription] = useState("");
@@ -79,16 +87,29 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
       .finally(() => setLoading(false));
   }, []);
 
-  // Derive unique categories in insertion order
-  const categories = useMemo(() => {
+  // Derive unique tiers
+  const tiers = useMemo(() => {
     const seen = new Set<string>();
-    templates.forEach((t) => seen.add(t.category));
-    return Array.from(seen);
+    templates.forEach((t) => seen.add(t.tier || "essentials"));
+    return ["essentials", "advanced", "experience"].filter((t) => seen.has(t));
   }, [templates]);
 
+  // Filter by tier first
+  const tierFiltered = useMemo(
+    () => templates.filter((t) => (t.tier || "essentials") === activeTier),
+    [templates, activeTier]
+  );
+
+  // Derive unique categories within selected tier
+  const categories = useMemo(() => {
+    const seen = new Set<string>();
+    tierFiltered.forEach((t) => seen.add(t.category));
+    return Array.from(seen);
+  }, [tierFiltered]);
+
   const filtered = useMemo(
-    () => (activeCategory ? templates.filter((t) => t.category === activeCategory) : templates),
-    [templates, activeCategory]
+    () => (activeCategory ? tierFiltered.filter((t) => t.category === activeCategory) : tierFiltered),
+    [tierFiltered, activeCategory]
   );
 
   const handleCardClick = async (templateId: string) => {
@@ -237,6 +258,31 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
 
   return (
     <>
+      {/* ── Tier tabs ─────────────────────────────────────────────── */}
+      {tiers.length > 1 && (
+        <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Template tiers">
+          {tiers.map((tier) => {
+            const count = templates.filter((t) => (t.tier || "essentials") === tier).length;
+            return (
+              <button
+                key={tier}
+                role="tab"
+                aria-selected={activeTier === tier}
+                data-testid={`tier-tab-${tier === "experience" ? "experiences" : tier}`}
+                onClick={() => { setActiveTier(tier); setActiveCategory(null); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
+                  ${activeTier === tier
+                    ? "bg-primary/15 text-primary border border-primary/30"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+                  }`}
+              >
+                {tierLabels[tier] || tier} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Category filter bar ─────────────────────────────────────── */}
       {categories.length > 1 && (
         <div
@@ -255,7 +301,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 : "opacity-60 hover:opacity-90 hover:bg-muted/50"
               }`}
           >
-            All ({templates.length})
+            All ({tierFiltered.length})
           </button>
           {categories.map((cat) => (
             <CategoryPill
@@ -310,8 +356,13 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                   <div className="flex items-center gap-1.5">
                     <CategoryPill category={t.category} />
                     {(t as any).mode === "experience" && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-500/20 text-violet-300 border border-violet-500/30" data-testid="experience-badge">
                         Experience
+                      </span>
+                    )}
+                    {t.has_se_guide && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-500/15 text-teal-400 border border-teal-500/30" data-testid="se-guide-indicator">
+                        SE Guide
                       </span>
                     )}
                   </div>

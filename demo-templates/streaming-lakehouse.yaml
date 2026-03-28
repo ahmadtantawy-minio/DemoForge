@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Real-time Streaming Lakehouse"
-  category: "analytics"
+  name: "Streaming lakehouse"
+  tier: advanced
+  category: lakehouse
   tags: ["streaming", "redpanda", "kafka-connect", "s3-sink", "trino", "metabase", "lakehouse"]
   description: "Real-time streaming pipeline: Data Generator produces Kafka events, Redpanda brokers them, Kafka Connect S3 Sink lands them in MinIO, and Trino + Metabase deliver live SQL analytics."
   objective: "Demonstrate MinIO as the landing zone for real-time Kafka streams — events flow from producer to object storage with zero code via Kafka Connect S3 Sink"

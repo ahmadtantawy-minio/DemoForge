@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "BI Dashboard — AIStor Tables"
-  category: "analytics"
+  name: "AIStor Tables analytics"
+  tier: essentials
+  category: lakehouse
   tags: ["metabase", "bi", "aistor", "tables", "iceberg", "trino", "enterprise"]
   description: "The lightest possible BI stack: MinIO AIStor with native Iceberg Tables replaces the external catalog — data flows directly from generator to AIStor, Trino queries via the built-in /_iceberg endpoint, Metabase delivers dashboards. Only 4 components needed."
   objective: "Demonstrate MinIO AIStor Tables — native Iceberg V3 tables eliminate the need for external catalogs, simplifying the analytics stack from 7 components to 4"
@@ -25,6 +26,53 @@ _template:
       description: "Open Metabase Dashboard. Login with admin@demoforge.local / DemoForge123! — Trino is pre-configured with the AIStor catalog."
     - step: "Compare architectures"
       description: "Notice: no Iceberg REST container, no external catalog. MinIO AIStor handles both storage AND table management natively."
+  se_guide:
+    pitch: "Show how MinIO AIStor eliminates the external Iceberg catalog entirely — native Iceberg V3 tables built into the object store, cutting the analytics stack from 7 components to 4."
+    audience: "Data architects and platform engineers evaluating ways to simplify their lakehouse stack and reduce operational overhead."
+    talking_points:
+      - "Traditional lakehouses need a separate catalog service — Hive Metastore, Iceberg REST, or Glue — just to know where the tables are. AIStor removes that entirely."
+      - "MinIO AIStor exposes a native /_iceberg endpoint — Trino connects to it directly as a catalog, no external service required."
+      - "Fewer components means fewer failure points, fewer upgrades to coordinate, and less infrastructure to maintain in production."
+      - "AIStor is fully Iceberg V3 compatible — any engine that speaks Iceberg REST works: Trino, Spark, Flink, Dremio. No proprietary lock-in."
+      - "You go from 7 containers in the standard lakehouse to 4 here — data generator, AIStor, Trino, Metabase. That's it."
+    demo_flow:
+      - step: 1
+        action: "Click Deploy and wait for all 4 nodes to turn green."
+        say: "Notice only four components — no Iceberg REST catalog container, no Postgres backing it. AIStor is the catalog."
+      - step: 2
+        action: "Right-click Data Generator → Start Generating to push Parquet files to AIStor."
+        say: "Data lands in AIStor's raw-data bucket via the S3 API — exactly the same write path as any S3-compatible application."
+      - step: 3
+        action: "Open the Trino terminal. Run: SHOW CATALOGS; — point out the 'aistor' catalog entry."
+        say: "Trino is talking to AIStor's built-in /_iceberg endpoint. No external REST service, no additional container."
+      - step: 4
+        action: "Run: SELECT * FROM aistor.analytics.orders LIMIT 10;"
+        say: "Live query, data coming directly from object storage. The table metadata lives inside AIStor alongside the data."
+      - step: 5
+        action: "Open Metabase and show the pre-built dashboard."
+        say: "End-to-end analytics — four components, one storage system, zero ETL. This is the simplest possible lakehouse architecture."
+    common_questions:
+      - q: "What's the difference between this and the standard Lakehouse quickstart demo?"
+        a: "That demo uses a separate Iceberg REST catalog container backed by Postgres — seven components total. This demo uses AIStor's built-in catalog — four components. Same query results, less infrastructure."
+      - q: "Does AIStor support Iceberg time travel and schema evolution?"
+        a: "Yes — full Iceberg V3 feature set including time travel, schema evolution, and partition spec updates, all managed natively within AIStor."
+      - q: "Is this an enterprise-only feature?"
+        a: "AIStor Tables requires a MinIO AIStor enterprise license. It's available from RELEASE.2026-02-02 onward. The license is configured once in DemoForge Settings."
+      - q: "Can I migrate existing Iceberg tables from an external catalog into AIStor?"
+        a: "Yes — because the underlying data is just Parquet files on S3, you point AIStor at the existing data path and register the tables. No data movement required."
+    mc_commands:
+      - label: "List AIStor buckets"
+        command: "mc ls aistor/"
+        context: "Shows all buckets including raw-data where generator writes and the AIStor-managed table data."
+      - label: "Inspect Iceberg metadata"
+        command: "mc ls aistor/raw-data --recursive | grep metadata"
+        context: "Shows the Iceberg metadata files AIStor manages natively — no external catalog needed."
+      - label: "Check AIStor admin info"
+        command: "mc admin info aistor/"
+        context: "Shows AIStor cluster health, version, and Tables feature status."
+      - label: "View storage usage"
+        command: "mc du aistor/"
+        context: "Total storage consumed — useful for showing the compact footprint of the 4-component stack."
 
 # Standard demo definition
 id: template-bi-dashboard-aistor-tables

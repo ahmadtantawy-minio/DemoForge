@@ -48,20 +48,26 @@ def _template_summary(fname: str, raw: dict) -> dict:
 
     resources = meta.get("estimated_resources", {})
 
+    # Derive tier from mode or explicit field
+    mode = meta.get("mode", raw.get("mode", "standard"))
+    tier = meta.get("tier", "experience" if mode == "experience" else "essentials")
+
     return {
         "id": template_id,
         "name": meta.get("name", raw.get("name", "")),
         "description": meta.get("description", raw.get("description", "")),
+        "tier": tier,
         "category": meta.get("category", "general"),
         "tags": meta.get("tags", []),
         "objective": meta.get("objective", ""),
         "minio_value": meta.get("minio_value", ""),
-        "mode": meta.get("mode", raw.get("mode", "standard")),
+        "mode": mode,
         "component_count": node_count + len(raw.get("clusters", [])),
         "container_count": container_count,
         "estimated_resources": resources,
         "walkthrough": meta.get("walkthrough", []),
         "external_dependencies": meta.get("external_dependencies", []),
+        "has_se_guide": bool(meta.get("se_guide")),
     }
 
 
@@ -98,6 +104,19 @@ async def get_template(template_id: str):
     summary["schematics"] = raw.get("schematics", [])
     summary["sticky_notes"] = raw.get("sticky_notes", [])
     return summary
+
+
+@router.get("/api/templates/{template_id}/guide")
+async def get_template_guide(template_id: str):
+    """Return the SE guide for a template."""
+    raw = _load_template_raw(template_id)
+    if not raw:
+        raise HTTPException(404, "Template not found")
+    meta = raw.get("_template", {})
+    guide = meta.get("se_guide")
+    if not guide:
+        raise HTTPException(404, "No SE guide for this template")
+    return guide
 
 
 @router.patch("/api/templates/{template_id}")

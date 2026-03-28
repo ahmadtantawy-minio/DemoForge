@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Complete Analytics Platform"
-  category: "analytics"
+  name: "Complete analytics platform"
+  tier: advanced
+  category: lakehouse
   tags: ["streaming", "batch", "redpanda", "kafka-connect", "dremio", "trino", "nessie", "metabase", "prometheus", "lakehouse", "full-stack"]
   description: "Full analytics platform combining batch and streaming ingestion: batch Parquet loads and real-time Kafka streams both land in MinIO, Nessie provides versioned Iceberg catalog management, Dremio and Trino offer dual query engines, and Metabase delivers unified dashboards — with Prometheus monitoring throughout."
   objective: "Demonstrate MinIO as the unified storage layer for a complete production analytics platform — handling both batch and streaming workloads, versioned table management, dual query engines, and end-to-end observability"

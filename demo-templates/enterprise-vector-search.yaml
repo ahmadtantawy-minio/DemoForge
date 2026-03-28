@@ -1,6 +1,7 @@
 _template:
-  name: "Enterprise Vector Search"
-  category: "ai"
+  name: "Enterprise vector search (Milvus)"
+  tier: advanced
+  category: ai
   tags: ["milvus", "vector-db", "embeddings", "rag", "search"]
   description: "Milvus vector database with MinIO as primary storage. All vectors, indexes, and WAL segments live in MinIO."
   objective: "Demonstrate MinIO as the persistence layer for enterprise-scale vector search"

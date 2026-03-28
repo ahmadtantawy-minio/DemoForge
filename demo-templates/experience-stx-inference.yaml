@@ -1,5 +1,6 @@
 _template:
-  name: 'NVIDIA STX: The G3.5 Tier'
+  name: 'NVIDIA STX: inside inference memory'
+  tier: experience
   mode: experience
   category: simulation
   tags:

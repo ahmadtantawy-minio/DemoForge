@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Active-Active Replication"
-  category: "replication"
+  name: "Active-active replication"
+  tier: essentials
+  category: infrastructure
   tags: ["replication", "active-active", "bidirectional", "high-availability", "load-balancer", "monitoring"]
   description: "Two MinIO instances with bidirectional bucket replication, fronted by an NGINX load balancer and monitored with Prometheus and Grafana."
   objective: "Demonstrate MinIO's active-active replication where writes on either node are mirrored to the other, with no single point of failure"
@@ -24,6 +25,53 @@ _template:
       description: "Review replication lag and throughput metrics in Grafana to confirm replication health"
     - step: "Restore and resync"
       description: "Restart the stopped node and observe it catching up with any objects written during the outage"
+  se_guide:
+    pitch: "Show MinIO's bidirectional bucket replication — write to either node, data appears on both, with an NGINX load balancer for seamless failover. Active-active, no single point of failure."
+    audience: "Infrastructure architects and DevOps leads evaluating high-availability object storage for applications that can't tolerate data loss or read downtime."
+    talking_points:
+      - "Active-active means both MinIO nodes accept writes simultaneously — there's no primary/secondary, no write-only replica. Any client can read or write to either node."
+      - "Replication is asynchronous and runs continuously — objects written to MinIO-1 appear on MinIO-2 within seconds, and vice versa."
+      - "The NGINX load balancer distributes traffic across both nodes for throughput, and automatically removes a failed node from rotation — applications see zero downtime."
+      - "When a node comes back online after a failure, MinIO's built-in healing catches it up on everything written during the outage — no manual resync, no data loss."
+      - "This is the foundation of a geo-distributed storage architecture — same pattern works across data centers or cloud regions, just with higher latency between nodes."
+    demo_flow:
+      - step: 1
+        action: "Click Deploy and wait for both MinIO nodes, NGINX, Prometheus, and Grafana to go green."
+        say: "Two independent MinIO instances, bidirectional replication already configured, fronted by a single NGINX endpoint. Five containers total."
+      - step: 2
+        action: "Upload a file to the NGINX load balancer endpoint — use the MinIO-1 console or mc cp."
+        say: "This write goes through NGINX to one of the MinIO nodes. Let's see where it ends up."
+      - step: 3
+        action: "Open both MinIO consoles side by side. Show the uploaded object appearing on both nodes."
+        say: "That file landed on MinIO-1 and replicated to MinIO-2 within seconds — bidirectional sync, no configuration needed after setup."
+      - step: 4
+        action: "Right-click MinIO-1 → Stop. Upload another file through the load balancer."
+        say: "MinIO-1 is down. NGINX detects the failure and routes all traffic to MinIO-2. The application endpoint didn't change."
+      - step: 5
+        action: "Right-click MinIO-1 → Start. Open its console after ~10 seconds."
+        say: "MinIO-1 is back. It automatically heals — picking up all objects written while it was down. No manual intervention, no data gap."
+    common_questions:
+      - q: "What happens if both nodes get the same write at the same time — is there a conflict?"
+        a: "MinIO uses last-writer-wins semantics with a replication version tag. Conflicts are resolved automatically. In practice, load balancers route each request to one node, so true simultaneous conflicting writes are rare."
+      - q: "How much replication lag should we expect?"
+        a: "Typically under 1 second on a LAN. Across data centers it depends on network latency — MinIO replication is designed for eventual consistency, not synchronous mirroring."
+      - q: "Can we add more than two nodes to this topology?"
+        a: "For multi-site beyond two nodes, use MinIO's site replication feature — it's designed for 3+ sites with full IAM and bucket policy sync. This demo shows the two-site bidirectional case."
+      - q: "Does replication include bucket policies and IAM?"
+        a: "Bucket replication replicates objects and optionally delete markers. For full IAM and policy sync across sites, use MinIO site replication — there's a separate demo for that."
+    mc_commands:
+      - label: "Check replication status on MinIO-1"
+        command: "mc replicate ls minio-1/replicated-bucket"
+        context: "Shows the bidirectional replication rule configured on both nodes."
+      - label: "Upload a test object"
+        command: "mc cp testfile.txt minio-lb/replicated-bucket/testfile.txt"
+        context: "Write through the load balancer — then check both consoles to see it replicated."
+      - label: "Check replication backlog"
+        command: "mc replicate backlog minio-1/replicated-bucket"
+        context: "Shows pending replication queue — useful after a node recovers to watch it drain."
+      - label: "View replication metrics"
+        command: "mc admin prometheus metrics minio-1/"
+        context: "Raw metrics including replication latency and queue depth."
 
 # Standard demo definition
 id: active-active-replication

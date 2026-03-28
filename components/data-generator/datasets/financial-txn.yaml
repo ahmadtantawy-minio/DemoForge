@@ -209,3 +209,44 @@ metabase_dashboard:
     - {query: channel_breakdown, row: 8, col: 12, width: 6, height: 5}
     - {query: high_risk_accounts, row: 13, col: 0, width: 12, height: 5}
     - {query: country_heatmap, row: 13, col: 12, width: 6, height: 5}
+
+playbook:
+  - step: 1
+    title: "Verify transactions"
+    description: "Check that financial transaction data is arriving."
+    sql: "SELECT count(*) as total_txns FROM iceberg.default.financial_transactions"
+    expected: "Should return a positive count."
+  - step: 2
+    title: "Volume by transaction type"
+    description: "Aggregate transaction volume by type."
+    sql: |
+      SELECT txn_type, COUNT(*) as count,
+             ROUND(SUM(amount), 2) as total_volume,
+             ROUND(AVG(amount), 2) as avg_amount
+      FROM iceberg.default.financial_transactions
+      GROUP BY txn_type
+      ORDER BY total_volume DESC
+    expected: "Transaction volume breakdown by type."
+  - step: 3
+    title: "Large transactions"
+    description: "Find high-value transactions for compliance review."
+    sql: |
+      SELECT txn_id, txn_type, ROUND(amount, 2) as amount,
+             currency, status, txn_ts
+      FROM iceberg.default.financial_transactions
+      WHERE amount > 10000
+      ORDER BY amount DESC
+      LIMIT 20
+    expected: "Top 20 largest transactions."
+  - step: 4
+    title: "Daily summary"
+    description: "Daily transaction summary."
+    sql: |
+      SELECT date_trunc('day', txn_ts) as day,
+             COUNT(*) as txn_count,
+             ROUND(SUM(amount), 2) as total_volume
+      FROM iceberg.default.financial_transactions
+      GROUP BY date_trunc('day', txn_ts)
+      ORDER BY day DESC
+      LIMIT 7
+    expected: "Last 7 days of transaction activity."

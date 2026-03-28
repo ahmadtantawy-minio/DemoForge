@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Dremio Lakehouse"
-  category: "analytics"
+  name: "Multi-engine lakehouse (Dremio + Trino)"
+  tier: advanced
+  category: lakehouse
   tags: ["dremio", "iceberg", "trino", "metabase", "lakehouse", "parquet", "catalog"]
   description: "Dremio + MinIO lakehouse: structured Parquet data lands in MinIO, Iceberg REST manages the table catalog, and both Dremio and Trino query the same tables — Metabase delivers unified dashboards from both engines."
   objective: "Demonstrate MinIO as the shared lakehouse storage backing both Dremio and Trino through a common Iceberg catalog — two query engines, one data layer"

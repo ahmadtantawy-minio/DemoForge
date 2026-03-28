@@ -171,3 +171,41 @@ metabase_dashboard:
     - {query: device_breakdown, row: 3, col: 12, width: 6, height: 5}
     - {query: top_pages, row: 8, col: 0, width: 9, height: 5}
     - {query: conversion_funnel, row: 8, col: 9, width: 9, height: 5}
+
+playbook:
+  - step: 1
+    title: "Verify clickstream data"
+    description: "Check that clickstream events are arriving."
+    sql: "SELECT count(*) as total_events FROM iceberg.default.clickstream"
+    expected: "Should return a positive count."
+  - step: 2
+    title: "Events per page"
+    description: "Count events by page to see popular pages."
+    sql: |
+      SELECT page_url, COUNT(*) as events,
+             COUNT(DISTINCT session_id) as unique_sessions
+      FROM iceberg.default.clickstream
+      GROUP BY page_url
+      ORDER BY events DESC
+      LIMIT 15
+    expected: "Most visited pages with session counts."
+  - step: 3
+    title: "Conversion funnel"
+    description: "Track user journey through event types."
+    sql: |
+      SELECT event_type, COUNT(*) as count,
+             COUNT(DISTINCT user_id) as unique_users
+      FROM iceberg.default.clickstream
+      GROUP BY event_type
+      ORDER BY count DESC
+    expected: "Event type distribution showing funnel stages."
+  - step: 4
+    title: "Device breakdown"
+    description: "Analyze traffic by device type."
+    sql: |
+      SELECT device_type, COUNT(*) as events,
+             COUNT(DISTINCT user_id) as unique_users
+      FROM iceberg.default.clickstream
+      GROUP BY device_type
+      ORDER BY events DESC
+    expected: "Traffic distribution across desktop, mobile, tablet."

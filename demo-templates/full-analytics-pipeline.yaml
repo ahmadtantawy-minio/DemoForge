@@ -1,7 +1,8 @@
 # Template metadata
 _template:
-  name: "Full Analytics Pipeline"
-  category: "analytics"
+  name: "Full analytics pipeline (Spark)"
+  tier: advanced
+  category: lakehouse
   tags: ["lakehouse", "iceberg", "trino", "clickhouse", "spark", "hdfs", "s3", "real-time", "etl", "migration"]
   description: "Comprehensive analytics pipeline: HDFS as legacy source, Spark for ETL transformation, MinIO as the modern data lake, Iceberg REST catalog for table management, Trino for SQL analytics, and ClickHouse for real-time OLAP — all connected through S3."
   objective: "Demonstrate MinIO as the unified storage layer powering a complete modern data stack — replacing HDFS with a full migration and analytics workflow"

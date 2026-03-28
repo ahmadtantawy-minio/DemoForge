@@ -1,6 +1,7 @@
 _template:
-  name: "Automated ML Pipeline"
-  category: "ai"
+  name: "Automated ML pipeline"
+  tier: advanced
+  category: ai
   tags: ["airflow", "mlflow", "pipeline", "mlops", "automation"]
   description: "Airflow orchestrates end-to-end ML: data generation → feature engineering → model training → MLflow registration. All data in MinIO."
   objective: "Demonstrate MinIO as the backbone of an automated MLOps pipeline"

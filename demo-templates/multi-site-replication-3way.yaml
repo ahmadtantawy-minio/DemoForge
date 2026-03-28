@@ -1,6 +1,7 @@
 _template:
-  name: "Multi-Site Replication (3-Way)"
-  category: "replication"
+  name: "Three-way site replication"
+  tier: advanced
+  category: infrastructure
   tags: ["site-replication", "multi-site", "3-way", "bidirectional", "n-way", "replication"]
   description: "Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically."
   objective: "Demonstrate N-way site replication across 3 MinIO clusters with independent data ingestion per site"

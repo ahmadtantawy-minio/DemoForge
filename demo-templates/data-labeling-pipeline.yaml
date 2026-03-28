@@ -1,6 +1,7 @@
 _template:
-  name: "AI Data Labeling Pipeline"
-  category: "ai"
+  name: "AI data labeling pipeline"
+  tier: advanced
+  category: ai
   tags: ["label-studio", "labeling", "annotation", "training-data"]
   description: "Generate data into MinIO, label it in Label Studio, export annotations back to MinIO, train on labeled data."
   objective: "Demonstrate MinIO as the data backbone for AI data preparation"
