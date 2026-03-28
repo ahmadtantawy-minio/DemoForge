@@ -6,7 +6,111 @@ import random
 import time
 from collections import deque
 
+from dataclasses import dataclass, field as dc_field
+
 from app.config import settings
+
+
+# ---------------------------------------------------------------------------
+# GPU Time-Budget Tracker
+# ---------------------------------------------------------------------------
+
+@dataclass
+class GPUTickBudget:
+    """How a single GPU spent one tick of time."""
+    active_inference: float = 0.0
+    io_stall: float = 0.0
+    recompute: float = 0.0
+    idle: float = 0.0
+
+
+@dataclass
+class GPUTimeTracker:
+    """Tracks how each GPU spends its time over a rolling window.
+
+    Each tick, a GPU's time budget sums to 1.0:
+      active_inference + io_stall + recompute + idle = 1.0
+    """
+    window_size: int = 100
+    history: collections.deque = dc_field(default_factory=collections.deque)
+
+    def __post_init__(self):
+        self.history = collections.deque(maxlen=self.window_size)
+    remaining_stall_ticks: int = 0
+    remaining_recompute_ticks: int = 0
+
+    def record_tick(self, active_sessions: int, max_sessions: int):
+        budget = GPUTickBudget()
+        remaining = 1.0
+
+        # I/O stall: fraction depends on latency magnitude
+        # 3 ticks (accelerated) → ~4%, 15 ticks (standard) → ~12%, 50 (g4) → ~25%
+        if self.remaining_stall_ticks > 0:
+            stall_frac = min(0.3, self.remaining_stall_ticks * 0.012)
+            budget.io_stall = stall_frac
+            remaining -= stall_frac
+            self.remaining_stall_ticks = max(0, self.remaining_stall_ticks - 1)
+
+        # Recompute: heavier penalty — full recompute burns ~40% of tick
+        if self.remaining_recompute_ticks > 0:
+            recomp_frac = min(remaining, 0.4)
+            budget.recompute = recomp_frac
+            remaining -= recomp_frac
+            self.remaining_recompute_ticks = max(0, self.remaining_recompute_ticks - 1)
+
+        # Active inference from remaining capacity
+        if remaining > 0 and max_sessions > 0 and active_sessions > 0:
+            budget.active_inference = remaining * min(1.0, active_sessions / max_sessions)
+            budget.idle = remaining - budget.active_inference
+        else:
+            budget.idle = remaining
+
+        self.history.append(budget)
+
+    def register_io_stall(self, ticks: int):
+        # Cap: GPU can only have one outstanding stall at a time
+        self.remaining_stall_ticks = max(self.remaining_stall_ticks, ticks)
+
+    def register_recompute(self, ticks: int):
+        # Cap: only the longest recompute matters
+        self.remaining_recompute_ticks = max(self.remaining_recompute_ticks, ticks)
+
+    def reset(self):
+        self.history.clear()
+        self.remaining_stall_ticks = 0
+        self.remaining_recompute_ticks = 0
+
+    def utilization(self) -> dict:
+        if not self.history:
+            return {"active": 0, "io_stall": 0, "recompute": 0, "idle": 100}
+        n = len(self.history)
+        raw_active = sum(b.active_inference for b in self.history) / n * 100
+        raw_stall = sum(b.io_stall for b in self.history) / n * 100
+        raw_recomp = sum(b.recompute for b in self.history) / n * 100
+        raw_idle = sum(b.idle for b in self.history) / n * 100
+        # Normalize to ensure sum = 100 after rounding
+        total = raw_active + raw_stall + raw_recomp + raw_idle
+        if total > 0:
+            scale = 100.0 / total
+            raw_active *= scale
+            raw_stall *= scale
+            raw_recomp *= scale
+            raw_idle *= scale
+        # Round with remainder correction
+        vals = [raw_active, raw_stall, raw_recomp, raw_idle]
+        rounded = [int(v) for v in vals]
+        remainder = 100 - sum(rounded)
+        # Distribute remainder to largest fractional parts
+        fracs = [(v - int(v), i) for i, v in enumerate(vals)]
+        fracs.sort(reverse=True)
+        for j in range(remainder):
+            rounded[fracs[j][1]] += 1
+        return {
+            "active": max(0, rounded[0]),
+            "io_stall": max(0, rounded[1]),
+            "recompute": max(0, rounded[2]),
+            "idle": max(0, rounded[3]),
+        }
 from app.models import (
     SimConfig, SimStatus, TierState, GPUTierState, SharedTierState, SessionState,
 )
@@ -55,6 +159,12 @@ class SimulationEngine:
         # Rolling event history (last 15 events with reason/policy)
         self._event_history: deque[dict] = deque(maxlen=15)
 
+        # Per-GPU time-budget trackers
+        self.gpu_trackers = {
+            gpu_id: GPUTimeTracker(window_size=100)
+            for gpu_id in GPU_IDS
+        }
+
         self._init_components()
 
     def _effective_g35_mode(self) -> str:
@@ -97,10 +207,19 @@ class SimulationEngine:
             bucket=settings.kv_bucket_cold,
         )
 
+    async def _safe_exec(self, loop, fn, *args, timeout=3.0):
+        """Run a blocking function in executor with timeout — never blocks the tick loop."""
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, fn, *args), timeout=timeout
+            )
+        except (asyncio.TimeoutError, Exception):
+            return None
+
     async def ensure_buckets(self) -> None:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self.minio_g35.ensure_bucket)
-        await loop.run_in_executor(None, self.minio_g4.ensure_bucket)
+        await self._safe_exec(loop, self.minio_g35.ensure_bucket, timeout=5.0)
+        await self._safe_exec(loop, self.minio_g4.ensure_bucket, timeout=5.0)
 
     async def start(self, config: SimConfig | None = None) -> None:
         async with self._lock:
@@ -130,12 +249,20 @@ class SimulationEngine:
             self.config = config
             self._apply_g35_mode()
 
+    async def update_config_partial(self, updates: dict) -> None:
+        """Merge partial config updates without resetting unmentioned fields."""
+        async with self._lock:
+            for key, val in updates.items():
+                if hasattr(self.config, key):
+                    setattr(self.config, key, val)
+            self._apply_g35_mode()
+
     async def reset(self) -> None:
         await self.stop()
         async with self._lock:
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self.minio_g35.delete_all)
-            await loop.run_in_executor(None, self.minio_g4.delete_all)
+            await self._safe_exec(loop, self.minio_g35.delete_all, timeout=5.0)
+            await self._safe_exec(loop, self.minio_g4.delete_all, timeout=5.0)
             self.block_manager.clear()
             self.session_manager.clear()
             self._tick = 0
@@ -149,6 +276,8 @@ class SimulationEngine:
             self._cache_misses = 0
             self._tick_events.clear()
             self._all_events.clear()
+            for t in self.gpu_trackers.values():
+                t.reset()
 
     async def get_state(self) -> SimStatus:
         async with self._lock:
@@ -183,6 +312,7 @@ class SimulationEngine:
                     block_count=tier_map["G3"]["block_count"],
                     latency_ms=tier_map["G3"]["latency_ms"],
                 ),
+                utilization=self.gpu_trackers[gpu_id].utilization(),
             ))
 
         # Build shared tier state
@@ -224,12 +354,15 @@ class SimulationEngine:
         def clamp(val: float) -> float:
             return min(100.0, max(0.0, val))
 
-        # Per-GPU utilization: G1.used / G1.capacity * 100
+        # Per-GPU utilization from time-budget tracker
+        gpu_util_breakdowns = {}
+        for gpu_id in GPU_IDS:
+            gpu_util_breakdowns[gpu_id] = self.gpu_trackers[gpu_id].utilization()
+
+        # Effective utilization = active inference only
         gpu_utils = {}
         for gpu_id in GPU_IDS:
-            g1 = self.block_manager.gpu_tiers[gpu_id]["G1"]
-            util = (g1.used_gb / g1.capacity_gb * 100) if g1.capacity_gb > 0 else 0.0
-            gpu_utils[gpu_id] = clamp(util)
+            gpu_utils[gpu_id] = float(gpu_util_breakdowns[gpu_id]["active"])
 
         # Cache hit rate from counters
         total_lookups = self._cache_hits + self._cache_misses
@@ -237,16 +370,17 @@ class SimulationEngine:
             (self._cache_hits / total_lookups * 100) if total_lookups > 0 else 100.0
         )
 
-        # Save current tick's promotions to rolling window
-        for lat in self._promotion_latency_ticks:
-            self._rolling_ttft.append(lat)
-
+        # Rolling TTFT is accumulated in _tick_once(), just read here
         avg_promo = (
             sum(self._rolling_ttft) / len(self._rolling_ttft)
             if self._rolling_ttft
             else 0.0
         )
-        ttft = avg_promo * 200  # ticks x 200ms base
+        # TTFT = base LLM prefill/decode (~30ms) + I/O stall from tier promotion
+        # I/O component: ticks × scale factor per tier latency
+        io_latency_ms = avg_promo * 200
+        base_llm_ms = 30.0  # prefill + first token decode
+        ttft = base_llm_ms + io_latency_ms
 
         now = time.monotonic()
         elapsed = now - self._last_rate_ts
@@ -256,12 +390,14 @@ class SimulationEngine:
             else 0.0
         )
 
+        combined_effective = round(
+            (gpu_utils.get("gpu-a", 0.0) + gpu_utils.get("gpu-b", 0.0)) / 2
+        )
+
         metrics_dict = {
-            "gpu_a_utilization": round(gpu_utils.get("gpu-a", 0.0), 4),
-            "gpu_b_utilization": round(gpu_utils.get("gpu-b", 0.0), 4),
-            "gpu_utilization": round(
-                (gpu_utils.get("gpu-a", 0.0) + gpu_utils.get("gpu-b", 0.0)) / 2, 4
-            ),
+            "gpu_a_utilization": gpu_util_breakdowns["gpu-a"],
+            "gpu_b_utilization": gpu_util_breakdowns["gpu-b"],
+            "combined_effective_util": combined_effective,
             "avg_ttft_ms": round(ttft, 1),
             "cache_hit_rate": round(hit_rate, 4),
             "s3_ops_per_sec": round(ops_rate, 2),
@@ -301,13 +437,19 @@ class SimulationEngine:
             interval = 0.2 / max(self.config.speed, 0.1)
             await asyncio.sleep(interval)
 
-            async with self._lock:
-                await self._tick_once(loop)
+            try:
+                async with self._lock:
+                    await self._tick_once(loop)
+                    state = self._build_status()
+            except Exception:
+                continue
 
-            # Broadcast to WebSocket clients
-            state = self._build_status()
-            sim_metrics.update_metrics(state.model_dump())
-            await self._broadcast(state)
+            # Broadcast to WebSocket clients (outside lock — state is immutable)
+            try:
+                sim_metrics.update_metrics(state.model_dump())
+                await self._broadcast(state)
+            except Exception:
+                pass
 
     async def _tick_once(self, loop: asyncio.AbstractEventLoop) -> None:
         self._tick += 1
@@ -379,8 +521,8 @@ class SimulationEngine:
                 block_tier = self.block_manager.shared_tiers[to_tier]
                 block = block_tier.blocks.get(session_id)
                 if block:
-                    await loop.run_in_executor(
-                        None,
+                    await self._safe_exec(
+                        loop,
                         backend.put_kv_block,
                         session_id,
                         self._tick,
@@ -405,6 +547,7 @@ class SimulationEngine:
                 self._recomputations += 1
                 self._cache_misses += 1
                 self._promotion_latency_ticks.append(50)
+                self.gpu_trackers[s.gpu_id].register_recompute(50)
                 sim_metrics.recomputations_total.inc()
                 continue
 
@@ -420,8 +563,8 @@ class SimulationEngine:
             # S3 read for shared tiers
             if current_tier in ("G3.5", "G4"):
                 backend = self.minio_g35 if current_tier == "G3.5" else self.minio_g4
-                await loop.run_in_executor(
-                    None,
+                await self._safe_exec(
+                    loop,
                     backend.get_kv_block,
                     s.id,
                     self._tick,
@@ -444,6 +587,7 @@ class SimulationEngine:
                         reason = "Cross-GPU via G3.5 (NVMe-oF/RDMA, ~500μs)"
                         policy = "Dynamo router → NIXL RDMA from shared G3.5"
                     self._promotion_latency_ticks.append(ticks)
+                    self.gpu_trackers[target_gpu].register_io_stall(ticks)
                     self._tick_events.append({
                         "type": "PROMOTE_CROSS_GPU",
                         "session": s.id,
@@ -460,6 +604,7 @@ class SimulationEngine:
                     self._promotion_latency_ticks.append(50)
                     self._recomputations += 1
                     self._cache_misses += 1
+                    self.gpu_trackers[target_gpu].register_recompute(50)
                     sim_metrics.recomputations_total.inc()
                     self._tick_events.append({
                         "type": "RECOMPUTE_CROSS_GPU",
@@ -476,8 +621,10 @@ class SimulationEngine:
                 if ticks == 50:
                     self._recomputations += 1
                     self._cache_misses += 1
+                    self.gpu_trackers[target_gpu].register_recompute(ticks)
                     sim_metrics.recomputations_total.inc()
-                elif current_tier == "G1":
+                elif ticks > 0:
+                    self.gpu_trackers[target_gpu].register_io_stall(ticks)
                     self._cache_hits += 1
                 else:
                     self._cache_hits += 1
@@ -485,16 +632,31 @@ class SimulationEngine:
             # Update session gpu_id if migrated
             s.gpu_id = target_gpu
 
+        # 6.5. Accumulate promotion latencies into rolling TTFT window
+        for lat in self._promotion_latency_ticks:
+            self._rolling_ttft.append(lat)
+
         # 7. Free blocks for terminated sessions
         for sid in terminated_ids:
             current_tier = self.block_manager.get_block_tier(sid)
             if current_tier in ("G3.5", "G4"):
                 backend = self.minio_g35 if current_tier == "G3.5" else self.minio_g4
-                await loop.run_in_executor(None, backend.delete_session, sid)
+                await self._safe_exec(loop, backend.delete_session, sid)
                 self._s3_ops_count += 1
             self.block_manager.free(sid)
 
-        # 8. Update S3 ops rate snapshot
+        # 8. Record GPU time budgets for this tick
+        for gpu_id in GPU_IDS:
+            tracker = self.gpu_trackers[gpu_id]
+            # Count active sessions on this GPU's G1 (doing inference)
+            g1 = self.block_manager.gpu_tiers[gpu_id]["G1"]
+            active_on_gpu = g1.block_count
+            # Max sessions = G1 capacity / avg KV size
+            avg_kv = (self.config.context_tokens / 32768) * 0.5  # ~0.5 GB at 32K
+            max_sessions = int(g1.capacity_gb / avg_kv) if avg_kv > 0 else 10
+            tracker.record_tick(active_on_gpu, max(1, max_sessions))
+
+        # 9. Update S3 ops rate snapshot
         now = time.monotonic()
         if now - self._last_rate_ts >= 1.0:
             self._last_s3_ops_count = self._s3_ops_count

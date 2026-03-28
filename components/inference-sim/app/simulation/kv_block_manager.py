@@ -293,7 +293,6 @@ class KVBlockManager:
             block = tier.blocks.get(session_id)
             if block:
                 block.idle_ticks += 1
-                block.last_access = time.time()
 
     def get_block_tier(self, session_id: str) -> str | None:
         loc = self._location.get(session_id)

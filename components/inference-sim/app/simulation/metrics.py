@@ -49,10 +49,15 @@ def update_metrics(sim_state: dict) -> None:
     """Update all gauges from a sim_state dict produced by SimulationEngine.get_state()."""
     metrics = sim_state.get("metrics", {})
 
-    gpu_utilization.set(metrics.get("gpu_utilization", 0) / 100.0)
-    gpu_a_utilization.set(metrics.get("gpu_a_utilization", 0) / 100.0)
-    gpu_b_utilization.set(metrics.get("gpu_b_utilization", 0) / 100.0)
-    ttft_ms.set(metrics.get("ttft_ms", 0))
+    # GPU utilization is now a dict {active, io_stall, recompute, idle}
+    gpu_a = metrics.get("gpu_a_utilization", {})
+    gpu_b = metrics.get("gpu_b_utilization", {})
+    eff_a = (gpu_a.get("active", 0) if isinstance(gpu_a, dict) else gpu_a) or 0
+    eff_b = (gpu_b.get("active", 0) if isinstance(gpu_b, dict) else gpu_b) or 0
+    gpu_a_utilization.set(eff_a / 100.0)
+    gpu_b_utilization.set(eff_b / 100.0)
+    gpu_utilization.set((eff_a + eff_b) / 200.0)
+    ttft_ms.set(metrics.get("avg_ttft_ms", 0))
     cache_hit_rate.set(metrics.get("cache_hit_rate", 0) / 100.0)
     s3_ops_per_sec.set(metrics.get("s3_ops_per_sec", 0))
     cross_gpu_migrations_gauge.set(metrics.get("cross_gpu_migrations", 0))

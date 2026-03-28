@@ -25,6 +25,7 @@ class GPUTierState(BaseModel):
     g1: TierState
     g2: TierState
     g3: TierState
+    utilization: dict | None = None
 
 
 class SharedTierState(BaseModel):

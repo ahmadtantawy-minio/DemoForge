@@ -31,9 +31,9 @@ class MinIOBackend:
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 config=Config(
-                    connect_timeout=3,
-                    read_timeout=10,
-                    retries={"max_attempts": 1},
+                    connect_timeout=2,
+                    read_timeout=3,
+                    retries={"max_attempts": 0},
                 ),
             )
             self._connected = True

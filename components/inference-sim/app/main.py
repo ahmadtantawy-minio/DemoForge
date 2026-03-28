@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,8 +58,9 @@ async def sim_stop() -> SimStatus:
 
 
 @app.post("/sim/config", response_model=SimStatus)
-async def sim_config(config: SimConfig) -> SimStatus:
-    await engine.update_config(config)
+async def sim_config(request: Request) -> SimStatus:
+    raw = await request.json()
+    await engine.update_config_partial(raw)
     return await engine.get_state()
 
 

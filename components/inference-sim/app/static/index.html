@@ -55,8 +55,41 @@
     white-space: nowrap;
   }
   .header-title span { color: var(--g35); }
-  .header-right {
+  .header-center {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin-left: auto;
+  }
+  .header-guide-btn {
+    background: rgba(29,158,117,0.1);
+    border: 1px solid rgba(29,158,117,0.3);
+    color: #1D9E75;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .header-guide-btn:hover { background: rgba(29,158,117,0.2); border-color: rgba(29,158,117,0.5); }
+  .header-action-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+  .header-start { background: #1D9E75; color: white; }
+  .header-start:hover { background: #178a66; }
+  .header-start.running { background: #ef4444; }
+  .header-start.running:hover { background: #dc2626; }
+  .header-reset { background: rgba(255,255,255,0.06); color: var(--text-secondary); border: 1px solid var(--border); }
+  .header-reset:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+  .header-right {
+    margin-left: 16px;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -481,7 +514,148 @@
   .graph-toggle-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 14px; color: var(--text-secondary); transition: all 0.2s; }
   .graph-toggle-btn:hover { border-color: var(--g35); color: var(--text); }
   .graph-toggle-btn.active { background: rgba(29,158,117,0.15); border-color: var(--g35); color: var(--g35); }
+  .chart-legend { display:flex; flex-wrap:wrap; gap:6px 10px; margin-top:6px; justify-content:center; }
+  .chart-toggle { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--text-secondary); cursor:pointer; user-select:none; }
+  .chart-toggle input { display:none; }
+  .chart-swatch { width:10px; height:3px; background:var(--clr); border-radius:1px; opacity:0.4; transition:opacity 0.2s; }
+  .chart-toggle input:checked ~ .chart-swatch { opacity:1; }
+  .chart-toggle:hover { color:var(--text); }
   #metricsCanvas { width: 100%; height: 200px; background: rgba(0,0,0,0.2); border-radius: 6px; }
+
+  /* GPU UTILIZATION STACKED BARS */
+  .gpu-util-section { margin-bottom: 4px; }
+  .gpu-util-header { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; color: rgba(255,255,255,0.5); margin-bottom: 10px; }
+  .gpu-util-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .gpu-util-label { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.6); width: 42px; flex-shrink: 0; }
+  .gpu-util-bar-track { flex: 1; height: 20px; background: rgba(255,255,255,0.04); border-radius: 4px; display: flex; overflow: hidden; }
+  .gpu-util-segment { height: 100%; transition: width 0.5s ease; min-width: 0; }
+  .segment-active { background: #1D9E75; }
+  .segment-stall { background: #EF9F27; }
+  .segment-recompute { background: #E85D24; }
+  .gpu-util-value { font-size: 13px; font-weight: 700; width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+  .gpu-util-legend { display: flex; gap: 12px; margin-top: 6px; margin-bottom: 8px; }
+  .legend-item { font-size: 9px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .dot-active { background: #1D9E75; } .dot-stall { background: #EF9F27; } .dot-recompute { background: #E85D24; } .dot-idle { background: rgba(255,255,255,0.08); }
+  .gpu-util-effective { font-size: 11px; color: rgba(255,255,255,0.5); padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 4px; }
+  .gpu-util-note { font-size: 9px; color: rgba(255,255,255,0.3); }
+  .val-good { color: #1D9E75; } .val-warn { color: #EF9F27; } .val-bad { color: #E85D24; }
+
+  /* G4 STRESS INDICATOR */
+  .g4-stressed .fill-bar-fill {
+    background: repeating-linear-gradient(-45deg, var(--g4), var(--g4) 8px, rgba(232,93,36,0.3) 8px, rgba(232,93,36,0.3) 16px) !important;
+    animation: g4-pulse 2s ease-in-out infinite;
+  }
+  @keyframes g4-pulse { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; } }
+  .tier-stress-label { font-size: 9px; color: #EF9F27; font-weight: 600; }
+
+  /* MODE COMPARISON STRIP */
+  #mode-comparison { border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; margin-top: 12px; }
+  .cmp-title { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; color: rgba(255,255,255,0.5); margin-bottom: 10px; }
+  .cmp-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .cmp-col { padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); }
+  .cmp-col.active { border-color: rgba(29,158,117,0.4); background: rgba(29,158,117,0.05); }
+  .cmp-col.empty { opacity: 0.35; }
+  .cmp-col-hdr { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.7); margin-bottom: 8px; }
+  .cmp-live { font-size: 9px; color: #1D9E75; animation: live-blink 1.5s infinite; }
+  @keyframes live-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .cmp-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; color: rgba(255,255,255,0.4); }
+  .cmp-row span:last-child { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cmp-highlight { padding: 4px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 4px; }
+  .via-pill { font-size: 9px; font-family: monospace; padding: 2px 5px; background: rgba(255,255,255,0.04); border-radius: 3px; }
+  .cmp-empty { font-size: 10px; color: rgba(255,255,255,0.25); text-align: center; padding: 24px 8px; font-style: italic; }
+
+  /* CROSS-GPU PATH DIAGRAM */
+  .cgp-hdr { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; color: rgba(255,255,255,0.5); margin-bottom: 4px; margin-top: 12px; }
+  .cgp-scenario { font-size: 10px; color: rgba(255,255,255,0.35); margin-bottom: 10px; }
+  .cgp-diagram { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 0; }
+  .cgp-node { text-align: center; }
+  .cgp-lbl { font-size: 9px; color: rgba(255,255,255,0.45); margin-bottom: 3px; }
+  .cgp-box { width: 40px; height: 40px; border: 1.5px solid rgba(232,93,36,0.4); background: rgba(232,93,36,0.08); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #E85D24; }
+  .cgp-minio { border-color: rgba(29,158,117,0.5); background: rgba(29,158,117,0.12); color: #1D9E75; width: 48px; }
+  .cgp-promoted { border-color: rgba(29,158,117,0.6); background: rgba(29,158,117,0.15); color: #1D9E75; }
+  .cgp-cold { border-color: rgba(136,135,128,0.4); background: rgba(136,135,128,0.1); color: #888780; }
+  .cgp-recomp { border-color: rgba(232,93,36,0.6); background: rgba(232,93,36,0.2); animation: recomp-flash 1s ease-in-out infinite; }
+  @keyframes recomp-flash { 0%,100% { background: rgba(232,93,36,0.15); } 50% { background: rgba(232,93,36,0.35); } }
+  .cgp-det { font-size: 8px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+  .cgp-det-bad { color: #E85D24; font-weight: 600; font-size: 9px; }
+  .cgp-flow { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .cgp-step { font-size: 8px; color: rgba(255,255,255,0.35); }
+  .cgp-arr { font-size: 14px; color: rgba(255,255,255,0.25); font-family: monospace; }
+  .cgp-arr-bad { color: #E85D24; }
+  .cgp-lat { text-align: center; font-size: 10px; color: rgba(29,158,117,0.8); font-family: monospace; margin: 4px 0; }
+  .cgp-res { font-size: 10px; font-weight: 500; text-align: center; padding: 5px 8px; border-radius: 4px; margin-top: 6px; }
+  .cgp-res-good { color: #1D9E75; background: rgba(29,158,117,0.08); }
+  .cgp-res-bad { color: #E85D24; background: rgba(232,93,36,0.08); }
+
+  /* GUIDED DEMO */
+  .guided-launcher { margin-bottom: 12px; }
+  .guided-btn { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: linear-gradient(135deg, rgba(29,158,117,0.12), rgba(29,158,117,0.04)); border: 1px solid rgba(29,158,117,0.3); border-radius: 8px; cursor: pointer; transition: all 0.2s; text-align: left; color: inherit; }
+  .guided-btn:hover { border-color: rgba(29,158,117,0.5); background: linear-gradient(135deg, rgba(29,158,117,0.18), rgba(29,158,117,0.06)); }
+  .guided-btn-icon { font-size: 20px; color: #1D9E75; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: rgba(29,158,117,0.15); border-radius: 50%; }
+  .guided-btn-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+  .guided-btn-desc { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .guided-progress-track { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,0.05); z-index: 1000; display: none; }
+  .guided-progress-bar { height: 100%; background: #1D9E75; transition: width 0.5s ease; width: 0%; }
+  .guided-card-container { position: fixed; bottom: 20px; right: 20px; display: none; z-index: 950; }
+  .gc-card { background: #1a1a2e; border: 1px solid rgba(29,158,117,0.3); border-radius: 12px; padding: 20px 24px; max-width: 420px; width: 420px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); animation: gc-card-in 0.3s ease-out; cursor: default; }
+  .gc-drag-handle { cursor: grab; padding: 4px 0 8px; display: flex; justify-content: space-between; align-items: center; }
+  .gc-drag-handle:active { cursor: grabbing; }
+  .gc-drag-dots { width: 24px; height: 4px; background: radial-gradient(circle, rgba(255,255,255,0.2) 1px, transparent 1px); background-size: 6px 4px; }
+  @keyframes gc-card-in { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .gc-card.gc-finale { border-color: rgba(29,158,117,0.4); background: linear-gradient(135deg, #1a1a2e, rgba(29,158,117,0.08)); }
+  .gc-step-indicator { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+  .gc-icon { font-size: 28px; margin-bottom: 12px; }
+  .gc-title { font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.9); margin-bottom: 12px; }
+  .gc-body { font-size: 13px; line-height: 1.6; color: rgba(255,255,255,0.6); }
+  .gc-body p { margin-bottom: 8px; }
+  .gc-controls { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .gc-skip { font-size: 10px; color: rgba(255,255,255,0.3); background: none; border: none; padding: 4px 8px; cursor: pointer; }
+  .gc-skip:hover { color: rgba(255,255,255,0.5); }
+  .gc-next { font-size: 11px; color: #1D9E75; background: rgba(29,158,117,0.15); border: 1px solid rgba(29,158,117,0.3); padding: 6px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  .gc-next:hover { background: rgba(29,158,117,0.25); }
+  .gc-gain { color: #1D9E75; font-weight: 700; font-size: 12px; }
+  .gc-gain-bad { color: #E85D24; }
+  .gc-step-indicator { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 1px; }
+  .gc-running-badge { background: rgba(0,0,0,0.7); border: 1px solid rgba(29,158,117,0.3); border-radius: 20px; padding: 8px 16px; font-size: 12px; color: rgba(255,255,255,0.7); display: flex; align-items: center; gap: 8px; backdrop-filter: blur(8px); }
+  .gc-running-dot { width: 8px; height: 8px; border-radius: 50%; background: #1D9E75; animation: live-blink 1s infinite; }
+  .guided-highlight-layer { position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 960; }
+  .guided-ring { position: fixed; border: 2px solid #1D9E75; border-radius: 6px; animation: ring-pulse 1.5s ease-in-out infinite; pointer-events: none; }
+  @keyframes ring-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(29,158,117,0.3); } 50% { box-shadow: 0 0 0 6px rgba(29,158,117,0); } }
+  .guided-tooltip { position: fixed; background: rgba(0,0,0,0.85); color: rgba(255,255,255,0.8); font-size: 11px; padding: 6px 10px; border-radius: 4px; max-width: 240px; white-space: normal; backdrop-filter: blur(8px); border: 1px solid rgba(29,158,117,0.2); animation: tooltip-in 0.2s ease-out; }
+  @keyframes tooltip-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* SE ONBOARDING TOUR */
+  .tour-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2000; }
+  .tour-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.65); }
+  .tour-spotlight { position: fixed; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.65); z-index: 2001; pointer-events: none; border: 2px solid rgba(29,158,117,0.5); }
+  .tour-card { position: fixed; background: #1e1e32; border: 1px solid rgba(29,158,117,0.5); border-radius: 10px; padding: 20px 24px; max-width: 340px; z-index: 2002; box-shadow: 0 12px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(29,158,117,0.2); animation: tour-card-in 0.25s ease-out; }
+  @keyframes tour-card-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  .tour-step-count { font-size: 10px; color: rgba(29,158,117,0.6); margin-bottom: 8px; font-weight: 600; }
+  .tour-title { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); margin-bottom: 8px; }
+  .tour-body { font-size: 12px; line-height: 1.6; color: rgba(255,255,255,0.7); }
+  .tour-nav { display: flex; justify-content: space-between; margin-top: 16px; }
+  .tour-prev, .tour-next-btn, .tour-done { font-size: 11px; padding: 6px 14px; border-radius: 4px; cursor: pointer; border: none; }
+  .tour-prev { background: none; color: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.1); }
+  .tour-next-btn { background: rgba(29,158,117,0.2); color: #1D9E75; border: 1px solid rgba(29,158,117,0.3); }
+  .tour-done { background: #1D9E75; color: white; }
+  .tour-arrow { position: fixed; width: 12px; height: 12px; z-index: 2002; }
+  .tour-arrow-right { border-left: 8px solid rgba(29,158,117,0.5); border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+  .tour-arrow-left { border-right: 8px solid rgba(29,158,117,0.5); border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+  .tour-arrow-top { border-bottom: 8px solid rgba(29,158,117,0.5); border-left: 6px solid transparent; border-right: 6px solid transparent; }
+  .tour-arrow-bottom { border-top: 8px solid rgba(29,158,117,0.5); border-left: 6px solid transparent; border-right: 6px solid transparent; }
+  /* help-btn moved to header as headerGuideBtn */
+
+  /* G4 INSIGHT */
+  .g4-insight { margin-top: 8px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; animation: insight-in 0.3s ease-out; }
+  @keyframes insight-in { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 300px; } }
+  .g4-insight-header { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5); margin-bottom: 8px; }
+  .g4-insight-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .g4-insight-col { padding: 6px 8px; border-radius: 4px; background: rgba(255,255,255,0.02); }
+  .g4-insight-proto { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.6); margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px; }
+  .g4-insight-row { display: flex; justify-content: space-between; font-size: 10px; padding: 2px 0; color: rgba(255,255,255,0.4); }
+  .g4-insight-row span:last-child { font-size: 9px; }
+  .g4-insight-note { font-size: 10px; color: rgba(255,255,255,0.35); margin-top: 8px; line-height: 1.5; font-style: italic; }
 
   /* FOOTER NOTE */
   .footer-note { text-align: center; font-size: 10px; color: var(--text-secondary); padding: 12px 0; opacity: 0.6; }
@@ -697,9 +871,21 @@
 </head>
 <body>
 
+<!-- Guided demo overlay layers -->
+<div id="guided-progress-track" class="guided-progress-track">
+  <div id="guided-progress" class="guided-progress-bar"></div>
+</div>
+<div id="guided-card" class="guided-card-container"></div>
+<div id="guided-highlight" class="guided-highlight-layer"></div>
+
 <!-- HEADER -->
 <div class="header">
   <div class="header-title">NVIDIA STX: <span>The G3.5 Tier</span></div>
+  <div class="header-center">
+    <button class="header-guide-btn" id="headerGuideBtn">How it works</button>
+    <button class="header-action-btn header-start" id="btnStart">Start</button>
+    <button class="header-action-btn header-reset" id="btnReset">Reset</button>
+  </div>
   <div class="header-right">
     <div class="tick-counter" id="tickCounter">TICK 0</div>
     <div class="status-badge disconnected" id="statusBadge">
@@ -782,9 +968,9 @@
     <div class="shared-card" id="sharedCard">
       <div class="shared-header">Shared Storage (Pod-Level)</div>
       <div class="shared-subtitle">MinIO object storage accessible by all GPUs in the pod</div>
-      <div class="cmx-warning" id="cmxWarning">Warning: CMX DISABLED -- G3.5 tier bypassed. KV cache cannot be shared between GPUs. Evicted contexts must be recomputed from scratch.</div>
+      <div class="cmx-warning" id="cmxWarning">G3.5 bypassed. KV cache evicts to G4 (~50-200ms retrieval). Cross-GPU returns trigger full recomputation. Same-GPU returns from G4 add significant I/O stall.</div>
 
-      <div class="tier-row">
+      <div class="tier-row" id="g35-tier-row">
         <div class="tier-label">
           <div><span class="tier-name" style="color:var(--g35)">G3.5</span><span class="tier-desc">MinIO CMX (Context Memory)</span></div>
           <div class="tier-capacity" id="shared-g35-cap">0 / 0 GB</div>
@@ -795,13 +981,37 @@
         <div class="shared-note" id="sharedNote">Blocks from both GPUs land here</div>
       </div>
 
-      <div class="tier-row" style="margin-top:12px">
+      <div class="tier-row" id="tier-bar-g4" style="margin-top:12px">
         <div class="tier-label">
           <div><span class="tier-name" style="color:var(--g4)">G4</span><span class="tier-desc">S3 Cold Storage</span></div>
           <div class="tier-capacity" id="shared-g4-cap">0 / 0 GB</div>
         </div>
         <div class="fill-bar-track" id="shared-g4-track">
           <div class="fill-bar-fill g4" id="shared-g4-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
+        </div>
+      </div>
+
+      <!-- G4 Storage Insight (shows when G4 stressed) -->
+      <div id="g4-insight" class="g4-insight" style="display: none;">
+        <div class="g4-insight-header">Why object storage for G4?</div>
+        <div class="g4-insight-body">
+          <div class="g4-insight-comparison">
+            <div class="g4-insight-col">
+              <div class="g4-insight-proto">Object (S3)</div>
+              <div class="g4-insight-row"><span>Parallel reads</span><span class="val-good">linear scaling</span></div>
+              <div class="g4-insight-row"><span>Metadata</span><span class="val-good">flat namespace</span></div>
+              <div class="g4-insight-row"><span>Concurrent writers</span><span class="val-good">immutable objects</span></div>
+              <div class="g4-insight-row"><span>Multi-tenant</span><span class="val-good">bucket policies</span></div>
+            </div>
+            <div class="g4-insight-col">
+              <div class="g4-insight-proto">File (NFS)</div>
+              <div class="g4-insight-row"><span>Parallel reads</span><span class="val-warn">metadata lock</span></div>
+              <div class="g4-insight-row"><span>Metadata</span><span class="val-bad">tree traversal</span></div>
+              <div class="g4-insight-row"><span>Concurrent writers</span><span class="val-warn">locking overhead</span></div>
+              <div class="g4-insight-row"><span>Multi-tenant</span><span class="val-bad">UID/export hacks</span></div>
+            </div>
+          </div>
+          <div class="g4-insight-note">KV cache blocks are immutable, variable-sized, and accessed in parallel bursts — a natural fit for object storage.</div>
         </div>
       </div>
     </div>
@@ -820,7 +1030,7 @@
     </div>
 
     <!-- Event Stream -->
-    <div class="card">
+    <div class="card" id="event-stream">
       <div class="card-header">Event Stream <span class="count" id="eventCount">(0 events)</span></div>
       <ul class="event-list" id="eventList"></ul>
     </div>
@@ -834,6 +1044,37 @@
         <span>Metrics</span>
         <button class="graph-toggle-btn" id="graphToggle" title="Toggle graph view">&#x1F4C8;</button>
       </div>
+      <div class="gpu-util-section" id="gpu-util-section">
+        <div class="gpu-util-header">GPU UTILIZATION</div>
+        <div class="gpu-util-row" id="gpu-util-a">
+          <div class="gpu-util-label">GPU-A</div>
+          <div class="gpu-util-bar-track">
+            <div class="gpu-util-segment segment-active" id="gpu-a-active" style="width:0%"></div>
+            <div class="gpu-util-segment segment-stall" id="gpu-a-stall" style="width:0%"></div>
+            <div class="gpu-util-segment segment-recompute" id="gpu-a-recompute" style="width:0%"></div>
+          </div>
+          <div class="gpu-util-value" id="gpu-a-effective">&mdash;</div>
+        </div>
+        <div class="gpu-util-row" id="gpu-util-b">
+          <div class="gpu-util-label">GPU-B</div>
+          <div class="gpu-util-bar-track">
+            <div class="gpu-util-segment segment-active" id="gpu-b-active" style="width:0%"></div>
+            <div class="gpu-util-segment segment-stall" id="gpu-b-stall" style="width:0%"></div>
+            <div class="gpu-util-segment segment-recompute" id="gpu-b-recompute" style="width:0%"></div>
+          </div>
+          <div class="gpu-util-value" id="gpu-b-effective">&mdash;</div>
+        </div>
+        <div class="gpu-util-legend">
+          <span class="legend-item"><span class="legend-dot dot-active"></span> Inference</span>
+          <span class="legend-item"><span class="legend-dot dot-stall"></span> I/O stall</span>
+          <span class="legend-item"><span class="legend-dot dot-recompute"></span> Recompute</span>
+          <span class="legend-item"><span class="legend-dot dot-idle"></span> Idle</span>
+        </div>
+        <div class="gpu-util-effective">
+          Effective utilization: <strong id="combined-effective-value">&mdash;</strong>
+          <span class="gpu-util-note">(only active inference counts)</span>
+        </div>
+      </div>
       <div id="metricsCards" class="metrics-grid">
         <div class="metric-card"><div class="metric-value muted" id="m-gpuA">&mdash;</div><div class="metric-label">GPU-A Util</div></div>
         <div class="metric-card"><div class="metric-value muted" id="m-gpuB">&mdash;</div><div class="metric-label">GPU-B Util</div></div>
@@ -846,10 +1087,23 @@
         <div class="metric-card"><div class="metric-value muted" id="m-sessions">&mdash;</div><div class="metric-label">Active Sessions</div></div>
       </div>
       <div id="metricsGraph" style="display:none;">
-        <canvas id="metricsCanvas" width="340" height="200"></canvas>
-        <div style="display:flex;gap:12px;margin-top:6px;font-size:10px;justify-content:center;">
-          <span style="color:#EF9F27;">&#9644; Avg TTFT (ms)</span>
-          <span style="color:#ef4444;">&#9644; Recomputations</span>
+        <canvas id="metricsCanvas" width="340" height="220"></canvas>
+        <div class="chart-legend" id="chartLegend">
+          <label class="chart-toggle" data-series="ttft" style="--clr:#EF9F27;">
+            <input type="checkbox" checked><span class="chart-swatch"></span>Avg TTFT
+          </label>
+          <label class="chart-toggle" data-series="recompRate" style="--clr:#ef4444;">
+            <input type="checkbox" checked><span class="chart-swatch"></span>Recomp/s
+          </label>
+          <label class="chart-toggle" data-series="activeSessions" style="--clr:#22d3ee;">
+            <input type="checkbox"><span class="chart-swatch"></span>Active
+          </label>
+          <label class="chart-toggle" data-series="idleSessions" style="--clr:#a78bfa;">
+            <input type="checkbox"><span class="chart-swatch"></span>Idle
+          </label>
+          <label class="chart-toggle" data-series="gpuUtil" style="--clr:#4ade80;">
+            <input type="checkbox"><span class="chart-swatch"></span>GPU Util
+          </label>
         </div>
       </div>
     </div>
@@ -859,7 +1113,7 @@
       <div class="card-header">Controls</div>
       <div class="controls-section">
         <!-- G3.5 Mode Selector -->
-        <div class="g35-selector">
+        <div class="g35-selector" id="g35-selector">
           <div class="g35-header">G3.5 Context Memory Tier</div>
           <div class="g35-options">
             <label class="g35-option" data-mode="disabled">
@@ -914,12 +1168,19 @@
           </div>
         </div>
 
-        <!-- Action Buttons -->
-        <div class="action-btns">
-          <button class="btn btn-start" id="btnStart">Start</button>
-          <button class="btn btn-reset" id="btnReset">Reset</button>
-        </div>
+        <!-- Action buttons moved to header -->
       </div>
+    </div>
+
+    <!-- Guided Demo -->
+    <div class="guided-launcher">
+      <button id="guided-demo-btn" class="guided-btn">
+        <span class="guided-btn-icon">&#9654;</span>
+        <div class="guided-btn-text">
+          <div class="guided-btn-title">Guided demo</div>
+          <div class="guided-btn-desc">Auto-runs the full story: disabled &rarr; standard &rarr; accelerated</div>
+        </div>
+      </button>
     </div>
 
     <!-- Scenarios -->
@@ -972,8 +1233,12 @@
           <div class="policy-tier" data-tier="g4"><div class="policy-tier-name" style="color:var(--g4)">G4 Enterprise</div><div class="policy-rule">Last resort</div></div>
         </div>
         <div class="policy-idle">Idle timeout: <strong id="pol-idle">20</strong> ticks &#8594; evict G1&#8594;G2</div>
+        <div id="cross-gpu-path"></div>
       </div>
     </div>
+
+    <!-- Mode Comparison -->
+    <div id="mode-comparison"></div>
   </div>
 </div>
 <div class="footer-note">Simulation uses scaled-down capacities. Real-world Vera Rubin: G1=80GB HBM, G2=512GB DRAM, G3=4TB NVMe per GPU.</div>
@@ -991,8 +1256,7 @@
   let sliderDebounce = null;
   let allEvents = [];
   let configSynced = false;  // Only sync controls from server once (on first load)
-  let ttftHistory = [];      // Rolling TTFT history for graph
-  let recompHistory = [];    // Rolling recomp history for graph
+  // Chart history is now in chartSeries object
   let graphMode = false;     // Toggle between card metrics and graph view
 
   // --- DOM refs ---
@@ -1120,6 +1384,23 @@
         ['g1','g2','g3'].forEach(tier => {
           if (gpu[tier]) updateBar(prefix + '-' + tier, gpu[tier]);
         });
+        // Update stacked util bars from per-GPU utilization data
+        if (gpu.utilization) {
+          const suffix = gpuId === 'gpu-a' ? 'a' : 'b';
+          const u = gpu.utilization;
+          const el = id => document.getElementById(id);
+          const act = el('gpu-' + suffix + '-active');
+          const stl = el('gpu-' + suffix + '-stall');
+          const rcp = el('gpu-' + suffix + '-recompute');
+          const val = el('gpu-' + suffix + '-effective');
+          if (act) act.style.width = (u.active || 0) + '%';
+          if (stl) stl.style.width = (u.io_stall || 0) + '%';
+          if (rcp) rcp.style.width = (u.recompute || 0) + '%';
+          if (val) {
+            val.textContent = (u.active || 0) + '%';
+            val.className = 'gpu-util-value ' + ((u.active || 0) >= 80 ? 'val-good' : (u.active || 0) >= 50 ? 'val-warn' : 'val-bad');
+          }
+        }
       });
     }
 
@@ -1145,8 +1426,24 @@
       });
     }
 
+    // Store latest state for comparison strip
+    if (d.gpus) latestGpus = d.gpus;
+    if (d.shared) latestShared = d.shared;
+
     // Metrics
-    if (d.metrics) renderMetrics(d.metrics);
+    if (d.metrics) {
+      latestMetrics = d.metrics;
+      renderMetrics(d.metrics);
+    }
+
+    // G4 stress + comparison strip (update each tick)
+    const g35r = document.querySelector('input[name="g35mode"]:checked');
+    const curMode = g35r ? g35r.value : 'accelerated';
+    updateG4Stress(curMode);
+    // G4 insight: show when G4 stressed
+    const g4pct = d.shared && d.shared.g4 ? Math.round((d.shared.g4.used_gb / d.shared.g4.capacity_gb) * 100) : 0;
+    updateG4Insight(g4pct, curMode);
+    if (isRunning) renderComparisonStrip();
 
     // Sessions
     if (d.sessions) renderSessions(d.sessions);
@@ -1197,11 +1494,20 @@
 
   // --- Metrics ---
   function renderMetrics(m) {
+    // GPU utilization is now an object {active, io_stall, recompute, idle}
+    const gpuA = m.gpu_a_utilization || {};
+    const gpuB = m.gpu_b_utilization || {};
+    const effA = typeof gpuA === 'object' ? (gpuA.active || 0) : gpuA;
+    const effB = typeof gpuB === 'object' ? (gpuB.active || 0) : gpuB;
+    const combined = m.combined_effective_util != null ? m.combined_effective_util : Math.round((effA + effB) / 2);
+
+    // Inject flat values for trackHistory compatibility
+    m.gpu_a_utilization_flat = effA;
+    m.gpu_b_utilization_flat = effB;
     trackHistory(m);
-    setMetric('m-gpuA', m.gpu_a_utilization, '%', colorGpuUtil);
-    setMetric('m-gpuB', m.gpu_b_utilization, '%', colorGpuUtil);
-    const combined = (m.gpu_a_utilization != null && m.gpu_b_utilization != null)
-      ? Math.round((m.gpu_a_utilization + m.gpu_b_utilization) / 2) : null;
+
+    setMetric('m-gpuA', effA, '%', colorGpuUtil);
+    setMetric('m-gpuB', effB, '%', colorGpuUtil);
     setMetric('m-combined', combined, '%', colorGpuUtil);
     setMetric('m-ttft', m.avg_ttft_ms, 'ms', colorTTFT);
     setMetric('m-cache', m.cache_hit_rate, '%', colorCache);
@@ -1209,6 +1515,30 @@
     setMetric('m-s3ops', m.s3_ops_per_sec, '', () => 'teal');
     setMetric('m-recomp', m.recomputations, '', colorRecomp);
     setMetric('m-sessions', m.active_sessions, '', () => 'muted');
+
+    // Update stacked GPU utilization bars
+    updateGPUUtilBars(gpuA, gpuB, combined);
+  }
+
+  function updateGPUUtilBars(gpuA, gpuB, combined) {
+    [['a', gpuA], ['b', gpuB]].forEach(([suffix, u]) => {
+      if (typeof u !== 'object') return;
+      const active = u.active || 0, stall = u.io_stall || 0, recomp = u.recompute || 0;
+      const el = id => document.getElementById(id);
+      const act = el('gpu-' + suffix + '-active');
+      const stl = el('gpu-' + suffix + '-stall');
+      const rcp = el('gpu-' + suffix + '-recompute');
+      const val = el('gpu-' + suffix + '-effective');
+      if (act) act.style.width = active + '%';
+      if (stl) stl.style.width = stall + '%';
+      if (rcp) rcp.style.width = recomp + '%';
+      if (val) {
+        val.textContent = active + '%';
+        val.className = 'gpu-util-value ' + (active >= 80 ? 'val-good' : active >= 50 ? 'val-warn' : 'val-bad');
+      }
+    });
+    const ce = document.getElementById('combined-effective-value');
+    if (ce) ce.textContent = combined + '%';
   }
 
   function setMetric(id, val, suffix, colorFn) {
@@ -1225,6 +1555,112 @@
   }
 
   function colorGpuUtil(v) { return v > 70 ? 'green' : v >= 40 ? 'amber' : 'red'; }
+
+  // --- G4 stress indicator ---
+  function updateG4Stress(g35Mode) {
+    const g4Track = $('shared-g4-track');
+    if (!g4Track) return;
+    if (g35Mode === 'disabled') {
+      g4Track.classList.add('g4-stressed');
+    } else {
+      g4Track.classList.remove('g4-stressed');
+    }
+  }
+
+  // --- Cross-GPU return path diagram ---
+  function renderCrossGpuPath(g35Mode) {
+    const container = document.getElementById('cross-gpu-path');
+    if (!container) return;
+    if (g35Mode === 'disabled') {
+      container.innerHTML =
+        '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
+        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to GPU-B</div>' +
+        '<div class="cgp-diagram">' +
+          '<div class="cgp-node"><div class="cgp-lbl">GPU-A</div><div class="cgp-box">G1</div></div>' +
+          '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">G4</div><div class="cgp-box cgp-cold">cold</div><div class="cgp-det">~50-200 ms</div></div>' +
+          '<div class="cgp-flow"><div class="cgp-arr cgp-arr-bad">\u2717\u2192</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">GPU-B</div><div class="cgp-box cgp-recomp">G1</div><div class="cgp-det cgp-det-bad">\u26A1recompute</div></div>' +
+        '</div>' +
+        '<div class="cgp-res cgp-res-bad">Cache wasted. Full recomputation. GPU stalls ~500-2000 ms.</div>';
+    } else {
+      const lat = g35Mode === 'accelerated' ? '~500 \u03BCs (RDMA)' : '~5-10 ms (S3/TCP)';
+      const proto = g35Mode === 'accelerated' ? 'NVMe-oF / RDMA' : 'S3 over TCP';
+      container.innerHTML =
+        '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
+        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to GPU-B</div>' +
+        '<div class="cgp-diagram">' +
+          '<div class="cgp-node"><div class="cgp-lbl">GPU-A</div><div class="cgp-box">G1</div></div>' +
+          '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
+          '<div class="cgp-node cgp-node-minio"><div class="cgp-lbl">G3.5</div><div class="cgp-box cgp-minio">MinIO</div><div class="cgp-det">' + proto + '</div><div class="cgp-det">\u2461PUT + GET</div></div>' +
+          '<div class="cgp-flow"><div class="cgp-step">\u2462promote</div><div class="cgp-arr">\u2192</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">GPU-B</div><div class="cgp-box cgp-promoted">G1</div></div>' +
+        '</div>' +
+        '<div class="cgp-lat">Round-trip: ' + lat + '</div>' +
+        '<div class="cgp-res cgp-res-good">Cache reused. No recomputation. GPU stays busy.</div>';
+    }
+  }
+
+  // --- Mode comparison strip ---
+  let modeSnapshots = { disabled: null, standard: null, accelerated: null };
+  let latestGpus = null;
+  let latestMetrics = null;
+  let latestShared = null;
+
+  function buildSnapshot(m, gpus, g35Mode) {
+    let avgActive = 0, avgStall = 0, avgRecomp = 0;
+    if (gpus && gpus.length) {
+      gpus.forEach(g => {
+        const u = g.utilization || {};
+        avgActive += (u.active || 0);
+        avgStall += (u.io_stall || 0);
+        avgRecomp += (u.recompute || 0);
+      });
+      avgActive = Math.round(avgActive / gpus.length);
+      avgStall = Math.round(avgStall / gpus.length);
+      avgRecomp = Math.round(avgRecomp / gpus.length);
+    }
+    const g4pct = latestShared && latestShared.g4 ? (latestShared.g4.pct || Math.round((latestShared.g4.used_gb / latestShared.g4.capacity_gb) * 100) || 0) : 0;
+    return {
+      gpu_effective: avgActive,
+      ttft: Math.round(m.avg_ttft_ms || 0),
+      io_stall: avgStall,
+      recompute_pct: avgRecomp,
+      g4_pct: g4pct,
+      cross_gpu: m.cross_gpu_migrations || 0,
+      via: g35Mode === 'disabled' ? 'recompute' : g35Mode === 'standard' ? 'S3 GET ~10 ms' : 'RDMA GET ~500 \u03BCs',
+    };
+  }
+
+  function renderComparisonStrip() {
+    const strip = document.getElementById('mode-comparison');
+    if (!strip) return;
+    const g35radio = document.querySelector('input[name="g35mode"]:checked');
+    const currentMode = g35radio ? g35radio.value : 'accelerated';
+    const modes = ['disabled', 'standard', 'accelerated'];
+    const labels = { disabled: 'Disabled', standard: 'Standard (S3/TCP)', accelerated: 'Accelerated (RDMA)' };
+
+    let html = '<div class="cmp-title">MODE COMPARISON</div><div class="cmp-grid">';
+    modes.forEach(mode => {
+      const isActive = mode === currentMode;
+      const snap = (isActive && latestMetrics && latestGpus) ? buildSnapshot(latestMetrics, latestGpus, mode) : modeSnapshots[mode];
+      if (!snap) {
+        html += '<div class="cmp-col empty"><div class="cmp-col-hdr">' + labels[mode] + '</div><div class="cmp-empty">Switch to capture</div></div>';
+      } else {
+        html += '<div class="cmp-col ' + (isActive ? 'active' : '') + '">' +
+          '<div class="cmp-col-hdr">' + labels[mode] + (isActive ? ' <span class="cmp-live">\u25CF live</span>' : '') + '</div>' +
+          '<div class="cmp-row cmp-highlight"><span>GPU effective</span><span class="' + (snap.gpu_effective >= 80 ? 'val-good' : snap.gpu_effective >= 50 ? 'val-warn' : 'val-bad') + '">' + snap.gpu_effective + '%</span></div>' +
+          '<div class="cmp-row"><span>Avg TTFT</span><span class="' + (snap.ttft <= 100 ? 'val-good' : snap.ttft <= 500 ? 'val-warn' : 'val-bad') + '">' + snap.ttft + ' ms</span></div>' +
+          '<div class="cmp-row"><span>I/O stall</span><span class="' + (snap.io_stall > 15 ? 'val-bad' : snap.io_stall > 5 ? 'val-warn' : 'val-good') + '">' + snap.io_stall + '%</span></div>' +
+          '<div class="cmp-row"><span>Recompute</span><span class="' + (snap.recompute_pct > 10 ? 'val-bad' : snap.recompute_pct > 0 ? 'val-warn' : 'val-good') + '">' + snap.recompute_pct + '%</span></div>' +
+          '<div class="cmp-row"><span>G4 load</span><span class="' + (snap.g4_pct > 30 ? 'val-warn' : 'val-good') + '">' + snap.g4_pct + '%</span></div>' +
+          '<div class="cmp-row"><span>Cross-GPU</span><span class="via-pill">' + snap.via + '</span></div>' +
+          '</div>';
+      }
+    });
+    html += '</div>';
+    strip.innerHTML = html;
+  }
   function colorTTFT(v) { return v < 100 ? 'green' : v <= 500 ? 'amber' : 'red'; }
   function colorCache(v) { return v > 80 ? 'green' : v >= 50 ? 'amber' : 'red'; }
   function colorRecomp(v) { return v === 0 ? 'green' : v <= 10 ? 'amber' : 'red'; }
@@ -1287,18 +1723,38 @@
   }
 
   // --- Graph ---
-  const MAX_HISTORY = 300; // ~5 min at 1 sample/sec (polling at 500ms, downsample)
+  const MAX_HISTORY = 300;
   let graphSampleCounter = 0;
+  let lastRecomp = null;
+  const chartSeries = {
+    ttft:           { data: [], color: '#EF9F27', label: 'TTFT', unit: 'ms', visible: true },
+    recompRate:     { data: [], color: '#ef4444', label: 'Recomp/s', unit: '/s', visible: true },
+    activeSessions: { data: [], color: '#22d3ee', label: 'Active', unit: '', visible: false },
+    idleSessions:   { data: [], color: '#a78bfa', label: 'Idle', unit: '', visible: false },
+    gpuUtil:        { data: [], color: '#4ade80', label: 'GPU %', unit: '%', visible: false },
+  };
 
   function trackHistory(m) {
     graphSampleCounter++;
-    if (graphSampleCounter % 2 !== 0) return; // Sample every ~1s
+    if (graphSampleCounter % 2 !== 0) return;
+
     const ttft = m.avg_ttft_ms != null ? Math.round(m.avg_ttft_ms) : 0;
-    const recomp = m.recomputations || 0;
-    ttftHistory.push(ttft);
-    recompHistory.push(recomp);
-    if (ttftHistory.length > MAX_HISTORY) ttftHistory.shift();
-    if (recompHistory.length > MAX_HISTORY) recompHistory.shift();
+    const recompNow = m.recomputations || 0;
+    const recompDelta = lastRecomp != null ? Math.max(0, recompNow - lastRecomp) : 0;
+    lastRecomp = recompNow;
+    const active = m.active_sessions || 0;
+    const idle = m.idle_sessions || 0;
+    const gpuA = m.gpu_a_utilization_flat != null ? m.gpu_a_utilization_flat : 0;
+    const gpuB = m.gpu_b_utilization_flat != null ? m.gpu_b_utilization_flat : 0;
+    const gpuAvg = Math.round((gpuA + gpuB) / 2);
+
+    chartSeries.ttft.data.push(ttft);
+    chartSeries.recompRate.data.push(recompDelta);
+    chartSeries.activeSessions.data.push(active);
+    chartSeries.idleSessions.data.push(idle);
+    chartSeries.gpuUtil.data.push(gpuAvg);
+
+    Object.values(chartSeries).forEach(s => { if (s.data.length > MAX_HISTORY) s.data.shift(); });
     if (graphMode) drawGraph();
   }
 
@@ -1306,60 +1762,84 @@
     const canvas = $('metricsCanvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const W = canvas.width;
-    const H = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dispW = Math.floor(rect.width);
+    const dispH = 220;
+    if (canvas.width !== dispW * dpr || canvas.height !== dispH * dpr) {
+      canvas.width = dispW * dpr;
+      canvas.height = dispH * dpr;
+      canvas.style.width = dispW + 'px';
+      canvas.style.height = dispH + 'px';
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = dispW, H = dispH;
+    const PAD_L = 40, PAD_R = 40, PAD_T = 14, PAD_B = 14;
+    const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+
     ctx.clearRect(0, 0, W, H);
 
-    // Background grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
-    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    for (let i = 0; i <= 4; i++) {
+      const y = PAD_T + (plotH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + plotW, y); ctx.stroke();
+    }
 
-    if (ttftHistory.length < 2) {
+    const visible = Object.entries(chartSeries).filter(([,s]) => s.visible && s.data.length >= 2);
+    if (visible.length === 0) {
       ctx.fillStyle = 'rgba(255,255,255,0.3)';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Collecting data...', W/2, H/2);
+      ctx.fillText('Collecting data\u2026', W / 2, H / 2);
       return;
     }
 
-    // Auto-scale Y axes
-    const maxTtft = Math.max(1, ...ttftHistory) * 1.2;
-    const maxRecomp = Math.max(1, ...recompHistory) * 1.2;
-    const len = ttftHistory.length;
-    const xStep = W / (MAX_HISTORY - 1);
+    // Find shared length
+    const len = Math.max(...visible.map(([,s]) => s.data.length));
+    const xStep = plotW / (MAX_HISTORY - 1);
 
-    // Draw TTFT line (amber)
-    ctx.strokeStyle = '#EF9F27';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < len; i++) {
-      const x = (MAX_HISTORY - len + i) * xStep;
-      const y = H - (ttftHistory[i] / maxTtft) * (H - 20);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
+    // Draw each visible series independently scaled
+    visible.forEach(([key, s]) => {
+      const maxVal = Math.max(1, ...s.data) * 1.15;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      const sLen = s.data.length;
+      for (let i = 0; i < sLen; i++) {
+        const x = PAD_L + (MAX_HISTORY - sLen + i) * xStep;
+        const y = PAD_T + plotH - (s.data[i] / maxVal) * plotH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
 
-    // Draw recomp line (red)
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < len; i++) {
-      const x = (MAX_HISTORY - len + i) * xStep;
-      const y = H - (recompHistory[i] / maxRecomp) * (H - 20);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
+      // Current value label at end of line
+      const lastVal = s.data[sLen - 1];
+      const lastY = PAD_T + plotH - (lastVal / maxVal) * plotH;
+      ctx.fillStyle = s.color;
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'left';
+      const valStr = key === 'gpuUtil' ? lastVal + '%' : (key === 'ttft' ? lastVal + 'ms' : String(lastVal));
+      ctx.fillText(valStr, PAD_L + plotW + 4, Math.max(PAD_T + 8, Math.min(H - PAD_B, lastY + 3)));
+    });
 
-    // Y-axis labels
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#EF9F27';
-    ctx.fillText(Math.round(maxTtft) + 'ms', 4, 12);
-    ctx.fillStyle = '#ef4444';
-    ctx.fillText(Math.round(maxRecomp) + ' recomp', W - 70, 12);
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('5 min rolling', W/2 - 25, H - 4);
+    // Left axis — first visible series scale
+    const first = visible[0][1];
+    const firstMax = Math.max(1, ...first.data) * 1.15;
+    ctx.fillStyle = first.color;
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(firstMax) + (first.unit || ''), PAD_L - 4, PAD_T + 8);
+    ctx.fillText('0', PAD_L - 4, PAD_T + plotH + 2);
+
+    // Time label
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('5 min rolling', W / 2, H - 2);
   }
 
   $('graphToggle').addEventListener('click', () => {
@@ -1368,6 +1848,17 @@
     $('metricsGraph').style.display = graphMode ? '' : 'none';
     $('graphToggle').classList.toggle('active', graphMode);
     if (graphMode) drawGraph();
+  });
+
+  // Chart legend toggles
+  document.querySelectorAll('.chart-toggle input').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const key = cb.closest('.chart-toggle').dataset.series;
+      if (chartSeries[key]) {
+        chartSeries[key].visible = cb.checked;
+        drawGraph();
+      }
+    });
   });
 
   // --- API Calls ---
@@ -1395,26 +1886,46 @@
   // G3.5 mode radio buttons
   document.querySelectorAll('input[name="g35mode"]').forEach(radio => {
     radio.addEventListener('change', () => {
+      // Snapshot current mode before switching
+      const prevRadio = document.querySelector('input[name="g35mode"][data-prev]');
+      const prevMode = prevRadio ? prevRadio.dataset.prev : null;
+      if (prevMode && isRunning && latestMetrics && latestGpus) {
+        modeSnapshots[prevMode] = buildSnapshot(latestMetrics, latestGpus, prevMode);
+      }
       const mode = radio.value;
+      // Mark current as previous for next switch
+      document.querySelectorAll('input[name="g35mode"]').forEach(r => delete r.dataset.prev);
+      radio.dataset.prev = mode;
       sendConfig({g35_mode: mode, cmx_enabled: mode !== 'disabled'});
       updateG35Visuals(mode);
+      updateG4Stress(mode);
+      renderCrossGpuPath(mode);
+      renderComparisonStrip();
     });
   });
+  // Initialize cross-GPU path
+  renderCrossGpuPath('accelerated');
+  // Mark initial mode
+  const initRadio = document.querySelector('input[name="g35mode"]:checked');
+  if (initRadio) initRadio.dataset.prev = initRadio.value;
 
   function updateG35Visuals(mode) {
     const polG35 = document.getElementById('pol-g35-tier');
     const polG3Arrow = document.getElementById('pol-g3-arrow');
     const warning = document.getElementById('cmxWarning');
+    const g35Row = document.getElementById('g35-tier-row');
     if (mode === 'disabled') {
       if (sharedCard) sharedCard.classList.add('cmx-off');
       if (polG35) polG35.classList.add('disabled');
       if (polG3Arrow) polG3Arrow.innerHTML = '&#8595; G4 (skip G3.5)';
       if (warning) warning.style.display = 'block';
+      if (g35Row) g35Row.style.display = 'none';
     } else {
       if (sharedCard) sharedCard.classList.remove('cmx-off');
       if (polG35) polG35.classList.remove('disabled');
       if (polG3Arrow) polG3Arrow.innerHTML = '&#8595; G3.5';
       if (warning) warning.style.display = 'none';
+      if (g35Row) g35Row.style.display = '';
     }
     document.querySelectorAll('.g35-option').forEach(opt => {
       opt.classList.toggle('selected', opt.dataset.mode === mode);
@@ -1447,7 +1958,10 @@
 
   btnReset.addEventListener('click', () => {
     allEvents = [];
+    lastRecomp = null;
+    Object.values(chartSeries).forEach(s => s.data.length = 0);
     renderEvents();
+    if (graphMode) drawGraph();
     sendCommand('reset');
   });
 
@@ -1474,6 +1988,288 @@
       setTimeout(() => sendCommand('start'), 200);
     });
   });
+
+  // --- G4 Insight ---
+  function updateG4Insight(g4Pct, g35Mode) {
+    const el = $('g4-insight');
+    if (!el) return;
+    el.style.display = (g35Mode === 'disabled' && g4Pct > 30) ? 'block' : 'none';
+  }
+
+  // --- Guided Demo Script (manually advancing) ---
+  const GUIDED_SCRIPT = [
+    { phase: "tell", title: "The inference memory challenge", body: "Modern LLMs maintain a KV cache for every conversation \u2014 the model's short-term memory. As context windows grow to 128K+ tokens, this cache can reach tens of gigabytes per session.\n\nGPU HBM is fast but limited. When it fills up, cache gets evicted. If a user returns and their cache is gone, the GPU must recompute it from scratch.", icon: "\u26A1" },
+    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. No shared cache tier (baseline)\n2. MinIO AIStor over standard S3/TCP\n3. MinIO AIStor over NVMe-oF/RDMA (BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
+    { phase: "tell", title: "Scenario 1: No shared tier", body: "KV cache evicts from G3 directly to G4. When a session moves between GPUs, there's no fast shared layer \u2014 the GPU must recompute the entire KV cache.\n\nClick Next, then watch the GPU utilization bar and event stream.", icon: "1", action: { mode: "disabled" } },
+    { phase: "show", mode: "disabled", body: "Simulation running with G3.5 DISABLED. Watch for red 'recompute' segments in GPU bars, rising TTFT, and G4 filling up. Click Next when ready." },
+    { phase: "tell", title: "Scenario 1 results", useCapture: "disabled", icon: "\uD83D\uDCCA" },
+    { phase: "tell", title: "Scenario 2: MinIO AIStor (S3/TCP)", body: "Now we enable the G3.5 tier \u2014 MinIO AIStor via standard S3 over TCP. No special hardware required.\n\nClick Next to start the simulation.", icon: "2", action: { mode: "standard" } },
+    { phase: "show", mode: "standard", body: "Simulation running with G3.5 STANDARD (S3/TCP). Watch the green 'inference' segment grow and recompute events disappear. Click Next when ready." },
+    { phase: "tell", title: "Scenario 2 results", useCapture: "standard", prevCapture: "disabled", icon: "\uD83D\uDCCA" },
+    { phase: "tell", title: "Scenario 3: MinIO AIStor (RDMA)", body: "Now we enable hardware acceleration \u2014 BlueField-4 DPU with NVMe-over-Fabrics and RDMA at 800 Gb/s.\n\nClick Next to start.", icon: "3", action: { mode: "accelerated" } },
+    { phase: "show", mode: "accelerated", body: "Simulation running with G3.5 ACCELERATED (NVMe-oF/RDMA). I/O stall nearly invisible. Click Next when ready." },
+    { phase: "tell", title: "Scenario 3 results", useCapture: "accelerated", prevCapture: "standard", baselineCapture: "disabled", icon: "\uD83D\uDCCA" },
+    { phase: "tell", title: "The MinIO AIStor value", body: "MinIO AIStor serves as the shared KV cache tier between GPU servers.\n\n\u2022 Works today on any infrastructure (S3/TCP)\n\u2022 Hardware-accelerated with BlueField-4 (RDMA)\n\u2022 Eliminates cross-GPU recomputation\n\u2022 Scales to petabytes\n\nOne storage platform for the entire AI lifecycle.", icon: "\uD83C\uDFC1", isFinale: true, baselineCapture: "disabled" },
+  ];
+
+  // --- Guided Demo Runner (manual advancing) ---
+  const guidedCardEl = $('guided-card');
+  const guidedProgressEl = $('guided-progress');
+  const guidedProgressTrack = $('guided-progress-track');
+  let guidedRunning = false;
+  let guidedCaptures = {};
+  let guidedStep = 0;
+  let guidedDragState = null;
+
+  function guidedGain(current, previous, metric) {
+    if (previous == null || current == null) return '';
+    const diff = current - previous;
+    if (metric === 'ttft') {
+      // Lower is better for TTFT
+      if (previous > 0) {
+        const ratio = (previous / current).toFixed(1);
+        return ' <span class="gc-gain">' + ratio + 'x faster</span>';
+      }
+      return '';
+    }
+    // Higher is better for GPU effective
+    if (metric === 'gpu') {
+      const pctGain = previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0;
+      return pctGain > 0 ? ' <span class="gc-gain">+' + pctGain + '% gain</span>' : '';
+    }
+    // Lower is better for recompute/stall
+    if (diff < 0) return ' <span class="gc-gain">' + diff + 'pp</span>';
+    if (diff > 0) return ' <span class="gc-gain-bad">+' + diff + 'pp</span>';
+    return '';
+  }
+
+  function guidedBuildResultsBody(step) {
+    const snap = guidedCaptures[step.useCapture];
+    if (!snap) return 'No data captured yet. Run the simulation longer and click Next.';
+    const prev = step.prevCapture ? guidedCaptures[step.prevCapture] : null;
+    const base = step.baselineCapture ? guidedCaptures[step.baselineCapture] : null;
+
+    let html = '<div style="margin:8px 0;">';
+    html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 GPU effective: <strong>' + snap.gpu_effective + '%</strong>';
+    if (prev) html += ' (was ' + prev.gpu_effective + '%)' + guidedGain(snap.gpu_effective, prev.gpu_effective, 'gpu');
+    html += '</div>';
+    html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 Avg TTFT: <strong>' + snap.ttft + ' ms</strong>';
+    if (prev) html += ' (was ' + prev.ttft + ' ms)' + guidedGain(snap.ttft, prev.ttft, 'ttft');
+    html += '</div>';
+    html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 Recompute waste: <strong>' + snap.recompute_pct + '%</strong>';
+    if (prev) html += ' (was ' + prev.recompute_pct + '%)' + guidedGain(snap.recompute_pct, prev.recompute_pct, 'recomp');
+    html += '</div>';
+    html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 I/O stall: <strong>' + snap.io_stall + '%</strong>';
+    if (prev) html += ' (was ' + prev.io_stall + '%)';
+    html += '</div>';
+    html += '<div class="gc-body">\u2022 G4 load: <strong>' + snap.g4_pct + '%</strong></div>';
+    html += '</div>';
+
+    if (base && step.useCapture === 'accelerated') {
+      html += '<div style="margin-top:8px;padding:8px;background:rgba(29,158,117,0.08);border-radius:6px;font-size:12px;color:rgba(255,255,255,0.7);">';
+      html += 'GPU utilization: <strong>' + base.gpu_effective + '%</strong> \u2192 ';
+      if (guidedCaptures['standard']) html += '<strong>' + guidedCaptures['standard'].gpu_effective + '%</strong> \u2192 ';
+      html += '<strong class="gc-gain">' + snap.gpu_effective + '%</strong>';
+      html += '</div>';
+    }
+    return html;
+  }
+
+  function guidedShowStep(idx) {
+    if (idx >= GUIDED_SCRIPT.length || idx < 0) { guidedStop(); return; }
+    guidedStep = idx;
+    const step = GUIDED_SCRIPT[idx];
+    guidedProgressTrack.style.display = 'block';
+    guidedProgressEl.style.width = Math.round(((idx + 1) / GUIDED_SCRIPT.length) * 100) + '%';
+
+    // If step has an action (mode switch), apply it
+    if (step.action && step.action.mode) {
+      sendConfig({g35_mode: step.action.mode, cmx_enabled: step.action.mode !== 'disabled'});
+      updateG35Visuals(step.action.mode);
+      updateG4Stress(step.action.mode);
+      renderCrossGpuPath(step.action.mode);
+    }
+
+    if (step.phase === 'show') {
+      // Show phase: start simulation, show small running card
+      sendCommand('reset');
+      setTimeout(() => sendCommand('start'), 500);
+      const modeLabel = step.mode === 'disabled' ? 'No G3.5' : step.mode === 'standard' ? 'S3/TCP' : 'RDMA';
+      guidedCardEl.innerHTML =
+        '<div class="gc-card">' +
+          '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div class="gc-running-dot"></div><strong style="color:rgba(255,255,255,0.8);">Running: ' + modeLabel + '</strong></div>' +
+          '<div class="gc-body">' + (step.body || '') + '</div>' +
+          '<div class="gc-controls"><button class="gc-skip" id="gc-skip-btn">End</button><button class="gc-next" id="gc-next-btn">Capture & Next \u2192</button></div>' +
+        '</div>';
+    } else {
+      // Tell phase
+      let body = step.body || '';
+      if (step.useCapture) {
+        body = guidedBuildResultsBody(step);
+      }
+      const formatted = body.replace(/\n\n/g, '</p><p>').replace(/\n\u2022/g, '<br>\u2022').replace(/\n(\d)\./g, '<br>$1.');
+      const nextLabel = (idx < GUIDED_SCRIPT.length - 1) ? 'Next \u2192' : 'Finish';
+      guidedCardEl.innerHTML =
+        '<div class="gc-card ' + (step.isFinale ? 'gc-finale' : '') + '">' +
+          '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
+          (step.icon ? '<div class="gc-icon">' + step.icon + '</div>' : '') +
+          '<div class="gc-title">' + (step.title || '') + '</div>' +
+          '<div class="gc-body"><p>' + formatted + '</p></div>' +
+          '<div class="gc-controls"><button class="gc-skip" id="gc-skip-btn">End</button><button class="gc-next" id="gc-next-btn">' + nextLabel + '</button></div>' +
+        '</div>';
+    }
+    guidedCardEl.style.display = 'block';
+
+    // Bind buttons
+    var nb = document.getElementById('gc-next-btn');
+    if (nb) nb.addEventListener('click', function() {
+      // If show phase, capture metrics before advancing
+      if (step.phase === 'show' && latestMetrics && latestGpus) {
+        guidedCaptures[step.mode] = buildSnapshot(latestMetrics, latestGpus, step.mode);
+        sendCommand('stop');
+      }
+      guidedShowStep(guidedStep + 1);
+    });
+    var sb = document.getElementById('gc-skip-btn');
+    if (sb) sb.addEventListener('click', guidedStop);
+
+    // Make draggable
+    guidedInitDrag();
+  }
+
+  function guidedInitDrag() {
+    const handle = document.getElementById('gc-drag');
+    if (!handle) return;
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      const rect = guidedCardEl.getBoundingClientRect();
+      guidedDragState = { startX: e.clientX, startY: e.clientY, startLeft: rect.left, startTop: rect.top };
+      function onMove(e2) {
+        if (!guidedDragState) return;
+        guidedCardEl.style.left = (guidedDragState.startLeft + e2.clientX - guidedDragState.startX) + 'px';
+        guidedCardEl.style.top = (guidedDragState.startTop + e2.clientY - guidedDragState.startY) + 'px';
+        guidedCardEl.style.right = 'auto';
+        guidedCardEl.style.bottom = 'auto';
+      }
+      function onUp() { guidedDragState = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function guidedStart() {
+    guidedRunning = true;
+    guidedCaptures = {};
+    guidedStep = 0;
+    // Reset card position
+    guidedCardEl.style.right = '20px';
+    guidedCardEl.style.bottom = '20px';
+    guidedCardEl.style.left = 'auto';
+    guidedCardEl.style.top = 'auto';
+    guidedShowStep(0);
+  }
+
+  function guidedStop() {
+    guidedRunning = false;
+    sendCommand('stop');
+    guidedCardEl.style.display = 'none';
+    guidedProgressTrack.style.display = 'none';
+  }
+
+  $('guided-demo-btn').addEventListener('click', guidedStart);
+
+  // --- SE Onboarding Tour ---
+  const SE_TOUR_STEPS = [
+    { target: 'gpu-util-section', title: 'GPU utilization breakdown', body: "This stacked bar shows how each GPU spends its time. Green = useful inference. Amber = waiting for storage I/O. Red = wasted recomputation. The goal is to maximize green.", position: 'left' },
+    { target: 'shared-g35-track', title: 'G3.5 \u2014 the MinIO tier (shared)', body: "This is MinIO AIStor. It's shared between both GPUs. When a session moves from GPU-A to GPU-B, the KV cache is pulled from G3.5 instead of being recomputed.", position: 'left' },
+    { target: 'g35-selector', title: 'The three modes \u2014 your main demo control', body: "Disabled: no G3.5 (baseline). Standard: MinIO over S3/TCP (works today). Accelerated: MinIO over RDMA (BlueField-4). Toggle between these to show the customer the impact.", position: 'left' },
+    { target: 'cross-gpu-path', title: 'Cross-GPU return path', body: "This diagram shows what happens when a user's session is routed to a different GPU. With G3.5: cache is shared, no recompute. Without: cache is lost, GPU must rebuild it.", position: 'left' },
+    { target: 'mode-comparison', title: 'Mode comparison \u2014 builds automatically', body: "As you switch between modes, metrics are captured here. After running all three modes, you have a side-by-side comparison. The 'Guided demo' button does this for you.", position: 'left' },
+    { target: 'guided-demo-btn', title: 'Guided demo \u2014 autopilot mode', body: "Click this to run the full demo story automatically. It walks through all three modes with explanation cards. Perfect for narrating along without managing controls.", position: 'left' },
+    { target: 'event-stream', title: 'Event stream \u2014 real-time narrative', body: "Every eviction, promotion, and recomputation appears here. Point customers at red RECOMPUTE events when G3.5 is off, then show how they disappear when enabled.", position: 'left' },
+  ];
+
+  let tourOverlayEl = null;
+  let tourCurrentStep = 0;
+
+  function tourCardPos(rect, pos) {
+    const gap = 16;
+    const cardW = 340, cardH = 200;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    var left, top;
+    switch (pos) {
+      case 'right': left = rect.right + gap; top = rect.top; break;
+      case 'left': left = rect.left - gap - cardW; top = rect.top; break;
+      case 'top': left = rect.left; top = rect.top - gap - cardH; break;
+      case 'bottom': left = rect.left; top = rect.bottom + gap; break;
+      default: left = rect.right + gap; top = rect.top;
+    }
+    // Clamp within viewport
+    if (left + cardW > vw - 16) left = vw - cardW - 16;
+    if (left < 16) left = 16;
+    if (top + cardH > vh - 16) top = vh - cardH - 16;
+    if (top < 70) top = 70; // below header
+    return 'left:' + left + 'px;top:' + top + 'px;';
+  }
+  function tourArrowPos(rect, pos) {
+    switch (pos) {
+      case 'right': return 'left:' + (rect.right + 4) + 'px;top:' + (rect.top + rect.height / 2 - 6) + 'px;';
+      case 'left': return 'left:' + (rect.left - 16) + 'px;top:' + (rect.top + rect.height / 2 - 6) + 'px;';
+      case 'top': return 'left:' + (rect.left + rect.width / 2 - 6) + 'px;top:' + (rect.top - 16) + 'px;';
+      case 'bottom': return 'left:' + (rect.left + rect.width / 2 - 6) + 'px;top:' + (rect.bottom + 4) + 'px;';
+      default: return '';
+    }
+  }
+
+  function tourShowStep(idx) {
+    if (idx >= SE_TOUR_STEPS.length) { tourFinish(); return; }
+    if (idx < 0) idx = 0;
+    tourCurrentStep = idx;
+    const step = SE_TOUR_STEPS[idx];
+    const targetEl = document.getElementById(step.target);
+    if (!targetEl) { tourShowStep(idx + 1); return; }
+    const rect = targetEl.getBoundingClientRect();
+    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    tourOverlayEl.innerHTML =
+      '<div class="tour-backdrop" id="tour-backdrop-click"></div>' +
+      '<div class="tour-spotlight" style="left:' + (rect.left - 8) + 'px;top:' + (rect.top - 8) + 'px;width:' + (rect.width + 16) + 'px;height:' + (rect.height + 16) + 'px;"></div>' +
+      '<div class="tour-card" style="' + tourCardPos(rect, step.position) + '">' +
+        '<div class="tour-step-count">' + (idx + 1) + ' / ' + SE_TOUR_STEPS.length + '</div>' +
+        '<div class="tour-title">' + step.title + '</div>' +
+        '<div class="tour-body">' + step.body + '</div>' +
+        '<div class="tour-nav">' +
+          (idx > 0 ? '<button class="tour-prev" id="tour-prev-btn">\u2190 Back</button>' : '<span></span>') +
+          (idx < SE_TOUR_STEPS.length - 1
+            ? '<button class="tour-next-btn" id="tour-next-btn">Next \u2192</button>'
+            : '<button class="tour-done" id="tour-done-btn">Got it!</button>') +
+        '</div>' +
+      '</div>' +
+      '<div class="tour-arrow tour-arrow-' + step.position + '" style="' + tourArrowPos(rect, step.position) + '"></div>';
+    // Bind buttons
+    var nb = document.getElementById('tour-next-btn');
+    if (nb) nb.addEventListener('click', function() { tourShowStep(tourCurrentStep + 1); });
+    var pb = document.getElementById('tour-prev-btn');
+    if (pb) pb.addEventListener('click', function() { tourShowStep(tourCurrentStep - 1); });
+    var db = document.getElementById('tour-done-btn');
+    if (db) db.addEventListener('click', tourFinish);
+    document.getElementById('tour-backdrop-click').addEventListener('click', function() { tourShowStep(tourCurrentStep + 1); });
+  }
+
+  function tourStart() {
+    tourCurrentStep = 0;
+    tourOverlayEl = document.createElement('div');
+    tourOverlayEl.className = 'tour-overlay';
+    tourOverlayEl.id = 'tour-overlay';
+    document.body.appendChild(tourOverlayEl);
+    tourShowStep(0);
+  }
+
+  function tourFinish() {
+    if (tourOverlayEl) { tourOverlayEl.remove(); tourOverlayEl = null; }
+  }
+
+  $('headerGuideBtn').addEventListener('click', tourStart);
 
   // --- Init ---
   updateG35Visuals('accelerated');
