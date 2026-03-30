@@ -212,18 +212,31 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
     // Swap source/target if reverse direction
     const conn = actualDirection === "reverse" ? {
-      ...pending.connection,
       source: pending.connection.target,
       target: pending.connection.source,
-      sourceHandle: pending.connection.targetHandle,
-      targetHandle: pending.connection.sourceHandle,
-    } : pending.connection;
+      sourceHandle: pending.connection.targetHandle ?? null,
+      targetHandle: pending.connection.sourceHandle ?? null,
+    } : {
+      source: pending.connection.source,
+      target: pending.connection.target,
+      sourceHandle: pending.connection.sourceHandle ?? null,
+      targetHandle: pending.connection.targetHandle ?? null,
+    };
+
+    // Create edge directly with unique ID (avoids addEdge dedup issues)
+    const edgeId = `e-${conn.source}-${conn.target}-${connectionType}-${Date.now()}`;
+    const newEdge: Edge = {
+      id: edgeId,
+      source: conn.source!,
+      target: conn.target!,
+      sourceHandle: conn.sourceHandle,
+      targetHandle: conn.targetHandle,
+      type: "animated",
+      data: { connectionType, network: "default", label: "", status: "idle" },
+    };
 
     set({
-      edges: addEdge(
-        { ...conn, type: "animated", data: { connectionType, network: "default", label: "", status: "idle" } },
-        state.edges
-      ),
+      edges: [...state.edges, newEdge],
       pendingConnection: null,
     });
   },
