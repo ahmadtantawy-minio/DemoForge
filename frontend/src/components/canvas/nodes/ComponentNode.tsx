@@ -107,8 +107,17 @@ export default function ComponentNode({ id, data }: NodeProps) {
       onClick={() => setSelectedNode(id)}
       onDoubleClick={handleDoubleClick}
     >
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" id="bottom-out" position={Position.Bottom} className="!left-1/2 !w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
+      {/* Backward compat: default handles (no id) for existing edges with null sourceHandle/targetHandle */}
+      <Handle type="target" position={Position.Left} className="!w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
+      <Handle type="source" position={Position.Right} className="!w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
+
+      {/* 4 visible handles — source+target pairs on each side for bidirectional connections */}
+      <Handle type="target" position={Position.Left} id="left" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Left} id="left-out" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8, top: "50%", left: -4, transform: "translateY(-50%)", opacity: 0, position: "absolute" }} />
+      <Handle type="target" position={Position.Top} id="top" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Top} id="top-out" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8, left: "50%", top: -4, transform: "translateX(-50%)", opacity: 0, position: "absolute" }} />
+      <Handle type="source" position={Position.Bottom} id="bottom-out" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8 }} />
+      <Handle type="target" position={Position.Bottom} id="bottom" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8, left: "50%", bottom: -4, transform: "translateX(-50%)", opacity: 0, position: "absolute" }} />
       <div className="flex items-center gap-2">
         <ComponentIcon icon={nodeData.componentId} size={28} />
         <div>
@@ -200,7 +209,8 @@ export default function ComponentNode({ id, data }: NodeProps) {
         </div>
       )}
 
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} id="right" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8 }} />
+      <Handle type="target" position={Position.Right} id="right-in" style={{ background: "#27272a", border: "2px solid #3f3f46", width: 8, height: 8, top: "50%", right: -4, transform: "translateY(-50%)", opacity: 0, position: "absolute" }} />
     </div>
   );
 }
