@@ -48,6 +48,8 @@ export interface DemoTemplate {
   has_se_guide: boolean;
   source: "builtin" | "synced" | "user";
   editable: boolean;
+  customized?: boolean;
+  origin?: string;  // "builtin" | "synced" | "user"
 }
 
 // --- Demo Template Detail (includes demo definition fields) ---

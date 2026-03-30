@@ -449,6 +449,20 @@ export const publishTemplate = (templateId: string) =>
     { method: "POST" }
   );
 
+export const overrideTemplate = (templateId: string, demoId: string) =>
+  apiFetch<{ template_id: string; overridden: boolean }>(`/api/templates/${templateId}/override`, {
+    method: "POST",
+    body: JSON.stringify({ demo_id: demoId }),
+  });
+
+export const revertTemplate = (templateId: string) =>
+  apiFetch<{ reverted: string }>(`/api/templates/${templateId}/revert`, {
+    method: "POST",
+  });
+
+export const getAppMode = () =>
+  apiFetch<{ mode: string }>("/api/settings/mode");
+
 export const triggerTemplateSync = () =>
   apiFetch<{ status: string; downloaded: number; unchanged: number; deleted: number; errors: number }>(
     "/api/templates/sync",

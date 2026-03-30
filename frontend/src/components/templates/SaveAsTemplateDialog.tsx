@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { saveAsTemplate } from "../../api/client";
+import { useState, useEffect } from "react";
+import { saveAsTemplate, overrideTemplate, fetchTemplates } from "../../api/client";
+import type { DemoTemplate } from "../../types";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -45,6 +46,7 @@ export function SaveAsTemplateDialog({
   demoDescription = "",
   onSaved,
 }: SaveAsTemplateDialogProps) {
+  const [mode, setMode] = useState<"new" | "override">("new");
   const [templateName, setTemplateName] = useState(demoName);
   const [description, setDescription] = useState(demoDescription);
   const [tier, setTier] = useState<"essentials" | "advanced">("advanced");
@@ -56,7 +58,18 @@ export function SaveAsTemplateDialog({
   const [conflict, setConflict] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
 
+  // Override mode state
+  const [existingTemplates, setExistingTemplates] = useState<DemoTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
+  useEffect(() => {
+    if (open && mode === "override" && existingTemplates.length === 0) {
+      fetchTemplates().then((res) => setExistingTemplates(res.templates)).catch(() => {});
+    }
+  }, [open, mode]);
+
   function resetForm() {
+    setMode("new");
     setTemplateName(demoName);
     setDescription(demoDescription);
     setTier("advanced");
@@ -67,6 +80,7 @@ export function SaveAsTemplateDialog({
     setSaving(false);
     setConflict(false);
     setOverwrite(false);
+    setSelectedTemplateId("");
   }
 
   function handleOpenChange(next: boolean) {
@@ -76,6 +90,26 @@ export function SaveAsTemplateDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    if (mode === "override") {
+      if (!selectedTemplateId) return;
+      setSaving(true);
+      try {
+        const result = await overrideTemplate(selectedTemplateId, demoId);
+        toast.success("Template overridden", {
+          description: `"${selectedTemplateId}" has been updated with this demo's state. The original was backed up.`,
+        });
+        onSaved?.(result.template_id);
+        handleOpenChange(false);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to override template", { description: msg });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!templateName.trim()) return;
 
     setSaving(true);
@@ -129,6 +163,60 @@ export function SaveAsTemplateDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="mt-2 space-y-4">
+          {/* Mode toggle */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("new")}
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                mode === "new"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:text-foreground"
+              }`}
+            >
+              New Template
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("override")}
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                mode === "override"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:text-foreground"
+              }`}
+            >
+              Override Existing
+            </button>
+          </div>
+
+          {mode === "override" && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Template to Override <span className="text-red-400">*</span>
+                </label>
+                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                  <SelectTrigger className="bg-background border-border text-foreground h-8 text-sm">
+                    <SelectValue placeholder="Select a template..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border text-foreground max-h-60">
+                    {existingTemplates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name} ({t.source})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>This will override the original template. The original will be backed up.</span>
+              </div>
+            </>
+          )}
+
+          {mode === "new" && (
+          <>
           {/* Template Name */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -235,8 +323,11 @@ export function SaveAsTemplateDialog({
             />
           </div>
 
+          </>
+          )}
+
           {/* Conflict warning */}
-          {conflict && (
+          {conflict && mode === "new" && (
             <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2.5 text-sm text-yellow-300">
               <p className="font-medium">A template with this name already exists.</p>
               <label className="mt-2 flex items-center gap-2 cursor-pointer select-none">
@@ -266,7 +357,7 @@ export function SaveAsTemplateDialog({
             <Button
               type="submit"
               size="sm"
-              disabled={saving || !templateName.trim() || (conflict && !overwrite)}
+              disabled={saving || (mode === "new" ? (!templateName.trim() || (conflict && !overwrite)) : !selectedTemplateId)}
               className="min-w-[90px]"
             >
               {saving ? (
@@ -274,6 +365,8 @@ export function SaveAsTemplateDialog({
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                   Saving…
                 </>
+              ) : mode === "override" ? (
+                "Override Template"
               ) : (
                 "Save Template"
               )}

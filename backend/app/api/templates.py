@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
 from ..models.demo import DemoDefinition
 from ..models.api_models import DemoSummary
+from ..engine.template_backup import backup_original, get_override_info, remove_override
 
 logger = logging.getLogger("demoforge.templates")
 
@@ -107,6 +108,8 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
     mode = meta.get("mode", raw.get("mode", "standard"))
     tier = meta.get("tier", "experience" if mode == "experience" else "essentials")
 
+    override_info = get_override_info(template_id)
+
     return {
         "id": template_id,
         "name": meta.get("name", raw.get("name", "")),
@@ -125,6 +128,8 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
         "has_se_guide": bool(meta.get("se_guide")),
         "source": source,
         "editable": source == "user",
+        "customized": override_info is not None or meta.get("customized", False),
+        "origin": meta.get("origin", source),
     }
 
 
@@ -374,6 +379,72 @@ async def fork_template(template_id: str, req: dict = Body(default={})):
         "source": "user",
         "forked_from": template_id,
     }
+
+
+# ── Override / Revert ──────────────────────────────────────────────────
+
+class OverrideTemplateRequest(BaseModel):
+    demo_id: str  # The demo to save as the override
+
+
+@router.post("/api/templates/{template_id}/override")
+async def override_template(template_id: str, req: OverrideTemplateRequest):
+    """Override an existing template with a demo's current state."""
+    # Load original template to back it up
+    raw, source, path = _load_template_raw(template_id)
+    if not raw or not path:
+        raise HTTPException(404, f"Template '{template_id}' not found")
+
+    # Back up the original (if not already a user template)
+    if source != "user":
+        backup_original(template_id, path, source)
+
+    # Load the demo
+    demo_path = os.path.join(DEMOS_DIR, f"{req.demo_id}.yaml")
+    if not os.path.isfile(demo_path):
+        raise HTTPException(404, f"Demo '{req.demo_id}' not found")
+
+    with open(demo_path) as f:
+        demo_data = yaml.safe_load(f)
+
+    # Build template from demo, preserving original metadata
+    original_meta = raw.get("_template", {})
+    override_info = get_override_info(template_id)
+    template_data = {
+        "_template": {
+            **original_meta,
+            "origin": source,
+            "original_hash": override_info.get("original_hash", "") if override_info else "",
+            "overridden_at": datetime.utcnow().isoformat() + "Z",
+            "customized": True,
+        },
+        **{k: v for k, v in demo_data.items() if k != "_template"},
+        "id": raw.get("id", template_id),
+        "name": raw.get("name", demo_data.get("name", template_id)),
+    }
+
+    # Write to user-templates (shadows the original)
+    _save_template_raw(template_id, template_data, USER_TEMPLATES_DIR)
+
+    return {"template_id": template_id, "overridden": True, "source": source}
+
+
+@router.post("/api/templates/{template_id}/revert")
+async def revert_template(template_id: str):
+    """Revert an overridden template to its original. Dev mode only."""
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    if mode != "dev":
+        raise HTTPException(403, "Revert is only available in dev mode. Set DEMOFORGE_MODE=dev.")
+
+    # Delete the user-templates override
+    user_path = os.path.join(USER_TEMPLATES_DIR, f"{template_id}.yaml")
+    if os.path.exists(user_path):
+        os.remove(user_path)
+
+    # Clean up override manifest entry
+    remove_override(template_id)
+
+    return {"reverted": template_id}
 
 
 # ── Sync endpoints ──────────────────────────────────────────────────────

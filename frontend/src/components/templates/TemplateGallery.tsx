@@ -556,6 +556,11 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                         Team
                       </span>
                     )}
+                    {t.customized && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium">
+                        Customized
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <span

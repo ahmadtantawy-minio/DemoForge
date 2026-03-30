@@ -1,4 +1,5 @@
-"""Settings API — license key management."""
+"""Settings API — license key management and app mode."""
+import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..config.license_store import license_store, LicenseEntry
@@ -71,3 +72,8 @@ def license_status():
                 "configured": entry is not None,
             })
     return results
+
+
+@router.get("/api/settings/mode")
+async def get_app_mode():
+    return {"mode": os.environ.get("DEMOFORGE_MODE", "standard")}
