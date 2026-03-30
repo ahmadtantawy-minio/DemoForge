@@ -2,100 +2,92 @@ id: trino
 name: Trino
 category: analytics
 icon: trino
-version: "latest"
+version: latest
 image: trinodb/trino:latest
 image_size_mb: 650
-description: "Distributed SQL query engine for analytics on MinIO data via Iceberg or direct S3"
-
+description: Distributed SQL query engine for analytics on MinIO data via Iceberg or direct S3
 resources:
-  memory: "2g"
+  memory: 2g
   cpu: 1.0
-
 ports:
-  - name: http
-    container: 8080
-    protocol: tcp
-
+- name: http
+  container: 8080
+  protocol: tcp
 environment:
-  TRINO_ENVIRONMENT: "demoforge"
-  AWS_ACCESS_KEY_ID: "minioadmin"
-  AWS_SECRET_ACCESS_KEY: "minioadmin"
-  AWS_REGION: "us-east-1"
-
+  TRINO_ENVIRONMENT: demoforge
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+  AWS_REGION: us-east-1
 health_check:
   endpoint: /v1/info
   port: 8080
   interval: 15s
   timeout: 10s
-
 secrets:
-  - key: TRINO_USER
-    label: "Username"
-    default: "admin"
-  - key: TRINO_PASSWORD
-    label: "Password"
-    default: "(any or blank — dev mode)"
-  - key: TRINO_JDBC_URL
-    label: "JDBC URL"
-    default: "jdbc:trino://{host}:8080/iceberg/demo"
-  - key: TRINO_JDBC_DRIVER
-    label: "JDBC Driver"
-    default: "io.trino.jdbc.TrinoDriver"
-
+- key: TRINO_USER
+  label: Username
+  default: admin
+- key: TRINO_PASSWORD
+  label: Password
+  default: (any or blank — dev mode)
+- key: TRINO_JDBC_URL
+  label: JDBC URL
+  default: jdbc:trino://{host}:8080/iceberg/demo
+- key: TRINO_JDBC_DRIVER
+  label: JDBC Driver
+  default: io.trino.jdbc.TrinoDriver
 web_ui:
-  - name: trino-ui
-    port: 8080
-    path: "/"
-    description: "Trino Web UI — query history and cluster status"
-
+- name: trino-ui
+  port: 8080
+  path: /
+  description: Trino Web UI — query history and cluster status
 terminal:
   shell: /bin/bash
-  welcome_message: "Trino SQL query engine"
+  welcome_message: Trino SQL query engine
   quick_actions:
-    - label: "Show catalogs"
-      command: "trino --execute 'SHOW CATALOGS'"
-    - label: "Show schemas"
-      command: "trino --execute 'SHOW SCHEMAS FROM iceberg'"
-    - label: "Trino version"
-      command: "trino --execute 'SELECT version()'"
-
+  - label: Show catalogs
+    command: trino --execute 'SHOW CATALOGS'
+  - label: Show schemas
+    command: trino --execute 'SHOW SCHEMAS FROM iceberg'
+  - label: Trino version
+    command: trino --execute 'SELECT version()'
 connections:
   provides:
-    - type: sql-query
-      port: 8080
-      description: "Trino SQL query endpoint (JDBC/HTTP)"
-      config_schema: []
+  - type: sql-query
+    port: 8080
+    description: Trino SQL query endpoint (JDBC/HTTP)
+    config_schema: []
+  - type: s3
+  - type: iceberg-catalog
   accepts:
-    - type: iceberg-catalog
-      config_schema:
-        - key: catalog_name
-          label: "Trino Catalog Name"
-          type: string
-          default: "iceberg"
-    - type: s3
-      config_schema:
-        - key: catalog_name
-          label: "Hive/S3 Catalog Name"
-          type: string
-          default: "minio"
-    - type: aistor-tables
-      config_schema:
-        - key: catalog_name
-          label: "AIStor Tables Catalog Name"
-          type: string
-          default: "aistor"
-
+  - type: iceberg-catalog
+    config_schema:
+    - key: catalog_name
+      label: Trino Catalog Name
+      type: string
+      default: iceberg
+  - type: s3
+    config_schema:
+    - key: catalog_name
+      label: Hive/S3 Catalog Name
+      type: string
+      default: minio
+  - type: aistor-tables
+    config_schema:
+    - key: catalog_name
+      label: AIStor Tables Catalog Name
+      type: string
+      default: aistor
+  - type: sql-query
 variants:
   default:
-    description: "Single-node Trino coordinator+worker"
-
+    description: Single-node Trino coordinator+worker
 template_mounts:
-  - template: "iceberg.properties.j2"
-    mount_path: "/etc/trino/catalog/iceberg.properties"
-  - template: "aistor-iceberg.properties.j2"
-    mount_path: "/etc/trino/catalog/aistor.properties"
-  - template: "hive.properties.j2"
-    mount_path: "/etc/trino/catalog/hive.properties"
-
+- template: iceberg.properties.j2
+  mount_path: /etc/trino/catalog/iceberg.properties
+- template: aistor-iceberg.properties.j2
+  mount_path: /etc/trino/catalog/aistor.properties
+- template: hive.properties.j2
+  mount_path: /etc/trino/catalog/hive.properties
 static_mounts: []
 init_scripts: []

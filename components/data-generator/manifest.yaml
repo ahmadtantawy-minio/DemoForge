@@ -2,106 +2,106 @@ id: data-generator
 name: Data Generator
 category: tooling
 icon: data-generator
-version: "1.0"
+version: '1.0'
 image: demoforge/data-generator:latest
-build_context: "."
-description: "Generates structured data (orders schema) in Parquet, JSON, or CSV format and pushes to MinIO. Partitioned by date for Iceberg/Trino queries."
-
+build_context: .
+description: Generates structured data (orders schema) in Parquet, JSON, or CSV format and pushes to MinIO. Partitioned by date for Iceberg/Trino queries.
 resources:
-  memory: "256m"
+  memory: 256m
   cpu: 0.25
-
 ports: []
-
 environment:
-  S3_ENDPOINT: "localhost:9000"
-  S3_ACCESS_KEY: "minioadmin"
-  S3_SECRET_KEY: "minioadmin"
-  S3_BUCKET: "raw-data"
-  DG_WRITE_MODE: "iceberg"
-  DG_FORMAT: "parquet"
-  DG_FILE_SIZE_ROWS: "1000"
-  DG_RATE: "1"
-  DG_BATCH_SIZE: "10"
-  DG_SCENARIO: "ecommerce-orders"
-  DG_RATE_PROFILE: "medium"
-  PARTITION_BY_DATE: "true"
-  KAFKA_BOOTSTRAP_SERVERS: ""
-  KAFKA_TOPIC: ""
-
+  S3_ENDPOINT: localhost:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET: raw-data
+  DG_WRITE_MODE: iceberg
+  DG_FORMAT: parquet
+  DG_FILE_SIZE_ROWS: '1000'
+  DG_RATE: '1'
+  DG_BATCH_SIZE: '10'
+  DG_SCENARIO: ecommerce-orders
+  DG_RATE_PROFILE: medium
+  PARTITION_BY_DATE: 'true'
+  KAFKA_BOOTSTRAP_SERVERS: ''
+  KAFKA_TOPIC: ''
 secrets:
-  - key: S3_ACCESS_KEY
-    label: "S3 Access Key"
-    default: "minioadmin"
-  - key: S3_SECRET_KEY
-    label: "S3 Secret Key"
-    default: "minioadmin"
-
+- key: S3_ACCESS_KEY
+  label: S3 Access Key
+  default: minioadmin
+- key: S3_SECRET_KEY
+  label: S3 Secret Key
+  default: minioadmin
 web_ui: []
-
 terminal:
   shell: /bin/sh
-  welcome_message: "Structured Data Generator"
+  welcome_message: Structured Data Generator
   quick_actions:
-    - label: "Check status"
-      command: "ps aux | grep generate"
-    - label: "View logs"
-      command: "cat /tmp/generator.log 2>/dev/null || echo 'No logs yet'"
-
+  - label: Check status
+    command: ps aux | grep generate
+  - label: View logs
+    command: cat /tmp/generator.log 2>/dev/null || echo 'No logs yet'
 connections:
   provides:
-    - type: structured-data
-      port: 0
-      description: "Pushes structured data (Parquet/JSON/CSV) to an S3 target"
-      config_schema:
-        - key: format
-          label: "File Format"
-          type: select
-          options: ["parquet", "json", "csv"]
-          default: "parquet"
-        - key: rows_per_file
-          label: "Rows per File"
-          type: number
-          default: "1000"
-        - key: rate
-          label: "Files per Minute"
-          type: number
-          default: "1"
-        - key: target_bucket
-          label: "Target Bucket"
-          type: string
-          default: "data-lake"
+  - type: structured-data
+    port: 0
+    description: Pushes structured data (Parquet/JSON/CSV) to an S3 target
+    config_schema:
+    - key: format
+      label: File Format
+      type: select
+      options:
+      - parquet
+      - json
+      - csv
+      default: parquet
+    - key: rows_per_file
+      label: Rows per File
+      type: number
+      default: '1000'
+    - key: rate
+      label: Files per Minute
+      type: number
+      default: '1'
+    - key: target_bucket
+      label: Target Bucket
+      type: string
+      default: data-lake
+  - type: s3
+  - type: kafka
+  - type: file-push
   accepts:
-    - type: s3
-      config_schema:
-        - key: bucket
-          label: "Target Bucket"
-          type: string
-          default: "raw-data"
-        - key: format
-          label: "File Format"
-          type: select
-          options: ["parquet", "json", "csv"]
-          default: "parquet"
-        - key: rows_per_file
-          label: "Rows per File"
-          type: number
-          default: "1000"
-        - key: rate
-          label: "Files per Minute"
-          type: number
-          default: "1"
-    - type: kafka
-      config_schema:
-        - key: topic
-          label: "Kafka Topic"
-          type: string
-          default: "data-generator"
-
+  - type: s3
+    config_schema:
+    - key: bucket
+      label: Target Bucket
+      type: string
+      default: raw-data
+    - key: format
+      label: File Format
+      type: select
+      options:
+      - parquet
+      - json
+      - csv
+      default: parquet
+    - key: rows_per_file
+      label: Rows per File
+      type: number
+      default: '1000'
+    - key: rate
+      label: Files per Minute
+      type: number
+      default: '1'
+  - type: kafka
+    config_schema:
+    - key: topic
+      label: Kafka Topic
+      type: string
+      default: data-generator
 variants:
   default:
-    description: "Generates structured data in configurable format (Parquet/JSON/CSV) at configurable rate"
-
+    description: Generates structured data in configurable format (Parquet/JSON/CSV) at configurable rate
 template_mounts: []
 static_mounts: []
 init_scripts: []

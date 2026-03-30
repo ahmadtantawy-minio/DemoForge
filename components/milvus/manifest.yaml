@@ -2,94 +2,90 @@ id: milvus
 name: Milvus
 category: database
 icon: milvus
-version: "latest"
+version: latest
 image: milvusdb/milvus:v2.4.0
 image_size_mb: 400
-description: "Enterprise vector database — uses MinIO as primary storage backend"
-
+description: Enterprise vector database — uses MinIO as primary storage backend
 resources:
-  memory: "2g"
+  memory: 2g
   cpu: 1.0
-
 ports:
-  - name: grpc
-    container: 19530
-    protocol: tcp
-  - name: http
-    container: 9091
-    protocol: tcp
-
+- name: grpc
+  container: 19530
+  protocol: tcp
+- name: http
+  container: 9091
+  protocol: tcp
 environment:
-  ETCD_ENDPOINTS: ""
-  MINIO_ADDRESS: ""
-  MINIO_PORT: "9000"
-  MINIO_ACCESS_KEY: "minioadmin"
-  MINIO_SECRET_KEY: "minioadmin"
-  MINIO_USE_SSL: "false"
-  MINIO_BUCKET_NAME: "milvus-data"
-
+  ETCD_ENDPOINTS: ''
+  MINIO_ADDRESS: ''
+  MINIO_PORT: '9000'
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  MINIO_USE_SSL: 'false'
+  MINIO_BUCKET_NAME: milvus-data
 volumes:
-  - name: data
-    path: /var/lib/milvus
-    size: 5g
-
-command: ["milvus", "run", "standalone"]
-
+- name: data
+  path: /var/lib/milvus
+  size: 5g
+command:
+- milvus
+- run
+- standalone
 health_check:
   endpoint: /healthz
   port: 9091
   interval: 15s
   timeout: 10s
-  start_period: "45s"
-
+  start_period: 45s
 secrets:
-  - key: MINIO_ACCESS_KEY
-    label: "MinIO Access Key"
-    default: "minioadmin"
-  - key: MINIO_SECRET_KEY
-    label: "MinIO Secret Key"
-    default: "minioadmin"
-
+- key: MINIO_ACCESS_KEY
+  label: MinIO Access Key
+  default: minioadmin
+- key: MINIO_SECRET_KEY
+  label: MinIO Secret Key
+  default: minioadmin
 web_ui:
-  - name: api
-    port: 9091
-    path: /
-    description: "Milvus HTTP API — health, metrics"
-
+- name: api
+  port: 9091
+  path: /
+  description: Milvus HTTP API — health, metrics
 terminal:
   shell: /bin/sh
-  welcome_message: "Milvus vector database. Storage backend: MinIO."
+  welcome_message: 'Milvus vector database. Storage backend: MinIO.'
   quick_actions:
-    - label: "Health check"
-      command: "wget -qO- http://localhost:9091/healthz 2>/dev/null || echo 'Not ready'"
-    - label: "Check metrics"
-      command: "wget -qO- http://localhost:9091/metrics 2>/dev/null | head -20"
-
+  - label: Health check
+    command: wget -qO- http://localhost:9091/healthz 2>/dev/null || echo 'Not ready'
+  - label: Check metrics
+    command: wget -qO- http://localhost:9091/metrics 2>/dev/null | head -20
 connections:
   provides:
-    - type: vector-db-milvus
-      port: 19530
-      description: "Milvus gRPC API for vector operations"
+  - type: vector-db-milvus
+    port: 19530
+    description: Milvus gRPC API for vector operations
+  - type: s3
+  - type: etcd
   accepts:
-    - type: s3
-      config_schema:
-        - key: milvus_bucket
-          label: "Milvus Data Bucket"
-          type: string
-          default: "milvus-data"
-          description: "MinIO bucket for Milvus primary storage (segments, indexes, logs)"
-
+  - type: s3
+    config_schema:
+    - key: milvus_bucket
+      label: Milvus Data Bucket
+      type: string
+      default: milvus-data
+      description: MinIO bucket for Milvus primary storage (segments, indexes, logs)
+  - type: vector-db-milvus
 variants:
   standalone:
-    description: "Standalone mode with embedded etcd"
-    command: ["milvus", "run", "standalone"]
-
+    description: Standalone mode with embedded etcd
+    command:
+    - milvus
+    - run
+    - standalone
 template_mounts: []
 static_mounts: []
-
 init_scripts:
-  - command: "sh -c 'until wget -qO- http://localhost:9091/healthz 2>/dev/null | grep -q ok; do sleep 5; done; echo Milvus ready'"
-    wait_for_healthy: true
-    timeout: 120
-    order: 1
-    description: "Wait for Milvus to fully initialize"
+- command: sh -c 'until wget -qO- http://localhost:9091/healthz 2>/dev/null | grep -q ok; do sleep 5; done; echo Milvus ready'
+  wait_for_healthy: true
+  timeout: 120
+  order: 1
+  description: Wait for Milvus to fully initialize

@@ -2,94 +2,85 @@ id: airflow
 name: Apache Airflow
 category: ai
 icon: airflow
-version: "latest"
+version: latest
 image: apache/airflow:2.10.4-python3.12
-description: "Workflow orchestration for ML and data pipelines"
-
+description: Workflow orchestration for ML and data pipelines
 resources:
-  memory: "1g"
+  memory: 1g
   cpu: 0.5
-
 ports:
-  - name: web
-    container: 8080
-    protocol: tcp
-
+- name: web
+  container: 8080
+  protocol: tcp
 environment:
-  AIRFLOW__CORE__EXECUTOR: "SequentialExecutor"
-  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:////opt/airflow/airflow.db"
-  AIRFLOW__CORE__FERNET_KEY: ""
-  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
-  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
-  AIRFLOW_CONN_MINIO_S3: ""
-  _AIRFLOW_DB_MIGRATE: "true"
-  _AIRFLOW_WWW_USER_CREATE: "true"
-  _AIRFLOW_WWW_USER_USERNAME: "admin"
-  _AIRFLOW_WWW_USER_PASSWORD: "demoforge"
-
+  AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+  AIRFLOW__CORE__FERNET_KEY: ''
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+  AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+  AIRFLOW_CONN_MINIO_S3: ''
+  _AIRFLOW_DB_MIGRATE: 'true'
+  _AIRFLOW_WWW_USER_CREATE: 'true'
+  _AIRFLOW_WWW_USER_USERNAME: admin
+  _AIRFLOW_WWW_USER_PASSWORD: demoforge
 volumes:
-  - name: dags
-    path: /opt/airflow/dags
-    size: 1g
-  - name: logs
-    path: /opt/airflow/logs
-    size: 1g
-
-command: ["bash", "-c", "airflow db migrate && airflow users create --username admin --password demoforge --firstname Demo --lastname Forge --role Admin --email admin@demoforge.local 2>/dev/null; airflow webserver --port 8080 & airflow scheduler & wait"]
-
+- name: dags
+  path: /opt/airflow/dags
+  size: 1g
+- name: logs
+  path: /opt/airflow/logs
+  size: 1g
+command:
+- bash
+- -c
+- airflow db migrate && airflow users create --username admin --password demoforge --firstname Demo --lastname Forge --role Admin --email admin@demoforge.local 2>/dev/null; airflow webserver --port 8080
+  & airflow scheduler & wait
 health_check:
   endpoint: /health
   port: 8080
   interval: 15s
   timeout: 10s
-  start_period: "45s"
-
+  start_period: 45s
 secrets:
-  - key: _AIRFLOW_WWW_USER_PASSWORD
-    label: "Admin Password"
-    default: "demoforge"
-
+- key: _AIRFLOW_WWW_USER_PASSWORD
+  label: Admin Password
+  default: demoforge
 web_ui:
-  - name: dashboard
-    port: 8080
-    path: /
-    description: "Airflow UI — DAG management, run history, task logs"
-
+- name: dashboard
+  port: 8080
+  path: /
+  description: Airflow UI — DAG management, run history, task logs
 terminal:
   shell: /bin/bash
-  welcome_message: "Apache Airflow container."
+  welcome_message: Apache Airflow container.
   quick_actions:
-    - label: "List DAGs"
-      command: "airflow dags list 2>/dev/null || echo 'Not ready'"
-    - label: "Check scheduler"
-      command: "airflow jobs check --hostname $(hostname) 2>/dev/null || echo 'Scheduler not running'"
-
+  - label: List DAGs
+    command: airflow dags list 2>/dev/null || echo 'Not ready'
+  - label: Check scheduler
+    command: airflow jobs check --hostname $(hostname) 2>/dev/null || echo 'Scheduler not running'
 connections:
   provides:
-    - type: workflow-api
-      port: 8080
-      description: "Airflow REST API — trigger DAGs, check status"
+  - type: workflow-api
+    port: 8080
+    description: Airflow REST API — trigger DAGs, check status
+  - type: s3
   accepts:
-    - type: s3
-      config_schema:
-        - key: dag_bucket
-          label: "DAG Storage Bucket"
-          type: string
-          default: "airflow-dags"
-        - key: log_bucket
-          label: "Log Storage Bucket"
-          type: string
-          default: "airflow-logs"
-
+  - type: s3
+    config_schema:
+    - key: dag_bucket
+      label: DAG Storage Bucket
+      type: string
+      default: airflow-dags
+    - key: log_bucket
+      label: Log Storage Bucket
+      type: string
+      default: airflow-logs
 variants:
   default:
-    description: "Standalone with SequentialExecutor and SQLite"
-
+    description: Standalone with SequentialExecutor and SQLite
 template_mounts: []
-
 static_mounts:
-  - host_path: dags
-    mount_path: /opt/airflow/dags
-
+- host_path: dags
+  mount_path: /opt/airflow/dags
 init_scripts: []

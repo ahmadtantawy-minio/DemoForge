@@ -2,86 +2,83 @@ id: jupyterlab
 name: JupyterLab
 category: ai
 icon: jupyter
-version: "latest"
+version: latest
 image: demoforge/jupyterlab:latest
 image_size_mb: 800
-build_context: "."
-description: "Interactive notebooks for data science, ML training, and MinIO data exploration"
-
+build_context: .
+description: Interactive notebooks for data science, ML training, and MinIO data exploration
 resources:
-  memory: "1g"
+  memory: 1g
   cpu: 1.0
-
 ports:
-  - name: web
-    container: 8888
-    protocol: tcp
-
+- name: web
+  container: 8888
+  protocol: tcp
 environment:
-  JUPYTER_TOKEN: "demoforge"
-  MINIO_ENDPOINT: ""
-  MINIO_ACCESS_KEY: "minioadmin"
-  MINIO_SECRET_KEY: "minioadmin"
-  MLFLOW_TRACKING_URI: ""
-  MLFLOW_S3_ENDPOINT_URL: ""
-  AWS_ACCESS_KEY_ID: "minioadmin"
-  AWS_SECRET_ACCESS_KEY: "minioadmin"
-
+  JUPYTER_TOKEN: demoforge
+  MINIO_ENDPOINT: ''
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  MLFLOW_TRACKING_URI: ''
+  MLFLOW_S3_ENDPOINT_URL: ''
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
 volumes:
-  - name: notebooks
-    path: /home/jovyan/work
-    size: 2g
-
-command: ["start-notebook.py", "--NotebookApp.token=demoforge",
-          "--NotebookApp.allow_origin=*", "--ServerApp.disable_check_xsrf=True"]
-
+- name: notebooks
+  path: /home/jovyan/work
+  size: 2g
+command:
+- start-notebook.py
+- --NotebookApp.token=demoforge
+- --NotebookApp.allow_origin=*
+- --ServerApp.disable_check_xsrf=True
 health_check:
   endpoint: /api/status
   port: 8888
   interval: 15s
   timeout: 5s
-  start_period: "20s"
-
+  start_period: 20s
 secrets:
-  - key: JUPYTER_TOKEN
-    label: "Access Token"
-    default: "demoforge"
-
+- key: JUPYTER_TOKEN
+  label: Access Token
+  default: demoforge
 web_ui:
-  - name: lab
-    port: 8888
-    path: /lab
-    description: "JupyterLab IDE — notebooks, terminal, file browser"
-
+- name: lab
+  port: 8888
+  path: /lab
+  description: JupyterLab IDE — notebooks, terminal, file browser
 terminal:
   shell: /bin/bash
-  welcome_message: "JupyterLab container. Pre-installed: boto3, pyarrow, pandas, scikit-learn, mlflow."
+  welcome_message: 'JupyterLab container. Pre-installed: boto3, pyarrow, pandas, scikit-learn, mlflow.'
   quick_actions:
-    - label: "List notebooks"
-      command: "ls -la /home/jovyan/work/*.ipynb 2>/dev/null || echo 'No notebooks yet'"
-    - label: "Test MinIO connection"
-      command: "python3 -c \"import boto3; s3=boto3.client('s3', endpoint_url='$MINIO_ENDPOINT', aws_access_key_id='$MINIO_ACCESS_KEY', aws_secret_access_key='$MINIO_SECRET_KEY'); print([b['Name'] for b in s3.list_buckets()['Buckets']])\""
-
+  - label: List notebooks
+    command: ls -la /home/jovyan/work/*.ipynb 2>/dev/null || echo 'No notebooks yet'
+  - label: Test MinIO connection
+    command: python3 -c "import boto3; s3=boto3.client('s3', endpoint_url='$MINIO_ENDPOINT', aws_access_key_id='$MINIO_ACCESS_KEY', aws_secret_access_key='$MINIO_SECRET_KEY'); print([b['Name'] for b in
+      s3.list_buckets()['Buckets']])"
 connections:
-  provides: []
+  provides:
+  - type: s3
+  - type: mlflow-tracking
   accepts:
-    - type: s3
-      config_schema:
-        - key: bucket
-          label: "Default Bucket"
-          type: string
-          default: "data"
-    - type: mlflow-tracking
-      config_schema: []
-    - type: iceberg-catalog
-      config_schema: []
-
+  - type: s3
+    config_schema:
+    - key: bucket
+      label: Default Bucket
+      type: string
+      default: data
+  - type: mlflow-tracking
+    config_schema: []
+  - type: iceberg-catalog
+    config_schema: []
 variants:
   default:
-    description: "Data science stack (pandas, scikit-learn, pyarrow, boto3, mlflow)"
-    command: ["start-notebook.py", "--NotebookApp.token=demoforge",
-              "--NotebookApp.allow_origin=*", "--ServerApp.disable_check_xsrf=True"]
-
+    description: Data science stack (pandas, scikit-learn, pyarrow, boto3, mlflow)
+    command:
+    - start-notebook.py
+    - --NotebookApp.token=demoforge
+    - --NotebookApp.allow_origin=*
+    - --ServerApp.disable_check_xsrf=True
 template_mounts: []
 static_mounts: []
 init_scripts: []

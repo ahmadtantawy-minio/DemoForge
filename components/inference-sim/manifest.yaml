@@ -2,94 +2,87 @@ id: inference-sim
 name: Inference Memory Simulator
 category: simulation
 icon: inference-sim
-version: "1.0"
+version: '1.0'
 image: demoforge/inference-sim:latest
-build_context: "."
-description: "Simulates LLM inference KV cache lifecycle across the NVIDIA STX 5-tier memory hierarchy"
-
+build_context: .
+description: Simulates LLM inference KV cache lifecycle across the NVIDIA STX 5-tier memory hierarchy
 resources:
-  memory: "512m"
+  memory: 512m
   cpu: 0.5
-
 ports:
-  - name: web
-    container: 8095
-    protocol: tcp
-
+- name: web
+  container: 8095
+  protocol: tcp
 environment:
-  MINIO_ENDPOINT_G35: ""
-  MINIO_ENDPOINT_G4: ""
-  MINIO_ACCESS_KEY: "minioadmin"
-  MINIO_SECRET_KEY: "minioadmin"
-  KV_BUCKET_HOT: "kv-cache-hot"
-  KV_BUCKET_WARM: "kv-cache-warm"
-  KV_BUCKET_COLD: "kv-cache-cold"
-  G1_CAPACITY_GB: "3"
-  G2_CAPACITY_GB: "3"
-  G3_CAPACITY_GB: "4"
-  G35_CAPACITY_GB: "10"
-  G4_CAPACITY_GB: "50"
-  GPU_COUNT: "2"
-  SIM_DEFAULT_USERS: "100"
-  SIM_DEFAULT_CONTEXT: "32768"
-
+  MINIO_ENDPOINT_G35: ''
+  MINIO_ENDPOINT_G4: ''
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  KV_BUCKET_HOT: kv-cache-hot
+  KV_BUCKET_WARM: kv-cache-warm
+  KV_BUCKET_COLD: kv-cache-cold
+  G1_CAPACITY_GB: '3'
+  G2_CAPACITY_GB: '3'
+  G3_CAPACITY_GB: '4'
+  G35_CAPACITY_GB: '10'
+  G4_CAPACITY_GB: '50'
+  GPU_COUNT: '2'
+  SIM_DEFAULT_USERS: '100'
+  SIM_DEFAULT_CONTEXT: '32768'
 volumes: []
 command: []
-
 health_check:
   endpoint: /health
   port: 8095
   interval: 10s
   timeout: 5s
-  start_period: "10s"
-
+  start_period: 10s
 secrets:
-  - key: MINIO_ACCESS_KEY
-    label: "MinIO Access Key"
-    default: "minioadmin"
-  - key: MINIO_SECRET_KEY
-    label: "MinIO Secret Key"
-    default: "minioadmin"
-
+- key: MINIO_ACCESS_KEY
+  label: MinIO Access Key
+  default: minioadmin
+- key: MINIO_SECRET_KEY
+  label: MinIO Secret Key
+  default: minioadmin
 web_ui:
-  - name: simulation
-    port: 8095
-    path: /
-    description: "STX/CMX inference memory simulator"
-
+- name: simulation
+  port: 8095
+  path: /
+  description: STX/CMX inference memory simulator
 terminal:
   shell: /bin/sh
-  welcome_message: "Inference Memory Simulator."
+  welcome_message: Inference Memory Simulator.
   quick_actions:
-    - label: "Status"
-      command: "wget -qO- http://localhost:8095/status 2>/dev/null || echo 'Not ready'"
-    - label: "Start simulation"
-      command: "wget -qO- --post-data='' http://localhost:8095/sim/start 2>/dev/null || echo 'Failed'"
-    - label: "Stop simulation"
-      command: "wget -qO- --post-data='' http://localhost:8095/sim/stop 2>/dev/null || echo 'Failed'"
-
+  - label: Status
+    command: wget -qO- http://localhost:8095/status 2>/dev/null || echo 'Not ready'
+  - label: Start simulation
+    command: wget -qO- --post-data='' http://localhost:8095/sim/start 2>/dev/null || echo 'Failed'
+  - label: Stop simulation
+    command: wget -qO- --post-data='' http://localhost:8095/sim/stop 2>/dev/null || echo 'Failed'
 connections:
-  provides: []
+  provides:
+  - type: s3
+  - type: metrics
   accepts:
-    - type: s3
-      config_schema:
-        - key: tier_role
-          label: "Storage Tier Role"
-          type: select
-          options: ["g35-cmx", "g4-archive"]
-          default: "g35-cmx"
-          description: "Which tier this MinIO instance represents"
-
+  - type: s3
+    config_schema:
+    - key: tier_role
+      label: Storage Tier Role
+      type: select
+      options:
+      - g35-cmx
+      - g4-archive
+      default: g35-cmx
+      description: Which tier this MinIO instance represents
+  - type: inference-api
 variants:
   default:
-    description: "Full simulation with visualization UI"
-
+    description: Full simulation with visualization UI
 template_mounts: []
 static_mounts: []
-
 init_scripts:
-  - command: "sh -c 'until wget -qO- http://localhost:8095/health 2>/dev/null | grep -q ok; do sleep 2; done; echo Simulator ready'"
-    wait_for_healthy: true
-    timeout: 30
-    order: 1
-    description: "Wait for simulator to initialize"
+- command: sh -c 'until wget -qO- http://localhost:8095/health 2>/dev/null | grep -q ok; do sleep 2; done; echo Simulator ready'
+  wait_for_healthy: true
+  timeout: 30
+  order: 1
+  description: Wait for simulator to initialize

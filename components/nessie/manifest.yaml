@@ -2,57 +2,49 @@ id: nessie
 name: Nessie
 category: analytics
 icon: nessie
-version: "latest"
+version: latest
 image: ghcr.io/projectnessie/nessie:latest
 image_size_mb: 150
-description: "Git-like catalog for Apache Iceberg — branching, tagging, and time travel for data lakes"
-
+description: Git-like catalog for Apache Iceberg — branching, tagging, and time travel for data lakes
 resources:
-  memory: "256m"
+  memory: 256m
   cpu: 0.25
-
 ports:
-  - name: api
-    container: 19120
-    protocol: tcp
-
+- name: api
+  container: 19120
+  protocol: tcp
 environment:
-  NESSIE_VERSION_STORE_TYPE: "IN_MEMORY"
-
+  NESSIE_VERSION_STORE_TYPE: IN_MEMORY
 health_check:
   endpoint: /api/v2/config
   port: 19120
   interval: 10s
   timeout: 5s
-
 web_ui:
-  - name: api
-    port: 19120
-    path: "/"
-    description: "Nessie REST API — browse branches, tags, and commit history"
-
+- name: api
+  port: 19120
+  path: /
+  description: Nessie REST API — browse branches, tags, and commit history
 terminal:
   shell: /bin/sh
-  welcome_message: "Nessie — Git-like Iceberg catalog."
+  welcome_message: Nessie — Git-like Iceberg catalog.
   quick_actions:
-    - label: "List branches"
-      command: "wget -qO- http://localhost:19120/api/v2/trees | grep -o '\"name\":\"[^\"]*\"'"
-    - label: "Get default branch"
-      command: "wget -qO- http://localhost:19120/api/v2/trees/main"
-    - label: "Check config"
-      command: "wget -qO- http://localhost:19120/api/v2/config"
-
+  - label: List branches
+    command: wget -qO- http://localhost:19120/api/v2/trees | grep -o '"name":"[^"]*"'
+  - label: Get default branch
+    command: wget -qO- http://localhost:19120/api/v2/trees/main
+  - label: Check config
+    command: wget -qO- http://localhost:19120/api/v2/config
 connections:
   provides:
-    - type: iceberg-catalog
-      port: 19120
-      description: "Nessie Iceberg REST catalog endpoint"
-  accepts: []
-
+  - type: iceberg-catalog
+    port: 19120
+    description: Nessie Iceberg REST catalog endpoint
+  accepts:
+  - type: iceberg-catalog
 variants:
   default:
-    description: "Single-node Nessie with in-memory version store"
-
+    description: Single-node Nessie with in-memory version store
 template_mounts: []
 static_mounts: []
 init_scripts: []

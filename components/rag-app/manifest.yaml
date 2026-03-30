@@ -2,112 +2,103 @@ id: rag-app
 name: RAG Pipeline
 category: ai
 icon: rag
-version: "1.0"
+version: '1.0'
 image: demoforge/rag-app:latest
-build_context: "."
-description: "Document ingestion, embedding, and retrieval-augmented generation pipeline"
-
+build_context: .
+description: Document ingestion, embedding, and retrieval-augmented generation pipeline
 resources:
-  memory: "512m"
+  memory: 512m
   cpu: 0.5
-
 ports:
-  - name: api
-    container: 8080
-    protocol: tcp
-
+- name: api
+  container: 8080
+  protocol: tcp
 environment:
-  MINIO_ENDPOINT: ""
-  MINIO_ACCESS_KEY: "minioadmin"
-  MINIO_SECRET_KEY: "minioadmin"
-  OLLAMA_ENDPOINT: ""
-  QDRANT_ENDPOINT: ""
-  EMBEDDING_MODEL: "nomic-embed-text"
-  CHAT_MODEL: "llama3.2:3b"
-  CHUNK_SIZE: "500"
-  CHUNK_OVERLAP: "50"
-  DOCUMENTS_BUCKET: "documents"
-  AUDIT_BUCKET: "rag-audit-log"
-
+  MINIO_ENDPOINT: ''
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  OLLAMA_ENDPOINT: ''
+  QDRANT_ENDPOINT: ''
+  EMBEDDING_MODEL: nomic-embed-text
+  CHAT_MODEL: llama3.2:3b
+  CHUNK_SIZE: '500'
+  CHUNK_OVERLAP: '50'
+  DOCUMENTS_BUCKET: documents
+  AUDIT_BUCKET: rag-audit-log
 volumes: []
-
 command: []
-
 health_check:
   endpoint: /health
   port: 8080
   interval: 10s
   timeout: 5s
-  start_period: "15s"
-
+  start_period: 15s
 secrets:
-  - key: MINIO_ACCESS_KEY
-    label: "MinIO Access Key"
-    default: "minioadmin"
-  - key: MINIO_SECRET_KEY
-    label: "MinIO Secret Key"
-    default: "minioadmin"
-
+- key: MINIO_ACCESS_KEY
+  label: MinIO Access Key
+  default: minioadmin
+- key: MINIO_SECRET_KEY
+  label: MinIO Secret Key
+  default: minioadmin
 web_ui:
-  - name: chat
-    port: 8080
-    path: /
-    description: "RAG chat interface — ask questions about your documents"
-  - name: api-docs
-    port: 8080
-    path: /docs
-    description: "FastAPI auto-docs for the RAG pipeline API"
-
+- name: chat
+  port: 8080
+  path: /
+  description: RAG chat interface — ask questions about your documents
+- name: api-docs
+  port: 8080
+  path: /docs
+  description: FastAPI auto-docs for the RAG pipeline API
 terminal:
   shell: /bin/sh
-  welcome_message: "RAG pipeline container."
+  welcome_message: RAG pipeline container.
   quick_actions:
-    - label: "Pipeline status"
-      command: "wget -qO- http://localhost:8080/status 2>/dev/null || echo 'Not ready'"
-    - label: "List ingested docs"
-      command: "wget -qO- http://localhost:8080/documents 2>/dev/null || echo 'Not ready'"
-    - label: "Ingest sample docs"
-      command: "wget -qO- --post-data='' http://localhost:8080/ingest/sample 2>/dev/null || echo 'Failed'"
-    - label: "Ask test question"
-      command: "wget -qO- --post-data='{\"question\":\"What is MinIO?\"}' --header='Content-Type: application/json' http://localhost:8080/ask 2>/dev/null || echo 'Failed'"
-
+  - label: Pipeline status
+    command: wget -qO- http://localhost:8080/status 2>/dev/null || echo 'Not ready'
+  - label: List ingested docs
+    command: wget -qO- http://localhost:8080/documents 2>/dev/null || echo 'Not ready'
+  - label: Ingest sample docs
+    command: wget -qO- --post-data='' http://localhost:8080/ingest/sample 2>/dev/null || echo 'Failed'
+  - label: Ask test question
+    command: 'wget -qO- --post-data=''{"question":"What is MinIO?"}'' --header=''Content-Type: application/json'' http://localhost:8080/ask 2>/dev/null || echo ''Failed'''
 connections:
-  provides: []
+  provides:
+  - type: s3
+  - type: llm-api
+  - type: vector-db
+  - type: vector-db-milvus
   accepts:
-    - type: s3
-      config_schema:
-        - key: documents_bucket
-          label: "Documents Bucket"
-          type: string
-          default: "documents"
-        - key: audit_bucket
-          label: "Audit Log Bucket"
-          type: string
-          default: "rag-audit-log"
-    - type: llm-api
-      config_schema:
-        - key: embedding_model
-          label: "Embedding Model"
-          type: string
-          default: "nomic-embed-text"
-        - key: chat_model
-          label: "Chat Model"
-          type: string
-          default: "llama3.2:3b"
-    - type: vector-db
-      config_schema: []
-
+  - type: s3
+    config_schema:
+    - key: documents_bucket
+      label: Documents Bucket
+      type: string
+      default: documents
+    - key: audit_bucket
+      label: Audit Log Bucket
+      type: string
+      default: rag-audit-log
+  - type: llm-api
+    config_schema:
+    - key: embedding_model
+      label: Embedding Model
+      type: string
+      default: nomic-embed-text
+    - key: chat_model
+      label: Chat Model
+      type: string
+      default: llama3.2:3b
+  - type: vector-db
+    config_schema: []
 variants:
   default:
-    description: "Full RAG pipeline with chat UI"
+    description: Full RAG pipeline with chat UI
     command: []
-
 template_mounts: []
 static_mounts: []
-
 init_scripts:
-  - command: "sh -c 'until wget -qO- http://localhost:8080/health 2>/dev/null | grep ok; do sleep 3; done && wget -qO- --post-data=\"\" http://localhost:8080/ingest/sample 2>/dev/null'"
-    wait_for_healthy: true
-    timeout: 120
-    order: 2
-    description: "Ingest sample MinIO documentation for demo"
+- command: sh -c 'until wget -qO- http://localhost:8080/health 2>/dev/null | grep ok; do sleep 3; done && wget -qO- --post-data="" http://localhost:8080/ingest/sample 2>/dev/null'
+  wait_for_healthy: true
+  timeout: 120
+  order: 2
+  description: Ingest sample MinIO documentation for demo

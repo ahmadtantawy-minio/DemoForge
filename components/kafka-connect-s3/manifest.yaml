@@ -2,121 +2,90 @@ id: kafka-connect-s3
 name: Kafka Connect S3
 category: streaming
 icon: kafka-connect-s3
-version: "latest"
+version: latest
 image: demoforge/kafka-connect-s3:latest
-build_context: "."
-description: "Kafka Connect worker with Aiven S3 sink connector — streams Kafka topics to S3-compatible object storage"
-
+build_context: .
+description: Kafka Connect worker with Aiven S3 sink connector — streams Kafka topics to S3-compatible object storage
 resources:
-  memory: "1g"
+  memory: 1g
   cpu: 0.5
-
 ports:
-  - name: api
-    container: 8083
-    protocol: tcp
-
+- name: api
+  container: 8083
+  protocol: tcp
 environment:
-  CONNECT_BOOTSTRAP_SERVERS: ""
-  CONNECT_REST_PORT: "8083"
-  CONNECT_GROUP_ID: "demoforge-connect"
-  CONNECT_CONFIG_STORAGE_TOPIC: "connect-configs"
-  CONNECT_OFFSET_STORAGE_TOPIC: "connect-offsets"
-  CONNECT_STATUS_STORAGE_TOPIC: "connect-status"
-  CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
-  CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
-  CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
-  CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
-  CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
-  CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
-  S3_ENDPOINT: ""
-  S3_ACCESS_KEY: "minioadmin"
-  S3_SECRET_KEY: "minioadmin"
-  S3_BUCKET: "streaming-data"
-  KAFKA_TOPIC: ""
-
+  CONNECT_BOOTSTRAP_SERVERS: ''
+  CONNECT_REST_PORT: '8083'
+  CONNECT_GROUP_ID: demoforge-connect
+  CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+  CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+  CONNECT_STATUS_STORAGE_TOPIC: connect-status
+  CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: '1'
+  CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: '1'
+  CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: '1'
+  CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+  CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+  CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+  S3_ENDPOINT: ''
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET: streaming-data
+  KAFKA_TOPIC: ''
 health_check:
   endpoint: /connectors
   port: 8083
   interval: 15s
   timeout: 10s
-
 web_ui: []
-
 terminal:
   shell: /bin/bash
-  welcome_message: "Kafka Connect with Aiven S3 sink connector."
+  welcome_message: Kafka Connect with Aiven S3 sink connector.
   quick_actions:
-    - label: "List connectors"
-      command: "curl -s http://localhost:8083/connectors | jq ."
-    - label: "List plugins"
-      command: "curl -s http://localhost:8083/connector-plugins | jq .[].class"
-    - label: "Connector status"
-      command: "curl -s http://localhost:8083/connectors/s3-sink/status | jq . 2>/dev/null || echo 'No s3-sink connector deployed'"
-
+  - label: List connectors
+    command: curl -s http://localhost:8083/connectors | jq .
+  - label: List plugins
+    command: curl -s http://localhost:8083/connector-plugins | jq .[].class
+  - label: Connector status
+    command: curl -s http://localhost:8083/connectors/s3-sink/status | jq . 2>/dev/null || echo 'No s3-sink connector deployed'
 connections:
   provides:
-    - type: kafka-connect
-      port: 8083
-      description: "Kafka Connect REST API"
+  - type: kafka-connect
+    port: 8083
+    description: Kafka Connect REST API
+  - type: s3
+  - type: kafka
   accepts:
-    - type: kafka
-      config_schema:
-        - key: broker_url
-          label: "Kafka Broker URL"
-          type: string
-          default: "redpanda:9092"
-    - type: s3
-      config_schema:
-        - key: bucket
-          label: "Target S3 Bucket"
-          type: string
-          default: "kafka-sink"
-        - key: prefix
-          label: "Object Prefix"
-          type: string
-          default: "kafka/"
-
+  - type: kafka
+    config_schema:
+    - key: broker_url
+      label: Kafka Broker URL
+      type: string
+      default: redpanda:9092
+  - type: s3
+    config_schema:
+    - key: bucket
+      label: Target S3 Bucket
+      type: string
+      default: kafka-sink
+    - key: prefix
+      label: Object Prefix
+      type: string
+      default: kafka/
 variants:
   default:
-    description: "Single Kafka Connect worker with Aiven S3 sink plugin"
-
+    description: Single Kafka Connect worker with Aiven S3 sink plugin
 template_mounts: []
 static_mounts: []
 init_scripts:
-  - command: >-
-      sh -c '
-      echo "Waiting for Kafka Connect REST API...";
-      until curl -sf http://localhost:8083/connectors > /dev/null 2>&1; do sleep 3; done;
-      echo "Kafka Connect ready.";
-      TOPIC="${KAFKA_TOPIC:-events}";
-      EXISTING=$(curl -sf http://localhost:8083/connectors/s3-sink/status 2>/dev/null);
-      if [ -n "$EXISTING" ]; then echo "s3-sink connector already exists"; exit 0; fi;
-      echo "Creating s3-sink connector for topic=$TOPIC bucket=$S3_BUCKET...";
-      curl -sf -X POST http://localhost:8083/connectors \
-        -H "Content-Type: application/json" \
-        -d "{
-          \"name\": \"s3-sink\",
-          \"config\": {
-            \"connector.class\": \"io.aiven.kafka.connect.s3.AivenKafkaConnectS3SinkConnector\",
-            \"topics\": \"$TOPIC\",
-            \"aws.s3.bucket.name\": \"$S3_BUCKET\",
-            \"aws.s3.endpoint\": \"$S3_ENDPOINT\",
-            \"aws.access.key.id\": \"$S3_ACCESS_KEY\",
-            \"aws.secret.access.key\": \"$S3_SECRET_KEY\",
-            \"aws.s3.region\": \"us-east-1\",
-            \"format.output.type\": \"jsonl\",
-            \"file.compression.type\": \"none\",
-            \"tasks.max\": \"1\",
-            \"key.converter\": \"org.apache.kafka.connect.storage.StringConverter\",
-            \"value.converter\": \"org.apache.kafka.connect.json.JsonConverter\",
-            \"value.converter.schemas.enable\": \"false\"
-          }
-        }";
-      echo "";
-      echo "s3-sink connector created."
-      '
-    wait_for_healthy: true
-    timeout: 90
-    order: 1
-    description: "Create S3 sink connector to stream Kafka topic data to MinIO"
+- command: "sh -c ' echo \"Waiting for Kafka Connect REST API...\"; until curl -sf http://localhost:8083/connectors > /dev/null 2>&1; do sleep 3; done; echo \"Kafka Connect ready.\"; TOPIC=\"${KAFKA_TOPIC:-events}\"\
+    ; EXISTING=$(curl -sf http://localhost:8083/connectors/s3-sink/status 2>/dev/null); if [ -n \"$EXISTING\" ]; then echo \"s3-sink connector already exists\"; exit 0; fi; echo \"Creating s3-sink connector\
+    \ for topic=$TOPIC bucket=$S3_BUCKET...\"; curl -sf -X POST http://localhost:8083/connectors \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{\n    \\\"name\\\": \\\"s3-sink\\\",\n    \\\"config\\\
+    \": {\n      \\\"connector.class\\\": \\\"io.aiven.kafka.connect.s3.AivenKafkaConnectS3SinkConnector\\\",\n      \\\"topics\\\": \\\"$TOPIC\\\",\n      \\\"aws.s3.bucket.name\\\": \\\"$S3_BUCKET\\\"\
+    ,\n      \\\"aws.s3.endpoint\\\": \\\"$S3_ENDPOINT\\\",\n      \\\"aws.access.key.id\\\": \\\"$S3_ACCESS_KEY\\\",\n      \\\"aws.secret.access.key\\\": \\\"$S3_SECRET_KEY\\\",\n      \\\"aws.s3.region\\\
+    \": \\\"us-east-1\\\",\n      \\\"format.output.type\\\": \\\"jsonl\\\",\n      \\\"file.compression.type\\\": \\\"none\\\",\n      \\\"tasks.max\\\": \\\"1\\\",\n      \\\"key.converter\\\": \\\"org.apache.kafka.connect.storage.StringConverter\\\
+    \",\n      \\\"value.converter\\\": \\\"org.apache.kafka.connect.json.JsonConverter\\\",\n      \\\"value.converter.schemas.enable\\\": \\\"false\\\"\n    }\n  }\";\necho \"\"; echo \"s3-sink connector\
+    \ created.\" '"
+  wait_for_healthy: true
+  timeout: 90
+  order: 1
+  description: Create S3 sink connector to stream Kafka topic data to MinIO

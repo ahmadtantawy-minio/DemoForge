@@ -2,79 +2,69 @@ id: qdrant
 name: Qdrant
 category: database
 icon: qdrant
-version: "latest"
+version: latest
 image: qdrant/qdrant:latest
 image_size_mb: 80
-description: "Vector database for similarity search and RAG"
-
+description: Vector database for similarity search and RAG
 resources:
-  memory: "512m"
+  memory: 512m
   cpu: 0.5
-
 ports:
-  - name: http
-    container: 6333
-    protocol: tcp
-  - name: grpc
-    container: 6334
-    protocol: tcp
-
+- name: http
+  container: 6333
+  protocol: tcp
+- name: grpc
+  container: 6334
+  protocol: tcp
 environment: {}
-
 volumes:
-  - name: storage
-    path: /qdrant/storage
-    size: 2g
-
+- name: storage
+  path: /qdrant/storage
+  size: 2g
 command: []
-
 health_check:
   endpoint: /healthz
   port: 6333
   interval: 10s
   timeout: 5s
-  start_period: "10s"
-
+  start_period: 10s
 secrets:
-  - key: QDRANT__SERVICE__API_KEY
-    label: "API Key (optional)"
-    default: ""
-    required: false
-
+- key: QDRANT__SERVICE__API_KEY
+  label: API Key (optional)
+  default: ''
+  required: false
 web_ui:
-  - name: dashboard
-    port: 6333
-    path: /dashboard
-    description: "Qdrant web UI — collection browser, point visualization"
-
+- name: dashboard
+  port: 6333
+  path: /dashboard
+  description: Qdrant web UI — collection browser, point visualization
 terminal:
   shell: /bin/sh
-  welcome_message: "Qdrant vector database container."
+  welcome_message: Qdrant vector database container.
   quick_actions:
-    - label: "List collections"
-      command: "wget -qO- http://localhost:6333/collections 2>/dev/null || echo 'Not ready'"
-    - label: "Health check"
-      command: "wget -qO- http://localhost:6333/healthz 2>/dev/null || echo 'Not ready'"
-
+  - label: List collections
+    command: wget -qO- http://localhost:6333/collections 2>/dev/null || echo 'Not ready'
+  - label: Health check
+    command: wget -qO- http://localhost:6333/healthz 2>/dev/null || echo 'Not ready'
 connections:
   provides:
-    - type: vector-db
-      port: 6333
-      description: "Qdrant REST API for vector operations"
+  - type: vector-db
+    port: 6333
+    description: Qdrant REST API for vector operations
+  - type: s3
   accepts:
-    - type: s3
-      config_schema:
-        - key: snapshot_bucket
-          label: "Snapshot Bucket"
-          type: string
-          default: "qdrant-snapshots"
-          description: "MinIO bucket for Qdrant snapshot backups"
-
+  - type: s3
+    config_schema:
+    - key: snapshot_bucket
+      label: Snapshot Bucket
+      type: string
+      default: qdrant-snapshots
+      description: MinIO bucket for Qdrant snapshot backups
+  - type: vector-db
 variants:
   default:
-    description: "Single node with local storage"
+    description: Single node with local storage
     command: []
-
 template_mounts: []
 static_mounts: []
 init_scripts: []

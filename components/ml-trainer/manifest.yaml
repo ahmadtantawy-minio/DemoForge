@@ -2,82 +2,73 @@ id: ml-trainer
 name: ML Trainer
 category: ai
 icon: ml-trainer
-version: "1.0"
+version: '1.0'
 image: demoforge/ml-trainer:latest
-build_context: "."
-description: "Runs ML training experiments on MinIO data, logs to MLflow"
-
+build_context: .
+description: Runs ML training experiments on MinIO data, logs to MLflow
 resources:
-  memory: "512m"
+  memory: 512m
   cpu: 0.5
-
 ports:
-  - name: api
-    container: 8090
-    protocol: tcp
-
+- name: api
+  container: 8090
+  protocol: tcp
 environment:
-  MINIO_ENDPOINT: ""
-  MINIO_ACCESS_KEY: "minioadmin"
-  MINIO_SECRET_KEY: "minioadmin"
-  MLFLOW_TRACKING_URI: ""
-  MLFLOW_S3_ENDPOINT_URL: ""
-  AWS_ACCESS_KEY_ID: "minioadmin"
-  AWS_SECRET_ACCESS_KEY: "minioadmin"
-  TRAINING_BUCKET: "training-data"
-  MODEL_BUCKET: "models"
-  EXPERIMENT_NAME: "demoforge-experiment"
-
+  MINIO_ENDPOINT: ''
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  MLFLOW_TRACKING_URI: ''
+  MLFLOW_S3_ENDPOINT_URL: ''
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+  TRAINING_BUCKET: training-data
+  MODEL_BUCKET: models
+  EXPERIMENT_NAME: demoforge-experiment
 volumes: []
-
 command: []
-
 health_check:
   endpoint: /health
   port: 8090
   interval: 10s
   timeout: 5s
-  start_period: "15s"
-
+  start_period: 15s
 secrets:
-  - key: MINIO_ACCESS_KEY
-    label: "MinIO Access Key"
-    default: "minioadmin"
-  - key: MINIO_SECRET_KEY
-    label: "MinIO Secret Key"
-    default: "minioadmin"
-
+- key: MINIO_ACCESS_KEY
+  label: MinIO Access Key
+  default: minioadmin
+- key: MINIO_SECRET_KEY
+  label: MinIO Secret Key
+  default: minioadmin
 web_ui:
-  - name: dashboard
-    port: 8090
-    path: /
-    description: "Training dashboard — run status, metrics"
-
+- name: dashboard
+  port: 8090
+  path: /
+  description: Training dashboard — run status, metrics
 terminal:
   shell: /bin/bash
-  welcome_message: "ML Trainer container."
+  welcome_message: ML Trainer container.
   quick_actions:
-    - label: "Run quick training"
-      command: "wget -qO- --post-data='{\"n_runs\": 3}' --header='Content-Type: application/json' http://localhost:8090/train/quick 2>/dev/null || echo 'Not ready'"
-    - label: "Check status"
-      command: "wget -qO- http://localhost:8090/status 2>/dev/null || echo 'Not ready'"
-
+  - label: Run quick training
+    command: 'wget -qO- --post-data=''{"n_runs": 3}'' --header=''Content-Type: application/json'' http://localhost:8090/train/quick 2>/dev/null || echo ''Not ready'''
+  - label: Check status
+    command: wget -qO- http://localhost:8090/status 2>/dev/null || echo 'Not ready'
 connections:
-  provides: []
+  provides:
+  - type: s3
+  - type: mlflow-tracking
   accepts:
-    - type: s3
-      config_schema:
-        - key: training_bucket
-          label: "Training Data Bucket"
-          type: string
-          default: "training-data"
-    - type: mlflow-tracking
-      config_schema: []
-
+  - type: s3
+    config_schema:
+    - key: training_bucket
+      label: Training Data Bucket
+      type: string
+      default: training-data
+  - type: mlflow-tracking
+    config_schema: []
+  - type: workflow-api
 variants:
   default:
-    description: "Scikit-learn trainer with MLflow logging"
-
+    description: Scikit-learn trainer with MLflow logging
 template_mounts: []
 static_mounts: []
 init_scripts: []
