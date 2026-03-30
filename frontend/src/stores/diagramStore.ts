@@ -131,21 +131,18 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       return;
     }
 
-    // Build combined list with direction info
+    // Build combined list with direction info — use display name or node ID for clarity
     type DirectedType = { type: string; direction: "forward" | "reverse"; label: string };
     const allOptions: DirectedType[] = [];
 
+    const srcName = (sourceNode.data as any)?.displayName || sourceNode.id;
+    const tgtName = (targetNode.data as any)?.displayName || targetNode.id;
+
     for (const t of forwardTypes) {
-      allOptions.push({ type: t, direction: "forward", label: `${sourceNode.data.label} → ${targetNode.data.label}` });
+      allOptions.push({ type: t, direction: "forward", label: `${srcName} → ${tgtName}` });
     }
     for (const t of reverseTypes) {
-      // Skip if same type already in forward (avoid duplicate with direction choice)
-      if (!forwardTypes.includes(t)) {
-        allOptions.push({ type: t, direction: "reverse", label: `${targetNode.data.label} → ${sourceNode.data.label}` });
-      } else {
-        // Both directions possible for same type — add reverse option
-        allOptions.push({ type: t, direction: "reverse", label: `${targetNode.data.label} → ${sourceNode.data.label}` });
-      }
+      allOptions.push({ type: t, direction: "reverse", label: `${tgtName} → ${srcName}` });
     }
 
     // Single option with clear direction — apply directly
