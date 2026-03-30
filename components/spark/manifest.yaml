@@ -4,6 +4,7 @@ category: analytics
 icon: spark
 version: "3.5.0"
 image: demoforge/spark-s3a:3.5.0
+image_size_mb: 900
 build_context: spark
 description: "Distributed data processing engine with S3A connector for MinIO integration. Runs ETL jobs that read/write data on MinIO."
 

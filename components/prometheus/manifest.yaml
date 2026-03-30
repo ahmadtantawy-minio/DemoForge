@@ -4,6 +4,7 @@ category: observability
 icon: prometheus
 version: "latest"
 image: prom/prometheus:latest
+image_size_mb: 90
 description: "Metrics collection and alerting system"
 
 resources:

@@ -4,6 +4,7 @@ category: analytics
 icon: metabase
 version: "latest"
 image: metabase/metabase:latest
+image_size_mb: 500
 description: "Open-source BI and analytics platform. Connects to Trino for SQL dashboards over MinIO data."
 
 resources:

@@ -4,6 +4,7 @@ category: ai
 icon: ollama
 version: "latest"
 image: ollama/ollama:latest
+image_size_mb: 1200
 description: "Local LLM inference and embedding generation"
 
 resources:

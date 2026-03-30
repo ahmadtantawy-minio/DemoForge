@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-be dev-fe help
+.PHONY: start stop restart status logs build clean nuke dev-be dev-fe help check-images pull-missing pull-all
 
 start:
 	./demoforge.sh start
@@ -32,3 +32,14 @@ dev-fe:
 
 help:
 	./demoforge.sh help
+
+## Image management
+check-images:
+	@python3 check_images.py --mode se
+
+pull-missing:
+	@python3 check_images.py --mode se --pull-missing
+
+pull-all:
+	@python3 check_images.py --mode se --pull-missing
+	@echo "Custom/platform images: run './demoforge.sh build' to build locally."

@@ -4,6 +4,7 @@ category: storage
 icon: minio
 version: "latest"
 image: quay.io/minio/aistor/minio:latest
+image_size_mb: 180
 description: "S3-compatible object storage with enterprise AIStor features (S3 Select, Lambda Compute, Observability). Requires a MinIO SUBNET license."
 
 resources:

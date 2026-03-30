@@ -4,6 +4,7 @@ category: storage
 icon: hdfs
 version: "3"
 image: apache/hadoop:3
+image_size_mb: 450
 description: "Hadoop Distributed File System for legacy data storage. Used in migration demos showing data moving from HDFS to MinIO."
 
 resources:

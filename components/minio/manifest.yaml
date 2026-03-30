@@ -4,6 +4,7 @@ category: storage
 icon: minio
 version: "latest"
 image: minio/minio:latest
+image_size_mb: 110
 description: "S3-compatible high-performance object storage"
 
 resources:

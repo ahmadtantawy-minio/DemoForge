@@ -4,6 +4,7 @@ category: observability
 icon: grafana
 version: "latest"
 image: grafana/grafana:latest
+image_size_mb: 120
 description: "Observability dashboards and visualization"
 
 resources:

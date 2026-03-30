@@ -4,6 +4,7 @@ category: analytics
 icon: trino
 version: "latest"
 image: trinodb/trino:latest
+image_size_mb: 650
 description: "Distributed SQL query engine for analytics on MinIO data via Iceberg or direct S3"
 
 resources:

@@ -1,4 +1,5 @@
 """Request/response models for all API endpoints."""
+from typing import Literal, Optional
 from pydantic import BaseModel
 from enum import Enum
 
@@ -12,6 +13,7 @@ class ComponentSummary(BaseModel):
     image: str = ""               # Docker image, e.g. "minio/minio:latest"
     variants: list[str]           # Just the variant names
     connections: dict = {}        # {provides: [...], accepts: [...]}
+    image_size_mb: float | None = None
 
 class RegistryResponse(BaseModel):
     components: list[ComponentSummary]
@@ -107,3 +109,28 @@ class ExecResponse(BaseModel):
     exit_code: int
     stdout: str
     stderr: str
+
+# --- Images ---
+class ImageInfo(BaseModel):
+    component_name: str
+    image_ref: str
+    category: Literal["vendor", "custom", "platform"]
+    cached: bool
+    local_size_mb: Optional[float] = None
+    manifest_size_mb: Optional[float] = None
+    effective_size_mb: Optional[float] = None
+    pull_source: str
+    status: Literal["cached", "missing", "unknown"]
+
+class PullRequest(BaseModel):
+    image_ref: str
+
+class PullStatus(BaseModel):
+    pull_id: str
+    image_ref: str
+    status: Literal["pulling", "complete", "error"]
+    progress_pct: Optional[int] = None
+    error: Optional[str] = None
+
+class PullResponse(BaseModel):
+    pull_id: str

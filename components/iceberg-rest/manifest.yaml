@@ -4,6 +4,7 @@ category: analytics
 icon: iceberg-rest
 version: "latest"
 image: tabulario/iceberg-rest:latest
+image_size_mb: 80
 description: "Iceberg REST catalog server using MinIO as warehouse storage"
 
 resources:

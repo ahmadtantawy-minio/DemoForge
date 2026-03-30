@@ -4,6 +4,7 @@ category: analytics
 icon: clickhouse
 version: "latest"
 image: clickhouse/clickhouse-server:latest
+image_size_mb: 350
 description: "Column-oriented OLAP database for real-time analytics on MinIO data via S3 table functions and S3Queue engine"
 
 resources:

@@ -4,6 +4,7 @@ category: streaming
 icon: redpanda
 version: "latest"
 image: demoforge/redpanda:latest
+image_size_mb: 200
 build_context: "."
 description: "Kafka-compatible streaming platform — single binary, no ZooKeeper"
 

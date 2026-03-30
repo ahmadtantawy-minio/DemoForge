@@ -4,6 +4,7 @@ category: ai
 icon: jupyter
 version: "latest"
 image: demoforge/jupyterlab:latest
+image_size_mb: 800
 build_context: "."
 description: "Interactive notebooks for data science, ML training, and MinIO data exploration"
 

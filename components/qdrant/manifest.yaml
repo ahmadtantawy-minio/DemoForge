@@ -4,6 +4,7 @@ category: database
 icon: qdrant
 version: "latest"
 image: qdrant/qdrant:latest
+image_size_mb: 80
 description: "Vector database for similarity search and RAG"
 
 resources:

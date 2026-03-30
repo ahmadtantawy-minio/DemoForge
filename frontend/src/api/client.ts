@@ -7,7 +7,7 @@ function debugLog(level: "info" | "warn" | "error", source: string, message: str
   try { useDebugStore.getState().addEntry(level, source, message, details); } catch {}
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const method = options?.method || "GET";
   debugLog("info", "API", `${method} ${path}`);
   try {

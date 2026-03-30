@@ -122,3 +122,4 @@ class ComponentManifest(BaseModel):
     static_mounts: list[StaticMountDef] = []
     init_scripts: list[InitScriptDef] = []
     license_requirements: list[LicenseRequirement] = []
+    image_size_mb: float | None = None  # compressed pull size MB, None = unknown

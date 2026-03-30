@@ -4,6 +4,7 @@ category: ai
 icon: mlflow
 version: "latest"
 image: ghcr.io/mlflow/mlflow:latest
+image_size_mb: 300
 description: "ML experiment tracking, model registry, and artifact management"
 
 resources:

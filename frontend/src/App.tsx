@@ -16,9 +16,14 @@ import WelcomeScreen from "./components/shared/WelcomeScreen";
 import CockpitOverlay from "./components/cockpit/CockpitOverlay";
 import WalkthroughPanel from "./components/walkthrough/WalkthroughPanel";
 import { getWalkthrough, WalkthroughStep } from "./api/client";
+import AppNav from "./components/nav/AppNav";
+import { HomePage } from "./pages/HomePage";
+import { TemplatesPage } from "./pages/TemplatesPage";
+import { ImagesPage } from "./pages/ImagesPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export default function App() {
-  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes } = useDemoStore();
+  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
@@ -190,7 +195,7 @@ export default function App() {
   const showWelcome = !activeDemoId;
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
       <Toaster
         theme="dark"
         position="bottom-right"
@@ -204,78 +209,105 @@ export default function App() {
         }}
       />
 
-      {/* Top bar */}
-      <Toolbar />
+      <AppNav />
 
-      {/* Main area */}
-      <div className="flex flex-1 min-h-0">
-        {/* Left sidebar - Component Palette (hidden in experience mode) */}
-        {showLeftSidebar && (
-          <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth }}>
-            <ComponentPalette />
-          </div>
-        )}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Home page */}
+        <div style={{ display: currentPage === "home" ? "contents" : "none" }}>
+          <HomePage />
+        </div>
 
-        {/* Left resize handle */}
-        {showLeftSidebar && (
-          <div
-            className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
-            onMouseDown={onLeftResizeStart}
-          >
-            <div className="h-8 w-0.5 rounded-full bg-zinc-500" />
-          </div>
-        )}
+        {/* Designer - ALWAYS MOUNTED, hidden via display:none to preserve React Flow viewport state */}
+        <div style={{ display: currentPage === "designer" ? "contents" : "none" }} className="flex flex-col h-full">
+          {/* Top bar */}
+          <Toolbar />
 
-        {/* Center content */}
-        <div className="flex-1 min-w-0 h-full">
-          {showWelcome ? (
-            <WelcomeScreen />
-          ) : activeView === "diagram" ? (
-            <div className="relative w-full h-full">
-              <DiagramCanvas onOpenTerminal={openTerminal} />
+          {/* Main area */}
+          <div className="flex flex-1 min-h-0">
+            {/* Left sidebar - Component Palette (hidden in experience mode) */}
+            {showLeftSidebar && (
+              <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth }}>
+                <ComponentPalette />
+              </div>
+            )}
+
+            {/* Left resize handle */}
+            {showLeftSidebar && (
+              <div
+                className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
+                onMouseDown={onLeftResizeStart}
+              >
+                <div className="h-8 w-0.5 rounded-full bg-zinc-500" />
+              </div>
+            )}
+
+            {/* Center content */}
+            <div className="flex-1 min-w-0 h-full">
+              {showWelcome ? (
+                <WelcomeScreen />
+              ) : activeView === "diagram" ? (
+                <div className="relative w-full h-full">
+                  <DiagramCanvas onOpenTerminal={openTerminal} />
+                </div>
+              ) : (
+                <ControlPlane onOpenTerminal={openTerminal} />
+              )}
             </div>
-          ) : (
-            <ControlPlane onOpenTerminal={openTerminal} />
+
+            {/* Right resize handle */}
+            {showRightSidebar && (
+              <div
+                className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
+                onMouseDown={onRightResizeStart}
+              >
+                <div className="h-8 w-0.5 rounded-full bg-zinc-500" />
+              </div>
+            )}
+
+            {/* Right sidebar - Properties Panel (hidden in experience mode) */}
+            {showRightSidebar && (
+              <div className="flex-shrink-0 h-full" style={{ width: rightPanelWidth }}>
+                {walkthroughOpen
+                  ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />
+                  : <PropertiesPanel />}
+              </div>
+            )}
+          </div>
+
+          {/* Floating Cockpit overlay */}
+          {cockpitEnabled && activeDemoId && <CockpitOverlay />}
+
+          {/* Bottom - Terminal or Debug Panel (resizable) - only when demo selected */}
+          {activeDemoId && (
+            <div className="flex-shrink-0" style={{ height: terminalHeight }}>
+              <div
+                className="h-2 bg-border hover:bg-primary/50 cursor-row-resize border-t border-border flex items-center justify-center"
+                onMouseDown={onResizeStart}
+              >
+                <div className="w-8 h-0.5 rounded-full bg-zinc-500" />
+              </div>
+              <div className="h-[calc(100%-8px)]">
+                {debugOpen ? <DebugPanel /> : <TerminalPanel extraTabs={terminalTabs} />}
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Right resize handle */}
-        {showRightSidebar && (
-          <div
-            className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
-            onMouseDown={onRightResizeStart}
-          >
-            <div className="h-8 w-0.5 rounded-full bg-zinc-500" />
-          </div>
-        )}
-
-        {/* Right sidebar - Properties Panel (hidden in experience mode) */}
-        {showRightSidebar && (
-          <div className="flex-shrink-0 h-full" style={{ width: rightPanelWidth }}>
-            {walkthroughOpen
-              ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />
-              : <PropertiesPanel />}
-          </div>
-        )}
-      </div>
-
-      {/* Floating Cockpit overlay */}
-      {cockpitEnabled && activeDemoId && <CockpitOverlay />}
-
-      {/* Bottom - Terminal or Debug Panel (resizable) - only when demo selected */}
-      {activeDemoId && (
-        <div className="flex-shrink-0" style={{ height: terminalHeight }}>
-          <div
-            className="h-2 bg-border hover:bg-primary/50 cursor-row-resize border-t border-border flex items-center justify-center"
-            onMouseDown={onResizeStart}
-          >
-            <div className="w-8 h-0.5 rounded-full bg-zinc-500" />
-          </div>
-          <div className="h-[calc(100%-8px)]">
-            {debugOpen ? <DebugPanel /> : <TerminalPanel extraTabs={terminalTabs} />}
-          </div>
+        {/* Templates page */}
+        <div style={{ display: currentPage === "templates" ? "contents" : "none" }}>
+          <TemplatesPage />
         </div>
-      )}
+
+        {/* Images page */}
+        <div style={{ display: currentPage === "images" ? "contents" : "none" }}>
+          <ImagesPage />
+        </div>
+
+        {/* Settings page */}
+        <div style={{ display: currentPage === "settings" ? "contents" : "none" }}>
+          <SettingsPage />
+        </div>
+      </main>
     </div>
   );
 }

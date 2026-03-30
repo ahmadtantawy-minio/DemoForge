@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { DemoSummary, ContainerInstance } from "../types";
 
 type ViewType = "diagram" | "control-plane";
+export type PageKey = "home" | "designer" | "templates" | "images" | "settings";
 
 export interface ResilienceProbe {
   node_id: string;
@@ -19,6 +20,7 @@ interface DemoState {
   activeDemoId: string | null;
   instances: ContainerInstance[];
   activeView: ViewType;
+  currentPage: PageKey;
   cockpitEnabled: boolean;
   walkthroughOpen: boolean;
   resilienceProbes: ResilienceProbe[];
@@ -26,6 +28,7 @@ interface DemoState {
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
   setActiveView: (view: ViewType) => void;
+  setCurrentPage: (page: PageKey) => void;
   toggleCockpit: () => void;
   toggleWalkthrough: () => void;
   setWalkthroughOpen: (open: boolean) => void;
@@ -33,22 +36,27 @@ interface DemoState {
   setResilienceProbes: (probes: ResilienceProbe[]) => void;
 }
 
-function viewFromPath(path: string): { demoId: string | null; view: ViewType } {
+function viewFromPath(path: string): { demoId: string | null; view: ViewType; page: PageKey } {
+  if (path === "/" || path === "") return { demoId: null, view: "diagram", page: "home" };
+  if (path === "/templates") return { demoId: null, view: "diagram", page: "templates" };
+  if (path === "/images") return { demoId: null, view: "diagram", page: "images" };
+  if (path === "/settings") return { demoId: null, view: "diagram", page: "settings" };
   const m = path.match(/^\/demo\/([^/]+)(\/instances)?/);
-  if (m) {
-    return { demoId: m[1], view: m[2] ? "control-plane" : "diagram" };
-  }
-  return { demoId: null, view: "diagram" };
+  if (m) return { demoId: m[1], view: m[2] ? "control-plane" : "diagram", page: "designer" };
+  return { demoId: null, view: "diagram", page: "home" };
 }
 
-function pathFromState(demoId: string | null, view: ViewType): string {
-  if (!demoId) return "/";
+function pathFromState(demoId: string | null, view: ViewType, page: PageKey): string {
+  if (page === "templates") return "/templates";
+  if (page === "images") return "/images";
+  if (page === "settings") return "/settings";
+  if (page === "home" || !demoId) return "/";
   if (view === "control-plane") return `/demo/${demoId}/instances`;
   return `/demo/${demoId}`;
 }
 
-function pushUrl(demoId: string | null, view: ViewType) {
-  const target = pathFromState(demoId, view);
+function pushUrl(demoId: string | null, view: ViewType, page: PageKey) {
+  const target = pathFromState(demoId, view, page);
   if (window.location.pathname !== target) {
     window.history.pushState(null, "", target);
   }
@@ -62,6 +70,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   activeDemoId: initial.demoId,
   instances: [],
   activeView: initial.view,
+  currentPage: initial.page,
   cockpitEnabled: false,
   walkthroughOpen: false,
   resilienceProbes: [],
@@ -69,15 +78,21 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   setDemos: (demos) => set({ demos }),
 
   setActiveDemoId: (id) => {
-    set({ activeDemoId: id });
-    pushUrl(id, get().activeView);
+    const page = id ? "designer" : get().currentPage;
+    set({ activeDemoId: id, currentPage: page });
+    pushUrl(id, get().activeView, page);
   },
 
   setInstances: (instances) => set({ instances }),
 
   setActiveView: (view) => {
     set({ activeView: view });
-    pushUrl(get().activeDemoId, view);
+    pushUrl(get().activeDemoId, view, get().currentPage);
+  },
+
+  setCurrentPage: (page) => {
+    set({ currentPage: page });
+    pushUrl(get().activeDemoId, get().activeView, page);
   },
 
   toggleCockpit: () => set({ cockpitEnabled: !get().cockpitEnabled }),
@@ -96,6 +111,6 @@ export const useDemoStore = create<DemoState>((set, get) => ({
 
 // Handle browser back/forward
 window.addEventListener("popstate", () => {
-  const { demoId, view } = viewFromPath(window.location.pathname);
-  useDemoStore.setState({ activeDemoId: demoId, activeView: view });
+  const { demoId, view, page } = viewFromPath(window.location.pathname);
+  useDemoStore.setState({ activeDemoId: demoId, activeView: view, currentPage: page });
 });

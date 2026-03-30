@@ -4,6 +4,7 @@ category: analytics
 icon: dremio
 version: "latest"
 image: dremio/dremio-oss:latest
+image_size_mb: 600
 description: "Lakehouse query engine with Iceberg and S3-compatible storage support"
 
 resources:

@@ -4,6 +4,7 @@ category: analytics
 icon: nessie
 version: "latest"
 image: ghcr.io/projectnessie/nessie:latest
+image_size_mb: 150
 description: "Git-like catalog for Apache Iceberg — branching, tagging, and time travel for data lakes"
 
 resources:

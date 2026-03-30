@@ -3,7 +3,8 @@ name: Milvus
 category: database
 icon: milvus
 version: "latest"
-image: milvusdb/milvus:v2.4-latest
+image: milvusdb/milvus:v2.4.0
+image_size_mb: 400
 description: "Enterprise vector database — uses MinIO as primary storage backend"
 
 resources:

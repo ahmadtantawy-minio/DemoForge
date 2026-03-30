@@ -37,16 +37,19 @@ function CategoryPill({
   category,
   active,
   onClick,
+  testId,
 }: {
   category: string;
   active?: boolean;
   onClick?: () => void;
+  testId?: string;
 }) {
   const color = categoryColors[category] ?? categoryColors.general;
   return (
     <button
       type="button"
       onClick={onClick}
+      data-testid={testId}
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-all select-none
         ${color}
         ${active !== undefined
@@ -309,6 +312,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               category={cat}
               active={activeCategory === cat}
               onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+              testId="filter-pill"
             />
           ))}
         </div>
@@ -338,6 +342,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               key={t.id}
               role="listitem"
               tabIndex={0}
+              data-testid="template-card"
               aria-label={`${t.name} template, ${t.category} category`}
               aria-busy={loadingDetail === t.id}
               className={`group border border-border rounded-lg bg-card hover:border-primary/40 hover:bg-accent/30 hover:shadow-sm transition-all duration-150 flex flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card ${loadingDetail === t.id ? "opacity-70 cursor-wait" : "cursor-pointer"}`}

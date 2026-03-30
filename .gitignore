@@ -45,3 +45,18 @@ data/licenses.yaml
 # User-created demo definitions (not templates)
 demos/*.yaml
 !demos/.gitkeep
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Backend extracted source (volume-mounted, not built from this repo)
+backend/app/__pycache__/
+backend_src/
+
+# Validation artifacts
+screenshots/
+validation-report.html
+validate_templates.py
+precache-images.sh

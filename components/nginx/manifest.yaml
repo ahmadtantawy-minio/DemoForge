@@ -4,6 +4,7 @@ category: infra
 icon: nginx
 version: "latest"
 image: nginx:latest
+image_size_mb: 25
 description: "High-performance load balancer and reverse proxy"
 
 resources:

@@ -12,6 +12,7 @@ services:
       - ./demos:/app/demos                           # Saved demo definitions
       - ./data:/app/data                             # Runtime state
       - ./demo-templates:/app/demo-templates:ro      # Demo templates
+      - ./backend/app:/app/app                        # Backend source (live reload)
     environment:
       - DEMOFORGE_COMPONENTS_DIR=/app/components
       - DEMOFORGE_DEMOS_DIR=/app/demos
