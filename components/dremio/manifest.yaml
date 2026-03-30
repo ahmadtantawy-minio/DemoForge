@@ -51,10 +51,6 @@ connections:
   - type: dremio-flight
     port: 32010
     description: Apache Arrow Flight endpoint
-  - type: s3
-    port: 9047
-  - type: iceberg-catalog
-    port: 9047
   accepts:
   - type: s3
     config_schema:

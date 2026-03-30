@@ -67,8 +67,6 @@ connections:
       label: Target Bucket
       type: string
       default: data-lake
-  - type: s3
-    port: 0
   - type: kafka
     port: 0
   - type: file-push

@@ -33,11 +33,7 @@ terminal:
   - label: Check health
     command: wget -qO- http://localhost:8080/api/health
 connections:
-  provides:
-  - type: kafka
-    port: 8080
-  - type: schema-registry
-    port: 8080
+  provides: []
   accepts:
   - type: kafka
     config_schema:

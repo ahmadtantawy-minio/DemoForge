@@ -47,8 +47,7 @@ connections:
   - type: llm-api
     port: 11434
     description: Ollama REST API — chat, generate, and embedding endpoints
-  accepts:
-  - type: llm-api
+  accepts: []
 variants:
   default:
     description: Standard Ollama with CPU inference

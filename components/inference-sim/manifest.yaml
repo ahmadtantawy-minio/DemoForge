@@ -61,8 +61,6 @@ terminal:
     command: wget -qO- --post-data='' http://localhost:8095/sim/stop 2>/dev/null || echo 'Failed'
 connections:
   provides:
-  - type: s3
-    port: 8080
   - type: metrics
     port: 8080
   accepts:

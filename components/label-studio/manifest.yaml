@@ -63,8 +63,6 @@ connections:
   - type: labeling-api
     port: 8080
     description: Label Studio API — project management, data import/export
-  - type: s3
-    port: 8080
   accepts:
   - type: s3
     config_schema:

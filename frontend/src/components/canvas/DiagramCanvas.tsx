@@ -53,7 +53,7 @@ interface DiagramCanvasProps {
 }
 
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests } = useDiagramStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests, setDirty } = useDiagramStore();
   const { activeDemoId, instances, demos } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
@@ -252,8 +252,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       groupCounter = maxGroupId;
       setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfAnnotations, ...rfSchematics, ...rfNodes]);
       setEdges([...rfEdges, ...rfAnnotationEdges]);
+      setDirty(false);
     }).catch(() => {});
-  }, [activeDemoId, setNodes, setEdges]);
+  }, [activeDemoId, setNodes, setEdges, setDirty]);
 
   const debouncedSave = useRef(
     debounce((demoId: string, ns: Node[], es: Edge[]) => {
@@ -300,10 +301,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       }
       onNodesChange(changes);
       if (activeDemoId) {
-        debouncedSave(activeDemoId, useDiagramStore.getState().nodes, useDiagramStore.getState().edges);
+        setDirty(true);
       }
     },
-    [onNodesChange, activeDemoId, debouncedSave, doLayoutSave, isExperience]
+    [onNodesChange, activeDemoId, setDirty, doLayoutSave, isExperience]
   );
 
   const handleEdgesChange = useCallback(
@@ -315,10 +316,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       }
       onEdgesChange(changes);
       if (activeDemoId) {
-        debouncedSave(activeDemoId, useDiagramStore.getState().nodes, useDiagramStore.getState().edges);
+        setDirty(true);
       }
     },
-    [onEdgesChange, activeDemoId, debouncedSave, isExperience]
+    [onEdgesChange, activeDemoId, setDirty, isExperience]
   );
 
   const handleEdgeClick = useCallback(
@@ -343,11 +344,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       deleteElements({ edges: [{ id: edgeId }] });
       setEdgeContextMenu(null);
       if (activeDemoId) {
-        const state = useDiagramStore.getState();
-        debouncedSave(activeDemoId, state.nodes, state.edges);
+        setDirty(true);
       }
     },
-    [deleteElements, activeDemoId, debouncedSave]
+    [deleteElements, activeDemoId, setDirty]
   );
 
   const onDrop = useCallback(
@@ -385,7 +385,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         addNode(newGroup);
         if (activeDemoId) {
           const state = useDiagramStore.getState();
-          debouncedSave(activeDemoId, [...state.nodes, newGroup], state.edges);
+          saveDiagram(activeDemoId, [...state.nodes, newGroup], state.edges).then(() => setDirty(false)).catch(() => {});
         }
         return;
       }
@@ -405,7 +405,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         addNode(newSticky);
         if (activeDemoId) {
           const state = useDiagramStore.getState();
-          debouncedSave(activeDemoId, [...state.nodes, newSticky], state.edges);
+          saveDiagram(activeDemoId, [...state.nodes, newSticky], state.edges).then(() => setDirty(false)).catch(() => {});
         }
         return;
       }
@@ -431,7 +431,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         addNode(newCluster);
         if (activeDemoId) {
           const state = useDiagramStore.getState();
-          debouncedSave(activeDemoId, [...state.nodes, newCluster], state.edges);
+          saveDiagram(activeDemoId, [...state.nodes, newCluster], state.edges).then(() => setDirty(false)).catch(() => {});
         }
         return;
       }
@@ -451,10 +451,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       addNode(newNode);
       if (activeDemoId) {
         const state = useDiagramStore.getState();
-        debouncedSave(activeDemoId, [...state.nodes, newNode], state.edges);
+        saveDiagram(activeDemoId, [...state.nodes, newNode], state.edges).then(() => setDirty(false)).catch(() => {});
       }
     },
-    [addNode, activeDemoId, debouncedSave, isRunning]
+    [addNode, activeDemoId, setDirty, isRunning]
   );
 
   const onDragOver = (e: React.DragEvent) => {
@@ -549,9 +549,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     setSelectionMenu(null);
 
     if (activeDemoId) {
-      debouncedSave(activeDemoId, finalNodes, state.edges);
+      setDirty(true);
     }
-  }, [selectedNodeIds, setNodes, activeDemoId, debouncedSave]);
+  }, [selectedNodeIds, setNodes, activeDemoId, setDirty]);
 
   // B5: Handle node drag stop — detect drag into/out of groups
   const onNodeDragStop = useCallback((_event: React.MouseEvent, draggedNode: Node) => {
@@ -618,7 +618,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         ...updatedNodes.filter((n) => n.type !== "group"),
       ];
       setNodes(reordered);
-      if (activeDemoId) debouncedSave(activeDemoId, reordered, state.edges);
+      if (activeDemoId) setDirty(true);
       return;
     }
 
@@ -634,9 +634,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         };
       });
       setNodes(updatedNodes);
-      if (activeDemoId) debouncedSave(activeDemoId, updatedNodes, state.edges);
+      if (activeDemoId) setDirty(true);
     }
-  }, [setNodes, activeDemoId, debouncedSave]);
+  }, [setNodes, activeDemoId, setDirty]);
 
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
     event.preventDefault();
@@ -660,15 +660,27 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     setPendingDelete(null);
     if (activeDemoId) {
       setTimeout(() => {
-        const s = useDiagramStore.getState();
-        debouncedSave(activeDemoId, s.nodes, s.edges);
+        setDirty(true);
       }, 50);
     }
-  }, [pendingDelete, deleteElements, activeDemoId, debouncedSave]);
+  }, [pendingDelete, deleteElements, activeDemoId, setDirty]);
 
   // Intercept Backspace/Delete key — show confirmation instead of immediate delete
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+S: save diagram
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        const { isDirty, setDirty: sd } = useDiagramStore.getState();
+        if (!isDirty || !activeDemoId) return;
+        const { nodes: ns, edges: es } = useDiagramStore.getState();
+        const groups = ns.filter((n) => n.type === "group");
+        const componentNodes = ns.filter((n) => n.type !== "group");
+        saveDiagram(activeDemoId, [...componentNodes, ...groups], es)
+          .then(() => { sd(false); toast.success("Saved", { duration: 1500 }); })
+          .catch(() => { toast.error("Failed to save diagram"); });
+        return;
+      }
       if (isRunning) return;
       // Ctrl/Cmd+G: create group from selection
       if ((e.metaKey || e.ctrlKey) && e.key === "g") {

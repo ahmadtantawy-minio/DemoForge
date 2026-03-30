@@ -36,6 +36,8 @@ interface DiagramState {
   setComponentManifests: (manifests: Record<string, ConnectionsDef>) => void;
   setPendingConnection: (pending: PendingConnection | null) => void;
   completePendingConnection: (connectionType: string, direction?: "forward" | "reverse") => void;
+  isDirty: boolean;
+  setDirty: (dirty: boolean) => void;
 }
 
 export const useDiagramStore = create<DiagramState>((set, get) => ({
@@ -195,6 +197,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     }),
 
   setComponentManifests: (manifests) => set({ componentManifests: manifests }),
+
+  isDirty: false,
+  setDirty: (dirty) => set({ isDirty: dirty }),
 
   setPendingConnection: (pending) => set({ pendingConnection: pending }),
 

@@ -51,8 +51,6 @@ connections:
   - type: vector-db
     port: 6333
     description: Qdrant REST API for vector operations
-  - type: s3
-    port: 6333
   accepts:
   - type: s3
     config_schema:

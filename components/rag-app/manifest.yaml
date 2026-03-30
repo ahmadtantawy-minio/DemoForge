@@ -62,15 +62,7 @@ terminal:
   - label: Ask test question
     command: 'wget -qO- --post-data=''{"question":"What is MinIO?"}'' --header=''Content-Type: application/json'' http://localhost:8080/ask 2>/dev/null || echo ''Failed'''
 connections:
-  provides:
-  - type: s3
-    port: 8501
-  - type: llm-api
-    port: 8501
-  - type: vector-db
-    port: 8501
-  - type: vector-db-milvus
-    port: 8501
+  provides: []
   accepts:
   - type: s3
     config_schema:

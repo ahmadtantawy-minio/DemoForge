@@ -47,11 +47,7 @@ terminal:
   - label: List dashboards
     command: curl -s http://localhost:3000/api/dashboard | python3 -m json.tool 2>/dev/null || curl -s http://localhost:3000/api/dashboard
 connections:
-  provides:
-  - type: sql-query
-    port: 3000
-  - type: dremio-sql
-    port: 3000
+  provides: []
   accepts:
   - type: sql-query
     config_schema:

@@ -54,7 +54,6 @@ connections:
     description: Schema Registry endpoint
   accepts:
   - type: kafka
-  - type: schema-registry
 variants:
   default:
     description: Single-node Redpanda in dev-container mode

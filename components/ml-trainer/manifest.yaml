@@ -53,11 +53,7 @@ terminal:
   - label: Check status
     command: wget -qO- http://localhost:8090/status 2>/dev/null || echo 'Not ready'
 connections:
-  provides:
-  - type: s3
-    port: 0
-  - type: mlflow-tracking
-    port: 0
+  provides: []
   accepts:
   - type: s3
     config_schema:

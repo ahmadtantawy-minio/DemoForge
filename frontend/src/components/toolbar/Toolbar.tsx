@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
-import { deployDemo, stopDemo, fetchDemos, updateDemo } from "../../api/client";
+import { deployDemo, stopDemo, fetchDemos, updateDemo, saveDiagram } from "../../api/client";
+import { useDiagramStore } from "../../stores/diagramStore";
 import { toast } from "sonner";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
@@ -20,7 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
@@ -41,6 +42,23 @@ export default function Toolbar() {
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+
+  const isDirty = useDiagramStore((s) => s.isDirty);
+
+  const handleSave = useCallback(() => {
+    if (!activeDemoId) return;
+    const { nodes, edges } = useDiagramStore.getState();
+    const groups = nodes.filter((n) => n.type === "group");
+    const componentNodes = nodes.filter((n) => n.type !== "group");
+    saveDiagram(activeDemoId, [...componentNodes, ...groups], edges)
+      .then(() => {
+        useDiagramStore.getState().setDirty(false);
+        toast.success("Diagram saved", { duration: 2000 });
+      })
+      .catch(() => {
+        toast.error("Failed to save diagram");
+      });
+  }, [activeDemoId]);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
 
@@ -198,6 +216,23 @@ export default function Toolbar() {
               </Button>
             ))}
           </div>
+        )}
+
+        {/* Save - only when demo selected */}
+        {activeDemoId && (
+          <button
+            onClick={handleSave}
+            disabled={!isDirty}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              isDirty
+                ? "bg-blue-600 text-white hover:bg-blue-500"
+                : "bg-muted text-muted-foreground cursor-not-allowed"
+            }`}
+            title={isDirty ? "Save changes (Cmd+S)" : "No unsaved changes"}
+          >
+            <Save size={14} />
+            Save
+          </button>
         )}
 
         {/* Deploy/Stop - only when demo selected */}

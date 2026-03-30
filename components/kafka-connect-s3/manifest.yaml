@@ -52,10 +52,6 @@ connections:
   - type: kafka-connect
     port: 8083
     description: Kafka Connect REST API
-  - type: s3
-    port: 8083
-  - type: kafka
-    port: 8083
   accepts:
   - type: kafka
     config_schema:

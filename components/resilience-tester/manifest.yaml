@@ -27,9 +27,7 @@ terminal:
   - label: View status
     command: tail -20 /tmp/resilience.log 2>/dev/null || echo 'No test running'
 connections:
-  provides:
-  - type: s3
-    port: 0
+  provides: []
   accepts:
   - type: s3
     config_schema: []

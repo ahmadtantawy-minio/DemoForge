@@ -64,8 +64,6 @@ connections:
   - type: workflow-api
     port: 8080
     description: Airflow REST API — trigger DAGs, check status
-  - type: s3
-    port: 8080
   accepts:
   - type: s3
     config_schema:

@@ -71,8 +71,6 @@ connections:
   - type: mlflow-tracking
     port: 5000
     description: MLflow Tracking API — log experiments, register models
-  - type: s3
-    port: 5000
   accepts:
   - type: s3
     config_schema:
