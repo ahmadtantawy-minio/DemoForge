@@ -128,3 +128,4 @@ class DemoDefinition(BaseModel):
     schematics: list[DemoSchematicNode] = []
     clusters: list[DemoCluster] = []
     resources: DemoResourceSettings = DemoResourceSettings()
+    deploy_timeout_seconds: int | None = None  # None = use global default (180s)

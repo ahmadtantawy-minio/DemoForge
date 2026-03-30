@@ -1,165 +1,165 @@
-# Template metadata
 _template:
-  name: "Real-time analytics"
+  name: Real-time analytics
   tier: essentials
   category: lakehouse
-  tags: ["real-time", "clickhouse", "olap", "s3-query", "dashboards"]
-  description: "ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics. Includes Grafana dashboards for monitoring both MinIO and ClickHouse."
-  objective: "Demonstrate MinIO as the data layer for real-time OLAP queries — no ETL, no data movement, just query in place"
-  minio_value: "MinIO serves as the unified data lake that ClickHouse queries directly via S3 table functions — zero ETL, zero data duplication"
+  tags:
+  - real-time
+  - clickhouse
+  - olap
+  - s3-query
+  - dashboards
+  description: ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics. Includes Grafana dashboards for monitoring both MinIO and ClickHouse.
+  objective: Demonstrate MinIO as the data layer for real-time OLAP queries — no ETL, no data movement, just query in place
+  minio_value: MinIO serves as the unified data lake that ClickHouse queries directly via S3 table functions — zero ETL, zero data duplication
   estimated_resources:
-    memory: "3GB"
+    memory: 3GB
     cpu: 3
     containers: 5
   external_dependencies: []
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy to start MinIO, ClickHouse, Prometheus, and Grafana. Wait for green health indicators."
-    - step: "Generate data"
-      description: "Right-click Data Generator → Start Generating to push CSV files to MinIO's demo-bucket."
-    - step: "Query with ClickHouse"
-      description: "Open ClickHouse Play UI and run: SELECT count() FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames')"
-    - step: "Run aggregations"
-      description: "Try: SELECT category, count(), avg(value) FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames') GROUP BY category"
-    - step: "Monitor in Grafana"
-      description: "Open Grafana → MinIO Dashboard to see S3 API calls, throughput, and bucket stats in real-time."
-    - step: "Watch real-time"
-      description: "Enable Cockpit to see object counts increase as data flows from generator to MinIO."
+  - step: Deploy the demo
+    description: Click Deploy to start MinIO, ClickHouse, Prometheus, and Grafana. Wait for green health indicators.
+  - step: Generate data
+    description: Right-click Data Generator → Start Generating to push CSV files to MinIO's demo-bucket.
+  - step: Query with ClickHouse
+    description: 'Open ClickHouse Play UI and run: SELECT count() FROM s3(''http://minio:9000/demo-bucket/*.csv'', ''minioadmin'', ''minioadmin'', ''CSVWithNames'')'
+  - step: Run aggregations
+    description: 'Try: SELECT category, count(), avg(value) FROM s3(''http://minio:9000/demo-bucket/*.csv'', ''minioadmin'', ''minioadmin'', ''CSVWithNames'') GROUP BY category'
+  - step: Monitor in Grafana
+    description: Open Grafana → MinIO Dashboard to see S3 API calls, throughput, and bucket stats in real-time.
+  - step: Watch real-time
+    description: Enable Cockpit to see object counts increase as data flows from generator to MinIO.
   se_guide:
-    pitch: "Show how ClickHouse queries data directly from MinIO via S3 table functions — real-time OLAP analytics with zero ETL and zero data duplication."
-    audience: "Data engineers and analytics architects evaluating real-time analytics stacks without the complexity of Kafka pipelines or separate data warehouses."
+    pitch: Show how ClickHouse queries data directly from MinIO via S3 table functions — real-time OLAP analytics with zero ETL and zero data duplication.
+    audience: Data engineers and analytics architects evaluating real-time analytics stacks without the complexity of Kafka pipelines or separate data warehouses.
     talking_points:
-      - "ClickHouse's S3 table function treats MinIO buckets as a live data source — no ingestion pipeline, no COPY INTO, just query the files where they land."
-      - "Data flows from the generator into MinIO, and ClickHouse reads it in the same query — sub-second latency on freshly written objects."
-      - "MinIO is the single source of truth — ClickHouse reads without owning the data, so you can query the same files from multiple engines simultaneously."
-      - "This pattern eliminates the classic ETL bottleneck: no staging tables, no load jobs, no sync delays between your data lake and your analytics layer."
-      - "Grafana monitors both MinIO storage metrics and ClickHouse query performance in the same dashboard — full observability from one place."
+    - ClickHouse's S3 table function treats MinIO buckets as a live data source — no ingestion pipeline, no COPY INTO, just query the files where they land.
+    - Data flows from the generator into MinIO, and ClickHouse reads it in the same query — sub-second latency on freshly written objects.
+    - MinIO is the single source of truth — ClickHouse reads without owning the data, so you can query the same files from multiple engines simultaneously.
+    - 'This pattern eliminates the classic ETL bottleneck: no staging tables, no load jobs, no sync delays between your data lake and your analytics layer.'
+    - Grafana monitors both MinIO storage metrics and ClickHouse query performance in the same dashboard — full observability from one place.
     demo_flow:
-      - step: 1
-        action: "Click Deploy and wait for MinIO, ClickHouse, Prometheus, and Grafana to go green."
-        say: "Five containers — data generator, MinIO, ClickHouse, Prometheus, and Grafana. No Kafka, no ETL pipeline."
-      - step: 2
-        action: "Right-click Data Generator → Start Generating. Watch objects appear in the Cockpit."
-        say: "The generator is pushing CSV files into MinIO's demo-bucket. They're landing as objects on S3-compatible storage right now."
-      - step: 3
-        action: "Open ClickHouse Play UI. Run: SELECT count() FROM s3('http://minio:9000/demo-bucket/*.csv', 'minioadmin', 'minioadmin', 'CSVWithNames');"
-        say: "ClickHouse is reading those files directly from MinIO using an S3 table function. No import step — query runs against live object storage."
-      - step: 4
-        action: "Run the aggregation query: SELECT category, count(), avg(value) FROM s3(...) GROUP BY category;"
-        say: "This is a full OLAP aggregation across all files in the bucket, running in real time. Add more files and re-run — the count changes immediately."
-      - step: 5
-        action: "Open Grafana and show the MinIO metrics dashboard."
-        say: "S3 GET requests, throughput, and error rates — every ClickHouse query shows up as S3 API calls here. Full visibility into the storage layer."
+    - step: 1
+      action: Click Deploy and wait for MinIO, ClickHouse, Prometheus, and Grafana to go green.
+      say: Five containers — data generator, MinIO, ClickHouse, Prometheus, and Grafana. No Kafka, no ETL pipeline.
+    - step: 2
+      action: Right-click Data Generator → Start Generating. Watch objects appear in the Cockpit.
+      say: The generator is pushing CSV files into MinIO's demo-bucket. They're landing as objects on S3-compatible storage right now.
+    - step: 3
+      action: 'Open ClickHouse Play UI. Run: SELECT count() FROM s3(''http://minio:9000/demo-bucket/*.csv'', ''minioadmin'', ''minioadmin'', ''CSVWithNames'');'
+      say: ClickHouse is reading those files directly from MinIO using an S3 table function. No import step — query runs against live object storage.
+    - step: 4
+      action: 'Run the aggregation query: SELECT category, count(), avg(value) FROM s3(...) GROUP BY category;'
+      say: This is a full OLAP aggregation across all files in the bucket, running in real time. Add more files and re-run — the count changes immediately.
+    - step: 5
+      action: Open Grafana and show the MinIO metrics dashboard.
+      say: S3 GET requests, throughput, and error rates — every ClickHouse query shows up as S3 API calls here. Full visibility into the storage layer.
     common_questions:
-      - q: "Is querying object storage directly fast enough for production analytics?"
-        a: "For analytical workloads — aggregations, filters, GROUP BY — yes. ClickHouse is one of the fastest OLAP engines in the world, and MinIO saturates network bandwidth. The benchmark numbers are public on min.io/benchmarks."
-      - q: "What about structured Parquet versus CSV — does format matter?"
-        a: "Parquet is significantly faster because ClickHouse can skip entire column groups. This demo uses CSV for simplicity, but the same s3() function works with Parquet, ORC, and Arrow natively."
-      - q: "Can ClickHouse write results back to MinIO?"
-        a: "Yes — INSERT INTO FUNCTION s3(...) writes query results directly back to MinIO as new objects. You can use MinIO as both your input lake and your output store."
-      - q: "How does this compare to a Redshift or BigQuery approach?"
-        a: "Same pattern — Redshift Spectrum and BigQuery external tables do the same thing. The difference is you own the storage, control the costs, and aren't tied to a single cloud provider."
+    - q: Is querying object storage directly fast enough for production analytics?
+      a: For analytical workloads — aggregations, filters, GROUP BY — yes. ClickHouse is one of the fastest OLAP engines in the world, and MinIO saturates network bandwidth. The benchmark numbers are public
+        on min.io/benchmarks.
+    - q: What about structured Parquet versus CSV — does format matter?
+      a: Parquet is significantly faster because ClickHouse can skip entire column groups. This demo uses CSV for simplicity, but the same s3() function works with Parquet, ORC, and Arrow natively.
+    - q: Can ClickHouse write results back to MinIO?
+      a: Yes — INSERT INTO FUNCTION s3(...) writes query results directly back to MinIO as new objects. You can use MinIO as both your input lake and your output store.
+    - q: How does this compare to a Redshift or BigQuery approach?
+      a: Same pattern — Redshift Spectrum and BigQuery external tables do the same thing. The difference is you own the storage, control the costs, and aren't tied to a single cloud provider.
     mc_commands:
-      - label: "List demo-bucket objects"
-        command: "mc ls minio/demo-bucket"
-        context: "Shows all CSV files written by the generator — exactly what ClickHouse queries."
-      - label: "Count objects in bucket"
-        command: "mc find minio/demo-bucket | wc -l"
-        context: "Run before and after the generator to show data accumulating in real time."
-      - label: "Watch bucket activity"
-        command: "mc watch minio/demo-bucket"
-        context: "Live stream of PUT events as the generator writes — makes the real-time aspect visible."
-      - label: "View storage throughput"
-        command: "mc admin prometheus metrics minio/"
-        context: "Raw Prometheus metrics showing S3 API call rates as ClickHouse queries run."
-
-# Standard demo definition
+    - label: List demo-bucket objects
+      command: mc ls minio/demo-bucket
+      context: Shows all CSV files written by the generator — exactly what ClickHouse queries.
+    - label: Count objects in bucket
+      command: mc find minio/demo-bucket | wc -l
+      context: Run before and after the generator to show data accumulating in real time.
+    - label: Watch bucket activity
+      command: mc watch minio/demo-bucket
+      context: Live stream of PUT events as the generator writes — makes the real-time aspect visible.
+    - label: View storage throughput
+      command: mc admin prometheus metrics minio/
+      context: Raw Prometheus metrics showing S3 API call rates as ClickHouse queries run.
 id: template-realtime-analytics
-name: "Real-Time Analytics with ClickHouse"
-description: "ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics dashboards"
-
+name: Real-Time Analytics with ClickHouse
+description: ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics dashboards
 networks:
-  - name: default
-    subnet: 172.20.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
 nodes:
-  - id: file-gen
-    component: file-generator
-    variant: burst
-    position: { x: 50, y: 150 }
-    display_name: "Data Generator"
-    config: {}
-
-  - id: minio
-    component: minio
-    variant: single
-    position: { x: 300, y: 150 }
-    display_name: "MinIO"
-    config:
-      MINIO_ROOT_USER: "minioadmin"
-      MINIO_ROOT_PASSWORD: "minioadmin"
-
-  - id: clickhouse
-    component: clickhouse
-    variant: default
-    position: { x: 550, y: 150 }
-    display_name: "ClickHouse"
-    config: {}
-
-  - id: prometheus
-    component: prometheus
-    variant: default
-    position: { x: 300, y: 350 }
-    display_name: "Prometheus"
-    config: {}
-
-  - id: grafana
-    component: grafana
-    variant: default
-    position: { x: 550, y: 350 }
-    display_name: "Grafana"
-    config: {}
-
+- id: file-gen
+  component: file-generator
+  variant: burst
+  position:
+    x: 50
+    y: 150
+  display_name: Data Generator
+  config: {}
+- id: minio
+  component: minio
+  variant: single
+  position:
+    x: 300
+    y: 150
+  display_name: MinIO
+  config:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: clickhouse
+  component: clickhouse
+  variant: default
+  position:
+    x: 550
+    y: 150
+  display_name: ClickHouse
+  config: {}
+- id: prometheus
+  component: prometheus
+  variant: default
+  position:
+    x: 300
+    y: 350
+  display_name: Prometheus
+  config: {}
+- id: grafana
+  component: grafana
+  variant: default
+  position:
+    x: 550
+    y: 350
+  display_name: Grafana
+  config: {}
 clusters: []
-
 edges:
-  - id: e-filegen-minio
-    source: file-gen
-    target: minio
-    connection_type: file-push
-    network: default
-    auto_configure: true
-    label: ""
-
-  - id: e-minio-clickhouse
-    source: minio
-    target: clickhouse
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "S3 query"
-
-  - id: e-minio-metrics
-    source: minio
-    target: prometheus
-    connection_type: metrics
-    network: default
-    auto_configure: true
-    source_handle: data-out
-    label: "Metrics"
-
-  - id: e-prom-grafana
-    source: prometheus
-    target: grafana
-    connection_type: metrics-query
-    network: default
-    auto_configure: true
-    label: "PromQL"
-
+- id: e-filegen-minio
+  source: file-gen
+  target: minio
+  connection_type: file-push
+  network: default
+  auto_configure: true
+  label: ''
+- id: e-minio-clickhouse
+  source: minio
+  target: clickhouse
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3 query
+- id: e-minio-metrics
+  source: minio
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  source_handle: bottom-out
+  label: Metrics
+- id: e-prom-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: default
+  auto_configure: true
+  label: PromQL
 groups: []
 sticky_notes: []
-
 resources:
   default_memory: 512m
   default_cpu: 0.5

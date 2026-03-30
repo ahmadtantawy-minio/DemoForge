@@ -11,40 +11,29 @@ _template:
   - kv-cache
   - memory-hierarchy
   - bluefield-4
-  description: Interactive simulation of the NVIDIA STX/CMX inference memory architecture.
-    Visualizes how KV cache blocks flow through 5 memory tiers during LLM inference,
-    and demonstrates why the G3.5 context memory tier (MinIO AIStor) dramatically
-    improves throughput.
-  objective: Explain the NVIDIA STX architecture and demonstrate MinIO AIStor's role
-    as the G3.5 context memory tier for agentic AI inference
-  minio_value: MinIO AIStor operates as the G3.5 context memory storage tier in the
-    NVIDIA STX architecture, providing petabyte-scale, high-bandwidth KV cache storage
-    between local NVMe and enterprise storage.
+  description: Interactive simulation of the NVIDIA STX/CMX inference memory architecture. Visualizes how KV cache blocks flow through 5 memory tiers during LLM inference, and demonstrates why the G3.5
+    context memory tier (MinIO AIStor) dramatically improves throughput.
+  objective: Explain the NVIDIA STX architecture and demonstrate MinIO AIStor's role as the G3.5 context memory tier for agentic AI inference
+  minio_value: MinIO AIStor operates as the G3.5 context memory storage tier in the NVIDIA STX architecture, providing petabyte-scale, high-bandwidth KV cache storage between local NVMe and enterprise storage.
   estimated_resources:
     memory: 2.5GB
     cpu: 2.5
     containers: 6
   walkthrough:
   - step: Deploy the simulation
-    description: Click Deploy. The GPU server, inference client, two MinIO tiers,
-      and monitoring start up.
+    description: Click Deploy. The GPU server, inference client, two MinIO tiers, and monitoring start up.
   - step: Open the simulation
-    description: Click 'Simulation' on the Inference Simulator node inside the GPU
-      Server group.
+    description: Click 'Simulation' on the Inference Simulator node inside the GPU Server group.
   - step: Run with CMX enabled
-    description: Click 'Multi-turn chat burst'. Watch blocks flow through all 5 tiers.
-      GPU utilization stays high.
+    description: Click 'Multi-turn chat burst'. Watch blocks flow through all 5 tiers. GPU utilization stays high.
   - step: Toggle CMX off
-    description: Flip the G3.5 CMX toggle. Blocks skip MinIO and dump to G4. Recomputations
-      spike.
+    description: Flip the G3.5 CMX toggle. Blocks skip MinIO and dump to G4. Recomputations spike.
   - step: Check MinIO Console
-    description: Open MinIO Console for the G3.5 instance. See real KV cache objects
-      appearing.
+    description: Open MinIO Console for the G3.5 instance. See real KV cache objects appearing.
   external_dependencies: []
 id: experience-stx-inference
 name: 'NVIDIA STX: The G3.5 Tier'
-description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO
-  CMX to see the throughput difference.
+description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO CMX to see the throughput difference.
 mode: experience
 networks:
 - name: default
@@ -216,8 +205,7 @@ edges:
   bandwidth: 100 Gb/s
   connection_config:
     tier_role: g4-archive
-  source_handle: bottom-out
-  target_handle: data-in-top
+  target_handle: data-in
 - id: e-sim-prom
   source: sim-1
   target: prometheus-1
@@ -238,8 +226,7 @@ edges:
   label: G3.5 metrics
   protocol: HTTP
   connection_config: {}
-  source_handle: data-out
-  target_handle: null
+  source_handle: cluster-out-bottom
 - id: e-g4-prom
   source: minio-g4
   target: prometheus-1
@@ -249,8 +236,7 @@ edges:
   label: G4 metrics
   protocol: HTTP
   connection_config: {}
-  source_handle: data-out
-  target_handle: null
+  source_handle: cluster-out-bottom
 annotations:
 - id: ann-arch
   position:
@@ -258,12 +244,10 @@ annotations:
     y: 30
   width: 260
   title: NVIDIA STX architecture
-  body: 'STX is a modular reference architecture for AI storage, built on **BlueField-4**
-    processors.
+  body: 'STX is a modular reference architecture for AI storage, built on **BlueField-4** processors.
 
 
-    It introduces a **G3.5 context memory tier** between local NVMe and enterprise
-    storage, designed for KV cache in LLM inference.'
+    It introduces a **G3.5 context memory tier** between local NVMe and enterprise storage, designed for KV cache in LLM inference.'
   style: info
 - id: ann-connectivity
   position:
@@ -271,12 +255,10 @@ annotations:
     y: 658.1384615384616
   width: 350
   title: Why G3.5 is faster than G4
-  body: 'G3.5 uses **NVMe-oF over RDMA** via BlueField-4 and Spectrum-X Ethernet —
-    **800 Gb/s** with sub-millisecond latency.
+  body: 'G3.5 uses **NVMe-oF over RDMA** via BlueField-4 and Spectrum-X Ethernet — **800 Gb/s** with sub-millisecond latency.
 
 
-    G4 uses standard **S3 over TCP** — 10-100x slower. Without G3.5, every cross-GPU
-    cache miss means a full recomputation.'
+    G4 uses standard **S3 over TCP** — 10-100x slower. Without G3.5, every cross-GPU cache miss means a full recomputation.'
   style: callout
 - id: ann-gpu-isolation
   position:
@@ -284,8 +266,7 @@ annotations:
     y: 50
   width: 240
   title: GPU memory is isolated
-  body: 'Each GPU has its own G1/G2/G3 memory. GPU-B **cannot access** GPU-A''s HBM
-    directly.
+  body: 'Each GPU has its own G1/G2/G3 memory. GPU-B **cannot access** GPU-A''s HBM directly.
 
 
     G3.5 (MinIO CMX) bridges this gap — shared, pod-level storage both GPUs can access.'
@@ -315,8 +296,7 @@ annotations:
     y: 454.9846153846154
   width: 260
   title: The G3.5 tier — MinIO AIStor
-  body: 'Runs on BlueField-4 with **800Gb/s** connectivity. Provides petabyte-scale
-    KV cache with **sub-millisecond** access via RDMA.
+  body: 'Runs on BlueField-4 with **800Gb/s** connectivity. Provides petabyte-scale KV cache with **sub-millisecond** access via RDMA.
 
 
     The simulation writes **real S3 objects** to this instance.'
@@ -340,8 +320,7 @@ annotations:
     y: 427.5923076923077
   width: 240
   title: See real S3 ops
-  body: Open **MinIO Console** for the G3.5 instance. Watch KV cache objects appear
-    and disappear as the simulation runs.
+  body: Open **MinIO Console** for the G3.5 instance. Watch KV cache objects appear and disappear as the simulation runs.
   style: step
   step_number: 3
   pointer_target: minio-g35
@@ -351,8 +330,7 @@ annotations:
     y: 250.0307692307692
   width: 220
   title: Inference workload
-  body: Simulates multi-turn chat sessions, agentic reasoning, and code generation
-    requests hitting the GPU server.
+  body: Simulates multi-turn chat sessions, agentic reasoning, and code generation requests hitting the GPU server.
   style: info
   pointer_target: inference-client
 - id: ann-claim
@@ -361,12 +339,10 @@ annotations:
     y: 624.2153846153846
   width: 350
   title: Performance claim
-  body: 'NVIDIA reports **up to 5x tokens/sec** and **5x power efficiency** with CMX
-    vs traditional storage.
+  body: 'NVIDIA reports **up to 5x tokens/sec** and **5x power efficiency** with CMX vs traditional storage.
 
 
-    This simulation models the architectural reason: eliminating KV cache recomputation
-    by keeping context in a fast, accessible tier.'
+    This simulation models the architectural reason: eliminating KV cache recomputation by keeping context in a fast, accessible tier.'
   style: warning
 resources:
   default_memory: 256m

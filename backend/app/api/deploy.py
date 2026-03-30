@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException
@@ -13,6 +14,30 @@ from .demos import _load_demo
 logger = logging.getLogger(__name__)
 router = APIRouter()
 DATA_DIR = os.environ.get("DEMOFORGE_DATA_DIR", "./data")
+
+
+async def wait_for_clean_state(demo_id: str, timeout: int = 30) -> bool:
+    """Poll Docker until no containers labelled demoforge.demo_id={demo_id} remain."""
+    def _check():
+        import docker
+        client = docker.from_env()
+        containers = client.containers.list(
+            all=True,
+            filters={"label": f"demoforge.demo_id={demo_id}"}
+        )
+        client.close()
+        return len(containers) == 0
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            clean = await asyncio.to_thread(_check)
+            if clean:
+                return True
+        except Exception:
+            return True  # Docker not available, skip check
+        await asyncio.sleep(2)
+    return False
 COMPONENTS_DIR = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
 
 @router.post("/api/demos/{demo_id}/deploy", response_model=DeployResponse)
@@ -26,6 +51,10 @@ async def deploy(demo_id: str):
     existing = state.get_demo(demo_id)
     if existing and existing.status == "running":
         raise HTTPException(409, "Demo is already running")
+
+    # Drain guard: wait for previous containers to be fully removed
+    if not await wait_for_clean_state(demo_id, timeout=30):
+        raise HTTPException(409, "Previous deploy still cleaning up — retry in a few seconds")
 
     # Validate required licenses
     for node in demo.nodes:

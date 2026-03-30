@@ -1,167 +1,170 @@
-# Template metadata
 _template:
-  name: "Semantic document search"
+  name: Semantic document search
   tier: essentials
   category: ai
-  tags: ["rag", "llm", "ollama", "qdrant", "vector-db", "ai", "embeddings"]
-  description: "Documents stored in MinIO, embedded via Ollama, vectors in Qdrant, local LLM answers questions. Full audit trail in MinIO."
-  objective: "Demonstrate MinIO as the unified data foundation for a RAG pipeline"
-  minio_value: "MinIO serves as the single data layer: source documents, vector DB snapshots, and query audit trails."
+  tags:
+  - rag
+  - llm
+  - ollama
+  - qdrant
+  - vector-db
+  - ai
+  - embeddings
+  description: Documents stored in MinIO, embedded via Ollama, vectors in Qdrant, local LLM answers questions. Full audit trail in MinIO.
+  objective: Demonstrate MinIO as the unified data foundation for a RAG pipeline
+  minio_value: 'MinIO serves as the single data layer: source documents, vector DB snapshots, and query audit trails.'
   estimated_resources:
-    memory: "6GB"
+    memory: 6GB
     cpu: 4
     containers: 4
   external_dependencies:
-    - "Internet required for first Ollama model download (~1.8GB). Cached on subsequent deploys."
+  - Internet required for first Ollama model download (~1.8GB). Cached on subsequent deploys.
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy. Wait for all 4 components to turn green. Ollama downloads models (~1.8GB) on first run."
-    - step: "Verify models"
-      description: "Click Ollama node — properties should show nomic-embed-text and llama3.2:3b."
-    - step: "Load sample documents"
-      description: "Click RAG Pipeline node → 'Load sample docs'. Uploads 5 MinIO docs, creates ~130 embeddings."
-    - step: "Ask questions"
-      description: "Open Chat UI. Ask: 'How many drive failures can MinIO tolerate with EC:4?' — answer cites erasure-coding doc."
-    - step: "Check audit trail"
-      description: "Open MinIO Console → rag-audit-log bucket. Each question is logged as JSON."
-    - step: "Upload your own document"
-      description: "In chat UI, upload any PDF or text file, then ask about its content."
-    - step: "Inspect vectors"
-      description: "Open Qdrant Dashboard → documents collection — each point is a text chunk."
+  - step: Deploy the demo
+    description: Click Deploy. Wait for all 4 components to turn green. Ollama downloads models (~1.8GB) on first run.
+  - step: Verify models
+    description: Click Ollama node — properties should show nomic-embed-text and llama3.2:3b.
+  - step: Load sample documents
+    description: Click RAG Pipeline node → 'Load sample docs'. Uploads 5 MinIO docs, creates ~130 embeddings.
+  - step: Ask questions
+    description: 'Open Chat UI. Ask: ''How many drive failures can MinIO tolerate with EC:4?'' — answer cites erasure-coding doc.'
+  - step: Check audit trail
+    description: Open MinIO Console → rag-audit-log bucket. Each question is logged as JSON.
+  - step: Upload your own document
+    description: In chat UI, upload any PDF or text file, then ask about its content.
+  - step: Inspect vectors
+    description: Open Qdrant Dashboard → documents collection — each point is a text chunk.
   se_guide:
-    pitch: "Show a complete enterprise RAG pipeline running locally — documents stored in MinIO, embedded via Ollama, vectors in Qdrant, answers from a local LLM with citations. MinIO is the data foundation for the entire AI stack."
-    audience: "AI/ML engineers, data architects, and enterprise buyers evaluating on-premises AI infrastructure who want to avoid sending proprietary documents to public LLM APIs."
+    pitch: Show a complete enterprise RAG pipeline running locally — documents stored in MinIO, embedded via Ollama, vectors in Qdrant, answers from a local LLM with citations. MinIO is the data foundation
+      for the entire AI stack.
+    audience: AI/ML engineers, data architects, and enterprise buyers evaluating on-premises AI infrastructure who want to avoid sending proprietary documents to public LLM APIs.
     talking_points:
-      - "Every document in this pipeline lives in MinIO — source PDFs, chunked text, and the complete audit trail of every question asked and answer given."
-      - "Ollama runs the embedding model and the LLM entirely locally — no data leaves your infrastructure, no API keys, no per-token billing."
-      - "Qdrant stores the vector embeddings and backs them up as snapshots to MinIO — so your vector index is as durable as your object storage."
-      - "The audit trail is a first-class feature: every query, the retrieved chunks, and the generated answer are logged as JSON objects to MinIO's rag-audit-log bucket — fully searchable and compliant."
-      - "This architecture is model-agnostic — swap nomic-embed-text for a different embedding model or llama3.2 for a larger model by changing two config values. The MinIO storage layer never changes."
+    - Every document in this pipeline lives in MinIO — source PDFs, chunked text, and the complete audit trail of every question asked and answer given.
+    - Ollama runs the embedding model and the LLM entirely locally — no data leaves your infrastructure, no API keys, no per-token billing.
+    - Qdrant stores the vector embeddings and backs them up as snapshots to MinIO — so your vector index is as durable as your object storage.
+    - 'The audit trail is a first-class feature: every query, the retrieved chunks, and the generated answer are logged as JSON objects to MinIO''s rag-audit-log bucket — fully searchable and compliant.'
+    - This architecture is model-agnostic — swap nomic-embed-text for a different embedding model or llama3.2 for a larger model by changing two config values. The MinIO storage layer never changes.
     demo_flow:
-      - step: 1
-        action: "Click Deploy and wait for all 4 nodes to go green. Check Ollama properties — should show nomic-embed-text and llama3.2:3b downloaded."
-        say: "Four containers: MinIO for storage, Ollama for embeddings and generation, Qdrant for vector search, and the RAG app wiring them together. No external API dependencies."
-      - step: 2
-        action: "Click the RAG Pipeline node → Load sample docs."
-        say: "Five MinIO technical documents are uploading to MinIO's documents bucket right now, getting chunked into ~130 text segments, embedded by Ollama, and stored in Qdrant — all in one step."
-      - step: 3
-        action: "Open the Chat UI. Ask: 'How many drive failures can MinIO tolerate with EC:4?'"
-        say: "Watch the answer come back with a citation. The RAG app searched Qdrant for the closest vector matches, retrieved those chunks from MinIO, and passed them as context to the LLM."
-      - step: 4
-        action: "Open MinIO Console → rag-audit-log bucket. Open the most recent JSON file."
-        say: "Every query is logged here — the question, the retrieved document chunks, the model's answer. This is your compliance trail for every AI interaction."
-      - step: 5
-        action: "Open Qdrant Dashboard → documents collection. Show the vector points."
-        say: "Each point here is a text chunk from a document stored in MinIO. The vector DB and the source documents stay in sync — snapshots of this collection go back to MinIO automatically."
+    - step: 1
+      action: Click Deploy and wait for all 4 nodes to go green. Check Ollama properties — should show nomic-embed-text and llama3.2:3b downloaded.
+      say: 'Four containers: MinIO for storage, Ollama for embeddings and generation, Qdrant for vector search, and the RAG app wiring them together. No external API dependencies.'
+    - step: 2
+      action: Click the RAG Pipeline node → Load sample docs.
+      say: Five MinIO technical documents are uploading to MinIO's documents bucket right now, getting chunked into ~130 text segments, embedded by Ollama, and stored in Qdrant — all in one step.
+    - step: 3
+      action: 'Open the Chat UI. Ask: ''How many drive failures can MinIO tolerate with EC:4?'''
+      say: Watch the answer come back with a citation. The RAG app searched Qdrant for the closest vector matches, retrieved those chunks from MinIO, and passed them as context to the LLM.
+    - step: 4
+      action: Open MinIO Console → rag-audit-log bucket. Open the most recent JSON file.
+      say: Every query is logged here — the question, the retrieved document chunks, the model's answer. This is your compliance trail for every AI interaction.
+    - step: 5
+      action: Open Qdrant Dashboard → documents collection. Show the vector points.
+      say: Each point here is a text chunk from a document stored in MinIO. The vector DB and the source documents stay in sync — snapshots of this collection go back to MinIO automatically.
     common_questions:
-      - q: "Why store documents in MinIO instead of just in Qdrant?"
-        a: "Qdrant stores vectors, not documents. MinIO stores the source files, the raw chunks, and the audit logs. MinIO is also infinitely scalable — you can store petabytes of documents without sharding concerns."
-      - q: "Can we use OpenAI or Anthropic instead of local Ollama?"
-        a: "Yes — the RAG app supports any OpenAI-compatible API endpoint. Swap the Ollama URL for your API gateway and change the model names. The MinIO storage layer is unchanged."
-      - q: "How do we keep the vector index in sync if documents change?"
-        a: "The RAG app supports re-indexing individual documents or full re-ingestion. In production, you'd trigger re-indexing on MinIO bucket notifications — an event fires when a document is uploaded or updated."
-      - q: "What about access control — can we restrict which users see which documents?"
-        a: "MinIO bucket policies control who can read from the documents bucket. You'd combine that with application-level filtering in the RAG query layer to enforce per-user document access."
-      - q: "Is llama3.2:3b good enough for production answers?"
-        a: "For demos and internal tools, yes. For production, you'd typically use a 7B+ model or a fine-tuned domain model. The architecture supports any model Ollama can serve — swapping is a config change."
+    - q: Why store documents in MinIO instead of just in Qdrant?
+      a: Qdrant stores vectors, not documents. MinIO stores the source files, the raw chunks, and the audit logs. MinIO is also infinitely scalable — you can store petabytes of documents without sharding
+        concerns.
+    - q: Can we use OpenAI or Anthropic instead of local Ollama?
+      a: Yes — the RAG app supports any OpenAI-compatible API endpoint. Swap the Ollama URL for your API gateway and change the model names. The MinIO storage layer is unchanged.
+    - q: How do we keep the vector index in sync if documents change?
+      a: The RAG app supports re-indexing individual documents or full re-ingestion. In production, you'd trigger re-indexing on MinIO bucket notifications — an event fires when a document is uploaded or
+        updated.
+    - q: What about access control — can we restrict which users see which documents?
+      a: MinIO bucket policies control who can read from the documents bucket. You'd combine that with application-level filtering in the RAG query layer to enforce per-user document access.
+    - q: Is llama3.2:3b good enough for production answers?
+      a: For demos and internal tools, yes. For production, you'd typically use a 7B+ model or a fine-tuned domain model. The architecture supports any model Ollama can serve — swapping is a config change.
     mc_commands:
-      - label: "List documents bucket"
-        command: "mc ls minio/documents"
-        context: "Shows all source documents uploaded to the RAG pipeline."
-      - label: "Read latest audit log entry"
-        command: "mc cat minio/rag-audit-log/$(mc ls minio/rag-audit-log --json | tail -1 | jq -r '.key')"
-        context: "Reads the most recent query audit record — shows question, retrieved chunks, and answer."
-      - label: "List Qdrant snapshots"
-        command: "mc ls minio/qdrant-snapshots"
-        context: "Shows vector index snapshots backed up to MinIO — proves the vector store is durable."
-      - label: "Count document chunks"
-        command: "mc find minio/documents --name '*.json' | wc -l"
-        context: "Shows how many chunked document segments were created during ingestion."
-
-# Standard demo definition
+    - label: List documents bucket
+      command: mc ls minio/documents
+      context: Shows all source documents uploaded to the RAG pipeline.
+    - label: Read latest audit log entry
+      command: mc cat minio/rag-audit-log/$(mc ls minio/rag-audit-log --json | tail -1 | jq -r '.key')
+      context: Reads the most recent query audit record — shows question, retrieved chunks, and answer.
+    - label: List Qdrant snapshots
+      command: mc ls minio/qdrant-snapshots
+      context: Shows vector index snapshots backed up to MinIO — proves the vector store is durable.
+    - label: Count document chunks
+      command: mc find minio/documents --name '*.json' | wc -l
+      context: Shows how many chunked document segments were created during ingestion.
 id: template-rag-pipeline
-name: "RAG Pipeline — Enterprise AI on MinIO"
-description: "Documents in MinIO, embeddings via Ollama, vectors in Qdrant, LLM answers with citations. Full audit trail."
-
+name: RAG Pipeline — Enterprise AI on MinIO
+description: Documents in MinIO, embeddings via Ollama, vectors in Qdrant, LLM answers with citations. Full audit trail.
 networks:
-  - name: default
-    subnet: 172.20.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
 nodes:
-  - id: minio-1
-    component: minio
-    variant: single
-    position: {x: 100, y: 250}
-    display_name: "MinIO"
-    config:
-      MINIO_ROOT_USER: "minioadmin"
-      MINIO_ROOT_PASSWORD: "minioadmin"
-
-  - id: ollama-1
-    component: ollama
-    variant: default
-    position: {x: 400, y: 50}
-    display_name: "Ollama"
-
-  - id: qdrant-1
-    component: qdrant
-    variant: default
-    position: {x: 400, y: 450}
-    display_name: "Qdrant"
-
-  - id: rag-1
-    component: rag-app
-    variant: default
-    position: {x: 700, y: 250}
-    display_name: "RAG Pipeline"
-
+- id: minio-1
+  component: minio
+  variant: single
+  position:
+    x: 100
+    y: 250
+  display_name: MinIO
+  config:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: ollama-1
+  component: ollama
+  variant: default
+  position:
+    x: 400
+    y: 50
+  display_name: Ollama
+- id: qdrant-1
+  component: qdrant
+  variant: default
+  position:
+    x: 400
+    y: 450
+  display_name: Qdrant
+- id: rag-1
+  component: rag-app
+  variant: default
+  position:
+    x: 700
+    y: 250
+  display_name: RAG Pipeline
 clusters: []
-
 edges:
-  - id: e-rag-minio
-    source: rag-1
-    target: minio-1
-    connection_type: s3
-    auto_configure: true
-    label: "Docs + audit logs"
-    connection_config:
-      documents_bucket: "documents"
-      audit_bucket: "rag-audit-log"
-
-  - id: e-rag-ollama
-    source: rag-1
-    target: ollama-1
-    connection_type: llm-api
-    auto_configure: true
-    label: "Embed + generate"
-    connection_config:
-      embedding_model: "nomic-embed-text"
-      chat_model: "llama3.2:3b"
-
-  - id: e-rag-qdrant
-    source: rag-1
-    target: qdrant-1
-    connection_type: vector-db
-    auto_configure: true
-    label: "Vector search"
-
-  - id: e-qdrant-minio
-    source: qdrant-1
-    target: minio-1
-    connection_type: s3
-    auto_configure: true
-    label: "Snapshot backup"
-    connection_config:
-      snapshot_bucket: "qdrant-snapshots"
-
+- id: e-rag-minio
+  source: rag-1
+  target: minio-1
+  connection_type: s3
+  auto_configure: true
+  label: Docs + audit logs
+  connection_config:
+    documents_bucket: documents
+    audit_bucket: rag-audit-log
+- id: e-rag-ollama
+  source: rag-1
+  target: ollama-1
+  connection_type: llm-api
+  auto_configure: true
+  label: Embed + generate
+  connection_config:
+    embedding_model: nomic-embed-text
+    chat_model: llama3.2:3b
+- id: e-rag-qdrant
+  source: rag-1
+  target: qdrant-1
+  connection_type: vector-db
+  auto_configure: true
+  label: Vector search
+- id: e-qdrant-minio
+  source: qdrant-1
+  target: minio-1
+  connection_type: s3
+  auto_configure: true
+  label: Snapshot backup
+  connection_config:
+    snapshot_bucket: qdrant-snapshots
 groups: []
 sticky_notes: []
-
 resources:
-  default_memory: "512m"
+  default_memory: 512m
   default_cpu: 0.5
-  max_memory: "4g"
+  max_memory: 4g
   max_cpu: 2.0
-  total_memory: "8g"
+  total_memory: 8g
   total_cpu: 6.0

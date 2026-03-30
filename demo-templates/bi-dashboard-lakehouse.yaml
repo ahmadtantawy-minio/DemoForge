@@ -1,230 +1,219 @@
-# Template metadata
 _template:
-  name: "Lakehouse quickstart"
+  name: Lakehouse quickstart
   tier: essentials
   category: lakehouse
-  tags: ["metabase", "bi", "dashboard", "iceberg", "trino", "lakehouse", "visualization"]
-  description: "Full BI stack: data flows into MinIO, Iceberg catalogs it as tables, Trino provides SQL access, and Metabase delivers live dashboards. The complete open-source lakehouse with self-service analytics."
-  objective: "Demonstrate MinIO as the foundation of a modern BI stack — from raw data ingestion to executive dashboards, all on S3-compatible storage"
-  minio_value: "MinIO is the single storage layer powering the entire BI pipeline. Data lands on MinIO, gets cataloged as Iceberg tables, queried by Trino, and visualized in Metabase — no data movement, no ETL, no proprietary storage."
+  tags:
+  - metabase
+  - bi
+  - dashboard
+  - iceberg
+  - trino
+  - lakehouse
+  - visualization
+  description: 'Full BI stack: data flows into MinIO, Iceberg catalogs it as tables, Trino provides SQL access, and Metabase delivers live dashboards. The complete open-source lakehouse with self-service
+    analytics.'
+  objective: Demonstrate MinIO as the foundation of a modern BI stack — from raw data ingestion to executive dashboards, all on S3-compatible storage
+  minio_value: MinIO is the single storage layer powering the entire BI pipeline. Data lands on MinIO, gets cataloged as Iceberg tables, queried by Trino, and visualized in Metabase — no data movement,
+    no ETL, no proprietary storage.
   estimated_resources:
-    memory: "5GB"
+    memory: 5GB
     cpu: 5
     containers: 7
   external_dependencies: []
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy to start all components. Wait for health indicators to turn green (~90s for Metabase)."
-    - step: "Generate sample data"
-      description: "Right-click Data Generator → Start Generating to push CSV files into MinIO's demo-bucket."
-    - step: "Create Iceberg tables"
-      description: "Open Trino terminal → CREATE SCHEMA iceberg.analytics; CREATE TABLE iceberg.analytics.orders AS SELECT * FROM ..."
-    - step: "Open Metabase"
-      description: "Right-click Metabase → Open Dashboard. Login with admin@demoforge.local / DemoForge123! — the Trino connection is pre-configured."
-    - step: "Build a dashboard"
-      description: "In Metabase: New → Question → pick the Trino database → select the orders table → add filters and visualizations."
-    - step: "Monitor with Grafana"
-      description: "Open Grafana to see MinIO throughput and storage metrics as data flows through the pipeline."
+  - step: Deploy the demo
+    description: Click Deploy to start all components. Wait for health indicators to turn green (~90s for Metabase).
+  - step: Generate sample data
+    description: Right-click Data Generator → Start Generating to push CSV files into MinIO's demo-bucket.
+  - step: Create Iceberg tables
+    description: Open Trino terminal → CREATE SCHEMA iceberg.analytics; CREATE TABLE iceberg.analytics.orders AS SELECT * FROM ...
+  - step: Open Metabase
+    description: Right-click Metabase → Open Dashboard. Login with admin@demoforge.local / DemoForge123! — the Trino connection is pre-configured.
+  - step: Build a dashboard
+    description: 'In Metabase: New → Question → pick the Trino database → select the orders table → add filters and visualizations.'
+  - step: Monitor with Grafana
+    description: Open Grafana to see MinIO throughput and storage metrics as data flows through the pipeline.
   se_guide:
-    pitch: "Show how MinIO + Iceberg + Trino creates a fully queryable data lakehouse in under 5 minutes — no proprietary warehouse, no data movement, no ETL."
-    audience: "Data engineers, analytics leads, and architects evaluating open-source alternatives to Snowflake or Databricks."
+    pitch: Show how MinIO + Iceberg + Trino creates a fully queryable data lakehouse in under 5 minutes — no proprietary warehouse, no data movement, no ETL.
+    audience: Data engineers, analytics leads, and architects evaluating open-source alternatives to Snowflake or Databricks.
     talking_points:
-      - "MinIO is the single storage layer — all data lands here as Parquet files via the S3 API, just like any cloud object store."
-      - "Iceberg is the table format living on top of MinIO — it gives you schema evolution, time travel, and partition pruning with no data movement."
-      - "Trino queries directly from MinIO through the Iceberg catalog — no ETL pipeline, no copying data into a warehouse, no separate compute cluster to manage."
-      - "Metabase connects to Trino and gets live dashboards backed by data sitting in object storage — the entire BI stack runs on S3-compatible APIs."
-      - "Every component here is open-source and runs on your infrastructure — you own the storage, the compute, and the data."
-      - "This same architecture scales from a laptop demo to petabyte-scale by swapping the single MinIO node for a distributed cluster — the API never changes."
+    - MinIO is the single storage layer — all data lands here as Parquet files via the S3 API, just like any cloud object store.
+    - Iceberg is the table format living on top of MinIO — it gives you schema evolution, time travel, and partition pruning with no data movement.
+    - Trino queries directly from MinIO through the Iceberg catalog — no ETL pipeline, no copying data into a warehouse, no separate compute cluster to manage.
+    - Metabase connects to Trino and gets live dashboards backed by data sitting in object storage — the entire BI stack runs on S3-compatible APIs.
+    - Every component here is open-source and runs on your infrastructure — you own the storage, the compute, and the data.
+    - This same architecture scales from a laptop demo to petabyte-scale by swapping the single MinIO node for a distributed cluster — the API never changes.
     demo_flow:
-      - step: 1
-        action: "Click Deploy and wait for all nodes to turn green."
-        say: "This spins up the complete lakehouse stack — MinIO for storage, Iceberg REST for the catalog, Trino for SQL, and Metabase for dashboards. Seven containers, one click."
-      - step: 2
-        action: "Right-click Data Generator → Start Generating. Watch object counts rise in the Cockpit panel."
-        say: "The generator is writing synthetic order data as Parquet files directly to MinIO's raw-data bucket via the S3 API — same as any application would."
-      - step: 3
-        action: "Open the Trino terminal. Run: CREATE SCHEMA iceberg.analytics; then CREATE TABLE iceberg.analytics.orders AS SELECT * FROM minio.\"raw-data\".\"orders.parquet\";"
-        say: "Trino reads the Parquet files from MinIO and registers them as an Iceberg table. The data never moved — we just added metadata."
-      - step: 4
-        action: "Open Metabase. Navigate to the Trino database and build a question on the orders table."
-        say: "Metabase is querying Trino, which is reading from MinIO. This is a live query — no caching layer, no data warehouse in between."
-      - step: 5
-        action: "Open Grafana and show the MinIO metrics dashboard."
-        say: "You can see S3 API call rates, bytes in and out, and bucket-level throughput — all standard MinIO observability, no additional instrumentation needed."
+    - step: 1
+      action: Click Deploy and wait for all nodes to turn green.
+      say: This spins up the complete lakehouse stack — MinIO for storage, Iceberg REST for the catalog, Trino for SQL, and Metabase for dashboards. Seven containers, one click.
+    - step: 2
+      action: Right-click Data Generator → Start Generating. Watch object counts rise in the Cockpit panel.
+      say: The generator is writing synthetic order data as Parquet files directly to MinIO's raw-data bucket via the S3 API — same as any application would.
+    - step: 3
+      action: 'Open the Trino terminal. Run: CREATE SCHEMA iceberg.analytics; then CREATE TABLE iceberg.analytics.orders AS SELECT * FROM minio."raw-data"."orders.parquet";'
+      say: Trino reads the Parquet files from MinIO and registers them as an Iceberg table. The data never moved — we just added metadata.
+    - step: 4
+      action: Open Metabase. Navigate to the Trino database and build a question on the orders table.
+      say: Metabase is querying Trino, which is reading from MinIO. This is a live query — no caching layer, no data warehouse in between.
+    - step: 5
+      action: Open Grafana and show the MinIO metrics dashboard.
+      say: You can see S3 API call rates, bytes in and out, and bucket-level throughput — all standard MinIO observability, no additional instrumentation needed.
     common_questions:
-      - q: "How does this compare to Snowflake or Databricks?"
-        a: "Same queryable lakehouse architecture, but you own the storage layer. No per-query credits, no vendor lock-in on the data format — Iceberg tables are readable by any engine."
-      - q: "What happens to performance at scale — won't object storage be slow?"
-        a: "MinIO is benchmarked at over 325 GiB/s throughput on NVMe. For analytical workloads, Iceberg partition pruning means Trino only reads the files it needs, so it's often faster than a traditional warehouse."
-      - q: "Can we replace Trino with Spark or another engine?"
-        a: "Yes — Iceberg is engine-agnostic. Spark, Flink, Dremio, Presto, and Starrocks all speak the same Iceberg REST catalog protocol. You swap the compute without touching the data."
-      - q: "Is Iceberg production-ready with MinIO?"
-        a: "Absolutely. This is the standard open lakehouse pattern adopted by companies like Airbnb, Apple, and Netflix. MinIO is the S3-compatible storage layer they all rely on."
-      - q: "What about data governance and access control?"
-        a: "MinIO supports IAM policies, bucket-level policies, and per-prefix access — the same model as AWS S3. You layer your catalog's ACLs on top for table-level governance."
+    - q: How does this compare to Snowflake or Databricks?
+      a: Same queryable lakehouse architecture, but you own the storage layer. No per-query credits, no vendor lock-in on the data format — Iceberg tables are readable by any engine.
+    - q: What happens to performance at scale — won't object storage be slow?
+      a: MinIO is benchmarked at over 325 GiB/s throughput on NVMe. For analytical workloads, Iceberg partition pruning means Trino only reads the files it needs, so it's often faster than a traditional
+        warehouse.
+    - q: Can we replace Trino with Spark or another engine?
+      a: Yes — Iceberg is engine-agnostic. Spark, Flink, Dremio, Presto, and Starrocks all speak the same Iceberg REST catalog protocol. You swap the compute without touching the data.
+    - q: Is Iceberg production-ready with MinIO?
+      a: Absolutely. This is the standard open lakehouse pattern adopted by companies like Airbnb, Apple, and Netflix. MinIO is the S3-compatible storage layer they all rely on.
+    - q: What about data governance and access control?
+      a: MinIO supports IAM policies, bucket-level policies, and per-prefix access — the same model as AWS S3. You layer your catalog's ACLs on top for table-level governance.
     mc_commands:
-      - label: "List warehouse bucket"
-        command: "mc ls minio/warehouse"
-        context: "Shows the Iceberg metadata and Parquet data files written by Trino."
-      - label: "Check raw data bucket"
-        command: "mc ls minio/raw-data"
-        context: "Shows Parquet files written by the data generator — what Trino reads at query time."
-      - label: "Count objects in warehouse"
-        command: "mc find minio/warehouse --name '*.parquet' | wc -l"
-        context: "Demonstrates how many Parquet files back the Iceberg table."
-      - label: "View storage usage"
-        command: "mc du minio/"
-        context: "Shows total storage consumed across all buckets in the lakehouse."
-
-# Standard demo definition
+    - label: List warehouse bucket
+      command: mc ls minio/warehouse
+      context: Shows the Iceberg metadata and Parquet data files written by Trino.
+    - label: Check raw data bucket
+      command: mc ls minio/raw-data
+      context: Shows Parquet files written by the data generator — what Trino reads at query time.
+    - label: Count objects in warehouse
+      command: mc find minio/warehouse --name '*.parquet' | wc -l
+      context: Demonstrates how many Parquet files back the Iceberg table.
+    - label: View storage usage
+      command: mc du minio/
+      context: Shows total storage consumed across all buckets in the lakehouse.
 id: template-bi-dashboard-lakehouse
-name: "BI Dashboard — Lakehouse"
-description: "Full BI stack: MinIO → Iceberg → Trino → Metabase dashboards"
-
+name: BI Dashboard — Lakehouse
+description: 'Full BI stack: MinIO → Iceberg → Trino → Metabase dashboards'
 networks:
-  - name: default
-    subnet: 172.20.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
 nodes:
-  # Structured data generator (Parquet orders)
-  - id: data-gen
-    component: data-generator
-    variant: default
-    position: { x: -200, y: 150 }
-    display_name: "Data Generator"
-    config: {}
-
-  # Core storage
-  - id: minio-1
-    component: minio
-    variant: single
-    position: { x: 100, y: 150 }
-    display_name: "MinIO"
-    config:
-      MINIO_ROOT_USER: "minioadmin"
-      MINIO_ROOT_PASSWORD: "minioadmin"
-
-  # Catalog
-  - id: iceberg-rest
-    component: iceberg-rest
-    variant: default
-    position: { x: 400, y: 50 }
-    display_name: "Iceberg REST Catalog"
-    config: {}
-
-  # SQL engine
-  - id: trino
-    component: trino
-    variant: default
-    position: { x: 700, y: 50 }
-    display_name: "Trino"
-    config: {}
-
-  # BI visualization
-  - id: metabase
-    component: metabase
-    variant: default
-    position: { x: 1000, y: 150 }
-    display_name: "Metabase"
-    config: {}
-
-  # Monitoring
-  - id: prometheus
-    component: prometheus
-    variant: default
-    position: { x: 400, y: 300 }
-    display_name: "Prometheus"
-    config: {}
-
-  - id: grafana
-    component: grafana
-    variant: default
-    position: { x: 700, y: 300 }
-    display_name: "Grafana"
-    config: {}
-
+- id: data-gen
+  component: data-generator
+  variant: default
+  position:
+    x: -200
+    y: 150
+  display_name: Data Generator
+  config: {}
+- id: minio-1
+  component: minio
+  variant: single
+  position:
+    x: 100
+    y: 150
+  display_name: MinIO
+  config:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: iceberg-rest
+  component: iceberg-rest
+  variant: default
+  position:
+    x: 400
+    y: 50
+  display_name: Iceberg REST Catalog
+  config: {}
+- id: trino
+  component: trino
+  variant: default
+  position:
+    x: 700
+    y: 50
+  display_name: Trino
+  config: {}
+- id: metabase
+  component: metabase
+  variant: default
+  position:
+    x: 1000
+    y: 150
+  display_name: Metabase
+  config: {}
+- id: prometheus
+  component: prometheus
+  variant: default
+  position:
+    x: 400
+    y: 300
+  display_name: Prometheus
+  config: {}
+- id: grafana
+  component: grafana
+  variant: default
+  position:
+    x: 700
+    y: 300
+  display_name: Grafana
+  config: {}
 clusters: []
-
 edges:
-  # Data flow: Data Generator → MinIO (Parquet)
-  - id: e-datagen-minio
-    source: data-gen
-    target: minio-1
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "Parquet data"
-    connection_config:
-      bucket: "raw-data"
-
-  # MinIO → Iceberg REST (warehouse storage)
-  - id: e-minio-iceberg
-    source: minio-1
-    target: iceberg-rest
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "S3 warehouse"
-    connection_config:
-      warehouse_bucket: "warehouse"
-
-  # Iceberg REST → Trino (catalog)
-  - id: e-iceberg-trino
-    source: iceberg-rest
-    target: trino
-    connection_type: iceberg-catalog
-    network: default
-    auto_configure: true
-    label: "Iceberg catalog"
-    connection_config:
-      catalog_name: "iceberg"
-
-  # MinIO → Trino (S3 direct)
-  - id: e-minio-trino
-    source: minio-1
-    target: trino
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "S3"
-    connection_config:
-      catalog_name: "minio"
-
-  # Trino → Metabase (SQL query)
-  - id: e-trino-metabase
-    source: trino
-    target: metabase
-    connection_type: sql-query
-    network: default
-    auto_configure: true
-    label: "SQL"
-    connection_config:
-      catalog: "iceberg"
-      schema: "analytics"
-
-  # MinIO → Prometheus (metrics)
-  - id: e-minio-prom
-    source: minio-1
-    target: prometheus
-    connection_type: metrics
-    network: default
-    auto_configure: true
-    source_handle: data-out
-    label: "Metrics"
-
-  # Prometheus → Grafana
-  - id: e-prom-grafana
-    source: prometheus
-    target: grafana
-    connection_type: metrics-query
-    network: default
-    auto_configure: true
-    label: "PromQL"
-
+- id: e-datagen-minio
+  source: data-gen
+  target: minio-1
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: Parquet data
+  connection_config:
+    bucket: raw-data
+- id: e-minio-iceberg
+  source: minio-1
+  target: iceberg-rest
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3 warehouse
+  connection_config:
+    warehouse_bucket: warehouse
+- id: e-iceberg-trino
+  source: iceberg-rest
+  target: trino
+  connection_type: iceberg-catalog
+  network: default
+  auto_configure: true
+  label: Iceberg catalog
+  connection_config:
+    catalog_name: iceberg
+- id: e-minio-trino
+  source: minio-1
+  target: trino
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3
+  connection_config:
+    catalog_name: minio
+- id: e-trino-metabase
+  source: trino
+  target: metabase
+  connection_type: sql-query
+  network: default
+  auto_configure: true
+  label: SQL
+  connection_config:
+    catalog: iceberg
+    schema: analytics
+- id: e-minio-prom
+  source: minio-1
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: Metrics
+- id: e-prom-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: default
+  auto_configure: true
+  label: PromQL
 groups: []
 sticky_notes: []
-
 resources:
   default_memory: 512m
   default_cpu: 0.5

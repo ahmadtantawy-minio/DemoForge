@@ -1,269 +1,253 @@
-# Template metadata
 _template:
-  name: "Complete analytics platform"
+  name: Complete analytics platform
   tier: advanced
   category: lakehouse
-  tags: ["streaming", "batch", "redpanda", "kafka-connect", "dremio", "trino", "nessie", "metabase", "prometheus", "lakehouse", "full-stack"]
-  description: "Full analytics platform combining batch and streaming ingestion: batch Parquet loads and real-time Kafka streams both land in MinIO, Nessie provides versioned Iceberg catalog management, Dremio and Trino offer dual query engines, and Metabase delivers unified dashboards — with Prometheus monitoring throughout."
-  objective: "Demonstrate MinIO as the unified storage layer for a complete production analytics platform — handling both batch and streaming workloads, versioned table management, dual query engines, and end-to-end observability"
-  minio_value: "MinIO is the single storage plane for the entire platform: batch Parquet files and real-time Kafka streams both land in MinIO, Nessie versions every table mutation against MinIO objects, and both Dremio and Trino query directly from MinIO — one S3-compatible store replaces a fragmented multi-system architecture"
+  tags:
+  - streaming
+  - batch
+  - redpanda
+  - kafka-connect
+  - dremio
+  - trino
+  - nessie
+  - metabase
+  - prometheus
+  - lakehouse
+  - full-stack
+  description: 'Full analytics platform combining batch and streaming ingestion: batch Parquet loads and real-time Kafka streams both land in MinIO, Nessie provides versioned Iceberg catalog management,
+    Dremio and Trino offer dual query engines, and Metabase delivers unified dashboards — with Prometheus monitoring throughout.'
+  objective: Demonstrate MinIO as the unified storage layer for a complete production analytics platform — handling both batch and streaming workloads, versioned table management, dual query engines, and
+    end-to-end observability
+  minio_value: 'MinIO is the single storage plane for the entire platform: batch Parquet files and real-time Kafka streams both land in MinIO, Nessie versions every table mutation against MinIO objects,
+    and both Dremio and Trino query directly from MinIO — one S3-compatible store replaces a fragmented multi-system architecture'
   estimated_resources:
-    memory: "10GB"
+    memory: 10GB
     cpu: 11
     containers: 11
   external_dependencies: []
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy to start all 11 components. Wait for all health indicators to turn green (~120s for Dremio and Metabase)."
-    - step: "Start batch ingestion"
-      description: "Right-click Data Generator (Batch) → Start Generating to push e-commerce order Parquet files into MinIO's raw-data bucket."
-    - step: "Start streaming ingestion"
-      description: "Right-click Data Generator (Stream) → Start Generating to produce clickstream events into Redpanda."
-    - step: "Inspect streaming events"
-      description: "Open Redpanda Console → Topics → clickstream to browse live messages. Watch Kafka Connect flush batches to MinIO's streaming-data bucket."
-    - step: "Browse MinIO buckets"
-      description: "Open MinIO Console to see both raw-data (batch Parquet) and streaming-data (Kafka JSON) buckets filling with data."
-    - step: "Query batch data with Dremio"
-      description: "Open Dremio UI → connect to Nessie catalog → SELECT count(*) FROM nessie.main.orders; to query the batch e-commerce data."
-    - step: "Query streaming data with Trino"
-      description: "Open Trino terminal → SELECT event_type, count(*) FROM minio.streaming_data.clickstream GROUP BY event_type; to aggregate stream data."
-    - step: "Build unified dashboard in Metabase"
-      description: "Open Metabase → create questions connecting to both Dremio (batch orders) and Trino (streaming clicks) → combine into a single analytics dashboard."
-    - step: "Monitor with Prometheus"
-      description: "Open Prometheus UI → query minio_bucket_usage_object_total to see object counts across both storage buckets in real time."
-
-# Standard demo definition
+  - step: Deploy the demo
+    description: Click Deploy to start all 11 components. Wait for all health indicators to turn green (~120s for Dremio and Metabase).
+  - step: Start batch ingestion
+    description: Right-click Data Generator (Batch) → Start Generating to push e-commerce order Parquet files into MinIO's raw-data bucket.
+  - step: Start streaming ingestion
+    description: Right-click Data Generator (Stream) → Start Generating to produce clickstream events into Redpanda.
+  - step: Inspect streaming events
+    description: Open Redpanda Console → Topics → clickstream to browse live messages. Watch Kafka Connect flush batches to MinIO's streaming-data bucket.
+  - step: Browse MinIO buckets
+    description: Open MinIO Console to see both raw-data (batch Parquet) and streaming-data (Kafka JSON) buckets filling with data.
+  - step: Query batch data with Dremio
+    description: Open Dremio UI → connect to Nessie catalog → SELECT count(*) FROM nessie.main.orders; to query the batch e-commerce data.
+  - step: Query streaming data with Trino
+    description: Open Trino terminal → SELECT event_type, count(*) FROM minio.streaming_data.clickstream GROUP BY event_type; to aggregate stream data.
+  - step: Build unified dashboard in Metabase
+    description: Open Metabase → create questions connecting to both Dremio (batch orders) and Trino (streaming clicks) → combine into a single analytics dashboard.
+  - step: Monitor with Prometheus
+    description: Open Prometheus UI → query minio_bucket_usage_object_total to see object counts across both storage buckets in real time.
 id: template-complete-analytics
-name: "Complete Analytics Platform"
-description: "Full stack: batch + streaming ingestion → MinIO → Nessie versioned catalog → Dremio + Trino → Metabase + Prometheus monitoring"
-
+name: Complete Analytics Platform
+description: 'Full stack: batch + streaming ingestion → MinIO → Nessie versioned catalog → Dremio + Trino → Metabase + Prometheus monitoring'
 networks:
-  - name: default
-    subnet: 172.20.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
 nodes:
-  # Batch data producer
-  - id: data-gen-batch
-    component: data-generator
-    variant: default
-    position: { x: -300, y: 50 }
-    display_name: "Data Generator (Batch)"
-    config:
-      DG_SCENARIO: "ecommerce-orders"
-      DG_FORMAT: "parquet"
-
-  # Streaming event producer
-  - id: data-gen-stream
-    component: data-generator
-    variant: default
-    position: { x: -300, y: 280 }
-    display_name: "Data Generator (Stream)"
-    config:
-      DG_SCENARIO: "clickstream"
-      DG_FORMAT: "kafka"
-
-  # Message broker
-  - id: redpanda-1
-    component: redpanda
-    variant: default
-    position: { x: 0, y: 280 }
-    display_name: "Redpanda"
-    config: {}
-
-  # Broker UI
-  - id: rp-console
-    component: redpanda-console
-    variant: default
-    position: { x: 0, y: 480 }
-    display_name: "Redpanda Console"
-    config: {}
-
-  # Stream-to-object connector
-  - id: kafka-connect-1
-    component: kafka-connect-s3
-    variant: default
-    position: { x: 300, y: 280 }
-    display_name: "Kafka Connect S3"
-    config: {}
-
-  # Core storage
-  - id: minio-1
-    component: minio
-    variant: single
-    position: { x: 600, y: 150 }
-    display_name: "MinIO"
-    config:
-      MINIO_ROOT_USER: "minioadmin"
-      MINIO_ROOT_PASSWORD: "minioadmin"
-
-  # Versioned catalog
-  - id: nessie-1
-    component: nessie
-    variant: default
-    position: { x: 900, y: 50 }
-    display_name: "Project Nessie"
-    config: {}
-
-  # Query engine — Dremio
-  - id: dremio-1
-    component: dremio
-    variant: default
-    position: { x: 1200, y: 50 }
-    display_name: "Dremio"
-    config: {}
-
-  # Query engine — Trino
-  - id: trino-1
-    component: trino
-    variant: default
-    position: { x: 1200, y: 280 }
-    display_name: "Trino"
-    config: {}
-
-  # BI visualization
-  - id: metabase-1
-    component: metabase
-    variant: default
-    position: { x: 1500, y: 150 }
-    display_name: "Metabase"
-    config: {}
-
-  # Monitoring
-  - id: prometheus-1
-    component: prometheus
-    variant: default
-    position: { x: 600, y: 380 }
-    display_name: "Prometheus"
-    config: {}
-
+- id: data-gen-batch
+  component: data-generator
+  variant: default
+  position:
+    x: -300
+    y: 50
+  display_name: Data Generator (Batch)
+  config:
+    DG_SCENARIO: ecommerce-orders
+    DG_FORMAT: parquet
+- id: data-gen-stream
+  component: data-generator
+  variant: default
+  position:
+    x: -300
+    y: 280
+  display_name: Data Generator (Stream)
+  config:
+    DG_SCENARIO: clickstream
+    DG_FORMAT: kafka
+- id: redpanda-1
+  component: redpanda
+  variant: default
+  position:
+    x: 0
+    y: 280
+  display_name: Redpanda
+  config: {}
+- id: rp-console
+  component: redpanda-console
+  variant: default
+  position:
+    x: 0
+    y: 480
+  display_name: Redpanda Console
+  config: {}
+- id: kafka-connect-1
+  component: kafka-connect-s3
+  variant: default
+  position:
+    x: 300
+    y: 280
+  display_name: Kafka Connect S3
+  config: {}
+- id: minio-1
+  component: minio
+  variant: single
+  position:
+    x: 600
+    y: 150
+  display_name: MinIO
+  config:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: nessie-1
+  component: nessie
+  variant: default
+  position:
+    x: 900
+    y: 50
+  display_name: Project Nessie
+  config: {}
+- id: dremio-1
+  component: dremio
+  variant: default
+  position:
+    x: 1200
+    y: 50
+  display_name: Dremio
+  config: {}
+- id: trino-1
+  component: trino
+  variant: default
+  position:
+    x: 1200
+    y: 280
+  display_name: Trino
+  config: {}
+- id: metabase-1
+  component: metabase
+  variant: default
+  position:
+    x: 1500
+    y: 150
+  display_name: Metabase
+  config: {}
+- id: prometheus-1
+  component: prometheus
+  variant: default
+  position:
+    x: 600
+    y: 380
+  display_name: Prometheus
+  config: {}
 clusters: []
-
 edges:
-  # Batch Generator → MinIO (structured Parquet)
-  - id: e-batch-minio
-    source: data-gen-batch
-    target: minio-1
-    connection_type: structured-data
-    network: default
-    auto_configure: true
-    label: "Parquet batch"
-    connection_config:
-      format: "parquet"
-      target_bucket: "raw-data"
-
-  # Stream Generator → Redpanda (Kafka producer)
-  - id: e-stream-redpanda
-    source: data-gen-stream
-    target: redpanda-1
-    connection_type: kafka
-    network: default
-    auto_configure: true
-    label: "Produce events"
-    connection_config:
-      topic: "clickstream"
-
-  # Redpanda Console → Redpanda (management)
-  - id: e-console-redpanda
-    source: rp-console
-    target: redpanda-1
-    connection_type: kafka
-    network: default
-    auto_configure: true
-    label: "Manage"
-
-  - id: e-console-schema-registry
-    source: rp-console
-    target: redpanda-1
-    connection_type: schema-registry
-    network: default
-    auto_configure: true
-    label: ""
-
-  # Kafka Connect → Redpanda (consume)
-  - id: e-connect-redpanda
-    source: kafka-connect-1
-    target: redpanda-1
-    connection_type: kafka
-    network: default
-    auto_configure: true
-    label: "Consume"
-
-  # Kafka Connect → MinIO (S3 sink)
-  - id: e-connect-minio
-    source: kafka-connect-1
-    target: minio-1
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "S3 Sink"
-    connection_config:
-      sink_bucket: "streaming-data"
-
-  # Dremio → MinIO (S3 access)
-  - id: e-dremio-minio
-    source: dremio-1
-    target: minio-1
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "S3"
-    connection_config:
-      bucket: "raw-data"
-
-  # Dremio → Nessie (versioned catalog)
-  - id: e-dremio-nessie
-    source: dremio-1
-    target: nessie-1
-    connection_type: iceberg-catalog
-    network: default
-    auto_configure: true
-    label: "Nessie catalog"
-    connection_config:
-      catalog_name: "nessie"
-
-  # Trino → MinIO (S3 query)
-  - id: e-trino-minio
-    source: trino-1
-    target: minio-1
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: "S3 query"
-    connection_config:
-      catalog_name: "minio"
-
-  # Metabase → Dremio (SQL)
-  - id: e-metabase-dremio
-    source: metabase-1
-    target: dremio-1
-    connection_type: dremio-sql
-    network: default
-    auto_configure: true
-    label: "Dremio SQL"
-
-  # Metabase → Trino (SQL)
-  - id: e-metabase-trino
-    source: metabase-1
-    target: trino-1
-    connection_type: sql-query
-    network: default
-    auto_configure: true
-    label: "SQL"
-
-  # MinIO → Prometheus (metrics)
-  - id: e-minio-prometheus
-    source: minio-1
-    target: prometheus-1
-    connection_type: metrics
-    network: default
-    auto_configure: true
-    source_handle: data-out
-    label: "Metrics"
-
+- id: e-batch-minio
+  source: data-gen-batch
+  target: minio-1
+  connection_type: structured-data
+  network: default
+  auto_configure: true
+  label: Parquet batch
+  connection_config:
+    format: parquet
+    target_bucket: raw-data
+- id: e-stream-redpanda
+  source: data-gen-stream
+  target: redpanda-1
+  connection_type: kafka
+  network: default
+  auto_configure: true
+  label: Produce events
+  connection_config:
+    topic: clickstream
+- id: e-console-redpanda
+  source: rp-console
+  target: redpanda-1
+  connection_type: kafka
+  network: default
+  auto_configure: true
+  label: Manage
+- id: e-console-schema-registry
+  source: rp-console
+  target: redpanda-1
+  connection_type: schema-registry
+  network: default
+  auto_configure: true
+  label: ''
+- id: e-connect-redpanda
+  source: kafka-connect-1
+  target: redpanda-1
+  connection_type: kafka
+  network: default
+  auto_configure: true
+  label: Consume
+- id: e-connect-minio
+  source: kafka-connect-1
+  target: minio-1
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3 Sink
+  connection_config:
+    sink_bucket: streaming-data
+- id: e-dremio-minio
+  source: dremio-1
+  target: minio-1
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3
+  connection_config:
+    bucket: raw-data
+- id: e-dremio-nessie
+  source: dremio-1
+  target: nessie-1
+  connection_type: iceberg-catalog
+  network: default
+  auto_configure: true
+  label: Nessie catalog
+  connection_config:
+    catalog_name: nessie
+- id: e-trino-minio
+  source: trino-1
+  target: minio-1
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3 query
+  connection_config:
+    catalog_name: minio
+- id: e-metabase-dremio
+  source: metabase-1
+  target: dremio-1
+  connection_type: dremio-sql
+  network: default
+  auto_configure: true
+  label: Dremio SQL
+- id: e-metabase-trino
+  source: metabase-1
+  target: trino-1
+  connection_type: sql-query
+  network: default
+  auto_configure: true
+  label: SQL
+- id: e-minio-prometheus
+  source: minio-1
+  target: prometheus-1
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  source_handle: bottom-out
+  label: Metrics
 groups: []
 sticky_notes: []
-
 resources:
   default_memory: 512m
   default_cpu: 0.5

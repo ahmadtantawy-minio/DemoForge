@@ -1,217 +1,221 @@
 _template:
-  name: "Three-way site replication"
+  name: Three-way site replication
   tier: advanced
   category: infrastructure
-  tags: ["site-replication", "multi-site", "3-way", "bidirectional", "n-way", "replication"]
-  description: "Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically."
-  objective: "Demonstrate N-way site replication across 3 MinIO clusters with independent data ingestion per site"
-  minio_value: "MinIO site replication supports N-way topologies — all sites stay in sync regardless of which site receives writes. This demo runs three independent data generators, each writing to its own site, while all data converges on every site through replication."
+  tags:
+  - site-replication
+  - multi-site
+  - 3-way
+  - bidirectional
+  - n-way
+  - replication
+  description: Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically.
+  objective: Demonstrate N-way site replication across 3 MinIO clusters with independent data ingestion per site
+  minio_value: MinIO site replication supports N-way topologies — all sites stay in sync regardless of which site receives writes. This demo runs three independent data generators, each writing to its own
+    site, while all data converges on every site through replication.
   estimated_resources:
-    memory: "4GB"
+    memory: 4GB
     cpu: 4
     containers: 14
   external_dependencies: []
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy to start all three MinIO sites, data generators, and monitoring. Site replication activates automatically during deployment."
-    - step: "Verify replication is active"
-      description: "Right-click any Site Replication edge — it should show 'applied' status. All three sites are linked in an N-way replication group."
-    - step: "Start data generators"
-      description: "Right-click each Data Generator and select Start Generating. Generator A pushes to site-a-bucket, Generator B to site-b-bucket, Generator C to site-c-bucket."
-    - step: "Watch cross-site convergence"
-      description: "Open the Cockpit panel — all three sites should show all three buckets (site-a-bucket, site-b-bucket, site-c-bucket) with matching object counts."
-    - step: "Verify via MinIO Console"
-      description: "Open MinIO Console for any site. You will see buckets from all other sites with replicated objects, demonstrating full N-way consistency."
-    - step: "Test resync"
-      description: "Right-click a Site Replication edge and select 'Resync All Sites' to force a full resync between two sites."
-
+  - step: Deploy the demo
+    description: Click Deploy to start all three MinIO sites, data generators, and monitoring. Site replication activates automatically during deployment.
+  - step: Verify replication is active
+    description: Right-click any Site Replication edge — it should show 'applied' status. All three sites are linked in an N-way replication group.
+  - step: Start data generators
+    description: Right-click each Data Generator and select Start Generating. Generator A pushes to site-a-bucket, Generator B to site-b-bucket, Generator C to site-c-bucket.
+  - step: Watch cross-site convergence
+    description: Open the Cockpit panel — all three sites should show all three buckets (site-a-bucket, site-b-bucket, site-c-bucket) with matching object counts.
+  - step: Verify via MinIO Console
+    description: Open MinIO Console for any site. You will see buckets from all other sites with replicated objects, demonstrating full N-way consistency.
+  - step: Test resync
+    description: Right-click a Site Replication edge and select 'Resync All Sites' to force a full resync between two sites.
 id: template-multi-site-replication-3way
-name: "Multi-Site Replication (3-Way)"
-description: "Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically."
-
+name: Multi-Site Replication (3-Way)
+description: Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically.
 networks:
-  - name: default
-    subnet: 172.21.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.21.0.0/16
+  driver: bridge
 nodes:
-  - id: data-gen-site-a
-    component: file-generator
-    variant: steady
-    position: { x: -235, y: 257 }
-    display_name: "Data Generator A"
-    config: {}
-
-  - id: data-gen-site-b
-    component: file-generator
-    variant: steady
-    position: { x: 33, y: -104 }
-    display_name: "Data Generator B"
-    config: {}
-
-  - id: data-gen-site-c
-    component: file-generator
-    variant: steady
-    position: { x: 791, y: -149 }
-    display_name: "Data Generator C"
-    config: {}
-
-  - id: prometheus
-    component: prometheus
-    variant: default
-    position: { x: 1016, y: 465 }
-    display_name: "Prometheus"
-    config: {}
-
-  - id: grafana
-    component: grafana
-    variant: default
-    position: { x: 1449, y: 523 }
-    display_name: "Grafana"
-    config: {}
-
+- id: data-gen-site-a
+  component: file-generator
+  variant: steady
+  position:
+    x: -235
+    y: 257
+  display_name: Data Generator A
+  config: {}
+- id: data-gen-site-b
+  component: file-generator
+  variant: steady
+  position:
+    x: 33
+    y: -104
+  display_name: Data Generator B
+  config: {}
+- id: data-gen-site-c
+  component: file-generator
+  variant: steady
+  position:
+    x: 791
+    y: -149
+  display_name: Data Generator C
+  config: {}
+- id: prometheus
+  component: prometheus
+  variant: default
+  position:
+    x: 1016
+    y: 465
+  display_name: Prometheus
+  config: {}
+- id: grafana
+  component: grafana
+  variant: default
+  position:
+    x: 1449
+    y: 523
+  display_name: Grafana
+  config: {}
 clusters:
-  - id: minio-site-a
-    component: minio
-    label: "MinIO Site A"
-    position: { x: 226, y: 327 }
-    node_count: 2
-    drives_per_node: 1
-    credentials:
-      root_user: minioadmin
-      root_password: minioadmin
-    config: {}
-    width: 280.0
-    height: 200.0
-    mcp_enabled: false
-
-  - id: minio-site-b
-    component: minio
-    label: "MinIO Site B"
-    position: { x: 429, y: -119 }
-    node_count: 2
-    drives_per_node: 1
-    credentials:
-      root_user: minioadmin
-      root_password: minioadmin
-    config: {}
-    width: 280.0
-    height: 200.0
-    mcp_enabled: false
-
-  - id: minio-site-c
-    component: minio
-    label: "MinIO Site C"
-    position: { x: 1137, y: 103 }
-    node_count: 2
-    drives_per_node: 1
-    credentials:
-      root_user: minioadmin
-      root_password: minioadmin
-    config: {}
-    width: 280.0
-    height: 200.0
-    mcp_enabled: false
-
+- id: minio-site-a
+  component: minio
+  label: MinIO Site A
+  position:
+    x: 226
+    y: 327
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+- id: minio-site-b
+  component: minio
+  label: MinIO Site B
+  position:
+    x: 429
+    y: -119
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+- id: minio-site-c
+  component: minio
+  label: MinIO Site C
+  position:
+    x: 1137
+    y: 103
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
 edges:
-  # Data generators push to their respective sites
-  - id: e-datagen-a-site-a
-    source: data-gen-site-a
-    target: minio-site-a
-    connection_type: file-push
-    network: default
-    auto_configure: true
-    label: "Push to site-a-bucket"
-    connection_config:
-      target_bucket: "site-a-bucket"
-      file_size: "10KB"
-      file_count: "1"
-
-  - id: e-datagen-b-site-b
-    source: data-gen-site-b
-    target: minio-site-b
-    connection_type: file-push
-    network: default
-    auto_configure: true
-    label: "Push to site-b-bucket"
-    connection_config:
-      target_bucket: "site-b-bucket"
-      file_size: "10KB"
-      file_count: "1"
-
-  - id: e-datagen-c-site-c
-    source: data-gen-site-c
-    target: minio-site-c
-    connection_type: file-push
-    network: default
-    auto_configure: true
-    label: "Push to site-c-bucket"
-    connection_config:
-      target_bucket: "site-c-bucket"
-      file_size: "10KB"
-      file_count: "1"
-
-  # Site replication — full mesh (A↔B, A↔C, B↔C)
-  - id: e-site-replication-ab
-    source: minio-site-a
-    target: minio-site-b
-    connection_type: cluster-site-replication
-    network: default
-    auto_configure: true
-    label: "Site Replication A↔B"
-
-  - id: e-site-replication-ac
-    source: minio-site-a
-    target: minio-site-c
-    connection_type: cluster-site-replication
-    network: default
-    auto_configure: true
-    label: "Site Replication A↔C"
-
-  - id: e-site-replication-bc
-    source: minio-site-b
-    target: minio-site-c
-    connection_type: cluster-site-replication
-    network: default
-    auto_configure: true
-    label: "Site Replication B↔C"
-
-  # Metrics from all sites
-  - id: e-site-a-metrics
-    source: minio-site-a
-    target: prometheus
-    connection_type: metrics
-    network: default
-    auto_configure: true
-    label: "Metrics"
-
-  - id: e-site-b-metrics
-    source: minio-site-b
-    target: prometheus
-    connection_type: metrics
-    network: default
-    auto_configure: true
-    label: "Metrics"
-
-  - id: e-site-c-metrics
-    source: minio-site-c
-    target: prometheus
-    connection_type: metrics
-    network: default
-    auto_configure: true
-    label: "Metrics"
-
-  - id: e-prom-grafana
-    source: prometheus
-    target: grafana
-    connection_type: metrics-query
-    network: default
-    auto_configure: true
-    label: "PromQL"
-
+- id: e-datagen-a-site-a
+  source: data-gen-site-a
+  target: minio-site-a
+  connection_type: file-push
+  network: default
+  auto_configure: true
+  label: Push to site-a-bucket
+  connection_config:
+    target_bucket: site-a-bucket
+    file_size: 10KB
+    file_count: '1'
+  target_handle: data-in
+- id: e-datagen-b-site-b
+  source: data-gen-site-b
+  target: minio-site-b
+  connection_type: file-push
+  network: default
+  auto_configure: true
+  label: Push to site-b-bucket
+  connection_config:
+    target_bucket: site-b-bucket
+    file_size: 10KB
+    file_count: '1'
+  target_handle: data-in
+- id: e-datagen-c-site-c
+  source: data-gen-site-c
+  target: minio-site-c
+  connection_type: file-push
+  network: default
+  auto_configure: true
+  label: Push to site-c-bucket
+  connection_config:
+    target_bucket: site-c-bucket
+    file_size: 10KB
+    file_count: '1'
+  target_handle: data-in
+- id: e-site-replication-ab
+  source: minio-site-a
+  target: minio-site-b
+  connection_type: cluster-site-replication
+  network: default
+  auto_configure: true
+  label: Site Replication A↔B
+- id: e-site-replication-ac
+  source: minio-site-a
+  target: minio-site-c
+  connection_type: cluster-site-replication
+  network: default
+  auto_configure: true
+  label: Site Replication A↔C
+- id: e-site-replication-bc
+  source: minio-site-b
+  target: minio-site-c
+  connection_type: cluster-site-replication
+  network: default
+  auto_configure: true
+  label: Site Replication B↔C
+- id: e-site-a-metrics
+  source: minio-site-a
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: Metrics
+  source_handle: data-out
+- id: e-site-b-metrics
+  source: minio-site-b
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: Metrics
+  source_handle: data-out
+- id: e-site-c-metrics
+  source: minio-site-c
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: Metrics
+  source_handle: cluster-out-bottom
+- id: e-prom-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: default
+  auto_configure: true
+  label: PromQL
 groups: []
 sticky_notes: []
-
 resources:
   default_memory: 256m
   default_cpu: 0.25

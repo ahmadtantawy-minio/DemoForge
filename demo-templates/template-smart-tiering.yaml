@@ -1,222 +1,241 @@
-# Template metadata
 _template:
-  name: "Smart data tiering"
+  name: Smart data tiering
   tier: essentials
   category: infrastructure
-  tags: ["ilm", "tiering", "hot-cold", "lifecycle", "cost-optimization", "load-balancer", "monitoring"]
-  description: "Two load-balanced MinIO clusters representing NVMe hot and HDD cold storage tiers. A data generator continuously ingests data through the hot tier, which automatically transitions aging objects to the cold tier via ILM policies."
-  objective: "Demonstrate enterprise ILM tiering at scale with separate hot and cold MinIO clusters, each fronted by an NGINX load balancer"
-  minio_value: "MinIO's ILM policies automate data movement from expensive fast storage to cost-efficient cold storage, reducing TCO while maintaining seamless data access"
+  tags:
+  - ilm
+  - tiering
+  - hot-cold
+  - lifecycle
+  - cost-optimization
+  - load-balancer
+  - monitoring
+  description: Two load-balanced MinIO clusters representing NVMe hot and HDD cold storage tiers. A data generator continuously ingests data through the hot tier, which automatically transitions aging objects
+    to the cold tier via ILM policies.
+  objective: Demonstrate enterprise ILM tiering at scale with separate hot and cold MinIO clusters, each fronted by an NGINX load balancer
+  minio_value: MinIO's ILM policies automate data movement from expensive fast storage to cost-efficient cold storage, reducing TCO while maintaining seamless data access
   estimated_resources:
-    memory: "5GB"
+    memory: 5GB
     cpu: 5
     containers: 8
   external_dependencies: []
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy to start the data generator, hot tier NGINX and two MinIO nodes, cold tier two MinIO nodes, and the monitoring stack"
-    - step: "Observe data ingestion"
-      description: "Watch the data generator push files through the hot tier load balancer at a steady rate"
-    - step: "Check hot tier usage"
-      description: "Open either hot MinIO console to see ingest bucket filling with objects"
-    - step: "Review ILM policy"
-      description: "Inspect the auto-archive ILM rule configured on the hot tier with a 7-day transition"
-    - step: "Observe tiering in action"
-      description: "After the transition period, verify that objects have moved to the cold tier cluster"
-    - step: "Monitor throughput in Grafana"
-      description: "Review Grafana dashboards to see ingest rates on hot tier and transition activity on cold tier"
+  - step: Deploy the demo
+    description: Click Deploy to start the data generator, hot tier NGINX and two MinIO nodes, cold tier two MinIO nodes, and the monitoring stack
+  - step: Observe data ingestion
+    description: Watch the data generator push files through the hot tier load balancer at a steady rate
+  - step: Check hot tier usage
+    description: Open either hot MinIO console to see ingest bucket filling with objects
+  - step: Review ILM policy
+    description: Inspect the auto-archive ILM rule configured on the hot tier with a 7-day transition
+  - step: Observe tiering in action
+    description: After the transition period, verify that objects have moved to the cold tier cluster
+  - step: Monitor throughput in Grafana
+    description: Review Grafana dashboards to see ingest rates on hot tier and transition activity on cold tier
   se_guide:
-    pitch: "Show how MinIO ILM policies automate hot-to-cold data migration — expensive NVMe for active data, cheap HDD for archives — with zero application changes and seamless access throughout."
-    audience: "Infrastructure architects, storage admins, and cost-conscious IT leaders evaluating TCO reduction through tiered storage."
+    pitch: Show how MinIO ILM policies automate hot-to-cold data migration — expensive NVMe for active data, cheap HDD for archives — with zero application changes and seamless access throughout.
+    audience: Infrastructure architects, storage admins, and cost-conscious IT leaders evaluating TCO reduction through tiered storage.
     talking_points:
-      - "MinIO ILM policies are set once and run forever — you define 'move objects older than 7 days to cold tier' and MinIO handles it automatically with no cron jobs, no scripts."
-      - "The application doesn't know or care which tier the data is on — reads go through the same S3 endpoint regardless of whether the object is on NVMe or HDD."
-      - "This demo runs two real MinIO clusters: a hot tier fronted by an NGINX load balancer for ingest throughput, and a cold tier for low-cost archival. Both are fully functional MinIO deployments."
-      - "The financial story is straightforward: NVMe costs roughly 5-10x more per GB than HDD. For data that's accessed infrequently after 30 days, automatic tiering can cut your storage bill by 60-80%."
-      - "MinIO also supports tiering to public cloud — S3, GCS, Azure Blob — so your cold tier can be a cloud object store while hot data stays on-prem."
+    - MinIO ILM policies are set once and run forever — you define 'move objects older than 7 days to cold tier' and MinIO handles it automatically with no cron jobs, no scripts.
+    - The application doesn't know or care which tier the data is on — reads go through the same S3 endpoint regardless of whether the object is on NVMe or HDD.
+    - 'This demo runs two real MinIO clusters: a hot tier fronted by an NGINX load balancer for ingest throughput, and a cold tier for low-cost archival. Both are fully functional MinIO deployments.'
+    - 'The financial story is straightforward: NVMe costs roughly 5-10x more per GB than HDD. For data that''s accessed infrequently after 30 days, automatic tiering can cut your storage bill by 60-80%.'
+    - MinIO also supports tiering to public cloud — S3, GCS, Azure Blob — so your cold tier can be a cloud object store while hot data stays on-prem.
     demo_flow:
-      - step: 1
-        action: "Click Deploy and wait for all 8 containers to go green — generator, hot tier LB, two hot MinIO nodes, two cold MinIO nodes, Prometheus, Grafana."
-        say: "This is a realistic enterprise topology — load-balanced hot tier for high-throughput ingest, separate cold tier cluster for archival. Everything connected."
-      - step: 2
-        action: "Show the data generator pushing files through the hot tier load balancer. Open the Hot NVMe Node 1 console."
-        say: "Data is landing on the hot tier at a steady rate — 5 files per second through the NGINX load balancer, distributed across both NVMe nodes."
-      - step: 3
-        action: "Open MinIO Console on the hot tier → Buckets → ingest → Lifecycle tab. Show the auto-archive ILM rule."
-        say: "This ILM rule says: after 7 days, transition objects in the ingest bucket to the cold tier cluster. One rule, set once, runs forever."
-      - step: 4
-        action: "Open Grafana and show the ingest rate dashboard."
-        say: "You can see bytes written to the hot tier, objects transitioned to cold, and the storage distribution across tiers — all in real time."
-      - step: 5
-        action: "Open the Cold HDD Node 1 console to show transitioned objects."
-        say: "Objects moved from hot to cold are still fully accessible via the same S3 API — applications read them transparently without knowing they moved."
+    - step: 1
+      action: Click Deploy and wait for all 8 containers to go green — generator, hot tier LB, two hot MinIO nodes, two cold MinIO nodes, Prometheus, Grafana.
+      say: This is a realistic enterprise topology — load-balanced hot tier for high-throughput ingest, separate cold tier cluster for archival. Everything connected.
+    - step: 2
+      action: Show the data generator pushing files through the hot tier load balancer. Open the Hot NVMe Node 1 console.
+      say: Data is landing on the hot tier at a steady rate — 5 files per second through the NGINX load balancer, distributed across both NVMe nodes.
+    - step: 3
+      action: Open MinIO Console on the hot tier → Buckets → ingest → Lifecycle tab. Show the auto-archive ILM rule.
+      say: 'This ILM rule says: after 7 days, transition objects in the ingest bucket to the cold tier cluster. One rule, set once, runs forever.'
+    - step: 4
+      action: Open Grafana and show the ingest rate dashboard.
+      say: You can see bytes written to the hot tier, objects transitioned to cold, and the storage distribution across tiers — all in real time.
+    - step: 5
+      action: Open the Cold HDD Node 1 console to show transitioned objects.
+      say: Objects moved from hot to cold are still fully accessible via the same S3 API — applications read them transparently without knowing they moved.
     common_questions:
-      - q: "What happens if the cold tier is unavailable — can we still read hot data?"
-        a: "Yes — the hot and cold tiers are independent MinIO clusters. A cold tier outage doesn't affect hot tier availability. Objects still on the hot tier are fully accessible."
-      - q: "Can we tier to cloud instead of a second on-prem cluster?"
-        a: "Absolutely. MinIO supports tiering targets of AWS S3, GCS, and Azure Blob Storage. Your cold tier can be cloud object storage while hot data stays on-prem for performance and cost control."
-      - q: "How does MinIO handle reads of cold-tiered objects — is there a restore step like S3 Glacier?"
-        a: "No restore step. MinIO tiering uses standard S3 object storage on the cold side — reads are immediate, just slower due to HDD vs NVMe. There's no Glacier-style retrieval delay."
-      - q: "Can ILM policies be set per-prefix, not just per-bucket?"
-        a: "Yes — ILM rules can target specific prefixes within a bucket, so you can tier logs after 30 days, raw data after 7 days, and keep processed data hot indefinitely, all within the same bucket."
+    - q: What happens if the cold tier is unavailable — can we still read hot data?
+      a: Yes — the hot and cold tiers are independent MinIO clusters. A cold tier outage doesn't affect hot tier availability. Objects still on the hot tier are fully accessible.
+    - q: Can we tier to cloud instead of a second on-prem cluster?
+      a: Absolutely. MinIO supports tiering targets of AWS S3, GCS, and Azure Blob Storage. Your cold tier can be cloud object storage while hot data stays on-prem for performance and cost control.
+    - q: How does MinIO handle reads of cold-tiered objects — is there a restore step like S3 Glacier?
+      a: No restore step. MinIO tiering uses standard S3 object storage on the cold side — reads are immediate, just slower due to HDD vs NVMe. There's no Glacier-style retrieval delay.
+    - q: Can ILM policies be set per-prefix, not just per-bucket?
+      a: Yes — ILM rules can target specific prefixes within a bucket, so you can tier logs after 30 days, raw data after 7 days, and keep processed data hot indefinitely, all within the same bucket.
     mc_commands:
-      - label: "Check ILM policy on hot tier"
-        command: "mc ilm rule ls minio-hot/ingest"
-        context: "Shows the auto-archive transition rule configured on the ingest bucket."
-      - label: "List objects on cold tier"
-        command: "mc ls minio-cold/ingest"
-        context: "Shows objects that have already transitioned from the hot NVMe tier."
-      - label: "Add a tiering target"
-        command: "mc ilm tier add minio minio-hot COLD-TIER --endpoint http://minio-cold:9000 --access-key minioadmin --secret-key minioadmin --bucket ingest"
-        context: "Example command for registering the cold cluster as a tiering target — already configured in this demo."
-      - label: "View storage distribution"
-        command: "mc du minio-hot/ && mc du minio-cold/"
-        context: "Side-by-side storage usage showing data moving from hot to cold over time."
-
-# Standard demo definition
+    - label: Check ILM policy on hot tier
+      command: mc ilm rule ls minio-hot/ingest
+      context: Shows the auto-archive transition rule configured on the ingest bucket.
+    - label: List objects on cold tier
+      command: mc ls minio-cold/ingest
+      context: Shows objects that have already transitioned from the hot NVMe tier.
+    - label: Add a tiering target
+      command: mc ilm tier add minio minio-hot COLD-TIER --endpoint http://minio-cold:9000 --access-key minioadmin --secret-key minioadmin --bucket ingest
+      context: Example command for registering the cold cluster as a tiering target — already configured in this demo.
+    - label: View storage distribution
+      command: mc du minio-hot/ && mc du minio-cold/
+      context: Side-by-side storage usage showing data moving from hot to cold over time.
 id: template-smart-tiering
-name: "ILM Tiered Storage (Hot → Cold)"
-description: "Two MinIO clusters with ILM tiering: hot tier (NVMe, fast access) automatically moves aging data to cold tier (HDD, cost-efficient). Data Generator pushes files through the hot tier load balancer."
-
+name: ILM Tiered Storage (Hot → Cold)
+description: 'Two MinIO clusters with ILM tiering: hot tier (NVMe, fast access) automatically moves aging data to cold tier (HDD, cost-efficient). Data Generator pushes files through the hot tier load balancer.'
 networks:
-  - name: default
-
+- name: default
 nodes:
-  # Data Generator
-  - id: data-gen
-    component: file-generator
-    variant: steady
-    position: { x: 100, y: 100 }
-    display_name: "Data Generator"
-
-  # Hot Tier (NVMe)
-  - id: nginx-hot
-    component: nginx
-    variant: single
-    position: { x: 100, y: 350 }
-    display_name: "Hot Tier LB"
-  - id: minio-hot-1
-    component: minio
-    variant: single
-    position: { x: 400, y: 250 }
-    display_name: "Hot NVMe Node 1"
-  - id: minio-hot-2
-    component: minio
-    variant: single
-    position: { x: 400, y: 450 }
-    display_name: "Hot NVMe Node 2"
-
-  # Cold Tier (HDD)
-  - id: minio-cold-1
-    component: minio
-    variant: single
-    position: { x: 750, y: 250 }
-    display_name: "Cold HDD Node 1"
-  - id: minio-cold-2
-    component: minio
-    variant: single
-    position: { x: 750, y: 450 }
-    display_name: "Cold HDD Node 2"
-
-  # Monitoring
-  - id: prometheus
-    component: prometheus
-    variant: single
-    position: { x: 550, y: 650 }
-  - id: grafana
-    component: grafana
-    variant: single
-    position: { x: 750, y: 650 }
-
+- id: data-gen
+  component: file-generator
+  variant: steady
+  position:
+    x: 100
+    y: 100
+  display_name: Data Generator
+- id: nginx-hot
+  component: nginx
+  variant: single
+  position:
+    x: 100
+    y: 350
+  display_name: Hot Tier LB
+- id: minio-hot-1
+  component: minio
+  variant: single
+  position:
+    x: 400
+    y: 250
+  display_name: Hot NVMe Node 1
+- id: minio-hot-2
+  component: minio
+  variant: single
+  position:
+    x: 400
+    y: 450
+  display_name: Hot NVMe Node 2
+- id: minio-cold-1
+  component: minio
+  variant: single
+  position:
+    x: 750
+    y: 250
+  display_name: Cold HDD Node 1
+- id: minio-cold-2
+  component: minio
+  variant: single
+  position:
+    x: 750
+    y: 450
+  display_name: Cold HDD Node 2
+- id: prometheus
+  component: prometheus
+  variant: single
+  position:
+    x: 550
+    y: 650
+- id: grafana
+  component: grafana
+  variant: single
+  position:
+    x: 750
+    y: 650
 edges:
-  # Data Generator → Hot Tier LB
-  - id: e-gen-hot
-    source: data-gen
-    target: nginx-hot
-    connection_type: file-push
-    protocol: S3 (HTTP)
-    latency: <1 ms
-    bandwidth: 10 Gb/s
-    connection_config:
-      file_size: "1MB"
-      file_count: "50"
-      file_format: random
-      rate: "5"
-      target_bucket: "ingest"
-
-  # Hot Tier load balancing
-  - id: e-lb-hot1
-    source: nginx-hot
-    target: minio-hot-1
-    connection_type: load-balance
-    connection_config: { algorithm: least-conn, backend_port: "9000" }
-  - id: e-lb-hot2
-    source: nginx-hot
-    target: minio-hot-2
-    connection_type: load-balance
-    connection_config: { algorithm: least-conn, backend_port: "9000" }
-
-  # ILM Tiering: Hot → Cold
-  - id: e-tier-1
-    source: minio-hot-1
-    target: minio-cold-1
-    connection_type: tiering
-    protocol: S3 (HTTP)
-    latency: ~5 ms
-    bandwidth: 10 Gb/s
-    connection_config:
-      policy_name: "auto-archive"
-      transition_days: "7"
-      storage_class: STANDARD
-
-  # Metrics
-  - id: e-m-hot1
-    source: minio-hot-1
-    target: prometheus
-    connection_type: metrics
-  - id: e-m-hot2
-    source: minio-hot-2
-    target: prometheus
-    connection_type: metrics
-  - id: e-m-cold1
-    source: minio-cold-1
-    target: prometheus
-    connection_type: metrics
-  - id: e-m-cold2
-    source: minio-cold-2
-    target: prometheus
-    connection_type: metrics
-  - id: e-grafana
-    source: prometheus
-    target: grafana
-    connection_type: metrics-query
-
+- id: e-gen-hot
+  source: data-gen
+  target: nginx-hot
+  connection_type: file-push
+  protocol: S3 (HTTP)
+  latency: <1 ms
+  bandwidth: 10 Gb/s
+  connection_config:
+    file_size: 1MB
+    file_count: '50'
+    file_format: random
+    rate: '5'
+    target_bucket: ingest
+  source_handle: bottom-out
+- id: e-lb-hot1
+  source: nginx-hot
+  target: minio-hot-1
+  connection_type: load-balance
+  connection_config:
+    algorithm: least-conn
+    backend_port: '9000'
+- id: e-lb-hot2
+  source: nginx-hot
+  target: minio-hot-2
+  connection_type: load-balance
+  connection_config:
+    algorithm: least-conn
+    backend_port: '9000'
+- id: e-tier-1
+  source: minio-hot-1
+  target: minio-cold-1
+  connection_type: tiering
+  protocol: S3 (HTTP)
+  latency: ~5 ms
+  bandwidth: 10 Gb/s
+  connection_config:
+    policy_name: auto-archive
+    transition_days: '7'
+    storage_class: STANDARD
+- id: e-m-hot1
+  source: minio-hot-1
+  target: prometheus
+  connection_type: metrics
+  source_handle: bottom-out
+- id: e-m-hot2
+  source: minio-hot-2
+  target: prometheus
+  connection_type: metrics
+  source_handle: bottom-out
+- id: e-m-cold1
+  source: minio-cold-1
+  target: prometheus
+  connection_type: metrics
+  source_handle: bottom-out
+- id: e-m-cold2
+  source: minio-cold-2
+  target: prometheus
+  connection_type: metrics
+- id: e-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
 annotations:
-  - id: ann-ilm-explain
-    position: { x: -300, y: 50 }
-    width: 280
-    title: "ILM Tiering"
-    body: "ILM (Information Lifecycle Management) automatically moves data between storage tiers based on age and access patterns. Hot data stays on fast NVMe, cold data migrates to cheaper HDD storage."
-    style: info
-  - id: ann-hot
-    position: { x: 100, y: -80 }
-    width: 220
-    title: "Hot tier"
-    body: "Hot tier — NVMe storage for recent, frequently accessed data. Objects land here first."
-    style: step
-    step_number: 1
-    pointer_target: nginx-hot
-  - id: ann-cold
-    position: { x: 750, y: 100 }
-    width: 220
-    title: "Cold tier"
-    body: "Cold tier — HDD storage for aged data. ILM policies automatically transition objects here after the configured period."
-    style: step
-    step_number: 2
-    pointer_target: minio-cold-1
-  - id: ann-transparent
-    position: { x: -300, y: 400 }
-    width: 280
-    title: "Transparent to applications"
-    body: "The transition is transparent to applications — they continue using the same S3 endpoint. MinIO handles the data movement behind the scenes."
-    style: callout
+- id: ann-ilm-explain
+  position:
+    x: -300
+    y: 50
+  width: 280
+  title: ILM Tiering
+  body: ILM (Information Lifecycle Management) automatically moves data between storage tiers based on age and access patterns. Hot data stays on fast NVMe, cold data migrates to cheaper HDD storage.
+  style: info
+- id: ann-hot
+  position:
+    x: 100
+    y: -80
+  width: 220
+  title: Hot tier
+  body: Hot tier — NVMe storage for recent, frequently accessed data. Objects land here first.
+  style: step
+  step_number: 1
+  pointer_target: nginx-hot
+- id: ann-cold
+  position:
+    x: 750
+    y: 100
+  width: 220
+  title: Cold tier
+  body: Cold tier — HDD storage for aged data. ILM policies automatically transition objects here after the configured period.
+  style: step
+  step_number: 2
+  pointer_target: minio-cold-1
+- id: ann-transparent
+  position:
+    x: -300
+    y: 400
+  width: 280
+  title: Transparent to applications
+  body: The transition is transparent to applications — they continue using the same S3 endpoint. MinIO handles the data movement behind the scenes.
+  style: callout

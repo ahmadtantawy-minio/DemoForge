@@ -196,13 +196,14 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    compose_timeout = demo.deploy_timeout_seconds or COMPOSE_TIMEOUT
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=COMPOSE_TIMEOUT)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=compose_timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.communicate()
         running.status = "error"
-        running.error_message = f"docker compose up timed out after {COMPOSE_TIMEOUT}s"
+        running.error_message = f"docker compose up timed out after {compose_timeout}s"
         state.set_demo(running)
         await progress("containers", "error", running.error_message)
         raise TimeoutError(running.error_message)

@@ -1,208 +1,194 @@
 _template:
-  name: "Medallion architecture walkthrough"
+  name: Medallion architecture walkthrough
   tier: experience
   mode: experience
   category: lakehouse
   tags:
-    - medallion
-    - bronze
-    - silver
-    - gold
-    - iceberg
-    - etl
-  description: "Walk through the Bronze → Silver → Gold data transformation pattern using MinIO + Iceberg + Trino."
-  objective: "Demonstrate how the medallion architecture organises data quality tiers on MinIO, using Iceberg tables and Trino for in-place transformation at each layer"
-  minio_value: "MinIO is the unified storage layer for all three medallion tiers. Bronze, Silver, and Gold data all live as Iceberg tables on MinIO — no data movement between systems, just progressive transformation in place."
+  - medallion
+  - bronze
+  - silver
+  - gold
+  - iceberg
+  - etl
+  description: Walk through the Bronze → Silver → Gold data transformation pattern using MinIO + Iceberg + Trino.
+  objective: Demonstrate how the medallion architecture organises data quality tiers on MinIO, using Iceberg tables and Trino for in-place transformation at each layer
+  minio_value: MinIO is the unified storage layer for all three medallion tiers. Bronze, Silver, and Gold data all live as Iceberg tables on MinIO — no data movement between systems, just progressive transformation
+    in place.
   estimated_resources:
-    memory: "4GB"
+    memory: 4GB
     cpu: 4
     containers: 5
   external_dependencies: []
   walkthrough:
-    - step: Deploy the demo
-      description: Click Deploy. Wait for all components to turn green (~90s for Metabase).
-    - step: Ingest raw data (Bronze)
-      description: Right-click Data Generator → Start Generating. Raw Parquet files land in MinIO. This is your Bronze layer — unmodified, append-only.
-    - step: Create the Bronze Iceberg table
-      description: "Open Trino terminal → CREATE SCHEMA iceberg.bronze; CREATE TABLE iceberg.bronze.orders AS SELECT * FROM ... — snapshot the raw data as an Iceberg table."
-    - step: Transform to Silver
-      description: "In Trino: CREATE SCHEMA iceberg.silver; CREATE TABLE iceberg.silver.orders AS SELECT id, CAST(amount AS DOUBLE) AS amount, LOWER(TRIM(email)) AS email FROM iceberg.bronze.orders WHERE id IS NOT NULL — clean and deduplicate."
-    - step: Aggregate to Gold
-      description: "In Trino: CREATE SCHEMA iceberg.gold; CREATE TABLE iceberg.gold.daily_revenue AS SELECT DATE(created_at) AS day, SUM(amount) AS revenue, COUNT(*) AS orders FROM iceberg.silver.orders GROUP BY DATE(created_at) — business-ready aggregates."
-    - step: Visualise in Metabase
-      description: Open Metabase → connect to Trino → query iceberg.gold.daily_revenue. Build a revenue trend chart from the Gold layer.
-
+  - step: Deploy the demo
+    description: Click Deploy. Wait for all components to turn green (~90s for Metabase).
+  - step: Ingest raw data (Bronze)
+    description: Right-click Data Generator → Start Generating. Raw Parquet files land in MinIO. This is your Bronze layer — unmodified, append-only.
+  - step: Create the Bronze Iceberg table
+    description: Open Trino terminal → CREATE SCHEMA iceberg.bronze; CREATE TABLE iceberg.bronze.orders AS SELECT * FROM ... — snapshot the raw data as an Iceberg table.
+  - step: Transform to Silver
+    description: 'In Trino: CREATE SCHEMA iceberg.silver; CREATE TABLE iceberg.silver.orders AS SELECT id, CAST(amount AS DOUBLE) AS amount, LOWER(TRIM(email)) AS email FROM iceberg.bronze.orders WHERE
+      id IS NOT NULL — clean and deduplicate.'
+  - step: Aggregate to Gold
+    description: 'In Trino: CREATE SCHEMA iceberg.gold; CREATE TABLE iceberg.gold.daily_revenue AS SELECT DATE(created_at) AS day, SUM(amount) AS revenue, COUNT(*) AS orders FROM iceberg.silver.orders GROUP
+      BY DATE(created_at) — business-ready aggregates.'
+  - step: Visualise in Metabase
+    description: Open Metabase → connect to Trino → query iceberg.gold.daily_revenue. Build a revenue trend chart from the Gold layer.
 id: experience-medallion
-name: "Medallion Architecture"
-description: "Walk through Bronze → Silver → Gold data transformation on MinIO + Iceberg + Trino."
+name: Medallion Architecture
+description: Walk through Bronze → Silver → Gold data transformation on MinIO + Iceberg + Trino.
 mode: experience
-
 networks:
-  - name: default
-    subnet: 172.20.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
 nodes:
-  - id: data-gen
-    component: data-generator
-    variant: default
-    position:
-      x: -200
-      y: 150
-    display_name: Data Generator
-    config: {}
-    networks: {}
-    labels: {}
-    group_id: null
-
-  - id: minio-1
-    component: minio
-    variant: single
-    position:
-      x: 100
-      y: 150
-    display_name: MinIO
-    config:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    networks: {}
-    labels: {}
-    group_id: null
-
-  - id: iceberg-rest
-    component: iceberg-rest
-    variant: default
-    position:
-      x: 400
-      y: 50
-    display_name: Iceberg REST Catalog
-    config: {}
-    networks: {}
-    labels: {}
-    group_id: null
-
-  - id: trino
-    component: trino
-    variant: default
-    position:
-      x: 700
-      y: 50
-    display_name: Trino
-    config: {}
-    networks: {}
-    labels: {}
-    group_id: null
-
-  - id: metabase
-    component: metabase
-    variant: default
-    position:
-      x: 1000
-      y: 150
-    display_name: Metabase
-    config: {}
-    networks: {}
-    labels: {}
-    group_id: null
-
+- id: data-gen
+  component: data-generator
+  variant: default
+  position:
+    x: -200
+    y: 150
+  display_name: Data Generator
+  config: {}
+  networks: {}
+  labels: {}
+  group_id: null
+- id: minio-1
+  component: minio
+  variant: single
+  position:
+    x: 100
+    y: 150
+  display_name: MinIO
+  config:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+  networks: {}
+  labels: {}
+  group_id: null
+- id: iceberg-rest
+  component: iceberg-rest
+  variant: default
+  position:
+    x: 400
+    y: 50
+  display_name: Iceberg REST Catalog
+  config: {}
+  networks: {}
+  labels: {}
+  group_id: null
+- id: trino
+  component: trino
+  variant: default
+  position:
+    x: 700
+    y: 50
+  display_name: Trino
+  config: {}
+  networks: {}
+  labels: {}
+  group_id: null
+- id: metabase
+  component: metabase
+  variant: default
+  position:
+    x: 1000
+    y: 150
+  display_name: Metabase
+  config: {}
+  networks: {}
+  labels: {}
+  group_id: null
 clusters: []
 groups: []
 sticky_notes: []
-
 edges:
-  - id: e-datagen-minio
-    source: data-gen
-    target: minio-1
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: Raw data
-    connection_config:
-      bucket: bronze
-    source_handle: null
-    target_handle: null
-
-  - id: e-minio-iceberg
-    source: minio-1
-    target: iceberg-rest
-    connection_type: s3
-    network: default
-    auto_configure: true
-    label: Catalog storage
-    connection_config:
-      warehouse_bucket: warehouse
-    source_handle: null
-    target_handle: null
-
-  - id: e-iceberg-trino
-    source: iceberg-rest
-    target: trino
-    connection_type: iceberg-catalog
-    network: default
-    auto_configure: true
-    label: Iceberg catalog
-    connection_config:
-      catalog_name: iceberg
-    source_handle: null
-    target_handle: null
-
-  - id: e-trino-metabase
-    source: trino
-    target: metabase
-    connection_type: sql-query
-    network: default
-    auto_configure: true
-    label: SQL
-    connection_config:
-      catalog: iceberg
-      schema: gold
-    source_handle: null
-    target_handle: null
-
+- id: e-datagen-minio
+  source: data-gen
+  target: minio-1
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: Raw data
+  connection_config:
+    bucket: bronze
+  source_handle: null
+  target_handle: null
+- id: e-minio-iceberg
+  source: minio-1
+  target: iceberg-rest
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: Catalog storage
+  connection_config:
+    warehouse_bucket: warehouse
+  source_handle: null
+  target_handle: null
+- id: e-iceberg-trino
+  source: iceberg-rest
+  target: trino
+  connection_type: iceberg-catalog
+  network: default
+  auto_configure: true
+  label: Iceberg catalog
+  connection_config:
+    catalog_name: iceberg
+  source_handle: null
+  target_handle: null
+- id: e-trino-metabase
+  source: trino
+  target: metabase
+  connection_type: sql-query
+  network: default
+  auto_configure: true
+  label: SQL
+  connection_config:
+    catalog: iceberg
+    schema: gold
+  source_handle: null
+  target_handle: null
 annotations:
-  - id: ann-bronze
-    position:
-      x: -50
-      y: 320
-    width: 260
-    title: Bronze layer
-    body: Raw data lands in MinIO as Parquet files. No transformation — just append.
-    style: step
-    step_number: 1
-    pointer_target: minio-1
-
-  - id: ann-silver
-    position:
-      x: 620
-      y: -120
-    width: 260
-    title: Silver layer
-    body: Trino transforms Bronze → Silver. Clean, deduplicate, cast types.
-    style: step
-    step_number: 2
-    pointer_target: trino
-
-  - id: ann-gold
-    position:
-      x: 950
-      y: 320
-    width: 260
-    title: Gold layer
-    body: Aggregate Silver → Gold for business KPIs. Dashboard-ready data.
-    style: step
-    step_number: 3
-    pointer_target: metabase
-
-  - id: ann-iceberg
-    position:
-      x: 320
-      y: -130
-    width: 260
-    title: "Iceberg: the table format"
-    body: Provides ACID transactions, schema evolution, and time travel across all layers.
-    style: callout
-    pointer_target: iceberg-rest
-
+- id: ann-bronze
+  position:
+    x: -50
+    y: 320
+  width: 260
+  title: Bronze layer
+  body: Raw data lands in MinIO as Parquet files. No transformation — just append.
+  style: step
+  step_number: 1
+  pointer_target: minio-1
+- id: ann-silver
+  position:
+    x: 620
+    y: -120
+  width: 260
+  title: Silver layer
+  body: Trino transforms Bronze → Silver. Clean, deduplicate, cast types.
+  style: step
+  step_number: 2
+  pointer_target: trino
+- id: ann-gold
+  position:
+    x: 950
+    y: 320
+  width: 260
+  title: Gold layer
+  body: Aggregate Silver → Gold for business KPIs. Dashboard-ready data.
+  style: step
+  step_number: 3
+  pointer_target: metabase
+- id: ann-iceberg
+  position:
+    x: 320
+    y: -130
+  width: 260
+  title: 'Iceberg: the table format'
+  body: Provides ACID transactions, schema evolution, and time travel across all layers.
+  style: callout
+  pointer_target: iceberg-rest
 resources:
   default_memory: 512m
   default_cpu: 0.5

@@ -1,138 +1,152 @@
-# Template metadata
 _template:
-  name: "Multi-cluster replication"
+  name: Multi-cluster replication
   tier: advanced
   category: infrastructure
-  tags: ["replication", "multi-cluster", "disaster-recovery", "nvme", "hdd", "load-balancer", "monitoring"]
-  description: "Two MinIO clusters — a high-performance NVMe primary and an HDD disaster recovery cluster — each fronted by NGINX, with async bucket replication from primary to DR. Monitored with Prometheus and Grafana."
-  objective: "Demonstrate a production-grade primary-to-DR replication architecture with separate storage tiers and independent load balancers"
-  minio_value: "MinIO's async bucket replication continuously protects production data to a cost-efficient DR cluster, enabling fast failover with minimal RPO"
+  tags:
+  - replication
+  - multi-cluster
+  - disaster-recovery
+  - nvme
+  - hdd
+  - load-balancer
+  - monitoring
+  description: Two MinIO clusters — a high-performance NVMe primary and an HDD disaster recovery cluster — each fronted by NGINX, with async bucket replication from primary to DR. Monitored with Prometheus
+    and Grafana.
+  objective: Demonstrate a production-grade primary-to-DR replication architecture with separate storage tiers and independent load balancers
+  minio_value: MinIO's async bucket replication continuously protects production data to a cost-efficient DR cluster, enabling fast failover with minimal RPO
   estimated_resources:
-    memory: "5GB"
+    memory: 5GB
     cpu: 5
     containers: 8
   external_dependencies: []
   walkthrough:
-    - step: "Deploy the demo"
-      description: "Click Deploy to start both NVMe and HDD clusters with their NGINX load balancers and monitoring stack"
-    - step: "Write data to the NVMe primary"
-      description: "Connect to the NVMe cluster's NGINX endpoint and upload objects to the production-data bucket"
-    - step: "Monitor replication progress"
-      description: "Open Grafana to see replication throughput and pending object count from primary to DR"
-    - step: "Verify DR cluster has data"
-      description: "Open the HDD cluster's MinIO console and confirm production-data objects have replicated"
-    - step: "Simulate primary failure"
-      description: "Stop both NVMe nodes to simulate a site failure and verify data is fully accessible from the HDD DR cluster"
-    - step: "Review replication metrics"
-      description: "Check Prometheus for replication lag metrics to understand your RPO in practice"
-
-# Standard demo definition
+  - step: Deploy the demo
+    description: Click Deploy to start both NVMe and HDD clusters with their NGINX load balancers and monitoring stack
+  - step: Write data to the NVMe primary
+    description: Connect to the NVMe cluster's NGINX endpoint and upload objects to the production-data bucket
+  - step: Monitor replication progress
+    description: Open Grafana to see replication throughput and pending object count from primary to DR
+  - step: Verify DR cluster has data
+    description: Open the HDD cluster's MinIO console and confirm production-data objects have replicated
+  - step: Simulate primary failure
+    description: Stop both NVMe nodes to simulate a site failure and verify data is fully accessible from the HDD DR cluster
+  - step: Review replication metrics
+    description: Check Prometheus for replication lag metrics to understand your RPO in practice
 id: template-multi-cluster-replication
-name: "Multi-cluster replication"
-description: "Two MinIO clusters (NVMe + HDD) with NGINX load balancers and bucket replication between them. Prometheus + Grafana for monitoring."
-
+name: Multi-cluster replication
+description: Two MinIO clusters (NVMe + HDD) with NGINX load balancers and bucket replication between them. Prometheus + Grafana for monitoring.
 networks:
-  - name: default
-
+- name: default
 nodes:
-  # Cluster A — NVMe (Primary)
-  - id: nginx-a
-    component: nginx
-    variant: single
-    position: { x: 100, y: 200 }
-    display_name: "LB - NVMe Cluster"
-  - id: minio-a1
-    component: minio
-    variant: single
-    position: { x: 400, y: 100 }
-    display_name: "NVMe Node 1"
-  - id: minio-a2
-    component: minio
-    variant: single
-    position: { x: 400, y: 300 }
-    display_name: "NVMe Node 2"
-
-  # Cluster B — HDD (DR)
-  - id: nginx-b
-    component: nginx
-    variant: single
-    position: { x: 100, y: 600 }
-    display_name: "LB - HDD Cluster"
-  - id: minio-b1
-    component: minio
-    variant: single
-    position: { x: 400, y: 500 }
-    display_name: "HDD Node 1"
-  - id: minio-b2
-    component: minio
-    variant: single
-    position: { x: 400, y: 700 }
-    display_name: "HDD Node 2"
-
-  # Monitoring
-  - id: prometheus
-    component: prometheus
-    variant: single
-    position: { x: 700, y: 300 }
-  - id: grafana
-    component: grafana
-    variant: single
-    position: { x: 900, y: 300 }
-
+- id: nginx-a
+  component: nginx
+  variant: single
+  position:
+    x: 100
+    y: 200
+  display_name: LB - NVMe Cluster
+- id: minio-a1
+  component: minio
+  variant: single
+  position:
+    x: 400
+    y: 100
+  display_name: NVMe Node 1
+- id: minio-a2
+  component: minio
+  variant: single
+  position:
+    x: 400
+    y: 300
+  display_name: NVMe Node 2
+- id: nginx-b
+  component: nginx
+  variant: single
+  position:
+    x: 100
+    y: 600
+  display_name: LB - HDD Cluster
+- id: minio-b1
+  component: minio
+  variant: single
+  position:
+    x: 400
+    y: 500
+  display_name: HDD Node 1
+- id: minio-b2
+  component: minio
+  variant: single
+  position:
+    x: 400
+    y: 700
+  display_name: HDD Node 2
+- id: prometheus
+  component: prometheus
+  variant: single
+  position:
+    x: 700
+    y: 300
+- id: grafana
+  component: grafana
+  variant: single
+  position:
+    x: 900
+    y: 300
 edges:
-  # Cluster A load balancing
-  - id: e-lb-a1
-    source: nginx-a
-    target: minio-a1
-    connection_type: load-balance
-    connection_config: { algorithm: round-robin, backend_port: "9000" }
-  - id: e-lb-a2
-    source: nginx-a
-    target: minio-a2
-    connection_type: load-balance
-    connection_config: { algorithm: round-robin, backend_port: "9000" }
-
-  # Cluster B load balancing
-  - id: e-lb-b1
-    source: nginx-b
-    target: minio-b1
-    connection_type: load-balance
-    connection_config: { algorithm: round-robin, backend_port: "9000" }
-  - id: e-lb-b2
-    source: nginx-b
-    target: minio-b2
-    connection_type: load-balance
-    connection_config: { algorithm: round-robin, backend_port: "9000" }
-
-  # Replication: NVMe → HDD
-  - id: e-repl-a1-b1
-    source: minio-a1
-    target: minio-b1
-    connection_type: replication
-    connection_config:
-      source_bucket: "production-data"
-      target_bucket: "production-data"
-      replication_mode: async
-      bandwidth_limit: "0"
-
-  # Metrics
-  - id: e-metrics-a1
-    source: minio-a1
-    target: prometheus
-    connection_type: metrics
-  - id: e-metrics-a2
-    source: minio-a2
-    target: prometheus
-    connection_type: metrics
-  - id: e-metrics-b1
-    source: minio-b1
-    target: prometheus
-    connection_type: metrics
-  - id: e-metrics-b2
-    source: minio-b2
-    target: prometheus
-    connection_type: metrics
-  - id: e-grafana
-    source: prometheus
-    target: grafana
-    connection_type: metrics-query
+- id: e-lb-a1
+  source: nginx-a
+  target: minio-a1
+  connection_type: load-balance
+  connection_config:
+    algorithm: round-robin
+    backend_port: '9000'
+- id: e-lb-a2
+  source: nginx-a
+  target: minio-a2
+  connection_type: load-balance
+  connection_config:
+    algorithm: round-robin
+    backend_port: '9000'
+- id: e-lb-b1
+  source: nginx-b
+  target: minio-b1
+  connection_type: load-balance
+  connection_config:
+    algorithm: round-robin
+    backend_port: '9000'
+- id: e-lb-b2
+  source: nginx-b
+  target: minio-b2
+  connection_type: load-balance
+  connection_config:
+    algorithm: round-robin
+    backend_port: '9000'
+- id: e-repl-a1-b1
+  source: minio-a1
+  target: minio-b1
+  connection_type: replication
+  connection_config:
+    source_bucket: production-data
+    target_bucket: production-data
+    replication_mode: async
+    bandwidth_limit: '0'
+- id: e-metrics-a1
+  source: minio-a1
+  target: prometheus
+  connection_type: metrics
+- id: e-metrics-a2
+  source: minio-a2
+  target: prometheus
+  connection_type: metrics
+- id: e-metrics-b1
+  source: minio-b1
+  target: prometheus
+  connection_type: metrics
+- id: e-metrics-b2
+  source: minio-b2
+  target: prometheus
+  connection_type: metrics
+- id: e-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query

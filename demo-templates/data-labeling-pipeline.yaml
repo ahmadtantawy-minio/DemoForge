@@ -1,102 +1,102 @@
 _template:
-  name: "AI data labeling pipeline"
+  name: AI data labeling pipeline
   tier: advanced
   category: ai
-  tags: ["label-studio", "labeling", "annotation", "training-data"]
-  description: "Generate data into MinIO, label it in Label Studio, export annotations back to MinIO, train on labeled data."
-  objective: "Demonstrate MinIO as the data backbone for AI data preparation"
-  minio_value: "Raw data, labeled annotations, and trained models all live in MinIO. Label Studio reads directly from and writes to MinIO buckets. No data ever leaves your infrastructure."
+  tags:
+  - label-studio
+  - labeling
+  - annotation
+  - training-data
+  description: Generate data into MinIO, label it in Label Studio, export annotations back to MinIO, train on labeled data.
+  objective: Demonstrate MinIO as the data backbone for AI data preparation
+  minio_value: Raw data, labeled annotations, and trained models all live in MinIO. Label Studio reads directly from and writes to MinIO buckets. No data ever leaves your infrastructure.
   estimated_resources:
-    memory: "3GB"
+    memory: 3GB
     cpu: 2
     containers: 4
   external_dependencies: []
   walkthrough:
-    - step: "Deploy and generate data"
-      description: "Deploy the demo. Start data generator with 'Text classification' scenario."
-    - step: "Open Label Studio"
-      description: "Open Label Studio UI. Create a project for text classification."
-    - step: "Connect MinIO as source"
-      description: "Add S3 storage source pointing to the support-tickets bucket in MinIO."
-    - step: "Label some tickets"
-      description: "Annotate 10-20 support tickets with categories. Label Studio reads from MinIO."
-    - step: "Export annotations"
-      description: "Export labeled data back to the output bucket in MinIO."
-    - step: "Verify in MinIO"
-      description: "Open MinIO Console — see raw data in source bucket, annotations in output bucket."
-
+  - step: Deploy and generate data
+    description: Deploy the demo. Start data generator with 'Text classification' scenario.
+  - step: Open Label Studio
+    description: Open Label Studio UI. Create a project for text classification.
+  - step: Connect MinIO as source
+    description: Add S3 storage source pointing to the support-tickets bucket in MinIO.
+  - step: Label some tickets
+    description: Annotate 10-20 support tickets with categories. Label Studio reads from MinIO.
+  - step: Export annotations
+    description: Export labeled data back to the output bucket in MinIO.
+  - step: Verify in MinIO
+    description: Open MinIO Console — see raw data in source bucket, annotations in output bucket.
 id: template-data-labeling-pipeline
-name: "AI Data Labeling Pipeline"
-description: "Generate → Label in Label Studio → Export to MinIO → all data stays on your infrastructure"
-
+name: AI Data Labeling Pipeline
+description: Generate → Label in Label Studio → Export to MinIO → all data stays on your infrastructure
 networks:
-  - name: default
-    subnet: 172.20.0.0/16
-    driver: bridge
-
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
 nodes:
-  - id: minio-1
-    component: minio
-    variant: single
-    position: {x: 250, y: 250}
-    display_name: "MinIO"
-
-  - id: data-gen
-    component: data-generator
-    variant: default
-    position: {x: -100, y: 250}
-    display_name: "Data Generator"
-    config:
-      DG_SCENARIO: "text-classification"
-      DG_FORMAT: "json"
-
-  - id: label-studio-1
-    component: label-studio
-    variant: default
-    position: {x: 600, y: 100}
-    display_name: "Label Studio"
-
-  - id: jupyter-1
-    component: jupyterlab
-    variant: default
-    position: {x: 600, y: 400}
-    display_name: "JupyterLab"
-
+- id: minio-1
+  component: minio
+  variant: single
+  position:
+    x: 250
+    y: 250
+  display_name: MinIO
+- id: data-gen
+  component: data-generator
+  variant: default
+  position:
+    x: -100
+    y: 250
+  display_name: Data Generator
+  config:
+    DG_SCENARIO: text-classification
+    DG_FORMAT: json
+- id: label-studio-1
+  component: label-studio
+  variant: default
+  position:
+    x: 600
+    y: 100
+  display_name: Label Studio
+- id: jupyter-1
+  component: jupyterlab
+  variant: default
+  position:
+    x: 600
+    y: 400
+  display_name: JupyterLab
 clusters: []
-
 edges:
-  - id: e-datagen-minio
-    source: data-gen
-    target: minio-1
-    connection_type: s3
-    auto_configure: true
-    label: "Support tickets"
-    connection_config:
-      bucket: "labeling-data"
-      format: "json"
-
-  - id: e-label-minio
-    source: label-studio-1
-    target: minio-1
-    connection_type: s3
-    auto_configure: true
-    label: "Read data + write labels"
-    connection_config:
-      source_bucket: "labeling-data"
-      output_bucket: "labeled-output"
-
-  - id: e-jupyter-minio
-    source: jupyter-1
-    target: minio-1
-    connection_type: s3
-    auto_configure: true
-    label: "Train on labeled data"
-
+- id: e-datagen-minio
+  source: data-gen
+  target: minio-1
+  connection_type: s3
+  auto_configure: true
+  label: Support tickets
+  connection_config:
+    bucket: labeling-data
+    format: json
+- id: e-label-minio
+  source: label-studio-1
+  target: minio-1
+  connection_type: s3
+  auto_configure: true
+  label: Read data + write labels
+  connection_config:
+    source_bucket: labeling-data
+    output_bucket: labeled-output
+- id: e-jupyter-minio
+  source: jupyter-1
+  target: minio-1
+  connection_type: s3
+  auto_configure: true
+  label: Train on labeled data
 groups: []
 sticky_notes: []
-
 resources:
-  default_memory: "512m"
+  default_memory: 512m
   default_cpu: 0.5
-  total_memory: "4g"
+  total_memory: 4g
   total_cpu: 3.0
