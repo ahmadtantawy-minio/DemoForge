@@ -55,7 +55,9 @@ terminal:
 connections:
   provides:
   - type: s3
+    port: 0
   - type: mlflow-tracking
+    port: 0
   accepts:
   - type: s3
     config_schema:

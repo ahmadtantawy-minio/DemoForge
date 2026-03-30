@@ -64,7 +64,9 @@ connections:
     port: 19530
     description: Milvus gRPC API for vector operations
   - type: s3
+    port: 19530
   - type: etcd
+    port: 19530
   accepts:
   - type: s3
     config_schema:

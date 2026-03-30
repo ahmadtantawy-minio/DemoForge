@@ -59,7 +59,9 @@ terminal:
 connections:
   provides:
   - type: s3
+    port: 8888
   - type: mlflow-tracking
+    port: 8888
   accepts:
   - type: s3
     config_schema:

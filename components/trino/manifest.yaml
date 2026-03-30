@@ -58,7 +58,9 @@ connections:
     description: Trino SQL query endpoint (JDBC/HTTP)
     config_schema: []
   - type: s3
+    port: 8080
   - type: iceberg-catalog
+    port: 8080
   accepts:
   - type: iceberg-catalog
     config_schema:

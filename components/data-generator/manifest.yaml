@@ -68,8 +68,11 @@ connections:
       type: string
       default: data-lake
   - type: s3
+    port: 0
   - type: kafka
+    port: 0
   - type: file-push
+    port: 0
   accepts:
   - type: s3
     config_schema:

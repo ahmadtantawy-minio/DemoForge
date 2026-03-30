@@ -62,7 +62,9 @@ terminal:
 connections:
   provides:
   - type: s3
+    port: 8080
   - type: metrics
+    port: 8080
   accepts:
   - type: s3
     config_schema:

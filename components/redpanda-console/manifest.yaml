@@ -35,7 +35,9 @@ terminal:
 connections:
   provides:
   - type: kafka
+    port: 8080
   - type: schema-registry
+    port: 8080
   accepts:
   - type: kafka
     config_schema:

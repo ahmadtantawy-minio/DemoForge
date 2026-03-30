@@ -64,9 +64,13 @@ terminal:
 connections:
   provides:
   - type: s3
+    port: 8501
   - type: llm-api
+    port: 8501
   - type: vector-db
+    port: 8501
   - type: vector-db-milvus
+    port: 8501
   accepts:
   - type: s3
     config_schema:
