@@ -3,9 +3,16 @@ import { Node, Edge, OnNodesChange, OnEdgesChange, applyNodeChanges, applyEdgeCh
 import { toast } from "sonner";
 import type { ComponentSummary, ConnectionsDef } from "../types";
 
+export interface DirectedOption {
+  type: string;
+  direction: "forward" | "reverse";
+  label: string;  // e.g. "MinIO → Trino" or "Trino → MinIO"
+}
+
 export interface PendingConnection {
   connection: Connection;
   validTypes: string[];
+  directedOptions?: DirectedOption[];  // when present, picker shows direction labels
   sourcePos: { x: number; y: number };
   targetPos: { x: number; y: number };
 }
@@ -28,7 +35,7 @@ interface DiagramState {
   updateNodeHealth: (nodeId: string, health: string) => void;
   setComponentManifests: (manifests: Record<string, ConnectionsDef>) => void;
   setPendingConnection: (pending: PendingConnection | null) => void;
-  completePendingConnection: (connectionType: string) => void;
+  completePendingConnection: (connectionType: string, direction?: "forward" | "reverse") => void;
 }
 
 export const useDiagramStore = create<DiagramState>((set, get) => ({
@@ -108,34 +115,66 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       return;
     }
 
-    const providesTypes = sourceConnections.provides.map((p) => p.type);
-    const acceptsTypes = targetConnections.accepts.map((a) => a.type);
-    const validTypes = providesTypes.filter((t) => acceptsTypes.includes(t));
+    const srcProvides = sourceConnections.provides.map((p) => p.type);
+    const tgtAccepts = targetConnections.accepts.map((a) => a.type);
+    const forwardTypes = srcProvides.filter((t) => tgtAccepts.includes(t));
 
-    if (validTypes.length === 0) {
+    // Also check reverse: target provides → source accepts
+    const tgtProvides = targetConnections.provides.map((p) => p.type);
+    const srcAccepts = sourceConnections.accepts.map((a) => a.type);
+    const reverseTypes = tgtProvides.filter((t) => srcAccepts.includes(t));
+
+    if (forwardTypes.length === 0 && reverseTypes.length === 0) {
       toast.warning("Invalid connection", {
-        description: `${sourceNode.data.label} does not provide any type that ${targetNode.data.label} accepts.`,
+        description: `No compatible connection types between ${sourceNode.data.label} and ${targetNode.data.label}.`,
       });
       return;
     }
 
-    if (validTypes.length === 1) {
+    // Build combined list with direction info
+    type DirectedType = { type: string; direction: "forward" | "reverse"; label: string };
+    const allOptions: DirectedType[] = [];
+
+    for (const t of forwardTypes) {
+      allOptions.push({ type: t, direction: "forward", label: `${sourceNode.data.label} → ${targetNode.data.label}` });
+    }
+    for (const t of reverseTypes) {
+      // Skip if same type already in forward (avoid duplicate with direction choice)
+      if (!forwardTypes.includes(t)) {
+        allOptions.push({ type: t, direction: "reverse", label: `${targetNode.data.label} → ${sourceNode.data.label}` });
+      } else {
+        // Both directions possible for same type — add reverse option
+        allOptions.push({ type: t, direction: "reverse", label: `${targetNode.data.label} → ${sourceNode.data.label}` });
+      }
+    }
+
+    // Single option with clear direction — apply directly
+    if (allOptions.length === 1) {
+      const opt = allOptions[0];
+      const conn = opt.direction === "forward" ? connection : {
+        ...connection,
+        source: connection.target,
+        target: connection.source,
+        sourceHandle: connection.targetHandle,
+        targetHandle: connection.sourceHandle,
+      };
       set({
         edges: addEdge(
-          { ...connection, type: "animated", data: { connectionType: validTypes[0], network: "default", label: "", status: "idle" } },
+          { ...conn, type: "animated", data: { connectionType: opt.type, network: "default", label: "", status: "idle" } },
           state.edges
         ),
       });
       return;
     }
 
-    // Multiple valid types — show picker
+    // Multiple options — show picker with direction labels
     const sourceNodePos = sourceNode.position;
     const targetNodePos = targetNode.position;
     set({
       pendingConnection: {
         connection,
-        validTypes,
+        validTypes: allOptions.map((o) => o.type),
+        directedOptions: allOptions,
         sourcePos: sourceNodePos,
         targetPos: targetNodePos,
       },
@@ -162,13 +201,30 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
   setPendingConnection: (pending) => set({ pendingConnection: pending }),
 
-  completePendingConnection: (connectionType: string) => {
+  completePendingConnection: (connectionType: string, direction?: "forward" | "reverse") => {
     const state = get();
     const pending = state.pendingConnection;
     if (!pending) return;
+
+    // Determine actual direction from directedOptions if available
+    let actualDirection = direction;
+    if (!actualDirection && pending.directedOptions) {
+      const match = pending.directedOptions.find((o) => o.type === connectionType);
+      actualDirection = match?.direction ?? "forward";
+    }
+
+    // Swap source/target if reverse direction
+    const conn = actualDirection === "reverse" ? {
+      ...pending.connection,
+      source: pending.connection.target,
+      target: pending.connection.source,
+      sourceHandle: pending.connection.targetHandle,
+      targetHandle: pending.connection.sourceHandle,
+    } : pending.connection;
+
     set({
       edges: addEdge(
-        { ...pending.connection, type: "animated", data: { connectionType, network: "default", label: "", status: "idle" } },
+        { ...conn, type: "animated", data: { connectionType, network: "default", label: "", status: "idle" } },
         state.edges
       ),
       pendingConnection: null,
