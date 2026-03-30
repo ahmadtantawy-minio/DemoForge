@@ -27,11 +27,16 @@ export function ImagesPage() {
 
   useEffect(() => { loadImages(); }, [loadImages]);
 
-  // Check if private registry is reachable
+  // Check if private registry is reachable (via backend)
+  const [registryHost, setRegistryHost] = useState("");
   useEffect(() => {
     setRegistryStatus("checking");
-    fetch("http://34.18.90.197:5000/v2/", { mode: "no-cors" })
-      .then(() => setRegistryStatus("connected"))
+    fetch(`${import.meta.env.VITE_API_URL || "http://localhost:9210"}/api/images/registry-health`)
+      .then(r => r.json())
+      .then(d => {
+        setRegistryHost(d.host || "");
+        setRegistryStatus(d.status === "connected" ? "connected" : d.status === "not_configured" ? "unreachable" : "unreachable");
+      })
       .catch(() => setRegistryStatus("unreachable"));
   }, []);
 
@@ -134,7 +139,7 @@ export function ImagesPage() {
             ) : registryStatus === "connected" ? (
               <>
                 <Cloud className="w-3.5 h-3.5 text-green-400" />
-                <span className="text-green-400 font-medium">Private Registry (34.18.90.197:5000)</span>
+                <span className="text-green-400 font-medium">Private Registry{registryHost ? ` (${registryHost})` : ""}</span>
               </>
             ) : (
               <>
@@ -193,13 +198,15 @@ export function ImagesPage() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-mono text-foreground truncate">{img.image_ref}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
-                              img.pull_source === "docker.io"
+                              img.pull_source.includes("Private Registry")
+                                ? "bg-purple-500/10 text-purple-400"
+                                : img.pull_source === "docker.io"
                                 ? "bg-blue-500/10 text-blue-400"
-                                : img.pull_source.includes("5000") || img.pull_source.includes("demoforge")
-                                ? "bg-green-500/10 text-green-400"
                                 : "bg-zinc-500/10 text-zinc-400"
                             }`}>
-                              {img.pull_source === "docker.io" ? "Docker Hub" : img.pull_source}
+                              {img.pull_source.includes("Private Registry")
+                                ? "Private Registry"
+                                : img.pull_source === "docker.io" ? "Docker Hub" : img.pull_source}
                             </span>
                           </div>
                           <div className="text-xs text-muted-foreground">{img.component_name}</div>
@@ -211,7 +218,7 @@ export function ImagesPage() {
                           {formatSize(img.effective_size_mb)}
                         </div>
                         <div className="w-20">
-                          {img.category === "vendor" && img.pullStatus !== "pulling" && (
+                          {img.pullStatus !== "pulling" && (
                             <button
                               onClick={() => handlePull(img.image_ref)}
                               className={`px-2 py-1 text-xs rounded border transition-colors ${

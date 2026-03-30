@@ -8,10 +8,20 @@ COMPONENTS_DIR="$PROJECT_ROOT/components"
 [[ -f "$PROJECT_ROOT/.env.hub" ]] && source "$PROJECT_ROOT/.env.hub"
 [[ -f "$PROJECT_ROOT/.env.local" ]] && source "$PROJECT_ROOT/.env.local"
 
-REGISTRY_HOST="${DEMOFORGE_REGISTRY_HOST:-34.18.90.197:5000}"
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+
+REGISTRY_HOST="${DEMOFORGE_REGISTRY_HOST:-localhost:5000}"
 REGISTRY_PREFIX="demoforge"
 
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+# --direct flag: bypass hub-connector and push directly to VM IP
+if [[ "${1:-}" == "--direct" ]]; then
+    shift
+    DIRECT_IP=$(grep DEMOFORGE_DIRECT_IP "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2 || echo "")
+    if [[ -n "$DIRECT_IP" ]]; then
+        REGISTRY_HOST="${DIRECT_IP}:5000"
+        echo -e "${YELLOW}[hub-push] Using direct access: ${REGISTRY_HOST}${NC}"
+    fi
+fi
 log()  { echo -e "${GREEN}[hub-push]${NC} $*"; }
 err()  { echo -e "${RED}[hub-push]${NC} $*" >&2; }
 

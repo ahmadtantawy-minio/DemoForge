@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
 from ..models.demo import DemoDefinition
 from ..models.api_models import DemoSummary
-from ..engine.template_backup import backup_original, get_override_info, remove_override
+from ..engine.template_backup import backup_original, get_override_info, remove_override, BackupError
 
 logger = logging.getLogger("demoforge.templates")
 
@@ -175,14 +175,14 @@ async def get_template(template_id: str):
 
 @router.get("/api/templates/{template_id}/guide")
 async def get_template_guide(template_id: str):
-    """Return the SE guide for a template."""
+    """Return the Field Architect guide for a template."""
     raw, source, path = _load_template_raw(template_id)
     if not raw:
         raise HTTPException(404, "Template not found")
     meta = raw.get("_template", {})
     guide = meta.get("se_guide")
     if not guide:
-        raise HTTPException(404, "No SE guide for this template")
+        raise HTTPException(404, "No guide for this template")
     return guide
 
 
@@ -389,27 +389,73 @@ class OverrideTemplateRequest(BaseModel):
 
 @router.post("/api/templates/{template_id}/override")
 async def override_template(template_id: str, req: OverrideTemplateRequest):
-    """Override an existing template with a demo's current state."""
-    # Load original template to back it up
+    """Override an existing template with a demo's current state.
+
+    Safety-first: the override is ABORTED if:
+    - The original template cannot be found or read
+    - The backup cannot be created or verified (hash mismatch, disk error)
+    - The demo source data cannot be loaded
+    This prevents any data loss scenario.
+    """
+    # 1. Load original template
     raw, source, path = _load_template_raw(template_id)
     if not raw or not path:
         raise HTTPException(404, f"Template '{template_id}' not found")
 
-    # Back up the original (if not already a user template)
+    # 2. Back up the original (mandatory for non-user templates)
     if source != "user":
-        backup_original(template_id, path, source)
+        try:
+            backup_original(template_id, path, source)
+        except BackupError as e:
+            logger.error(f"Backup failed for template '{template_id}': {e}")
+            raise HTTPException(
+                500,
+                f"Override aborted — could not safely back up the original template. "
+                f"No changes were made. Detail: {e}"
+            )
 
-    # Load the demo
+        # 3. Verify the backup is actually retrievable before we overwrite anything
+        override_info = get_override_info(template_id)
+        if not override_info:
+            raise HTTPException(
+                500,
+                f"Override aborted — backup was written but cannot be found in the manifest. "
+                f"No changes were made to the template."
+            )
+        backup_path = override_info.get("backup_path", "")
+        if not os.path.isfile(backup_path):
+            raise HTTPException(
+                500,
+                f"Override aborted — backup manifest references '{backup_path}' but the file "
+                f"does not exist. No changes were made to the template."
+            )
+    else:
+        override_info = get_override_info(template_id)
+
+    # 4. Load the demo
     demo_path = os.path.join(DEMOS_DIR, f"{req.demo_id}.yaml")
     if not os.path.isfile(demo_path):
         raise HTTPException(404, f"Demo '{req.demo_id}' not found")
 
-    with open(demo_path) as f:
-        demo_data = yaml.safe_load(f)
+    try:
+        with open(demo_path) as f:
+            demo_data = yaml.safe_load(f)
+    except Exception as e:
+        raise HTTPException(
+            500,
+            f"Override aborted — cannot read demo '{req.demo_id}': {e}. "
+            f"The original template backup is safe."
+        )
 
-    # Build template from demo, preserving original metadata
+    if not demo_data:
+        raise HTTPException(
+            500,
+            f"Override aborted — demo '{req.demo_id}' is empty or invalid. "
+            f"The original template backup is safe."
+        )
+
+    # 5. Build template from demo, preserving original metadata
     original_meta = raw.get("_template", {})
-    override_info = get_override_info(template_id)
     template_data = {
         "_template": {
             **original_meta,
@@ -423,9 +469,17 @@ async def override_template(template_id: str, req: OverrideTemplateRequest):
         "name": raw.get("name", demo_data.get("name", template_id)),
     }
 
-    # Write to user-templates (shadows the original)
-    _save_template_raw(template_id, template_data, USER_TEMPLATES_DIR)
+    # 6. Write to user-templates (shadows the original)
+    try:
+        _save_template_raw(template_id, template_data, USER_TEMPLATES_DIR)
+    except Exception as e:
+        raise HTTPException(
+            500,
+            f"Override aborted — failed to write the override file: {e}. "
+            f"The original template backup is safe."
+        )
 
+    logger.info(f"Template '{template_id}' overridden from demo '{req.demo_id}' (backup from {source})")
     return {"template_id": template_id, "overridden": True, "source": source}
 
 

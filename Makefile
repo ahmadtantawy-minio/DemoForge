@@ -35,13 +35,13 @@ help:
 
 ## Image management
 check-images:
-	@python3 check_images.py --mode se
+	@python3 check_images.py --mode fa
 
 pull-missing:
-	@python3 check_images.py --mode se --pull-missing
+	@python3 check_images.py --mode fa --pull-missing
 
 pull-all:
-	@python3 check_images.py --mode se --pull-missing
+	@python3 check_images.py --mode fa --pull-missing
 	@echo "Custom/platform images: run './demoforge.sh build' to build locally."
 
 ## Hub management
@@ -60,8 +60,25 @@ hub-push:         ## [Dev] Build all custom images and push to private registry
 hub-push-%:       ## [Dev] Build and push one image, e.g.: make hub-push-inference-sim
 	@scripts/hub-push.sh $*
 
-hub-pull:         ## [SE] Pull all custom images from private registry
+hub-pull:         ## [FA] Pull all custom images from private registry
 	@scripts/hub-pull.sh
 
 hub-trust:        ## [One-time] Configure Docker to trust the private registry
 	@scripts/hub-trust-registry.sh
+
+## Gateway
+gateway:          ## Deploy Cloud Run gateway + VPC (run after fresh GCP deploy)
+	@scripts/minio-gcp.sh --gateway
+
+gateway-test:     ## Test hub connectivity locally (simulates Field Architect)
+	@scripts/local-hub-test.sh
+
+fa-setup:         ## Field Architect first-time setup (starts hub-connector, pulls images)
+	@scripts/fa-setup.sh
+
+update-myip:      ## Update firewall with your current IP
+	@MY_IP=$$(curl -sf ifconfig.me) && \
+	gcloud compute firewall-rules update allow-myip-to-minio \
+	  --source-ranges="$${MY_IP}/32" \
+	  --project=minio-demoforge && \
+	echo "Updated to $${MY_IP}"

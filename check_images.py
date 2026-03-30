@@ -44,8 +44,8 @@ def check_cached(image_ref):
 
 def main():
     parser = argparse.ArgumentParser(description="DemoForge image pre-flight check")
-    parser.add_argument("--mode", choices=["se", "dev"], default="se",
-                        help="se = check all images; dev = skip build_context images")
+    parser.add_argument("--mode", choices=["fa", "se", "dev"], default="fa",
+                        help="fa/se = check all images; dev = skip build_context images")
     parser.add_argument("--fail-on-missing", action="store_true",
                         help="Exit with code 1 if any images are missing")
     parser.add_argument("--pull-missing", action="store_true",

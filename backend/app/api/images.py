@@ -1,9 +1,12 @@
 """Image management API — status, pull, pre-cache."""
 import asyncio
+import os
 import logging
 from uuid import uuid4
 from typing import Optional
 from fastapi import APIRouter, HTTPException
+import urllib.request
+import urllib.error
 
 from ..registry.loader import get_registry
 from ..models.api_models import ImageInfo, PullRequest, PullStatus, PullResponse
@@ -13,6 +16,34 @@ router = APIRouter(prefix="/api/images", tags=["images"])
 
 # In-memory pull tracking
 _pulls: dict[str, PullStatus] = {}
+
+REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
+# Docker pulls go through the host daemon (via socket), so use localhost
+# even though the backend container reaches the registry at host.docker.internal
+REGISTRY_PULL_HOST = os.environ.get("DEMOFORGE_REGISTRY_PULL_HOST", "localhost:5000")
+
+
+@router.get("/registry-health")
+async def registry_health():
+    """Check if the private registry is reachable (from backend container)."""
+    if not REGISTRY_HOST:
+        return {"status": "not_configured", "host": ""}
+    try:
+        url = f"http://{REGISTRY_HOST}/v2/"
+        req = urllib.request.Request(url, method="GET")
+        try:
+            resp = await asyncio.to_thread(
+                lambda: urllib.request.urlopen(req, timeout=3)
+            )
+            code = resp.status
+        except urllib.error.HTTPError as he:
+            # 401/403 means registry is reachable but needs auth — that's fine
+            code = he.code
+        if code in (200, 401, 403):
+            return {"status": "connected", "host": REGISTRY_HOST, "code": code}
+        return {"status": "unreachable", "host": REGISTRY_HOST, "code": code}
+    except Exception as e:
+        return {"status": "unreachable", "host": REGISTRY_HOST, "error": str(e)}
 
 
 def _categorise(manifest) -> str:
@@ -48,6 +79,14 @@ def _check_image_cached(image_ref: str) -> tuple[bool, Optional[float]]:
         return False, None
 
 
+# Platform images — DemoForge infrastructure, pulled from private registry
+PLATFORM_IMAGES = [
+    ("demoforge-backend", "demoforge/demoforge-backend:latest"),
+    ("demoforge-frontend", "demoforge/demoforge-frontend:latest"),
+    ("hub-connector", "gcr.io/minio-demoforge/demoforge-hub-connector:latest"),
+]
+
+
 @router.get("/status", response_model=list[ImageInfo])
 async def get_image_status():
     """Return status of all component images."""
@@ -79,6 +118,12 @@ async def get_image_status():
         else:
             status = "missing"
 
+        # Custom images come from the private registry
+        if category in ("custom", "platform") and REGISTRY_HOST:
+            pull_source = f"Private Registry ({REGISTRY_HOST})"
+        else:
+            pull_source = _pull_source(manifest.image)
+
         results.append(ImageInfo(
             component_name=name,
             image_ref=manifest.image,
@@ -87,8 +132,37 @@ async def get_image_status():
             local_size_mb=local_size,
             manifest_size_mb=manifest_size,
             effective_size_mb=effective_size,
-            pull_source=_pull_source(manifest.image),
+            pull_source=pull_source,
             status=status,
+        ))
+
+    # Add platform images (DemoForge infrastructure)
+    platform_tasks = [asyncio.to_thread(_check_image_cached, ref) for _, ref in PLATFORM_IMAGES]
+    platform_results = await asyncio.gather(*platform_tasks, return_exceptions=True)
+
+    for (pname, pref), presult in zip(PLATFORM_IMAGES, platform_results):
+        if isinstance(presult, Exception):
+            cached, local_size = False, None
+        else:
+            cached, local_size = presult
+
+        if pref.startswith("demoforge/") and REGISTRY_HOST:
+            psource = f"Private Registry ({REGISTRY_HOST})"
+        elif pref.startswith("gcr.io/"):
+            psource = "gcr.io"
+        else:
+            psource = _pull_source(pref)
+
+        results.append(ImageInfo(
+            component_name=pname,
+            image_ref=pref,
+            category="platform",
+            cached=cached,
+            local_size_mb=local_size,
+            manifest_size_mb=None,
+            effective_size_mb=local_size,
+            pull_source=psource,
+            status="cached" if cached else "missing",
         ))
 
     return results
@@ -120,11 +194,23 @@ async def _do_pull(pull_id: str, image_ref: str):
         )
 
 
+def _resolve_pull_ref(image_ref: str) -> str:
+    """Resolve the actual pull reference — custom images pull from private registry.
+    Uses REGISTRY_PULL_HOST (localhost:5000) since Docker pulls go through the host daemon."""
+    if not REGISTRY_PULL_HOST:
+        return image_ref
+    # Check if this is a custom/platform image (demoforge/ prefix)
+    if image_ref.startswith("demoforge/"):
+        return f"{REGISTRY_PULL_HOST}/{image_ref}"
+    return image_ref
+
+
 @router.post("/pull", response_model=PullResponse)
 async def pull_image(req: PullRequest):
     """Start pulling a Docker image in the background."""
     pull_id = str(uuid4())[:8]
-    asyncio.create_task(_do_pull(pull_id, req.image_ref))
+    actual_ref = _resolve_pull_ref(req.image_ref)
+    asyncio.create_task(_do_pull(pull_id, actual_ref))
     return PullResponse(pull_id=pull_id)
 
 
@@ -140,11 +226,12 @@ async def get_pull_status(pull_id: str):
 async def pull_all_missing():
     """Pull all missing images."""
     status = await get_image_status()
-    missing = [img for img in status if img.status == "missing" and img.category == "vendor"]
+    missing = [img for img in status if img.status == "missing"]
     pull_ids = []
     for img in missing:
         pull_id = str(uuid4())[:8]
-        asyncio.create_task(_do_pull(pull_id, img.image_ref))
+        actual_ref = _resolve_pull_ref(img.image_ref)
+        asyncio.create_task(_do_pull(pull_id, actual_ref))
         pull_ids.append(pull_id)
     return {"pull_ids": pull_ids}
 

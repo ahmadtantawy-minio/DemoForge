@@ -79,7 +79,7 @@ export default function Toolbar() {
     if (!activeDemoId) return;
     updateDemoStatus(activeDemoId, "deploying");
     setDeploying(true);
-    toast.info("Deployment started");
+    toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
     deployDemo(activeDemoId).catch(() => {});
   };
 
@@ -89,9 +89,9 @@ export default function Toolbar() {
       updateDemoStatus(activeDemoId, success ? "running" : "error");
     }
     if (success) {
-      toast.success("Deployment successful");
+      toast.success("Deployment completed", { description: "All containers are up and running." });
     } else {
-      toast.error("Deployment failed");
+      toast.error("Deployment failed", { description: "One or more containers failed to start." });
     }
     fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
   };

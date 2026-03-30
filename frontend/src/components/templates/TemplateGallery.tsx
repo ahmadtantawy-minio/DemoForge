@@ -533,8 +533,8 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               {/* Card body */}
               <div className="p-4 flex-1 flex flex-col gap-2">
                 {/* Category + resource hint row */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <CategoryPill category={t.category} />
                     {(t as any).mode === "experience" && (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-500/20 text-violet-300 border border-violet-500/30" data-testid="experience-badge">
@@ -542,8 +542,8 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                       </span>
                     )}
                     {t.has_se_guide && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-500/15 text-teal-400 border border-teal-500/30" data-testid="se-guide-indicator">
-                        SE Guide
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-400" data-testid="fa-guide-indicator">
+                        FA Guide
                       </span>
                     )}
                     {(t as any).source === "user" && (

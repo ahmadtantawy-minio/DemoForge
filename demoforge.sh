@@ -158,6 +158,10 @@ cmd_start() {
     check_deps
     log "Starting DemoForge..."
 
+    # Source hub/sync config if available (env vars used by docker-compose.yml)
+    [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
+    [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+
     # Kill anything that's already running
     stop_services
 

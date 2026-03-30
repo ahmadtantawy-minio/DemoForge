@@ -27,20 +27,70 @@ def compute_hash(filepath: str) -> str:
         return hashlib.sha256(f.read()).hexdigest()[:16]
 
 
-def backup_original(template_id: str, original_path: str, source: str) -> dict:
-    """Back up the original template before override. Returns backup info."""
-    os.makedirs(os.path.join(BACKUP_DIR, template_id), exist_ok=True)
+class BackupError(Exception):
+    """Raised when a template backup cannot be safely completed."""
+    pass
 
+
+def backup_original(template_id: str, original_path: str, source: str) -> dict:
+    """Back up the original template before override. Returns backup info.
+
+    Raises BackupError if the backup cannot be created or verified.
+    This is a safety-critical path — we never proceed with an override
+    unless the original is safely backed up and verified.
+    """
+    # 1. Verify the original file is readable
+    if not os.path.isfile(original_path):
+        raise BackupError(f"Original template file not found: {original_path}")
+
+    try:
+        original_hash = compute_hash(original_path)
+    except Exception as e:
+        raise BackupError(f"Cannot read original template for hashing: {e}")
+
+    # 2. Create backup directory
+    backup_dir = os.path.join(BACKUP_DIR, template_id)
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+    except OSError as e:
+        raise BackupError(f"Cannot create backup directory '{backup_dir}': {e}")
+
+    # 3. Determine version
     manifest = _load_manifest()
     existing = manifest.get(template_id, {})
     version = existing.get("version", 0) + 1
 
     backup_filename = f"v{version}.yaml"
-    backup_path = os.path.join(BACKUP_DIR, template_id, backup_filename)
+    backup_path = os.path.join(backup_dir, backup_filename)
 
-    shutil.copy2(original_path, backup_path)
-    original_hash = compute_hash(original_path)
+    # 4. Copy the original
+    try:
+        shutil.copy2(original_path, backup_path)
+    except Exception as e:
+        raise BackupError(f"Failed to copy original to backup location: {e}")
 
+    # 5. Verify the backup was written and matches the original
+    if not os.path.isfile(backup_path):
+        raise BackupError(f"Backup file was not created at '{backup_path}'")
+
+    try:
+        backup_hash = compute_hash(backup_path)
+    except Exception as e:
+        raise BackupError(f"Cannot verify backup file: {e}")
+
+    if backup_hash != original_hash:
+        # Remove the corrupt backup
+        try:
+            os.remove(backup_path)
+        except OSError:
+            pass
+        raise BackupError(
+            f"Backup verification failed — hash mismatch "
+            f"(original={original_hash}, backup={backup_hash}). "
+            f"Override aborted to prevent data loss."
+        )
+
+    # 6. Update manifest only after verified backup
     manifest[template_id] = {
         "original_hash": original_hash,
         "backup_path": backup_path,
@@ -49,7 +99,11 @@ def backup_original(template_id: str, original_path: str, source: str) -> dict:
         "overridden_at": datetime.utcnow().isoformat() + "Z",
         "version": version,
     }
-    _save_manifest(manifest)
+
+    try:
+        _save_manifest(manifest)
+    except Exception as e:
+        raise BackupError(f"Backup file saved but manifest update failed: {e}")
 
     return manifest[template_id]
 

@@ -103,7 +103,18 @@ export function SaveAsTemplateDialog({
         handleOpenChange(false);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        toast.error("Failed to override template", { description: msg });
+        const isBackupFailure = msg.includes("aborted") || msg.includes("backup");
+        toast.error(
+          isBackupFailure
+            ? "Override aborted — backup failed"
+            : "Failed to override template",
+          {
+            description: isBackupFailure
+              ? "The original template could not be safely backed up. No changes were made — your template is safe."
+              : msg,
+            duration: 15000,
+          },
+        );
       } finally {
         setSaving(false);
       }

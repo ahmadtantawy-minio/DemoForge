@@ -31,6 +31,22 @@ AISTOR_MC_URL="https://dl.min.io/aistor/mc/release/linux-amd64/mc"
 OS_IMAGE_FAMILY="ubuntu-2404-lts-amd64"
 OS_IMAGE_PROJECT="ubuntu-os-cloud"
 
+# ─── Gateway / VPC Configuration ─────────────────────────────────────
+VPC_NAME="demoforge-vpc"
+SUBNET_NAME="demoforge-subnet"
+SUBNET_RANGE="10.10.0.0/24"
+VPC_CONNECTOR_NAME="demoforge-connector"
+VPC_CONNECTOR_RANGE="10.10.1.0/28"        # /28 = 16 IPs for connector
+CLOUD_RUN_SERVICE="demoforge-gateway"
+CLOUD_RUN_REGION="${REGION}"
+GATEWAY_IMAGE="gcr.io/${PROJECT_ID}/demoforge-gateway:latest"
+FIREWALL_RULE_INTERNAL="allow-internal-to-minio"
+FIREWALL_RULE_MYIP="allow-myip-to-minio"
+CONNECTOR_IMAGE="gcr.io/${PROJECT_ID}/demoforge-hub-connector:latest"
+
+# API key for gateway auth (generated on first deploy, stored in metadata)
+GATEWAY_API_KEY=""
+
 # ─────────────────────────── Helpers ─────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -47,11 +63,12 @@ verify() {
   fi
 }
 
-# Helper: run a command on the VM via SSH
+# Helper: run a command on the VM via SSH (uses IAP tunneling when no public IP)
 run_on_vm() {
   gcloud compute ssh "${VM_NAME}" \
     --zone="${ZONE}" \
     --project="${PROJECT_ID}" \
+    --tunnel-through-iap \
     --command="$1" \
     --quiet
 }
@@ -71,11 +88,12 @@ get_vm_metadata() {
 }
 
 usage() {
-  echo "Usage: $0 [--update | --activate]"
+  echo "Usage: $0 [--update | --activate | --gateway]"
   echo ""
   echo "  (no flag)    Fresh deploy — creates project, VM, disk, firewall, runs AIStor"
   echo "  --update     Upgrade running MinIO container to AIStor image (preserves everything)"
   echo "  --activate   Register AIStor Free license on the running deployment"
+  echo "  --gateway    Deploy/update Cloud Run gateway + VPC (run AFTER fresh deploy)"
   exit 0
 }
 
@@ -84,6 +102,7 @@ MODE="deploy"
 case "${1:-}" in
   --update)   MODE="update" ;;
   --activate) MODE="activate" ;;
+  --gateway)  MODE="gateway" ;;
   --help|-h)  usage ;;
   "")         MODE="deploy" ;;
   *)          echo "Unknown flag: $1"; usage ;;
@@ -96,6 +115,526 @@ ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>/d
 gcloud config set project "${PROJECT_ID}" --quiet 2>/dev/null
 ok "Authenticated as: ${ACCOUNT} | Project: ${PROJECT_ID}"
 
+
+# ═════════════════════════════════════════════════════════════════════
+# MODE: --gateway
+# Deploy Cloud Run gateway + VPC + connector image
+# Run AFTER the base VM is deployed and healthy
+# ═════════════════════════════════════════════════════════════════════
+if [[ "$MODE" == "gateway" ]]; then
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║  DemoForge Gateway — Cloud Run + VPC Deployment         ║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+
+  # ── Step 1: Verify VM is running ──
+  step 1 "Verify VM [${VM_NAME}] is running"
+  verify "VM is RUNNING" \
+    "gcloud compute instances describe ${VM_NAME} --zone=${ZONE} --project=${PROJECT_ID} --format='value(status)' | grep -q RUNNING"
+  EXTERNAL_IP=$(get_external_ip)
+  ok "External IP: ${EXTERNAL_IP}"
+
+  # ── Step 2: Enable required APIs ──
+  step 2 "Enable Cloud Run, VPC Access, Container Registry APIs"
+  for API in run.googleapis.com vpcaccess.googleapis.com containerregistry.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com; do
+    gcloud services enable "${API}" --project="${PROJECT_ID}" 2>/dev/null || true
+  done
+  ok "APIs enabled."
+
+  # ── Step 3: Create VPC and subnet ──
+  step 3 "Create VPC [${VPC_NAME}] and subnet [${SUBNET_NAME}]"
+
+  if gcloud compute networks describe "${VPC_NAME}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+    warn "VPC ${VPC_NAME} already exists — reusing."
+  else
+    gcloud compute networks create "${VPC_NAME}" \
+      --project="${PROJECT_ID}" \
+      --subnet-mode=custom
+    ok "VPC created."
+  fi
+
+  if gcloud compute networks subnets describe "${SUBNET_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+    warn "Subnet ${SUBNET_NAME} already exists — reusing."
+  else
+    gcloud compute networks subnets create "${SUBNET_NAME}" \
+      --project="${PROJECT_ID}" \
+      --network="${VPC_NAME}" \
+      --region="${REGION}" \
+      --range="${SUBNET_RANGE}"
+    ok "Subnet created: ${SUBNET_RANGE}"
+  fi
+
+  # ── Step 4: Move VM to VPC (if still on default network) ──
+  step 4 "Ensure VM is on VPC [${VPC_NAME}]"
+
+  CURRENT_NETWORK=$(gcloud compute instances describe "${VM_NAME}" \
+    --zone="${ZONE}" --project="${PROJECT_ID}" \
+    --format='get(networkInterfaces[0].network)' 2>/dev/null | xargs basename)
+
+  if [[ "$CURRENT_NETWORK" == "${VPC_NAME}" ]]; then
+    ok "VM already on ${VPC_NAME}."
+  else
+    warn "VM is on '${CURRENT_NETWORK}' network. Moving requires stop/start."
+    echo -e "  ${YELLOW}The VM will be stopped, its network interface changed, and restarted.${NC}"
+    echo -e "  ${YELLOW}Data on the persistent disk is preserved. This takes ~60 seconds.${NC}"
+    read -rp "  Proceed? (y/N) " CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+      fail "Aborted."
+    fi
+
+    # Stop VM
+    gcloud compute instances stop "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" --quiet
+    ok "VM stopped."
+
+    # Get current disk info
+    BOOT_DISK=$(gcloud compute instances describe "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
+      --format='get(disks[0].source)' | xargs basename)
+
+    # Get metadata
+    MINIO_ROOT_USER_META=$(get_vm_metadata "minio-root-user")
+    MINIO_ROOT_PASSWORD_META=$(get_vm_metadata "minio-root-password")
+    REGISTRY_PASS_META=$(get_vm_metadata "registry-password")
+
+    # Delete VM but keep disks
+    gcloud compute instances delete "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
+      --keep-disks=all --quiet
+    ok "Old VM deleted (disks preserved)."
+
+    # Recreate VM on new VPC
+    gcloud compute instances create "${VM_NAME}" \
+      --project="${PROJECT_ID}" \
+      --zone="${ZONE}" \
+      --machine-type="${MACHINE_TYPE}" \
+      --disk="name=${BOOT_DISK},boot=yes,auto-delete=no" \
+      --disk="name=${DATA_DISK_NAME},device-name=minio-data,mode=rw,boot=no,auto-delete=no" \
+      --network="${VPC_NAME}" \
+      --subnet="${SUBNET_NAME}" \
+      --tags="${NETWORK_TAG}" \
+      --metadata="minio-root-user=${MINIO_ROOT_USER_META},minio-root-password=${MINIO_ROOT_PASSWORD_META},registry-password=${REGISTRY_PASS_META}" \
+      --scopes=default \
+      --no-address  # NO PUBLIC IP — this is the key change
+    ok "VM recreated on ${VPC_NAME} with no public IP."
+
+    # Wait for VM
+    for i in $(seq 1 30); do
+      STATUS=$(gcloud compute instances describe "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" --format='value(status)' 2>/dev/null || echo "")
+      [[ "$STATUS" == "RUNNING" ]] && break
+      sleep 2
+    done
+    ok "VM is running on private network."
+
+    # Get internal IP
+    INTERNAL_IP=$(gcloud compute instances describe "${VM_NAME}" \
+      --zone="${ZONE}" --project="${PROJECT_ID}" \
+      --format='get(networkInterfaces[0].networkIP)')
+    ok "Internal IP: ${INTERNAL_IP}"
+
+    # Restart MinIO and registry containers
+    run_on_vm "sudo docker start minio demoforge-registry 2>/dev/null || true" 2>/dev/null || true
+  fi
+
+  # Re-query IPs after potential migration
+  INTERNAL_IP=$(gcloud compute instances describe "${VM_NAME}" \
+    --zone="${ZONE}" --project="${PROJECT_ID}" \
+    --format='get(networkInterfaces[0].networkIP)')
+  ok "VM internal IP: ${INTERNAL_IP}"
+
+  EXTERNAL_IP=$(get_external_ip 2>/dev/null || echo "")
+  if [[ -z "$EXTERNAL_IP" || "$EXTERNAL_IP" == "None" ]]; then
+    EXTERNAL_IP=""
+    ok "VM has no public IP (private VPC mode — as intended)."
+  else
+    ok "VM external IP: ${EXTERNAL_IP}"
+  fi
+
+  # ── Step 5: Firewall rules for VPC ──
+  step 5 "Configure firewall rules on ${VPC_NAME}"
+
+  # Allow VPC connector → VM (Cloud Run traffic)
+  if gcloud compute firewall-rules describe "${FIREWALL_RULE_INTERNAL}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+    warn "Internal firewall rule exists — updating."
+    gcloud compute firewall-rules update "${FIREWALL_RULE_INTERNAL}" \
+      --project="${PROJECT_ID}" \
+      --source-ranges="${VPC_CONNECTOR_RANGE},${SUBNET_RANGE}" \
+      --rules=tcp:9000,tcp:9001,tcp:5000
+  else
+    gcloud compute firewall-rules create "${FIREWALL_RULE_INTERNAL}" \
+      --project="${PROJECT_ID}" \
+      --network="${VPC_NAME}" \
+      --direction=INGRESS --priority=900 \
+      --action=ALLOW --rules=tcp:9000,tcp:9001,tcp:5000 \
+      --source-ranges="${VPC_CONNECTOR_RANGE},${SUBNET_RANGE}" \
+      --target-tags="${NETWORK_TAG}" \
+      --description="Allow VPC connector and subnet to reach MinIO and Registry"
+  fi
+  ok "Internal access rule configured."
+
+  # Allow your current IP for direct SSH and service access
+  MY_IP=$(curl -sf https://ifconfig.me || curl -sf https://api.ipify.org || echo "")
+  if [[ -n "$MY_IP" ]]; then
+    if gcloud compute firewall-rules describe "${FIREWALL_RULE_MYIP}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+      gcloud compute firewall-rules update "${FIREWALL_RULE_MYIP}" \
+        --project="${PROJECT_ID}" \
+        --source-ranges="${MY_IP}/32"
+    else
+      gcloud compute firewall-rules create "${FIREWALL_RULE_MYIP}" \
+        --project="${PROJECT_ID}" \
+        --network="${VPC_NAME}" \
+        --direction=INGRESS --priority=800 \
+        --action=ALLOW --rules=tcp:22,tcp:9000,tcp:9001,tcp:5000 \
+        --source-ranges="${MY_IP}/32" \
+        --target-tags="${NETWORK_TAG}" \
+        --description="Allow dev IP direct access (SSH + services)"
+    fi
+    ok "Dev IP allow-listed: ${MY_IP}"
+  else
+    warn "Could not detect your IP. Add manually:"
+    warn "  gcloud compute firewall-rules create ${FIREWALL_RULE_MYIP} --source-ranges=<YOUR_IP>/32 ..."
+  fi
+
+  # Allow IAP for SSH (so gcloud compute ssh still works without public IP)
+  IAP_RULE="allow-iap-ssh"
+  if ! gcloud compute firewall-rules describe "${IAP_RULE}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+    gcloud compute firewall-rules create "${IAP_RULE}" \
+      --project="${PROJECT_ID}" \
+      --network="${VPC_NAME}" \
+      --direction=INGRESS --priority=850 \
+      --action=ALLOW --rules=tcp:22 \
+      --source-ranges="35.235.240.0/20" \
+      --target-tags="${NETWORK_TAG}" \
+      --description="Allow IAP TCP tunneling for SSH"
+    ok "IAP SSH rule created."
+  else
+    ok "IAP SSH rule exists."
+  fi
+
+  # Delete the old broad firewall rule if it exists (was 0.0.0.0/0)
+  if gcloud compute firewall-rules describe "${FIREWALL_RULE}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+    RULE_NETWORK=$(gcloud compute firewall-rules describe "${FIREWALL_RULE}" --project="${PROJECT_ID}" --format='get(network)' | xargs basename)
+    if [[ "$RULE_NETWORK" == "default" ]]; then
+      warn "Old firewall rule '${FIREWALL_RULE}' is on 'default' network — leaving it (VM moved)."
+    else
+      warn "Deleting old broad firewall rule '${FIREWALL_RULE}' (was open to 0.0.0.0/0)."
+      gcloud compute firewall-rules delete "${FIREWALL_RULE}" --project="${PROJECT_ID}" --quiet 2>/dev/null || true
+    fi
+  fi
+
+  # ── Step 6: Create VPC connector for Cloud Run ──
+  step 6 "Create Serverless VPC Access connector [${VPC_CONNECTOR_NAME}]"
+
+  if gcloud compute networks vpc-access connectors describe "${VPC_CONNECTOR_NAME}" \
+    --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null 2>&1; then
+    warn "VPC connector already exists — reusing."
+  else
+    gcloud compute networks vpc-access connectors create "${VPC_CONNECTOR_NAME}" \
+      --project="${PROJECT_ID}" \
+      --region="${REGION}" \
+      --network="${VPC_NAME}" \
+      --range="${VPC_CONNECTOR_RANGE}" \
+      --min-instances=2 \
+      --max-instances=3
+    ok "VPC connector created."
+  fi
+
+  # Wait for connector to be READY
+  for i in $(seq 1 30); do
+    STATE=$(gcloud compute networks vpc-access connectors describe "${VPC_CONNECTOR_NAME}" \
+      --region="${REGION}" --project="${PROJECT_ID}" --format='value(state)' 2>/dev/null || echo "")
+    [[ "$STATE" == "READY" ]] && break
+    echo "  ... connector state: ${STATE} — retrying (${i}/30)"
+    sleep 5
+  done
+  verify "VPC connector is READY" \
+    "gcloud compute networks vpc-access connectors describe ${VPC_CONNECTOR_NAME} --region=${REGION} --project=${PROJECT_ID} --format='value(state)' | grep -q READY"
+
+  # ── Step 7: Generate or read API key ──
+  step 7 "Generate gateway API key"
+
+  GATEWAY_API_KEY=$(get_vm_metadata "gateway-api-key")
+  if [[ -z "$GATEWAY_API_KEY" ]]; then
+    GATEWAY_API_KEY="dfg-$(openssl rand -hex 20)"
+    # Store in VM metadata for persistence
+    gcloud compute instances add-metadata "${VM_NAME}" \
+      --zone="${ZONE}" --project="${PROJECT_ID}" \
+      --metadata="gateway-api-key=${GATEWAY_API_KEY}"
+    ok "API key generated and stored in VM metadata."
+  else
+    ok "Using existing API key from VM metadata."
+  fi
+
+  # ── Step 8: Build and deploy Cloud Run gateway ──
+  step 8 "Build and deploy Cloud Run gateway"
+
+  # Create gateway source directory
+  GATEWAY_DIR=$(mktemp -d /tmp/demoforge-gateway-XXXXXX)
+
+  # Write Caddyfile — uses Caddy env vars for secrets, shell vars for infrastructure
+  # Routing uses X-Service header (not path rewriting) to preserve S3 signature integrity
+  cat > "${GATEWAY_DIR}/Caddyfile" <<CADDY_EOF
+{
+  auto_https off
+  admin off
+}
+
+:8080 {
+  # Health check — no auth required
+  handle /health {
+    respond "ok" 200
+  }
+
+  # API key validation — uses runtime env var (not baked into image)
+  @nokey {
+    not header X-Api-Key {env.GATEWAY_API_KEY}
+  }
+  handle @nokey {
+    respond "Unauthorized — X-Api-Key header required" 401
+  }
+
+  # S3 API → MinIO (routed by X-Service header to preserve S3 signatures)
+  @s3 {
+    header X-Service s3
+  }
+  handle @s3 {
+    request_header -X-Service
+    reverse_proxy ${INTERNAL_IP}:9000
+  }
+
+  # MinIO Console (routed by X-Service header)
+  @console {
+    header X-Service console
+  }
+  handle @console {
+    request_header -X-Service
+    reverse_proxy ${INTERNAL_IP}:9001
+  }
+
+  # Docker Registry v2 API (path-based — Docker client doesn't sign requests)
+  handle /v2/* {
+    reverse_proxy ${INTERNAL_IP}:5000
+  }
+
+  # Root health
+  handle / {
+    respond "DemoForge Hub Gateway" 200
+  }
+}
+CADDY_EOF
+
+  # Write Dockerfile for gateway
+  cat > "${GATEWAY_DIR}/Dockerfile" <<'GWDOCKERFILE'
+FROM caddy:2-alpine
+COPY Caddyfile /etc/caddy/Caddyfile
+EXPOSE 8080
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+GWDOCKERFILE
+
+  # Build with Cloud Build
+  ok "Building gateway image..."
+  gcloud builds submit "${GATEWAY_DIR}" \
+    --project="${PROJECT_ID}" \
+    --tag="${GATEWAY_IMAGE}" \
+    --quiet
+
+  ok "Gateway image built: ${GATEWAY_IMAGE}"
+
+  # Deploy to Cloud Run
+  gcloud run deploy "${CLOUD_RUN_SERVICE}" \
+    --project="${PROJECT_ID}" \
+    --region="${CLOUD_RUN_REGION}" \
+    --image="${GATEWAY_IMAGE}" \
+    --platform=managed \
+    --port=8080 \
+    --allow-unauthenticated \
+    --vpc-connector="${VPC_CONNECTOR_NAME}" \
+    --vpc-egress=private-ranges-only \
+    --min-instances=1 \
+    --max-instances=5 \
+    --memory=256Mi \
+    --cpu=1 \
+    --timeout=300 \
+    --concurrency=100 \
+    --set-env-vars="GATEWAY_TARGET=${INTERNAL_IP},GATEWAY_API_KEY=${GATEWAY_API_KEY}" \
+    --quiet
+
+  GATEWAY_URL=$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
+    --region="${CLOUD_RUN_REGION}" --project="${PROJECT_ID}" \
+    --format='value(status.url)')
+  ok "Gateway deployed: ${GATEWAY_URL}"
+
+  # Clean up temp dir
+  rm -rf "${GATEWAY_DIR}"
+
+  # ── Step 9: Verify gateway ──
+  step 9 "Verify gateway connectivity"
+
+  # Health check (no auth)
+  if curl -sf "${GATEWAY_URL}/health" &>/dev/null; then
+    ok "Gateway health check passed."
+  else
+    warn "Gateway health check failed. It may need a moment to start."
+  fi
+
+  # Auth check — should fail without key
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/s3/" 2>/dev/null)
+  if [[ "$HTTP_CODE" == "401" ]]; then
+    ok "Auth enforcement working (401 without API key)."
+  else
+    warn "Expected 401 without API key, got ${HTTP_CODE}."
+  fi
+
+  # Auth check — should pass with key
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Api-Key: ${GATEWAY_API_KEY}" "${GATEWAY_URL}/s3/minio/health/live" 2>/dev/null)
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    ok "MinIO reachable through gateway with API key."
+  else
+    warn "MinIO through gateway returned ${HTTP_CODE}. May need time for VPC connector."
+  fi
+
+  # ── Step 10: Build hub-connector image ──
+  step 10 "Build hub-connector image"
+
+  CONNECTOR_DIR=$(mktemp -d /tmp/demoforge-connector-XXXXXX)
+
+  cat > "${CONNECTOR_DIR}/Caddyfile" <<'CONNCADDY'
+{
+  auto_https off
+  admin off
+}
+
+# S3 API proxy — route via X-Service header (preserves S3 signatures)
+:9000 {
+  reverse_proxy {$HUB_URL} {
+    header_up X-Api-Key {$API_KEY}
+    header_up X-Service s3
+  }
+}
+
+# Docker Registry proxy — /v2 path-based routing on gateway
+:5000 {
+  reverse_proxy {$HUB_URL} {
+    header_up X-Api-Key {$API_KEY}
+  }
+}
+
+# MinIO Console proxy — route via X-Service header
+:9001 {
+  reverse_proxy {$HUB_URL} {
+    header_up X-Api-Key {$API_KEY}
+    header_up X-Service console
+  }
+}
+
+# Health endpoint
+:8080 {
+  handle /health {
+    rewrite * /health
+    reverse_proxy {$HUB_URL}
+  }
+  handle / {
+    respond "hub-connector running" 200
+  }
+}
+CONNCADDY
+
+  cat > "${CONNECTOR_DIR}/Dockerfile" <<'CONNDOCKERFILE'
+FROM caddy:2-alpine
+COPY Caddyfile /etc/caddy/Caddyfile
+EXPOSE 9000 5000 9001 8080
+ENV HUB_URL=https://demoforge-gateway-xxx.run.app
+ENV API_KEY=change-me
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+CONNDOCKERFILE
+
+  # Build connector image
+  gcloud builds submit "${CONNECTOR_DIR}" \
+    --project="${PROJECT_ID}" \
+    --tag="${CONNECTOR_IMAGE}" \
+    --quiet
+  ok "Hub connector image built: ${CONNECTOR_IMAGE}"
+
+  # Also push to the private registry on the VM (so Field Architects can pull it)
+  # Only works if VM still has a public IP (pre-VPC migration or dev IP whitelisted)
+  if [[ -n "$EXTERNAL_IP" && -n "$MY_IP" ]]; then
+    docker pull "${CONNECTOR_IMAGE}" 2>/dev/null || true
+    PRIVATE_TAG="${EXTERNAL_IP}:5000/demoforge/hub-connector:latest"
+    docker tag "${CONNECTOR_IMAGE}" "${PRIVATE_TAG}" 2>/dev/null || true
+    docker push "${PRIVATE_TAG}" 2>/dev/null || warn "Could not push to private registry. Push manually later."
+  elif [[ -z "$EXTERNAL_IP" ]]; then
+    warn "VM has no public IP — skipping private registry push."
+    warn "Push manually via hub-connector: make hub-push"
+  fi
+
+  rm -rf "${CONNECTOR_DIR}"
+
+  # ── Step 11: Generate .env.hub ──
+  step 11 "Generate .env.hub"
+
+  ENV_FILE="$(dirname "$0")/../.env.hub"
+  cat > "${ENV_FILE}" <<ENV_EOF
+# DemoForge Hub Configuration
+# Generated by minio-gcp.sh --gateway on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Copy to .env.local:  cp .env.hub .env.local
+
+# ── Gateway ──
+DEMOFORGE_HUB_URL=${GATEWAY_URL}
+DEMOFORGE_API_KEY=${GATEWAY_API_KEY}
+
+# ── Template Sync (via gateway) ──
+DEMOFORGE_SYNC_ENABLED=true
+DEMOFORGE_SYNC_ENDPOINT=${GATEWAY_URL}/s3
+DEMOFORGE_SYNC_BUCKET=demoforge-templates
+DEMOFORGE_SYNC_PREFIX=templates/
+DEMOFORGE_SYNC_ACCESS_KEY=demoforge-sync
+DEMOFORGE_SYNC_SECRET_KEY=
+
+# ── Registry (via hub-connector on localhost) ──
+DEMOFORGE_REGISTRY_HOST=localhost:5000
+
+# ── Direct access (dev only) ──
+DEMOFORGE_DIRECT_IP=${EXTERNAL_IP:-${INTERNAL_IP}}
+ENV_EOF
+
+  chmod 600 "${ENV_FILE}"
+  ok "Wrote ${ENV_FILE}"
+
+  # ── Summary ──
+  echo ""
+  echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║       DemoForge Gateway — DEPLOYMENT COMPLETE           ║${NC}"
+  echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
+  echo -e "${GREEN}║  Gateway URL : ${GATEWAY_URL}  ${NC}"
+  echo -e "${GREEN}║  API Key     : ${GATEWAY_API_KEY:0:12}...  ${NC}"
+  echo -e "${GREEN}║  VM internal : ${INTERNAL_IP}  ${NC}"
+  echo -e "${GREEN}║  VPC         : ${VPC_NAME} / ${SUBNET_NAME}  ${NC}"
+  echo -e "${GREEN}║  Connector   : ${VPC_CONNECTOR_NAME}  ${NC}"
+  echo -e "${GREEN}║  Min instances: 1 (warm — no cold starts)  ${NC}"
+  echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
+  echo -e "${GREEN}║  Hub connector image: ${CONNECTOR_IMAGE}  ${NC}"
+  if [[ -n "$EXTERNAL_IP" ]]; then
+    echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║  Your IP (${MY_IP}) has direct access  ${NC}"
+  else
+    echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║  VM has no public IP — access via gateway or IAP only   ║${NC}"
+    echo -e "${GREEN}║  SSH: gcloud compute ssh ${VM_NAME} --tunnel-through-iap  ${NC}"
+  fi
+  echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${YELLOW}Field Architect setup (one command):${NC}"
+  echo ""
+  echo "  docker run -d --name hub-connector --restart=always \\"
+  echo "    -p 9000:9000 -p 5000:5000 -p 9001:9001 -p 8080:8080 \\"
+  echo "    -e HUB_URL=${GATEWAY_URL} \\"
+  echo "    -e API_KEY=${GATEWAY_API_KEY} \\"
+  echo "    ${CONNECTOR_IMAGE}"
+  echo ""
+  echo -e "${YELLOW}Or use the test script:${NC}"
+  echo "  ./scripts/local-hub-test.sh"
+  echo ""
+  echo -e "${YELLOW}Update your IP if it changes:${NC}"
+  echo "  gcloud compute firewall-rules update ${FIREWALL_RULE_MYIP} --source-ranges=\$(curl -sf ifconfig.me)/32 --project=${PROJECT_ID}"
+  echo ""
+  exit 0
+fi
 
 # ═════════════════════════════════════════════════════════════════════
 # MODE: --activate
@@ -666,3 +1205,6 @@ echo "  SSH        : gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PR
 echo "  Logs       : gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT_ID} -- 'sudo docker logs minio --tail 50'"
 echo "  Stop       : gcloud compute instances stop ${VM_NAME} --zone=${ZONE} --project=${PROJECT_ID}"
 echo "  Delete all : gcloud projects delete ${PROJECT_ID}"
+echo ""
+echo -e "${YELLOW}To add Cloud Run gateway (VPC + HTTPS + auth):${NC}"
+echo "  ./$(basename "$0") --gateway"

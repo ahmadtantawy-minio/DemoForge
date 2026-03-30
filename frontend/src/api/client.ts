@@ -411,7 +411,7 @@ export const executeSql = (demoId: string, sql: string, catalog?: string, schema
     body: JSON.stringify({ sql, catalog: catalog || "iceberg", schema_name: schema_name || "default" }),
   });
 
-// SE Guide
+// Field Architect Guide
 export const fetchTemplateGuide = (templateId: string) =>
   apiFetch<any>(`/api/templates/${templateId}/guide`);
 
