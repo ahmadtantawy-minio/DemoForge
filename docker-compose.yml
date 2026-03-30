@@ -12,12 +12,22 @@ services:
       - ./demos:/app/demos                           # Saved demo definitions
       - ./data:/app/data                             # Runtime state
       - ./demo-templates:/app/demo-templates:ro      # Demo templates
+      - ./user-templates:/app/user-templates           # SE-saved templates, rw
+      - ./synced-templates:/app/synced-templates        # Remote sync target, rw
       - ./backend/app:/app/app                        # Backend source (live reload)
     environment:
       - DEMOFORGE_COMPONENTS_DIR=/app/components
       - DEMOFORGE_DEMOS_DIR=/app/demos
       - DEMOFORGE_DATA_DIR=/app/data
       - DEMOFORGE_TEMPLATES_DIR=/app/demo-templates
+      - DEMOFORGE_USER_TEMPLATES_DIR=/app/user-templates
+      - DEMOFORGE_SYNCED_TEMPLATES_DIR=/app/synced-templates
+      - DEMOFORGE_SYNC_ENABLED=${DEMOFORGE_SYNC_ENABLED:-false}
+      - DEMOFORGE_SYNC_ENDPOINT=${DEMOFORGE_SYNC_ENDPOINT:-http://34.18.90.197:9000}
+      - DEMOFORGE_SYNC_BUCKET=${DEMOFORGE_SYNC_BUCKET:-demoforge-templates}
+      - DEMOFORGE_SYNC_PREFIX=${DEMOFORGE_SYNC_PREFIX:-templates/}
+      - DEMOFORGE_SYNC_ACCESS_KEY=${DEMOFORGE_SYNC_ACCESS_KEY:-}
+      - DEMOFORGE_SYNC_SECRET_KEY=${DEMOFORGE_SYNC_SECRET_KEY:-}
       # IMPORTANT: These must resolve to the DemoForge project root, not a subdirectory.
       # The backend auto-detects the correct paths from docker.sock if these are wrong.
       - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components

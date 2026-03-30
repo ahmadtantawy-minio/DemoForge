@@ -1,0 +1,26 @@
+services:
+  registry:
+    image: registry:2
+    container_name: demoforge-registry
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./registry-config.yml:/etc/docker/registry/config.yml:ro
+    environment:
+      - REGISTRY_LOG_LEVEL=info
+    networks:
+      - hub
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5000/v2/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      com.demoforge.role: registry
+      com.demoforge.hub: "true"
+
+networks:
+  hub:
+    driver: bridge

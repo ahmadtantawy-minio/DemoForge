@@ -60,3 +60,10 @@ screenshots/
 validation-report.html
 validate_templates.py
 precache-images.sh
+
+# Template sync directories (user-specific, not committed)
+user-templates/*.yaml
+synced-templates/*.yaml
+synced-templates/.sync-manifest.json
+.env.local
+.env.hub

@@ -414,3 +414,53 @@ export const executeSql = (demoId: string, sql: string, catalog?: string, schema
 // SE Guide
 export const fetchTemplateGuide = (templateId: string) =>
   apiFetch<any>(`/api/templates/${templateId}/guide`);
+
+// Template management
+export const saveAsTemplate = (payload: {
+  demo_id: string;
+  template_name: string;
+  description?: string;
+  tier?: string;
+  category?: string;
+  tags?: string[];
+  objective?: string;
+  minio_value?: string;
+  overwrite?: boolean;
+}) =>
+  apiFetch<{ template_id: string; source: string; message: string }>(
+    "/api/templates/save-from-demo",
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+
+export const deleteTemplate = (templateId: string) =>
+  apiFetch<{ deleted: string }>(`/api/templates/${templateId}`, {
+    method: "DELETE",
+  });
+
+export const forkTemplate = (templateId: string, name?: string) =>
+  apiFetch<{ template_id: string; source: string; forked_from: string }>(
+    `/api/templates/${templateId}/fork`,
+    { method: "POST", body: JSON.stringify(name ? { name } : {}) }
+  );
+
+export const publishTemplate = (templateId: string) =>
+  apiFetch<{ status: string; template_id: string; remote_key: string }>(
+    `/api/templates/${templateId}/publish`,
+    { method: "POST" }
+  );
+
+export const triggerTemplateSync = () =>
+  apiFetch<{ status: string; downloaded: number; unchanged: number; deleted: number; errors: number }>(
+    "/api/templates/sync",
+    { method: "POST" }
+  );
+
+export const getTemplateSyncStatus = () =>
+  apiFetch<{
+    enabled: boolean;
+    endpoint: string;
+    bucket: string;
+    prefix: string;
+    synced_count: number;
+    last_sync: string | null;
+  }>("/api/templates/sync/status");

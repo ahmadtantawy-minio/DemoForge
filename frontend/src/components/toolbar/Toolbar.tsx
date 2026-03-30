@@ -20,7 +20,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, Key, FileCode, Settings, Gauge, Terminal, BookOpen } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus } from "lucide-react";
+import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
@@ -39,6 +40,7 @@ export default function Toolbar() {
   const [resourceSettings, setResourceSettings] = useState({ default_memory: "", default_cpu: 0, max_memory: "", max_cpu: 0, total_memory: "", total_cpu: 0 });
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
 
@@ -241,6 +243,21 @@ export default function Toolbar() {
                 </TooltipContent>
               )}
             </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setSaveTemplateOpen(true)}
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2 gap-1"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5" />
+                  Save as Template
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Save current demo as a reusable template</p></TooltipContent>
+            </Tooltip>
           </>
         )}
 
@@ -296,7 +313,7 @@ export default function Toolbar() {
                   size="sm"
                   className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                 >
-                  <Settings className="w-3.5 h-3.5" />
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
@@ -325,20 +342,6 @@ export default function Toolbar() {
             </Tooltip>
           </>
         )}
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              onClick={() => setLicensesOpen(true)}
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            >
-              <Key className="w-3.5 h-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent><p className="text-xs">Licenses</p></TooltipContent>
-        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -411,6 +414,20 @@ export default function Toolbar() {
           open={scriptPanelOpen}
           onOpenChange={setScriptPanelOpen}
           demoId={activeDemoId}
+        />
+      )}
+
+      {activeDemoId && (
+        <SaveAsTemplateDialog
+          open={saveTemplateOpen}
+          onOpenChange={setSaveTemplateOpen}
+          demoId={activeDemoId}
+          demoName={activeDemo?.name}
+          demoDescription={activeDemo?.description}
+          onSaved={() => {
+            toast.success("Template saved");
+            setSaveTemplateOpen(false);
+          }}
         />
       )}
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { getImageStatus, pullImage, getPullStatus, pullAllMissing, getDanglingImages, pruneDanglingImages, ImageInfo } from "../api/images";
 import { ImageStatusBadge } from "../components/images/ImageStatusBadge";
-import { RefreshCw, Download } from "lucide-react";
+import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server } from "lucide-react";
 import { toast } from "sonner";
 
 type ImageWithPull = ImageInfo & { pullStatus?: "pulling" | "complete" | "error"; pullPct?: number };
@@ -12,6 +12,7 @@ export function ImagesPage() {
   const [pullingAll, setPullingAll] = useState(false);
   const [dangling, setDangling] = useState<{ count: number; reclaimable_mb: number } | null>(null);
   const [pruning, setPruning] = useState(false);
+  const [registryStatus, setRegistryStatus] = useState<"checking" | "connected" | "unreachable">("checking");
 
   const loadImages = useCallback(async () => {
     setLoading(true);
@@ -25,6 +26,14 @@ export function ImagesPage() {
   }, []);
 
   useEffect(() => { loadImages(); }, [loadImages]);
+
+  // Check if private registry is reachable
+  useEffect(() => {
+    setRegistryStatus("checking");
+    fetch("http://34.18.90.197:5000/v2/", { mode: "no-cors" })
+      .then(() => setRegistryStatus("connected"))
+      .catch(() => setRegistryStatus("unreachable"));
+  }, []);
 
   const handlePull = async (imageRef: string) => {
     try {
@@ -112,6 +121,41 @@ export function ImagesPage() {
           </div>
         </div>
 
+        {/* Source banner */}
+        <div className="flex items-center gap-3 mb-4 px-3 py-2 rounded-lg border border-border bg-muted/30 text-xs">
+          <div className="flex items-center gap-1.5">
+            <Server className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="font-medium text-foreground">Image Sources</span>
+          </div>
+          <span className="text-border">|</span>
+          <div className="flex items-center gap-1.5">
+            {registryStatus === "checking" ? (
+              <span className="text-muted-foreground">Checking private registry...</span>
+            ) : registryStatus === "connected" ? (
+              <>
+                <Cloud className="w-3.5 h-3.5 text-green-400" />
+                <span className="text-green-400 font-medium">Private Registry (34.18.90.197:5000)</span>
+              </>
+            ) : (
+              <>
+                <CloudOff className="w-3.5 h-3.5 text-yellow-400" />
+                <span className="text-yellow-400">Private Registry unreachable</span>
+              </>
+            )}
+          </div>
+          <span className="text-border">|</span>
+          <div className="flex items-center gap-3 text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <HardDrive className="w-3 h-3" />
+              {groups.vendor.length} vendor (Docker Hub)
+            </span>
+            <span className="flex items-center gap-1">
+              <Cloud className="w-3 h-3 text-blue-400" />
+              {groups.custom.length + groups.platform.length} custom/platform
+            </span>
+          </div>
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-card border rounded-lg p-4">
@@ -146,7 +190,18 @@ export function ImagesPage() {
                     return (
                       <div key={img.component_name} data-testid="image-row" className="flex items-center gap-4 px-4 py-2.5 hover:bg-muted/50 transition-colors">
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-mono text-foreground truncate">{img.image_ref}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-mono text-foreground truncate">{img.image_ref}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                              img.pull_source === "docker.io"
+                                ? "bg-blue-500/10 text-blue-400"
+                                : img.pull_source.includes("5000") || img.pull_source.includes("demoforge")
+                                ? "bg-green-500/10 text-green-400"
+                                : "bg-zinc-500/10 text-zinc-400"
+                            }`}>
+                              {img.pull_source === "docker.io" ? "Docker Hub" : img.pull_source}
+                            </span>
+                          </div>
                           <div className="text-xs text-muted-foreground">{img.component_name}</div>
                         </div>
                         <div className="w-24 text-right">

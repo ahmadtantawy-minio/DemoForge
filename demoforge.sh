@@ -321,10 +321,18 @@ cmd_dev_be() {
     echo -e "${YELLOW}Tip: Install deps first: cd backend && pip install -r requirements.txt${NC}"
     echo ""
 
+    # Source hub/sync config if available
+    [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
+    [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+
     cd backend
     DEMOFORGE_COMPONENTS_DIR="$SCRIPT_DIR/components" \
     DEMOFORGE_DEMOS_DIR="$SCRIPT_DIR/demos" \
     DEMOFORGE_DATA_DIR="$SCRIPT_DIR/data" \
+    DEMOFORGE_TEMPLATES_DIR="$SCRIPT_DIR/demo-templates" \
+    DEMOFORGE_USER_TEMPLATES_DIR="$SCRIPT_DIR/user-templates" \
+    DEMOFORGE_SYNCED_TEMPLATES_DIR="$SCRIPT_DIR/synced-templates" \
+    DEMOFORGE_TEMPLATES_MODE="${DEMOFORGE_TEMPLATES_MODE:-all}" \
     uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload
 }
 

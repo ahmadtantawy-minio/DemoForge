@@ -42,6 +42,16 @@ async def lifespan(app: FastAPI):
     load_registry(components_dir)
     state.recover_from_docker()
     await _rejoin_recovered_networks()
+
+    # Sync templates from remote (non-blocking, best-effort)
+    from .engine.template_sync import sync_templates, SYNC_ENABLED
+    if SYNC_ENABLED:
+        try:
+            result = sync_templates()
+            logger.info(f"Template sync on startup: {result}")
+        except Exception as e:
+            logger.warning(f"Template sync failed on startup (continuing with local): {e}")
+
     monitor_task = asyncio.create_task(health_monitor_loop())
     sync_task = asyncio.create_task(docker_sync_loop())
     yield

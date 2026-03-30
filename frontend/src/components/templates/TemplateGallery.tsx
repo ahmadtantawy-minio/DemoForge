@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
@@ -74,6 +80,10 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeTier, setActiveTier] = useState<string>("essentials");
+  const [showMyTemplates, setShowMyTemplates] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ enabled: boolean; synced_count: number; last_sync: string | null } | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [sourceMeta, setSourceMeta] = useState<{ sources: Record<string, number>; mode: string; sync: any } | null>(null);
 
   // Editable fields in the detail dialog
   const [editDescription, setEditDescription] = useState("");
@@ -81,14 +91,22 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   const [editMinioValue, setEditMinioValue] = useState("");
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
+  const loadAll = () => {
     setLoading(true);
     setLoadError(false);
     fetchTemplates()
-      .then((res) => setTemplates(res.templates))
+      .then((res: any) => {
+        setTemplates(res.templates);
+        if (res.sources || res.mode || res.sync) {
+          setSourceMeta({ sources: res.sources || {}, mode: res.mode || "all", sync: res.sync || {} });
+          if (res.sync) setSyncStatus(res.sync);
+        }
+      })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadAll(); }, []);
 
   // Derive unique tiers
   const tiers = useMemo(() => {
@@ -97,10 +115,12 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
     return ["essentials", "advanced", "experience"].filter((t) => seen.has(t));
   }, [templates]);
 
-  // Filter by tier first
+  // Filter by tier first (or by source=user when showMyTemplates)
   const tierFiltered = useMemo(
-    () => templates.filter((t) => (t.tier || "essentials") === activeTier),
-    [templates, activeTier]
+    () => showMyTemplates
+      ? templates.filter((t) => (t as any).source === "user")
+      : templates.filter((t) => (t.tier || "essentials") === activeTier),
+    [templates, activeTier, showMyTemplates]
   );
 
   // Derive unique categories within selected tier
@@ -168,6 +188,37 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
       toast.success("Template updated");
     } catch (err: any) {
       toast.error("Failed to update template", { description: err.message });
+    }
+  };
+
+  const handleFork = async (templateId: string) => {
+    try {
+      const result = await forkTemplate(templateId);
+      toast.success(`Forked as "${result.template_id}"`);
+      const res = await fetchTemplates();
+      setTemplates(res.templates);
+    } catch (err: any) {
+      toast.error("Failed to fork template", { description: err.message });
+    }
+  };
+
+  const handleDelete = async (templateId: string) => {
+    if (!confirm("Delete this template? This cannot be undone.")) return;
+    try {
+      await deleteTemplate(templateId);
+      setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+      toast.success("Template deleted");
+    } catch (err: any) {
+      toast.error("Failed to delete template", { description: err.message });
+    }
+  };
+
+  const handlePublish = async (templateId: string) => {
+    try {
+      await publishTemplate(templateId);
+      toast.success("Template published to team");
+    } catch (err: any) {
+      toast.error("Failed to publish", { description: err.message });
     }
   };
 
@@ -257,10 +308,82 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   }
 
   // ── Empty filtered state ─────────────────────────────────────────────
-  const emptyFilter = filtered.length === 0 && activeCategory !== null;
+  const emptyMyTemplates = showMyTemplates && filtered.length === 0;
+  const emptyFilter = !emptyMyTemplates && filtered.length === 0 && activeCategory !== null;
 
   return (
     <>
+      {/* ── Source / Sync status banner ───────────────────────────── */}
+      {sourceMeta && (
+        <div className="flex items-center gap-3 mb-3 px-3 py-2 rounded-lg border border-border bg-muted/30 text-xs">
+          {sourceMeta.sync?.enabled ? (
+            <div className="flex items-center gap-1.5 text-green-400">
+              <Cloud className="w-3.5 h-3.5" />
+              <span className="font-medium">Connected to MinIO Hub</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <CloudOff className="w-3.5 h-3.5" />
+              <span className="font-medium">Local only</span>
+            </div>
+          )}
+          <span className="text-border">|</span>
+          <div className="flex items-center gap-3 text-muted-foreground">
+            {sourceMeta.mode === "synced" ? (
+              <span className="text-yellow-400 font-medium">Mode: MinIO-only</span>
+            ) : (
+              <span>Mode: {sourceMeta.mode}</span>
+            )}
+            {(sourceMeta.sources.synced ?? 0) > 0 && (
+              <span className="flex items-center gap-1">
+                <Cloud className="w-3 h-3 text-green-400" />
+                {sourceMeta.sources.synced} synced
+              </span>
+            )}
+            {(sourceMeta.sources.builtin ?? 0) > 0 && (
+              <span className="flex items-center gap-1">
+                <HardDrive className="w-3 h-3" />
+                {sourceMeta.sources.builtin} built-in
+              </span>
+            )}
+            {(sourceMeta.sources.user ?? 0) > 0 && (
+              <span className="flex items-center gap-1">{sourceMeta.sources.user} user</span>
+            )}
+          </div>
+          {sourceMeta.sync?.enabled && (
+            <>
+              <span className="text-border">|</span>
+              {sourceMeta.sync?.last_sync && (
+                <span className="text-muted-foreground">
+                  Last sync: {new Date(sourceMeta.sync.last_sync).toLocaleTimeString()}
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 text-[11px] px-1.5 gap-1"
+                disabled={syncing}
+                onClick={async () => {
+                  setSyncing(true);
+                  try {
+                    const result = await triggerTemplateSync();
+                    toast.success(`Synced: ${result.downloaded} new, ${result.deleted} removed`);
+                    loadAll();
+                  } catch (err: any) {
+                    toast.error("Sync failed", { description: err.message });
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+              >
+                <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
+                Sync
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Tier tabs ─────────────────────────────────────────────── */}
       {tiers.length > 1 && (
         <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Template tiers">
@@ -270,11 +393,11 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               <button
                 key={tier}
                 role="tab"
-                aria-selected={activeTier === tier}
+                aria-selected={!showMyTemplates && activeTier === tier}
                 data-testid={`tier-tab-${tier === "experience" ? "experiences" : tier}`}
-                onClick={() => { setActiveTier(tier); setActiveCategory(null); }}
+                onClick={() => { setActiveTier(tier); setActiveCategory(null); setShowMyTemplates(false); }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
-                  ${activeTier === tier
+                  ${!showMyTemplates && activeTier === tier
                     ? "bg-primary/15 text-primary border border-primary/30"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
                   }`}
@@ -283,6 +406,53 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
               </button>
             );
           })}
+          <button
+            role="tab"
+            aria-selected={showMyTemplates}
+            data-testid="tier-tab-my-templates"
+            onClick={() => { setShowMyTemplates(true); setActiveTier(""); setActiveCategory(null); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
+              ${showMyTemplates
+                ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+              }`}
+          >
+            My Templates ({templates.filter((t) => (t as any).source === "user").length})
+          </button>
+        </div>
+      )}
+
+      {/* ── Sync indicator ──────────────────────────────────────────── */}
+      {syncStatus?.enabled && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+          <span>{syncStatus.synced_count} synced templates</span>
+          {syncStatus.last_sync && (
+            <span>· {new Date(syncStatus.last_sync).toLocaleString()}</span>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs px-2 gap-1"
+            disabled={syncing}
+            onClick={async () => {
+              setSyncing(true);
+              try {
+                const result = await triggerTemplateSync();
+                toast.success(`Synced: ${result.downloaded} new, ${result.deleted} removed`);
+                const res = await fetchTemplates();
+                setTemplates(res.templates);
+                const status = await getTemplateSyncStatus();
+                setSyncStatus(status);
+              } catch (err: any) {
+                toast.error("Sync failed", { description: err.message });
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          >
+            <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
+            Sync Now
+          </Button>
         </div>
       )}
 
@@ -318,7 +488,13 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
         </div>
       )}
 
-      {emptyFilter ? (
+      {emptyMyTemplates ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+          <p className="text-sm text-muted-foreground">
+            Save a demo as template to see it here
+          </p>
+        </div>
+      ) : emptyFilter ? (
         <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
           <p className="text-sm text-muted-foreground">
             No templates in the <span className="text-foreground font-medium">{activeCategory}</span> category.
@@ -370,14 +546,63 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                         SE Guide
                       </span>
                     )}
+                    {(t as any).source === "user" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">
+                        My Template
+                      </span>
+                    )}
+                    {(t as any).source === "synced" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">
+                        Team
+                      </span>
+                    )}
                   </div>
-                  <span
-                    className="text-[10px] text-muted-foreground flex items-center gap-1"
-                    title={`${t.container_count} container${t.container_count !== 1 ? "s" : ""}`}
-                  >
-                    <Container className="w-3 h-3" aria-hidden="true" />
-                    {t.container_count}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span
+                      className="text-[10px] text-muted-foreground flex items-center gap-1"
+                      title={`${t.container_count} container${t.container_count !== 1 ? "s" : ""}`}
+                    >
+                      <Container className="w-3 h-3" aria-hidden="true" />
+                      {t.container_count}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+                        >
+                          <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCreate(t.id); }}>
+                          Create Demo
+                        </DropdownMenuItem>
+                        {(t as any).source !== "user" && (
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFork(t.id); }}>
+                            <Copy className="w-3.5 h-3.5 mr-2" />
+                            Fork as My Template
+                          </DropdownMenuItem>
+                        )}
+                        {(t as any).source === "user" && (
+                          <>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handlePublish(t.id); }}>
+                              <Upload className="w-3.5 h-3.5 mr-2" />
+                              Publish to Team
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
 
                 {/* Name — primary attention target */}

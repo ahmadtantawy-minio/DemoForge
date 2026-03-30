@@ -46,6 +46,8 @@ export interface DemoTemplate {
   walkthrough: { step: string; description: string }[];
   external_dependencies: string[];
   has_se_guide: boolean;
+  source: "builtin" | "synced" | "user";
+  editable: boolean;
 }
 
 // --- Demo Template Detail (includes demo definition fields) ---
