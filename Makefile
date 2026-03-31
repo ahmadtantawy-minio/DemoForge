@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-be dev-fe help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust
+.PHONY: start stop restart status logs build clean nuke dev-be dev-fe help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses
 
 start:
 	./demoforge.sh start
@@ -65,6 +65,9 @@ hub-pull:         ## [FA] Pull all custom images from private registry
 
 hub-trust:        ## [One-time] Configure Docker to trust the private registry
 	@scripts/hub-trust-registry.sh
+
+seed-licenses:    ## Seed license keys to MinIO bucket
+	@scripts/seed-licenses.sh
 
 ## Gateway
 gateway:          ## Deploy Cloud Run gateway + VPC (run after fresh GCP deploy)
