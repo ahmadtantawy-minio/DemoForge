@@ -90,7 +90,6 @@ export default function DemoManager() {
     const demo = demos.find((d) => d.id === demoId);
     updateDemoStatus(demoId, "deploying");
     setDeployingDemo({ id: demoId, name: demo?.name ?? demoId });
-    toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
     deployDemo(demoId).catch(() => {});
   };
 
@@ -101,11 +100,6 @@ export default function DemoManager() {
     setDeployingDemo(null);
     refreshDemos();
     refreshInventory();
-    if (success) {
-      toast.success("Deployment completed", { description: "All containers are up and running." });
-    } else {
-      toast.error("Deployment failed", { description: "One or more containers failed to start." });
-    }
   };
 
   const handleStop = async (demoId: string) => {

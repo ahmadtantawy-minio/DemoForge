@@ -108,25 +108,6 @@ export default function WelcomeScreen() {
                 Create New Demo
               </Button>
 
-              {templates.length > 0 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      From Template
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="center" className="w-56">
-                    {templates.map((t) => (
-                      <DropdownMenuItem key={t.id} onSelect={() => handleCreateFromTemplate(t.id)}>
-                        <div>
-                          <div className="font-medium">{t.name}</div>
-                          <div className="text-xs text-muted-foreground">{t.description}</div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
             </div>
           )}
         </div>

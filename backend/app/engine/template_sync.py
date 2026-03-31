@@ -289,6 +289,30 @@ def publish_template(template_id: str) -> dict:
         return {"status": "error", "message": str(e)}
 
 
+def publish_single_builtin(template_id: str) -> dict:
+    """Push a single builtin template file to the remote bucket. Dev mode only."""
+    if not SYNC_ENABLED:
+        return {"status": "skipped", "message": "Sync not enabled."}
+
+    if not SYNC_ACCESS_KEY or not SYNC_SECRET_KEY:
+        return {"status": "skipped", "message": "Sync credentials not configured."}
+
+    builtin_dir = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
+    local_path = os.path.join(builtin_dir, f"{template_id}.yaml")
+    if not os.path.exists(local_path):
+        return {"status": "error", "message": f"Builtin template file not found: {local_path}"}
+
+    remote_key = f"{SYNC_PREFIX}{template_id}.yaml"
+    try:
+        s3 = _get_s3_client()
+        s3.upload_file(local_path, SYNC_BUCKET, remote_key)
+        logger.info(f"Pushed builtin template '{template_id}' to {SYNC_BUCKET}/{remote_key}")
+        return {"status": "ok", "remote_key": remote_key}
+    except Exception as e:
+        logger.error(f"Failed to push builtin template '{template_id}': {e}")
+        return {"status": "error", "message": str(e)}
+
+
 def publish_builtin_templates() -> dict:
     """Push all builtin templates to the remote bucket. Dev mode only."""
     if not SYNC_ENABLED:

@@ -31,6 +31,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
   const [clusterMenu, setClusterMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [adminDefaultTab, setAdminDefaultTab] = useState<"overview">("overview");
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
@@ -427,16 +428,34 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                 Not deployed yet
               </div>
               <div className="border-t border-border my-1" />
-              <button
-                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                onClick={() => {
-                  const { nodes, setNodes } = useDiagramStore.getState();
-                  setNodes(nodes.filter((n) => n.id !== id));
-                  setClusterMenu(null);
-                }}
-              >
-                Delete Cluster
-              </button>
+              {!confirmDelete ? (
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  Delete Cluster
+                </button>
+              ) : (
+                <div className="px-3 py-1.5 flex items-center gap-2">
+                  <span className="text-xs text-destructive">Delete?</span>
+                  <button
+                    className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
+                    onClick={() => {
+                      const { nodes, setNodes } = useDiagramStore.getState();
+                      setNodes(nodes.filter((n) => n.id !== id));
+                      setClusterMenu(null);
+                    }}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    No
+                  </button>
+                </div>
+              )}
             </>
           )}
           <div className="border-t border-border my-1" />

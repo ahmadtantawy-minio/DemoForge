@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
@@ -17,10 +17,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive } from "lucide-react";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
+  loadKey?: number;
 }
 
 const categoryColors: Record<string, string> = {
@@ -71,7 +72,7 @@ function CategoryPill({
   );
 }
 
-export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) {
+export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalleryProps) {
   const [templates, setTemplates] = useState<DemoTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -110,6 +111,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   };
 
   useEffect(() => { loadAll(); }, []);
+  useEffect(() => { if (loadKey !== undefined && loadKey > 0) loadAll(); }, [loadKey]);
 
   // Derive unique tiers
   const tiers = useMemo(() => {
@@ -227,6 +229,32 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
     }
   };
 
+  const handleRevert = async (templateId: string) => {
+    try {
+      await revertTemplate(templateId);
+      toast.success("Template reverted to original");
+      fetchTemplates().then((res) => setTemplates(res.templates));
+    } catch (err: any) {
+      toast.error("Failed to revert", { description: err.message });
+    }
+  };
+
+  const handlePromote = async (templateId: string) => {
+    try {
+      const result = await promoteTemplate(templateId);
+      if (result.push_warning) {
+        toast.success("Promoted to source", { description: `Hub push failed: ${result.push_warning}. Run make hub-update-templates to sync manually.` });
+      } else if (result.pushed) {
+        toast.success("Promoted and pushed to hub");
+      } else {
+        toast.success("Promoted to source");
+      }
+      fetchTemplates().then((res) => setTemplates(res.templates));
+    } catch (err: any) {
+      toast.error("Failed to promote", { description: err.message });
+    }
+  };
+
   // ── Loading skeleton ──────────────────────────────────────────────────
   if (loading) {
     return (
@@ -321,6 +349,16 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
       {/* ── Source / Sync status banner ───────────────────────────── */}
       {sourceMeta && (
         <div className="flex items-center gap-3 mb-3 px-3 py-2 rounded-lg border border-border bg-muted/30 text-xs">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 text-[11px] px-1.5 gap-1 ml-auto order-last"
+            disabled={loading}
+            onClick={() => loadAll()}
+            title="Reload templates"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+          </Button>
           {sourceMeta.sync?.enabled ? (
             <div className="flex items-center gap-1.5 text-green-400">
               <Cloud className="w-3.5 h-3.5" />
@@ -629,6 +667,24 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                             >
                               <Trash2 className="w-3.5 h-3.5 mr-2" />
                               Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {t.customized && faMode === "dev" && (
+                          <>
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); handlePromote(t.id); }}
+                              className="text-green-500 focus:text-green-500"
+                            >
+                              <Upload className="w-3.5 h-3.5 mr-2" />
+                              Promote to Source
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); handleRevert(t.id); }}
+                              className="text-amber-500 focus:text-amber-500"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 mr-2" />
+                              Revert to Original
                             </DropdownMenuItem>
                           </>
                         )}

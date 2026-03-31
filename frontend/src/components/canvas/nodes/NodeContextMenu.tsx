@@ -27,7 +27,6 @@ interface Props {
 export default function NodeContextMenu({
   x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onClose,
 }: Props) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const clampedX = Math.min(x, window.innerWidth - 200);
   const clampedY = Math.min(y, window.innerHeight - 300);
@@ -179,30 +178,12 @@ export default function NodeContextMenu({
       )}
       {!isRunning && (
         <div className="border-t border-border mt-1 pt-1">
-          {!confirmDelete ? (
-            <button
-              className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-              onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-            >
-              Delete Component
-            </button>
-          ) : (
-            <div className="px-3 py-1.5 flex items-center gap-2">
-              <span className="text-xs text-destructive">Delete?</span>
-              <button
-                className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
-                onClick={() => { onDeleteNode(nodeId); onClose(); }}
-              >
-                Yes
-              </button>
-              <button
-                className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
-                onClick={() => setConfirmDelete(false)}
-              >
-                No
-              </button>
-            </div>
-          )}
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+            onClick={(e) => { e.stopPropagation(); onDeleteNode(nodeId); onClose(); }}
+          >
+            Delete Component
+          </button>
         </div>
       )}
     </div>

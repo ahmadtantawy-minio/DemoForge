@@ -61,6 +61,21 @@ The hub-connector runs as a local Docker container that proxies `localhost:9000/
 
 ---
 
+## Two Entry Points
+
+DemoForge has two distinct operating modes, each with its own entry point:
+
+| | Field Architect Mode | Dev Mode |
+|---|---|---|
+| Entry point | `./demoforge.sh` | `./demoforge-dev.sh` |
+| Make targets | `make start/stop/restart` | `make dev-start/dev-stop/dev-restart` |
+| FA identity required | Yes | No |
+| Push to Hub button | Hidden | Visible |
+| Hub update commands | Not available | Available |
+| DEV badge in sidebar | No | Yes |
+
+---
+
 ## Field Architect Mode
 
 ### Prerequisites
@@ -91,8 +106,9 @@ open http://localhost:3000
 1. Verifies Docker is running
 2. Starts the **hub-connector** container (auto-restarts on reboot)
 3. Verifies Hub gateway connectivity
-4. Writes `.env.local` with sync credentials
-5. Pulls all custom component images from the private registry
+4. Detects your FA identity (git email → GitHub CLI → prompt)
+5. Writes `.env.local` with sync credentials and FA identity
+6. Pulls all custom component images from the private registry
 
 After setup, DemoForge automatically syncs templates from the Hub on every start.
 
@@ -147,38 +163,51 @@ Everything from Field Architect mode, plus:
 git clone <repo-url> && cd DemoForge
 npm install                           # Frontend deps (for Playwright tests)
 
-# 2. Start with Docker Compose (full stack)
-make start
-
-# 3. Or run frontend/backend separately for hot-reload
-make dev-fe         # Vite dev server on :3000
-make dev-be         # FastAPI with live reload on :9210
-```
-
-### Dev Environment Variables
-
-Create `.env.local` in the project root for Hub connectivity:
-
-```bash
+# 2. Configure Hub connectivity in .env.local
+cat > .env.local <<EOF
+DEMOFORGE_FA_ID=you@min.io
 DEMOFORGE_SYNC_ENABLED=true
-DEMOFORGE_SYNC_ENDPOINT=http://localhost:9000
+DEMOFORGE_SYNC_ENDPOINT=http://<vm-direct-ip>:9000
 DEMOFORGE_SYNC_BUCKET=demoforge-templates
 DEMOFORGE_SYNC_PREFIX=templates/
 DEMOFORGE_SYNC_ACCESS_KEY=demoforge-sync
 DEMOFORGE_SYNC_SECRET_KEY=<from-hub-setup>
-DEMOFORGE_REGISTRY_HOST=localhost:5000
+DEMOFORGE_REGISTRY_HOST=host.docker.internal:5000
+EOF
+
+# 3. Start in dev mode (DEMOFORGE_MODE=dev injected automatically)
+make dev-start
+
+# 4. Or run frontend/backend separately for hot-reload
+make dev-fe         # Vite dev server on :3000
+make dev-be         # FastAPI with live reload on :9210
 ```
 
-Or run `make se-setup` to generate this automatically.
+> **Note:** `DEMOFORGE_MODE=dev` is automatically set by `demoforge-dev.sh` — do not add it to `.env.local`. FA mode (`demoforge.sh`) always runs as standard mode regardless of `.env.local`.
+
+### Dev Mode Features
+
+- **DEV badge** shown in the left sidebar
+- **Push to Hub** button in the Templates gallery — pushes all built-in templates to MinIO
+- **`/api/templates/push-all-builtin`** endpoint enabled
+- FA identity check **skipped** at startup (uses `DEMOFORGE_FA_ID` from `.env.local` if set, falls back to git email)
+- Template **Override & Revert** with SHA-256 backup verification
 
 ### Hub Management (Dev Only)
 
 ```bash
+make hub-update               # Update everything: gateway + templates + images + licenses
+make hub-update-gateway       # Rebuild and deploy Cloud Run gateway only
+make hub-update-templates     # Seed built-in templates to MinIO hub only
+make hub-update-images        # Build and push custom images to registry only
+make hub-update-licenses      # Seed license keys to MinIO bucket only
+
 make hub-setup      # First-time: create bucket, IAM, registry, seed templates
 make hub-seed       # Re-seed templates to Hub after local changes
 make hub-status     # Show sync status, registry health, template counts
 make hub-push       # Build all custom images and push to Hub registry
 make hub-push-<name>  # Build and push one image (e.g., make hub-push-inference-sim)
+make seed-licenses  # Seed license keys from data/licenses.yaml to MinIO
 ```
 
 ### GCP Gateway Management
@@ -238,6 +267,8 @@ npx playwright test                          # Browser-based validation
 
 ```
 DemoForge/
+├── demoforge.sh               # FA mode entry point
+├── demoforge-dev.sh           # Dev mode entry point (sets DEMOFORGE_MODE=dev)
 ├── frontend/src/
 │   ├── App.tsx                    # Main app, page routing, polling
 │   ├── api/client.ts              # API client (apiFetch, all endpoints)
@@ -259,9 +290,12 @@ DemoForge/
 ├── demo-templates/*.yaml          # Built-in templates
 ├── scripts/
 │   ├── minio-gcp.sh              # GCP VM + gateway management
+│   ├── hub-update.sh             # Unified hub update (gateway/templates/images/licenses)
 │   ├── hub-setup.sh              # Hub first-time setup
 │   ├── hub-push.sh               # Push images to registry
 │   ├── hub-pull.sh               # Pull images from registry
+│   ├── hub-seed.sh               # Seed templates to MinIO
+│   ├── seed-licenses.sh          # Seed licenses to MinIO
 │   ├── local-hub-test.sh         # Gateway integration test
 │   └── fa-setup.sh               # Field Architect onboarding script
 └── docker-compose.yml             # DemoForge itself (backend + frontend)
@@ -282,27 +316,45 @@ DemoForge/
 
 ## Makefile Reference
 
+### Field Architect Commands
+
 | Command | Description |
 |---------|-------------|
-| `make start` | Build and start DemoForge |
+| `make start` | Build and start DemoForge (FA mode) |
 | `make stop` | Stop DemoForge |
-| `make restart` | Restart DemoForge |
+| `make restart` | Restart DemoForge (FA mode) |
 | `make status` | Show running services |
 | `make logs` | Tail service logs |
 | `make build` | Build images without starting |
 | `make clean` | Stop everything, remove volumes |
 | `make nuke` | Full clean + remove built images |
-| `make dev-fe` | Frontend dev server (hot-reload) |
-| `make dev-be` | Backend dev server (hot-reload) |
+| `make fa-setup` | Field Architect first-time setup |
 | `make check-images` | Show cached vs missing images |
 | `make pull-missing` | Pull all missing vendor images |
+| `make hub-pull` | Pull custom images from Hub |
+| `make hub-trust` | Trust the private registry |
+
+### Dev Commands
+
+| Command | Description |
+|---------|-------------|
+| `make dev-start` | Build and start DemoForge (dev mode) |
+| `make dev-stop` | Stop DemoForge |
+| `make dev-restart` | Restart DemoForge (dev mode) |
+| `make dev-status` | Show running services |
+| `make dev-logs` | Tail service logs |
+| `make dev-fe` | Frontend dev server (hot-reload) |
+| `make dev-be` | Backend dev server (hot-reload) |
+| `make hub-update` | Update everything on hub |
+| `make hub-update-gateway` | Rebuild/deploy Cloud Run gateway |
+| `make hub-update-templates` | Seed templates to MinIO |
+| `make hub-update-images` | Push custom images to registry |
+| `make hub-update-licenses` | Seed licenses to MinIO |
 | `make hub-setup` | First-time Hub setup |
 | `make hub-seed` | Re-seed templates to Hub |
 | `make hub-status` | Hub health and sync status |
 | `make hub-push` | Build and push all custom images |
-| `make hub-pull` | Pull custom images from Hub |
-| `make hub-trust` | Trust the private registry |
+| `make seed-licenses` | Seed licenses from data/licenses.yaml |
 | `make gateway` | Deploy Cloud Run gateway |
 | `make gateway-test` | Test gateway connectivity |
-| `make fa-setup` | Field Architect first-time setup |
 | `make update-myip` | Update firewall with current IP |

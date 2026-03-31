@@ -9,9 +9,14 @@ _template:
   - high-availability
   - resilience
   - nginx
-  description: Two MinIO sites with bidirectional replication and an active-passive failover gateway. Stop a site to see traffic automatically switch to the backup — data stays accessible with zero downtime.
-  objective: Demonstrate MinIO site replication with automatic failover — proving data availability even during site outages
-  minio_value: MinIO's site replication ensures data consistency across sites. Combined with an NGINX failover proxy, applications get transparent high availability with automatic switchover and recovery.
+  description: Two MinIO sites with bidirectional replication and an active-passive
+    failover gateway. Stop a site to see traffic automatically switch to the backup
+    — data stays accessible with zero downtime.
+  objective: Demonstrate MinIO site replication with automatic failover — proving
+    data availability even during site outages
+  minio_value: MinIO's site replication ensures data consistency across sites. Combined
+    with an NGINX failover proxy, applications get transparent high availability with
+    automatic switchover and recovery.
   estimated_resources:
     memory: 4GB
     cpu: 4
@@ -19,224 +24,331 @@ _template:
   external_dependencies: []
   walkthrough:
   - step: Deploy the demo
-    description: Click Deploy to start both MinIO sites, failover gateway, and monitoring. Wait for green health indicators.
+    description: Click Deploy to start both MinIO sites, failover gateway, and monitoring.
+      Wait for green health indicators.
   - step: Watch data flow
-    description: The resilience tester automatically writes and reads objects through the failover gateway. Check the terminal logs — you'll see [OK] status with Site A upstream.
+    description: The resilience tester automatically writes and reads objects through
+      the failover gateway. Check the terminal logs — you'll see [OK] status with
+      Site A upstream.
   - step: Activate site replication
-    description: Right-click the site replication edge → Activate. Both sites now sync bidirectionally.
+    description: Right-click the site replication edge → Activate. Both sites now
+      sync bidirectionally.
   - step: Verify both sites
-    description: Open MinIO Console for both sites. Same buckets and objects appear on both.
+    description: Open MinIO Console for both sites. Same buckets and objects appear
+      on both.
   - step: Simulate Site A failure
-    description: 'Right-click Site A cluster → Stop both nodes. Watch the resilience tester switch: [OK] Upstream switches to Site B within seconds.'
+    description: 'Right-click Site A cluster → Stop both nodes. Watch the resilience
+      tester switch: [OK] Upstream switches to Site B within seconds.'
   - step: Verify zero downtime
-    description: The tester keeps writing — no gap in sequence numbers. Data is still fully accessible via Site B.
+    description: The tester keeps writing — no gap in sequence numbers. Data is still
+      fully accessible via Site B.
   - step: Restore Site A
-    description: Right-click Site A → Start nodes. Within 10 seconds, the tester switches back to Site A.
+    description: Right-click Site A → Start nodes. Within 10 seconds, the tester switches
+      back to Site A.
   - step: Verify re-sync
-    description: Open Site A console — all objects written during the outage are replicated back from Site B.
+    description: Open Site A console — all objects written during the outage are replicated
+      back from Site B.
   se_guide:
-    pitch: 'The DR story in real time: Site A goes down, the failover gateway switches to Site B in seconds, writes continue uninterrupted, and when Site A comes back it resyncs automatically. Zero data
-      loss, zero downtime.'
-    audience: Enterprise architects, DR planners, and CTOs who need to demonstrate RTO/RPO guarantees to regulators, auditors, or boards.
+    pitch: 'The DR story in real time: Site A goes down, the failover gateway switches
+      to Site B in seconds, writes continue uninterrupted, and when Site A comes back
+      it resyncs automatically. Zero data loss, zero downtime.'
+    audience: Enterprise architects, DR planners, and CTOs who need to demonstrate
+      RTO/RPO guarantees to regulators, auditors, or boards.
     talking_points:
-    - The resilience tester writes sequenced objects continuously and reports which site it's talking to — you can literally watch the failover happen with no gap in sequence numbers.
-    - The NGINX failover gateway does active health checks every second — the moment Site A stops responding, it promotes Site B and the application endpoint never changes.
-    - Site replication means Site B isn't a cold standby — it's been accepting and syncing all writes since deploy. When failover happens, all data is already there.
-    - 'Recovery is equally automatic: when Site A comes back online, the failover gateway detects it, switches back, and MinIO site replication catches Site A up on everything written during the outage.'
-    - This demo is fully scripted and deterministic — you can run the failover in front of a customer, hit stop on Site A, and the sequence numbers will prove zero data loss every time.
+    - The resilience tester writes sequenced objects continuously and reports which
+      site it's talking to — you can literally watch the failover happen with no gap
+      in sequence numbers.
+    - The NGINX failover gateway does active health checks every second — the moment
+      Site A stops responding, it promotes Site B and the application endpoint never
+      changes.
+    - Site replication means Site B isn't a cold standby — it's been accepting and
+      syncing all writes since deploy. When failover happens, all data is already
+      there.
+    - 'Recovery is equally automatic: when Site A comes back online, the failover
+      gateway detects it, switches back, and MinIO site replication catches Site A
+      up on everything written during the outage.'
+    - This demo is fully scripted and deterministic — you can run the failover in
+      front of a customer, hit stop on Site A, and the sequence numbers will prove
+      zero data loss every time.
     demo_flow:
     - step: 1
-      action: Click Deploy and wait for all nodes to go green. Check the Resilience Tester terminal — it should show [OK] with Site A as upstream.
-      say: The resilience tester is writing and reading sequenced objects through the failover gateway. Green means no gaps — every write is confirmed.
+      action: Click Deploy and wait for all nodes to go green. Check the Resilience
+        Tester terminal — it should show [OK] with Site A as upstream.
+      say: The resilience tester is writing and reading sequenced objects through
+        the failover gateway. Green means no gaps — every write is confirmed.
     - step: 2
-      action: Right-click the site replication edge → Activate. Wait for both consoles to show the same buckets.
-      say: Site replication is now active — both sites are syncing bidirectionally. Any write on either site appears on the other.
+      action: Right-click the site replication edge → Activate. Wait for both consoles
+        to show the same buckets.
+      say: Site replication is now active — both sites are syncing bidirectionally.
+        Any write on either site appears on the other.
     - step: 3
-      action: Open MinIO Console for both sites side by side. Show the same objects on both.
-      say: Site A and Site B are identical. This is our baseline — both sites are healthy, data is in sync.
+      action: Open MinIO Console for both sites side by side. Show the same objects
+        on both.
+      say: Site A and Site B are identical. This is our baseline — both sites are
+        healthy, data is in sync.
     - step: 4
-      action: Right-click Site A cluster → Stop both nodes. Watch the Resilience Tester terminal.
-      say: Site A is down. Watch the tester — it switches upstream to Site B within seconds. No sequence gap, no failed writes.
+      action: Right-click Site A cluster → Stop both nodes. Watch the Resilience Tester
+        terminal.
+      say: Site A is down. Watch the tester — it switches upstream to Site B within
+        seconds. No sequence gap, no failed writes.
     - step: 5
-      action: Right-click Site A → Start both nodes. Watch the tester switch back after ~10 seconds.
-      say: Site A is back. The gateway promotes it back to primary. MinIO site replication immediately starts syncing everything written during the outage back to Site A.
+      action: Right-click Site A → Start both nodes. Watch the tester switch back
+        after ~10 seconds.
+      say: Site A is back. The gateway promotes it back to primary. MinIO site replication
+        immediately starts syncing everything written during the outage back to Site
+        A.
     common_questions:
     - q: How long does the failover actually take — what's the RTO?
-      a: In this demo, the NGINX health check interval is 1 second with a 2-failure threshold — so RTO is 2-3 seconds. In production you tune that interval based on your SLA requirements.
+      a: In this demo, the NGINX health check interval is 1 second with a 2-failure
+        threshold — so RTO is 2-3 seconds. In production you tune that interval based
+        on your SLA requirements.
     - q: What's the RPO — can we lose data during the failover window?
-      a: With site replication active, RPO is effectively zero for objects that completed their write before Site A failed. Asynchronous replication means objects in-flight at the moment of failure could
-        theoretically be lost, but the replication queue is typically sub-second.
+      a: With site replication active, RPO is effectively zero for objects that completed
+        their write before Site A failed. Asynchronous replication means objects in-flight
+        at the moment of failure could theoretically be lost, but the replication
+        queue is typically sub-second.
     - q: Does the application need to change its endpoint when failover happens?
-      a: No — that's the entire point of the failover gateway. The application always connects to the same NGINX endpoint. Failover is completely transparent to the application.
+      a: No — that's the entire point of the failover gateway. The application always
+        connects to the same NGINX endpoint. Failover is completely transparent to
+        the application.
     - q: Can this pattern extend to three or more sites?
-      a: Yes — MinIO site replication supports up to 16 peers. You'd configure the NGINX gateway with additional backup upstreams. The replication mesh handles keeping all sites in sync.
+      a: Yes — MinIO site replication supports up to 16 peers. You'd configure the
+        NGINX gateway with additional backup upstreams. The replication mesh handles
+        keeping all sites in sync.
     - q: What's the difference between this and the basic site replication demo?
-      a: The basic demo shows replication and data consistency. This demo adds the failover gateway and resilience tester to prove RTO/RPO in a live DR scenario — it's the customer-facing version of the
-        DR story.
+      a: The basic demo shows replication and data consistency. This demo adds the
+        failover gateway and resilience tester to prove RTO/RPO in a live DR scenario
+        — it's the customer-facing version of the DR story.
     mc_commands:
     - label: Check site replication health
       command: mc admin replicate info minio-site-a/
-      context: Shows both peer sites, replication lag, and any errors — run this before and after simulating the failure.
+      context: Shows both peer sites, replication lag, and any errors — run this before
+        and after simulating the failure.
     - label: Watch replication queue drain
       command: mc admin replicate status minio-site-a/
-      context: After Site A restarts, watch the pending queue count drop to zero as it catches up.
+      context: After Site A restarts, watch the pending queue count drop to zero as
+        it catches up.
     - label: List objects written during outage
       command: mc ls minio-site-b/failover-test --recursive | tail -20
-      context: Shows the most recently written objects — all written to Site B during the outage window.
+      context: Shows the most recently written objects — all written to Site B during
+        the outage window.
     - label: Verify Site A caught up
       command: mc diff minio-site-a/failover-test minio-site-b/failover-test
-      context: Confirms both sites have identical objects after resync completes — the definitive proof of zero data loss.
+      context: Confirms both sites have identical objects after resync completes —
+        the definitive proof of zero data loss.
 id: template-site-replication-failover
 name: Site Replication with Failover
-description: Active-passive failover across two MinIO sites with automatic switchover and recovery
+description: Active-passive failover across two MinIO sites with automatic switchover
+  and recovery
+mode: standard
 networks:
 - name: default
   subnet: 172.20.0.0/16
+  dns_suffix: demo.local
   driver: bridge
 nodes:
 - id: failover-gw
   component: nginx
   variant: failover-proxy
   position:
-    x: 400
-    y: -50
-  display_name: Failover Gateway
+    x: 230.14157983198044
+    y: -1.2580185604813465
   config: {}
+  networks: {}
+  display_name: Failover Gateway
+  labels: {}
+  group_id: null
 - id: resilience-tester
   component: resilience-tester
   variant: default
   position:
-    x: 100
-    y: -50
-  display_name: Resilience Tester
+    x: -81.67465809275137
+    y: -63.29326766532327
   config:
     S3_ACCESS_KEY: minioadmin
     S3_SECRET_KEY: minioadmin
+  networks: {}
+  display_name: Resilience Tester
+  labels: {}
+  group_id: null
 - id: file-gen
   component: file-generator
   variant: steady
   position:
-    x: 100
-    y: 150
-  display_name: Data Generator
+    x: -102.35307446103202
+    y: 90.91881037634103
   config: {}
+  networks: {}
+  display_name: Data Generator
+  labels: {}
+  group_id: null
 - id: prometheus
   component: prometheus
   variant: default
   position:
-    x: 700
-    y: 300
-  display_name: Prometheus
+    x: 1135.7237734744851
+    y: 44.47385487767493
   config: {}
+  networks: {}
+  display_name: Prometheus
+  labels: {}
+  group_id: null
 - id: grafana
   component: grafana
   variant: default
   position:
-    x: 950
-    y: 300
+    x: 1475.6379589329906
+    y: 63.67524150536407
+  config: {}
+  networks: {}
   display_name: Grafana
-  config: {}
-clusters:
-- id: minio-site-a
-  component: minio
-  label: MinIO Site A (Primary)
-  position:
-    x: 250
-    y: 200
-  node_count: 2
-  drives_per_node: 1
-  credentials:
-    root_user: minioadmin
-    root_password: minioadmin
-  config: {}
-  width: 280.0
-  height: 200.0
-  mcp_enabled: false
-- id: minio-site-b
-  component: minio
-  label: MinIO Site B (Backup)
-  position:
-    x: 700
-    y: 200
-  node_count: 2
-  drives_per_node: 1
-  credentials:
-    root_user: minioadmin
-    root_password: minioadmin
-  config: {}
-  width: 280.0
-  height: 200.0
-  mcp_enabled: false
+  labels: {}
+  group_id: null
 edges:
-- id: e-failover-site-a
-  source: failover-gw
-  target: minio-site-a
-  connection_type: failover
-  network: default
-  auto_configure: true
-  label: Primary
-  connection_config:
-    role: primary
-  source_handle: bottom-out
-  target_handle: data-in-top
 - id: e-failover-site-b
   source: failover-gw
   target: minio-site-b
   connection_type: failover
   network: default
-  auto_configure: true
-  label: Backup
   connection_config:
     role: backup
+  auto_configure: true
+  label: Backup
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
   target_handle: data-in
 - id: e-tester-failover
   source: resilience-tester
   target: failover-gw
   connection_type: s3
   network: default
+  connection_config: {}
   auto_configure: true
   label: Probe
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: null
 - id: e-filegen-failover
   source: file-gen
   target: failover-gw
   connection_type: file-push
   network: default
+  connection_config:
+    file_count: '10'
+    file_size: 100KB
   auto_configure: true
   label: ''
-- id: e-site-replication
-  source: minio-site-a
-  target: minio-site-b
-  connection_type: cluster-site-replication
-  network: default
-  auto_configure: true
-  label: Site Replication
-  source_handle: cluster-out-bottom
-  target_handle: cluster-in-top
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: null
 - id: e-site-a-metrics
   source: minio-site-a
   target: prometheus
   connection_type: metrics
   network: default
+  connection_config: {}
   auto_configure: true
+  label: Metrics
+  protocol: ''
+  latency: ''
+  bandwidth: ''
   source_handle: data-out
-  label: Metrics
-- id: e-site-b-metrics
-  source: minio-site-b
-  target: prometheus
-  connection_type: metrics
-  network: default
-  auto_configure: true
-  source_handle: cluster-out-bottom
-  label: Metrics
+  target_handle: null
 - id: e-prom-grafana
   source: prometheus
   target: grafana
   connection_type: metrics-query
   network: default
+  connection_config: {}
   auto_configure: true
   label: PromQL
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: null
+- id: xy-edge__minio-site-bdata-out-prometheus
+  source: minio-site-b
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: data-out
+  target_handle: null
+- id: e-minio-site-a-minio-site-b-cluster-site-replication-1774944058159
+  source: minio-site-a
+  target: minio-site-b
+  connection_type: cluster-site-replication
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: cluster-out-bottom
+  target_handle: cluster-in-top
+- id: e-failover-gw-minio-site-a-failover-1774944069005
+  source: failover-gw
+  target: minio-site-a
+  connection_type: failover
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: Primary
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: data-in
 groups: []
 sticky_notes: []
+annotations: []
+schematics: []
+clusters:
+- id: minio-site-a
+  component: minio
+  label: MinIO Site A (Primary)
+  position:
+    x: 688.677832955668
+    y: -151.53307826077096
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+  aistor_tables_enabled: false
+- id: minio-site-b
+  component: minio
+  label: MinIO Site B (Backup)
+  position:
+    x: 664.5512862258046
+    y: 179.50621234929326
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+  aistor_tables_enabled: false
 resources:
   default_memory: 256m
   default_cpu: 0.25
@@ -244,3 +356,4 @@ resources:
   max_cpu: 1.0
   total_memory: 6g
   total_cpu: 6.0
+deploy_timeout_seconds: null

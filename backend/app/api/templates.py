@@ -513,6 +513,67 @@ async def revert_template(template_id: str):
     return {"reverted": template_id}
 
 
+@router.post("/api/templates/{template_id}/promote")
+async def promote_template(template_id: str):
+    """Promote an override back to the source demo-templates/ file. Dev mode only.
+
+    Writes the user-templates override back to demo-templates/<id>.yaml, making it
+    the new default. The override shadow is then removed. After promoting, commit
+    the changed YAML and run `make hub-update-templates` to push to MinIO.
+    """
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    if mode != "dev":
+        raise HTTPException(403, "Promote is only available in dev mode.")
+
+    user_path = os.path.join(USER_TEMPLATES_DIR, f"{template_id}.yaml")
+    if not os.path.isfile(user_path):
+        raise HTTPException(404, f"No override found for template '{template_id}'. Nothing to promote.")
+
+    # Read the override
+    try:
+        with open(user_path) as f:
+            data = yaml.safe_load(f)
+    except Exception as e:
+        raise HTTPException(500, f"Cannot read override: {e}")
+
+    if not data:
+        raise HTTPException(500, "Override file is empty or invalid.")
+
+    # Strip override metadata — this becomes the new canonical source
+    tmpl_meta = data.get("_template", {})
+    tmpl_meta.pop("customized", None)
+    tmpl_meta.pop("overridden_at", None)
+    tmpl_meta.pop("overridden_by", None)
+    tmpl_meta.pop("original_hash", None)
+    tmpl_meta.pop("origin", None)
+    if tmpl_meta:
+        data["_template"] = tmpl_meta
+    elif "_template" in data:
+        del data["_template"]
+
+    # Write back to demo-templates/ (the source file)
+    source_path = os.path.join(BUILTIN_TEMPLATES_DIR, f"{template_id}.yaml")
+    try:
+        with open(source_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    except Exception as e:
+        raise HTTPException(500, f"Cannot write to demo-templates/{template_id}.yaml: {e}")
+
+    # Remove the user-templates shadow and override manifest entry
+    os.remove(user_path)
+    remove_override(template_id)
+
+    logger.info(f"Template '{template_id}' promoted to source by {get_fa_id()}")
+
+    # Auto-push the promoted template to the hub bucket
+    from ..engine.template_sync import publish_single_builtin
+    push_result = publish_single_builtin(template_id)
+    pushed = push_result.get("status") == "ok"
+    push_warning = None if pushed or push_result.get("status") == "skipped" else push_result.get("message")
+
+    return {"promoted": template_id, "source_path": source_path, "pushed": pushed, "push_warning": push_warning}
+
+
 # ── Sync endpoints ──────────────────────────────────────────────────────
 
 @router.post("/api/templates/sync")

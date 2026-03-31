@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useDemoStore } from "../stores/demoStore";
-import { apiFetch } from "../api/client";
-import { AlertTriangle, Play, FileText, HardDrive, Upload, Plus, LayoutDashboard } from "lucide-react";
+import { apiFetch, deleteDemo } from "../api/client";
+import { AlertTriangle, HardDrive, Upload, Plus, Trash2 } from "lucide-react";
 
 interface ImageStatusItem {
   component_name: string;
@@ -31,6 +31,7 @@ export function HomePage() {
   const [totalImages, setTotalImages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dockerOk, setDockerOk] = useState(true);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -55,11 +56,21 @@ export function HomePage() {
   }, []);
 
   const activeDemos = demos.filter(d => d.status === "running").length;
-  const recentDemos = demos.slice(0, 5);
 
   const handleDemoClick = (id: string) => {
     setActiveDemoId(id);
     setCurrentPage("designer");
+  };
+
+  const handleDeleteDemo = async (e: React.MouseEvent, id: string, status: string) => {
+    e.stopPropagation();
+    const destroyContainers = status === "running";
+    try {
+      await deleteDemo(id, { destroyContainers });
+      setDemos(prev => prev.filter(d => d.id !== id));
+    } catch {} finally {
+      setConfirmingDeleteId(null);
+    }
   };
 
   return (
@@ -112,19 +123,19 @@ export function HomePage() {
           </div>
         </div>
 
-        {/* Recent demos */}
-        {recentDemos.length > 0 && (
+        {/* All demos */}
+        {demos.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">Recent Demos</h2>
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">My Demos</h2>
             <div className="bg-card border rounded-lg divide-y divide-border">
-              {recentDemos.map(demo => (
-                <button
+              {demos.map(demo => (
+                <div
                   key={demo.id}
                   data-testid="recent-demo-row"
+                  className="group flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors cursor-pointer"
                   onClick={() => handleDemoClick(demo.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors text-left"
                 >
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${demo.status === "running" ? "bg-green-500" : "bg-muted"}`} />
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${demo.status === "running" ? "bg-green-500" : "bg-muted-foreground/30"}`} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-foreground truncate">{demo.name}</div>
                     <div className="text-xs text-muted-foreground">{demo.node_count} nodes · {demo.id.slice(0, 8)}</div>
@@ -132,7 +143,28 @@ export function HomePage() {
                   <span className={`text-xs px-2 py-0.5 rounded ${demo.status === "running" ? "bg-green-900/50 text-green-400" : "bg-muted text-muted-foreground"}`}>
                     {demo.status}
                   </span>
-                </button>
+                  {confirmingDeleteId === demo.id ? (
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-xs text-destructive">Delete?</span>
+                      <button
+                        className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
+                        onClick={(e) => handleDeleteDemo(e, demo.id, demo.status)}
+                      >Yes</button>
+                      <button
+                        className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(null); }}
+                      >No</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmingDeleteId(demo.id); }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                      title="Delete demo"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -150,16 +182,6 @@ export function HomePage() {
               <div>
                 <div className="text-sm font-medium text-foreground">New Demo</div>
                 <div className="text-xs text-muted-foreground">Start from scratch</div>
-              </div>
-            </button>
-            <button
-              onClick={() => setCurrentPage("templates")}
-              className="flex items-center gap-3 px-4 py-3 rounded-lg bg-card border hover:bg-muted transition-colors text-left"
-            >
-              <FileText className="w-5 h-5 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium text-foreground">From Template</div>
-                <div className="text-xs text-muted-foreground">Choose a pre-built demo</div>
               </div>
             </button>
             <button

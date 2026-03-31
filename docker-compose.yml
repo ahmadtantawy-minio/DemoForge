@@ -11,7 +11,7 @@ services:
       - ./components:/app/components:ro              # Component manifests
       - ./demos:/app/demos                           # Saved demo definitions
       - ./data:/app/data                             # Runtime state
-      - ./demo-templates:/app/demo-templates:ro      # Demo templates
+      - ./demo-templates:/app/demo-templates           # Demo templates (rw so dev mode can promote overrides back to source)
       - ./user-templates:/app/user-templates           # SE-saved templates, rw
       - ./synced-templates:/app/synced-templates        # Remote sync target, rw
       - ./backend/app:/app/app                        # Backend source (live reload)
@@ -23,7 +23,7 @@ services:
       - DEMOFORGE_USER_TEMPLATES_DIR=/app/user-templates
       - DEMOFORGE_SYNCED_TEMPLATES_DIR=/app/synced-templates
       - DEMOFORGE_SYNC_ENABLED=${DEMOFORGE_SYNC_ENABLED:-false}
-      - DEMOFORGE_SYNC_ENDPOINT=${DEMOFORGE_SYNC_ENDPOINT:-http://34.18.90.197:9000}
+      - DEMOFORGE_SYNC_ENDPOINT=${DEMOFORGE_SYNC_ENDPOINT:-http://localhost:9000}
       - DEMOFORGE_SYNC_BUCKET=${DEMOFORGE_SYNC_BUCKET:-demoforge-templates}
       - DEMOFORGE_SYNC_PREFIX=${DEMOFORGE_SYNC_PREFIX:-templates/}
       - DEMOFORGE_SYNC_ACCESS_KEY=${DEMOFORGE_SYNC_ACCESS_KEY:-}

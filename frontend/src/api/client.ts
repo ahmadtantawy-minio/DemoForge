@@ -468,6 +468,11 @@ export const revertTemplate = (templateId: string) =>
     method: "POST",
   });
 
+export const promoteTemplate = (templateId: string) =>
+  apiFetch<{ promoted: string; source_path: string; pushed: boolean; push_warning: string | null }>(`/api/templates/${templateId}/promote`, {
+    method: "POST",
+  });
+
 export const getAppMode = () =>
   apiFetch<{ mode: string }>("/api/settings/mode");
 

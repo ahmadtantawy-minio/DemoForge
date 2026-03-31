@@ -1,37 +1,54 @@
-.PHONY: start stop restart status logs build clean nuke dev-be dev-fe help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses
+.PHONY: start stop restart status logs build clean nuke dev-start dev-stop dev-restart dev-status dev-logs dev-be dev-fe help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses
 
-start:
+## Field Architect mode (standard)
+start:          ## Start DemoForge (FA mode)
 	./demoforge.sh start
 
-stop:
+stop:           ## Stop DemoForge
 	./demoforge.sh stop
 
-restart:
+restart:        ## Restart DemoForge (FA mode)
 	./demoforge.sh restart
 
-status:
+status:         ## Show running services
 	./demoforge.sh status
 
-logs:
+logs:           ## Tail all logs
 	./demoforge.sh logs
 
-build:
+build:          ## Build images without starting
 	./demoforge.sh build
 
-clean:
+clean:          ## Stop everything, remove volumes
 	./demoforge.sh clean
 
-nuke:
+nuke:           ## Full clean + remove built images
 	./demoforge.sh nuke
-
-dev-be:
-	./demoforge.sh dev:be
-
-dev-fe:
-	./demoforge.sh dev:fe
 
 help:
 	./demoforge.sh help
+
+## Dev mode (DEMOFORGE_MODE=dev injected automatically)
+dev-start:      ## Start DemoForge in dev mode
+	./demoforge-dev.sh start
+
+dev-stop:       ## Stop DemoForge (dev mode)
+	./demoforge-dev.sh stop
+
+dev-restart:    ## Restart DemoForge in dev mode
+	./demoforge-dev.sh restart
+
+dev-status:     ## Show running services (dev mode)
+	./demoforge-dev.sh status
+
+dev-logs:       ## Tail all logs (dev mode)
+	./demoforge-dev.sh logs
+
+dev-be:         ## Run backend locally with hot-reload (dev mode)
+	./demoforge-dev.sh dev:be
+
+dev-fe:         ## Run frontend locally with hot-reload (dev mode)
+	./demoforge-dev.sh dev:fe
 
 ## Image management
 check-images:
