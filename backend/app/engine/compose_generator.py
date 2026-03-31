@@ -992,7 +992,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
     # --- mc-shell: lightweight MinIO Client container for every demo ---
     metabase_node = next((n for n in demo.nodes if n.component == "metabase"), None)
-    needs_mc_shell = bool(demo.clusters) or bool(metabase_node)
+    has_minio_nodes = any(n.component in ("minio", "minio-aistore") for n in demo.nodes)
+    needs_mc_shell = bool(demo.clusters) or bool(metabase_node) or has_minio_nodes
     if needs_mc_shell:
         mc_shell_name = f"{project_name}-mc-shell"
         mc_env = {}

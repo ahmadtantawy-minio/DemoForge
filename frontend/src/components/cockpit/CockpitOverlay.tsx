@@ -67,7 +67,11 @@ export default function CockpitOverlay() {
     const fetchCockpit = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setData({ clusters: [], error: err.detail || `HTTP ${res.status}` } as any);
+          return;
+        }
         const json: CockpitData = await res.json();
 
         // Compute throughput rates from deltas
@@ -170,7 +174,11 @@ export default function CockpitOverlay() {
         )}
         {!data || data.clusters.length === 0 ? (
           <div className="text-xs text-muted-foreground">
-            {!isRunning ? "Deploy a demo to see cockpit data" : "Loading cluster data..."}
+            {!isRunning
+              ? "Deploy a demo to see cockpit data"
+              : (data as any)?.error
+              ? (data as any).error
+              : "Loading cluster data..."}
           </div>
         ) : (
           data.clusters.map((cluster) => {

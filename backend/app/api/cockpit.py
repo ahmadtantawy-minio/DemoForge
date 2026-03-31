@@ -95,7 +95,7 @@ async def get_cockpit_data(demo_id: str):
 
     # Check if mc-shell container exists
     if "mc-shell" not in running.containers:
-        raise HTTPException(404, "mc-shell container not found — redeploy the demo")
+        return {"demo_id": demo_id, "clusters": [], "error": "mc-shell container not found — redeploy the demo to enable cockpit"}
 
     # Gather bucket stats and throughput for each cluster alias
     # First, list configured aliases
