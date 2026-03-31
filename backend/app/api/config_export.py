@@ -85,7 +85,7 @@ def _gen_cluster_setup(demo: DemoDefinition, project_name: str) -> ScriptSection
     # Standalone MinIO nodes (not part of a cluster)
     for node in demo.nodes:
         manifest = get_component(node.component)
-        if not manifest or manifest.id not in ("minio", "minio-aistore"):
+        if not manifest or manifest.id != "minio":
             continue
         user = _get_credential(node, manifest, "MINIO_ROOT_USER", "minioadmin")
         password = _get_credential(node, manifest, "MINIO_ROOT_PASSWORD", "minioadmin")

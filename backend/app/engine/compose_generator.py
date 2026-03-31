@@ -413,7 +413,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 lb_cluster = next((c for c in demo.clusters if c.id == cluster_id_from_lb), None)
                 if lb_cluster:
                     peer_component = lb_cluster.component
-            if peer_component not in ("minio", "minio-aistore"):
+            if peer_component != "minio":
                 continue
             # Use the full container name (project_name-peer_id) for Docker DNS
             if peer_cluster:
@@ -656,7 +656,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 else:
                     continue
                 peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
-                if peer_node and peer_node.component in ("minio", "minio-aistore"):
+                if peer_node and peer_node.component == "minio":
                     env["MINIO_ADDRESS"] = f"{project_name}-{peer_id}"
                     env["MINIO_PORT"] = "9000"
                     edge_cfg = edge.connection_config or {}
@@ -889,9 +889,16 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if res.max_cpu and cpu > res.max_cpu:
             cpu = res.max_cpu
 
+        # Resolve image — allow edition override for MinIO nodes
+        image = manifest.image
+        if node.component == "minio":
+            edition = node.config.get("MINIO_EDITION", "ce")
+            if edition == "aistor":
+                image = "quay.io/minio/aistor/minio:latest"
+
         # Build service definition
         service = {
-            "image": manifest.image,
+            "image": image,
             "container_name": container_name,
             "expose": [str(p.container) for p in manifest.ports],
             "environment": env,
@@ -992,7 +999,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
     # --- mc-shell: lightweight MinIO Client container for every demo ---
     metabase_node = next((n for n in demo.nodes if n.component == "metabase"), None)
-    has_minio_nodes = any(n.component in ("minio", "minio-aistore") for n in demo.nodes)
+    has_minio_nodes = any(n.component == "minio" for n in demo.nodes)
     needs_mc_shell = bool(demo.clusters) or bool(metabase_node) or has_minio_nodes
     if needs_mc_shell:
         mc_shell_name = f"{project_name}-mc-shell"
@@ -1029,7 +1036,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             lines.append(f"  sleep 10")
             lines.append(f"done")
         # Also add aliases for standalone MinIO nodes (not in clusters)
-        standalone_minio = [n for n in demo.nodes if n.component in ("minio", "minio-aistore") and not any(
+        standalone_minio = [n for n in demo.nodes if n.component == "minio" and not any(
             n.id.startswith(f"{c.id}-") for c in demo.clusters
         )]
         for node in standalone_minio:
@@ -1053,9 +1060,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     target_node = next((n for n in demo.nodes if n.id == edge.target), None)
                     # Find the MinIO node in this s3 edge
                     minio_node = None
-                    if source_node and source_node.component in ("minio", "minio-aistore"):
+                    if source_node and source_node.component == "minio":
                         minio_node = source_node
-                    elif target_node and target_node.component in ("minio", "minio-aistore"):
+                    elif target_node and target_node.component == "minio":
                         minio_node = target_node
                     if minio_node:
                         alias = re.sub(r"[^a-zA-Z0-9_]", "_", minio_node.display_name) if minio_node.display_name else minio_node.id
@@ -1188,7 +1195,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             logger.info(f"Added {len(mcp_clusters)} MCP server sidecar(s) for demo {demo.id}")
 
     # Also inject MCP sidecar for standalone MinIO nodes (not in clusters)
-    minio_nodes = [n for n in demo.nodes if n.component in ("minio", "minio-aistore") and not any(
+    minio_nodes = [n for n in demo.nodes if n.component == "minio" and not any(
         n.id.startswith(f"{c.id}-") for c in demo.clusters
     ) and n.labels.get("mcp_enabled", "false").lower() == "true"]
     for node in minio_nodes:

@@ -50,7 +50,7 @@ class DemoGroup(BaseModel):
 
 class DemoCluster(BaseModel):
     id: str
-    component: str = "minio"          # "minio" or "minio-aistore"
+    component: str = "minio"          # "minio" (CE or AIStor edition via config)
     label: str = "MinIO Cluster"
     position: NodePosition
     node_count: int = 4

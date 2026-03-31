@@ -135,14 +135,14 @@ export default function ComponentNode({ id, data }: NodeProps) {
             </div>
           )}
         </div>
-        {nodeData.health && (
+        {isRunning && nodeData.health && (
           <span
             className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" ? "animate-pulse" : ""}`}
             title={nodeData.health}
           />
         )}
       </div>
-      {nodeIp && (
+      {isRunning && nodeIp && (
         <div className="mt-1.5 flex justify-center">
           <span className="font-mono text-[10px] text-muted-foreground bg-muted/50 border border-border/50 rounded px-1.5 py-0.5 leading-none">
             {nodeIp}

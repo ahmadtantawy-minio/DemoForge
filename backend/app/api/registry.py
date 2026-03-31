@@ -23,7 +23,7 @@ async def list_components():
                 },
                 image_size_mb=m.image_size_mb,
             )
-            for m in registry.values()
+            for m in {m.id: m for m in registry.values()}.values()
         ]
     )
 

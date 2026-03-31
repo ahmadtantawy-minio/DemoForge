@@ -97,7 +97,7 @@ nodes:
   display_name: Data Generator
   config: {}
 - id: aistor-1
-  component: minio-aistore
+  component: minio
   variant: single
   position:
     x: 250
@@ -106,6 +106,7 @@ nodes:
   config:
     MINIO_ROOT_USER: minioadmin
     MINIO_ROOT_PASSWORD: minioadmin
+    MINIO_EDITION: aistor
 - id: trino
   component: trino
   variant: default

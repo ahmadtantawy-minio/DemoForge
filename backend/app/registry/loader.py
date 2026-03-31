@@ -16,6 +16,9 @@ def load_registry(components_dir: str) -> dict[str, ComponentManifest]:
                 raw = yaml.safe_load(f)
             manifest = ComponentManifest(**raw)
             _registry[manifest.id] = manifest
+    # Backward compatibility: minio-aistore → minio
+    if "minio" in _registry and "minio-aistore" not in _registry:
+        _registry["minio-aistore"] = _registry["minio"]
     return _registry
 
 def get_registry() -> dict[str, ComponentManifest]:

@@ -196,8 +196,9 @@ export default function App() {
   }, [rightPanelWidth]);
 
   const isExperience = demos.find((d) => d.id === activeDemoId)?.mode === "experience";
+  const isDemoRunning = activeDemo?.status === "running";
   const showSidebars = activeDemoId && activeView === "diagram";
-  const showLeftSidebar = showSidebars && !isExperience;
+  const showLeftSidebar = showSidebars && !isExperience && !isDemoRunning;
   const showRightSidebar = showSidebars && !isExperience;
   const showWelcome = !activeDemoId;
 

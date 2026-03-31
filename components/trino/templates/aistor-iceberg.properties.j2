@@ -3,7 +3,7 @@
 {%- if edge.target == node.id and edge.connection_type in ['s3', 'aistor-tables'] %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
 {%- if source_node %}
-{%- if source_node.component == 'minio-aistore' %}
+{%- if source_node.component == 'minio' and source_node.config.get('MINIO_EDITION', 'ce') == 'aistor' %}
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
 {%- elif source_node.component == 'nginx' and source_node.id.endswith('-lb') %}
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}

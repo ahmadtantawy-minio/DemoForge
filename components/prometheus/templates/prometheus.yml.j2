@@ -15,7 +15,7 @@ scrape_configs:
 
   - job_name: '{{ source_node.id }}'
     scrape_interval: {{ scrape_interval }}
-{%- if source_node.component == 'minio' or source_node.component == 'minio-aistore' %}
+{%- if source_node.component == 'minio' %}
     metrics_path: '/minio/v2/metrics/cluster'
     static_configs:
       - targets: ['{{ project_name }}-{{ source_node.id }}:9000']

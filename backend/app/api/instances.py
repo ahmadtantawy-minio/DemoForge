@@ -711,7 +711,7 @@ async def get_minio_commands(demo_id: str):
     # Standalone MinIO nodes
     standalone_minio = [
         n for n in demo.nodes
-        if n.component in ("minio", "minio-aistore")
+        if n.component == "minio"
         and not any(n.id.startswith(f"{c.id}-") for c in demo.clusters)
     ]
     for node in standalone_minio:

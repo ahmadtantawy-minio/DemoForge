@@ -299,12 +299,20 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         }
         return;
       }
+      if (isRunning) {
+        // When running: allow position/select/dimensions only — block remove/add
+        const allowed = changes.filter((c: any) =>
+          c.type === "position" || c.type === "select" || c.type === "dimensions"
+        );
+        if (allowed.length > 0) onNodesChange(allowed);
+        return;
+      }
       onNodesChange(changes);
       if (activeDemoId) {
         setDirty(true);
       }
     },
-    [onNodesChange, activeDemoId, setDirty, doLayoutSave, isExperience]
+    [onNodesChange, activeDemoId, setDirty, doLayoutSave, isExperience, isRunning]
   );
 
   const handleEdgesChange = useCallback(
@@ -777,7 +785,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         edges={visibleEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
-        onConnect={isExperience ? undefined : onConnect}
+        onConnect={isExperience || isRunning ? undefined : onConnect}
         onEdgeClick={handleEdgeClick}
         onEdgeContextMenu={isExperience ? undefined : handleEdgeContextMenu}
         nodeTypes={nodeTypes}

@@ -754,8 +754,7 @@ export default function PropertiesPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="minio">MinIO CE</SelectItem>
-              <SelectItem value="minio-aistore">MinIO AIStore</SelectItem>
+              <SelectItem value="minio">MinIO Single Node</SelectItem>
             </SelectContent>
           </Select>
         </div>
