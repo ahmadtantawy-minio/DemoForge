@@ -161,21 +161,41 @@ def _gen_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: st
     source_host = f"{project_name}-{source_node.id}"
     target_host = f"{project_name}-{target_node.id}"
 
+    # Site-replication activation (same pattern as cluster-site-replication):
+    # 1. Set up aliases and wait for nodes to be ready
+    # 2. Check if already configured via mc admin replicate info
+    # 3. If enabled → idempotent (already in group)
+    # 4. If not enabled → clean target buckets first, then add
+    # 5. Verify replication is active after adding
     command = (
         f"mc alias set site1 http://{source_host}:9000 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set site2 http://{target_host}:9000 {_safe(target_user)} {_safe(target_pass)} && "
-        f"mc admin replicate add site1 site2"
+        f"for i in $(seq 1 15); do mc admin info site1 >/dev/null 2>&1 && mc admin info site2 >/dev/null 2>&1 && break; sleep 2; done && "
+        f"STATUS=$(mc admin replicate info site1 2>&1 | head -1) && "
+        f"case \"$STATUS\" in "
+        # Already enabled — nothing to do
+        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info site1;; "
+        # Not enabled — clean target and set up
+        f"*) echo \"Setting up site replication...\"; "
+        f"mc ls site2/ 2>/dev/null | while read line; do "
+        f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
+        f"[ -n \"$b\" ] && echo \"Removing site2/$b\" && mc rb --force site2/$b 2>/dev/null; done; "
+        f"mc admin replicate add site1 site2 && "
+        f"VERIFY=$(mc admin replicate info site1 2>&1 | head -1) && "
+        f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
+        f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
+        f"esac"
     )
 
     return [EdgeInitScript(
         edge_id=edge.id,
         connection_type="site-replication",
-        container_name=f"{project_name}-{source_node.id}",
+        container_name=f"{project_name}-mc-shell",
         command=command,
         order=25,
         description=f"Set up site replication: {source_node.id} <-> {target_node.id}",
         wait_for_healthy=True,
-        timeout=60,
+        timeout=120,
     )]
 
 

@@ -107,14 +107,7 @@ connections:
       default: '0'
       description: 0 = unlimited
   - type: site-replication
-    config_schema:
-    - key: replication_mode
-      label: Mode
-      type: select
-      options:
-      - two-way
-      - one-way
-      default: two-way
+    config_schema: []
   - type: tiering
     config_schema:
     - key: policy_name
