@@ -169,20 +169,6 @@ variants:
   cluster:
     description: Multi-node erasure-coded cluster (command auto-generated)
     command: []
-  replication-source:
-    description: Replication source node
-    command:
-    - server
-    - /data
-    - --console-address
-    - :9001
-  replication-target:
-    description: Replication target node
-    command:
-    - server
-    - /data
-    - --console-address
-    - :9001
 template_mounts: []
 static_mounts: []
 config:

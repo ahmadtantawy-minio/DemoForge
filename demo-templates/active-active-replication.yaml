@@ -91,7 +91,7 @@ networks:
 nodes:
 - id: minio-1
   component: minio
-  variant: replication-source
+  variant: single
   position:
     x: 300
     y: 100
@@ -107,7 +107,7 @@ nodes:
       - minio-1
 - id: minio-2
   component: minio
-  variant: replication-target
+  variant: single
   position:
     x: 300
     y: 300
