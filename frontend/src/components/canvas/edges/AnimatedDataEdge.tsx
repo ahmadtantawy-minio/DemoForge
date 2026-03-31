@@ -3,11 +3,14 @@ import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, useStoreApi, 
 import { X } from "lucide-react";
 import type { ComponentEdgeData, ConnectionType } from "../../../types";
 import { connectionColors, connectionLabels } from "../../../lib/connectionMeta";
+import { useDemoStore } from "../../../stores/demoStore";
 
 export default function AnimatedDataEdge({
   id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
 }: EdgeProps) {
   const { deleteElements, getNode } = useReactFlow();
+  const { demos, activeDemoId } = useDemoStore();
+  const isDemoRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
   const [hovered, setHovered] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -130,7 +133,7 @@ export default function AnimatedDataEdge({
           markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
         }}
       />
-      {(status === "active" || configStatus === "applied" || isFailoverActive) && (
+      {isDemoRunning && (status === "active" || configStatus === "applied" || isFailoverActive) && (
         <>
           <circle r="3" fill={color} opacity={0.8}>
             <animateMotion
