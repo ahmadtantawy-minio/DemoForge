@@ -64,6 +64,7 @@ export default function AnimatedDataEdge({
   })();
 
   const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
+    connectionType === "site-replication" ||
     connectionType === "cluster-site-replication";
   const isFailover = connectionType === "failover";
   const failoverRole = (edgeData as any)?.connectionConfig?.role as string | undefined;
