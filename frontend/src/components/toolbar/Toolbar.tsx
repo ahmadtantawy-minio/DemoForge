@@ -224,8 +224,8 @@ export default function Toolbar() {
           </div>
         )}
 
-        {/* Save - only when demo selected */}
-        {activeDemoId && (
+        {/* Save - only when demo selected and not running */}
+        {activeDemoId && activeDemo?.status !== "running" && (
           <button
             onClick={handleSave}
             disabled={!isDirty}
@@ -285,20 +285,22 @@ export default function Toolbar() {
               )}
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => setSaveTemplateOpen(true)}
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs px-2 gap-1"
-                >
-                  <BookmarkPlus className="w-3.5 h-3.5" />
-                  Save as Template
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Save current demo as a reusable template</p></TooltipContent>
-            </Tooltip>
+            {activeDemo?.status !== "running" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={() => setSaveTemplateOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs px-2 gap-1"
+                  >
+                    <BookmarkPlus className="w-3.5 h-3.5" />
+                    Save as Template
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p className="text-xs">Save current demo as a reusable template</p></TooltipContent>
+              </Tooltip>
+            )}
           </>
         )}
 

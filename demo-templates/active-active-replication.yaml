@@ -95,8 +95,8 @@ nodes:
     x: 300
     y: 100
   config:
-    MINIO_ROOT_USER: minio1admin
-    MINIO_ROOT_PASSWORD: minio1password
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
   networks:
     frontend:
       aliases:
@@ -110,8 +110,8 @@ nodes:
     x: 300
     y: 300
   config:
-    MINIO_ROOT_USER: minio2admin
-    MINIO_ROOT_PASSWORD: minio2password
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
   networks:
     frontend:
       aliases:
