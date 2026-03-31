@@ -748,15 +748,19 @@ export default function PropertiesPanel() {
           <Input type="text" value={cData.label ?? ""} onChange={(e) => updateCluster({ label: e.target.value })} className="h-8 text-sm" />
         </div>
         <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Flavor</label>
-          <Select value={cData.componentId || "minio"} onValueChange={(v) => updateCluster({ componentId: v })}>
+          <label className="text-xs text-muted-foreground block mb-1">Edition</label>
+          <Select value={cData.config?.MINIO_EDITION || "ce"} onValueChange={(v) => updateCluster({ config: { ...cData.config, MINIO_EDITION: v } })}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="minio">MinIO Single Node</SelectItem>
+              <SelectItem value="ce">Community (CE)</SelectItem>
+              <SelectItem value="aistor">AIStor (Enterprise)</SelectItem>
             </SelectContent>
           </Select>
+          <div className="text-xs text-muted-foreground mt-1 font-mono bg-muted px-1.5 py-0.5 rounded inline-block">
+            {(cData.config?.MINIO_EDITION || "ce") === "aistor" ? "quay.io/minio/aistor/minio:latest" : "minio/minio:latest"}
+          </div>
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Node Count</label>
@@ -941,7 +945,9 @@ export default function PropertiesPanel() {
         <div className="text-xs text-muted-foreground">{data.componentId}</div>
         {componentDef?.image && (
           <div className="text-xs text-muted-foreground mt-1 font-mono bg-muted px-1.5 py-0.5 rounded inline-block">
-            {componentDef.image}
+            {data.componentId === "minio"
+              ? ((data.config?.MINIO_EDITION || "ce") === "aistor" ? "quay.io/minio/aistor/minio:latest" : "minio/minio:latest")
+              : componentDef.image}
           </div>
         )}
       </div>
@@ -970,6 +976,21 @@ export default function PropertiesPanel() {
           />
         )}
       </div>
+
+      {data.componentId === "minio" && !isExperience && (
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Edition</label>
+          <Select value={data.config?.MINIO_EDITION || "ce"} onValueChange={(v) => updateConfig("MINIO_EDITION", v)}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ce">Community (CE)</SelectItem>
+              <SelectItem value="aistor">AIStor (Enterprise)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {Object.keys(data.config).length > 0 && (
         <div className="mb-3">

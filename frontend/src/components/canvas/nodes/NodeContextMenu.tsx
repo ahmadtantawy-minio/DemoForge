@@ -172,7 +172,7 @@ export default function NodeContextMenu({
           </button>
         </>
       )}
-      {menuItems.length === 0 && !isCluster && componentId !== "trino" && (
+      {menuItems.length === 0 && !isRunning && componentId !== "trino" && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground">
           Not deployed yet
         </div>
