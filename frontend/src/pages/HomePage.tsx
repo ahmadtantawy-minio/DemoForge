@@ -67,9 +67,11 @@ export function HomePage() {
       <div className="max-w-4xl mx-auto px-8 py-12">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-card-foreground">{getGreeting()}</h1>
+          <h1 className="text-3xl font-bold text-card-foreground">
+            {getGreeting()}{useDemoStore.getState().faId ? `, ${useDemoStore.getState().faId.split("@")[0]}` : ""}
+          </h1>
           <p className="text-muted-foreground mt-1">
-            DemoForge · local · {dockerOk ? "Docker running" : "Docker unavailable"}
+            {useDemoStore.getState().faId || "DemoForge"} · {dockerOk ? "Docker running" : "Docker unavailable"}
           </p>
         </div>
 

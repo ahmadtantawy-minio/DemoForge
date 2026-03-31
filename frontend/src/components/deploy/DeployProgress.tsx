@@ -46,8 +46,13 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
         if (data.finished) {
           const hasError = data.steps.some((s: DeployStep) => s.step === "error" || s.step === "rollback");
           const isComplete = data.steps.some((s: DeployStep) => s.step === "complete");
-          setFinished(hasError ? false : isComplete ? true : true);
+          const success = hasError ? false : isComplete ? true : true;
+          setFinished(success);
           if (intervalRef.current) clearInterval(intervalRef.current);
+          // Auto-dismiss on success — only keep modal open on error
+          if (success) {
+            setTimeout(() => onDone(true), 500);
+          }
         }
       } catch {}
     };

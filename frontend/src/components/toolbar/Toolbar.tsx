@@ -44,6 +44,7 @@ export default function Toolbar() {
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
 
   const isDirty = useDiagramStore((s) => s.isDirty);
+  const faId = useDemoStore((s) => s.faId);
 
   const handleSave = useCallback(() => {
     if (!activeDemoId) return;
@@ -152,6 +153,11 @@ export default function Toolbar() {
             <rect x="14" y="4" width="14" height="10" rx="2" fill="#C72C48"/>
           </svg>
           <span className="font-bold text-foreground">DemoForge</span>
+          {faId && (
+            <span className="text-[11px] text-muted-foreground/60 truncate max-w-[200px]" title={faId}>
+              {faId}
+            </span>
+          )}
         </div>
 
         {/* Demo selector trigger */}

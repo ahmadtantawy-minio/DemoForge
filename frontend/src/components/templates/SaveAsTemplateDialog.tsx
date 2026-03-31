@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { saveAsTemplate, overrideTemplate, fetchTemplates } from "../../api/client";
 import type { DemoTemplate } from "../../types";
+import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -351,6 +352,13 @@ export function SaveAsTemplateDialog({
                 <span className="text-xs text-yellow-200">Overwrite existing template</span>
               </label>
             </div>
+          )}
+
+          {/* FA attribution */}
+          {useDemoStore.getState().faIdentified && (
+            <p className="text-xs text-muted-foreground">
+              Template will be saved as <span className="text-foreground/80">{useDemoStore.getState().faId}</span>
+            </p>
           )}
 
           {/* Actions */}

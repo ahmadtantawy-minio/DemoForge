@@ -212,7 +212,7 @@ export function ImagesPage() {
                           <div className="text-xs text-muted-foreground">{img.component_name}</div>
                         </div>
                         <div className="w-24 text-right">
-                          <ImageStatusBadge status={displayStatus} progressPct={img.pullPct} />
+                          <ImageStatusBadge status={displayStatus} />
                         </div>
                         <div className="w-16 text-right text-xs text-muted-foreground">
                           {formatSize(img.effective_size_mb)}

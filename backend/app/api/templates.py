@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from ..models.demo import DemoDefinition
 from ..models.api_models import DemoSummary
 from ..engine.template_backup import backup_original, get_override_info, remove_override, BackupError
+from ..fa_identity import get_fa_id
 
 logger = logging.getLogger("demoforge.templates")
 
@@ -130,17 +131,25 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
         "editable": source == "user",
         "customized": override_info is not None or meta.get("customized", False),
         "origin": meta.get("origin", source),
+        "saved_by": meta.get("saved_by", ""),
     }
 
 
 @router.get("/api/templates")
-async def list_templates():
+async def list_templates(mine: bool = False):
     templates = []
     source_counts = {"builtin": 0, "synced": 0, "user": 0}
     for template_id, source, raw in _discover_all_templates():
         summary = _template_summary(f"{template_id}.yaml", raw, source=source)
         templates.append(summary)
         source_counts[source] = source_counts.get(source, 0) + 1
+
+    if mine:
+        current_fa = get_fa_id()
+        if current_fa:
+            templates = [t for t in templates if t.get("saved_by") == current_fa]
+        else:
+            templates = []
 
     # Get sync status for frontend indicator
     from ..engine.template_sync import get_sync_status, SYNC_ENABLED
@@ -311,6 +320,7 @@ async def save_as_template(req: SaveAsTemplateRequest):
         "walkthrough": [],
         "saved_from_demo": req.demo_id,
         "saved_at": datetime.utcnow().isoformat() + "Z",
+        "saved_by": get_fa_id(),
     }
 
     # 5. Build template YAML
@@ -368,6 +378,7 @@ async def fork_template(template_id: str, req: dict = Body(default={})):
     meta["name"] = new_name
     meta["forked_from"] = template_id
     meta["forked_at"] = datetime.utcnow().isoformat() + "Z"
+    meta["forked_by"] = get_fa_id()
     raw["_template"] = meta
     raw["name"] = new_name
     raw["id"] = f"template-{new_id}"
@@ -462,6 +473,7 @@ async def override_template(template_id: str, req: OverrideTemplateRequest):
             "origin": source,
             "original_hash": override_info.get("original_hash", "") if override_info else "",
             "overridden_at": datetime.utcnow().isoformat() + "Z",
+            "overridden_by": get_fa_id(),
             "customized": True,
         },
         **{k: v for k, v in demo_data.items() if k != "_template"},
@@ -526,6 +538,10 @@ async def publish_template_endpoint(template_id: str):
         raise HTTPException(404, "Template not found")
     if source != "user":
         raise HTTPException(403, "Only user-saved templates can be published.")
+    meta = raw.get("_template", {})
+    meta["published_by"] = get_fa_id()
+    raw["_template"] = meta
+    _save_template_raw(template_id, raw)
     from ..engine.template_sync import publish_template
     result = publish_template(template_id)
     if result["status"] == "error":

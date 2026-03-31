@@ -43,6 +43,9 @@ async def lifespan(app: FastAPI):
     state.recover_from_docker()
     await _rejoin_recovered_networks()
 
+    from .fa_identity import init_fa_identity
+    init_fa_identity()
+
     # Sync templates from remote (non-blocking, best-effort)
     from .engine.template_sync import sync_templates, SYNC_ENABLED
     if SYNC_ENABLED:

@@ -162,6 +162,17 @@ cmd_start() {
     [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
     [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
 
+    # FA identity check (non-dev mode only)
+    if [[ "${DEMOFORGE_MODE:-standard}" != "dev" ]]; then
+        if [[ -z "${DEMOFORGE_FA_ID:-}" ]]; then
+            echo -e "${RED}✗ FA identity not configured.${NC}"
+            echo -e "  Run: ${CYAN}make fa-setup${NC}"
+            echo -e "  Or add manually: ${CYAN}echo 'DEMOFORGE_FA_ID=you@company.com' >> .env.local${NC}"
+            exit 1
+        fi
+        echo -e "  FA: ${CYAN}${DEMOFORGE_FA_ID}${NC}"
+    fi
+
     # Kill anything that's already running
     stop_services
 

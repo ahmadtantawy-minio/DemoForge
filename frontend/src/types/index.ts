@@ -50,6 +50,7 @@ export interface DemoTemplate {
   editable: boolean;
   customized?: boolean;
   origin?: string;  // "builtin" | "synced" | "user"
+  saved_by?: string;
 }
 
 // --- Demo Template Detail (includes demo definition fields) ---

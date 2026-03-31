@@ -80,10 +80,11 @@ def _check_image_cached(image_ref: str) -> tuple[bool, Optional[float]]:
 
 
 # Platform images — DemoForge infrastructure, pulled from private registry
+# Each entry: (name, registry_ref, [alt_local_tags]) — alt tags for locally-built images
 PLATFORM_IMAGES = [
-    ("demoforge-backend", "demoforge/demoforge-backend:latest"),
-    ("demoforge-frontend", "demoforge/demoforge-frontend:latest"),
-    ("hub-connector", "gcr.io/minio-demoforge/demoforge-hub-connector:latest"),
+    ("demoforge-backend", "demoforge/demoforge-backend:latest", ["demoforge-backend:latest"]),
+    ("demoforge-frontend", "demoforge/demoforge-frontend:latest", ["demoforge-frontend:latest"]),
+    ("hub-connector", "gcr.io/minio-demoforge/demoforge-hub-connector:latest", []),
 ]
 
 
@@ -137,10 +138,20 @@ async def get_image_status():
         ))
 
     # Add platform images (DemoForge infrastructure)
-    platform_tasks = [asyncio.to_thread(_check_image_cached, ref) for _, ref in PLATFORM_IMAGES]
+    # Check registry ref + alternate local tags (locally-built images use shorter names)
+    async def _check_platform(pname, pref, alt_tags):
+        cached, local_size = await asyncio.to_thread(_check_image_cached, pref)
+        if not cached:
+            for alt in alt_tags:
+                cached, local_size = await asyncio.to_thread(_check_image_cached, alt)
+                if cached:
+                    break
+        return cached, local_size
+
+    platform_tasks = [_check_platform(n, r, a) for n, r, a in PLATFORM_IMAGES]
     platform_results = await asyncio.gather(*platform_tasks, return_exceptions=True)
 
-    for (pname, pref), presult in zip(PLATFORM_IMAGES, platform_results):
+    for (pname, pref, _alt), presult in zip(PLATFORM_IMAGES, platform_results):
         if isinstance(presult, Exception):
             cached, local_size = False, None
         else:

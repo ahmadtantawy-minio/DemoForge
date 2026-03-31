@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoStore } from "./stores/demoStore";
 import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
-import { fetchDemos, fetchInstances, getFailoverStatus, getResilienceStatus } from "./api/client";
+import { fetchDemos, fetchInstances, getFailoverStatus, getResilienceStatus, fetchIdentity } from "./api/client";
 import { Toaster } from "sonner";
 import Toolbar from "./components/toolbar/Toolbar";
 import ComponentPalette from "./components/palette/ComponentPalette";
@@ -31,6 +31,13 @@ export default function App() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(192);
   const [rightPanelWidth, setRightPanelWidth] = useState(288);
   const isDragging = useRef(false);
+
+  // Fetch FA identity on mount
+  useEffect(() => {
+    fetchIdentity()
+      .then(({ fa_id, identified, mode }) => useDemoStore.getState().setFaIdentity(fa_id, identified, mode))
+      .catch(() => {});
+  }, []);
 
   // Initial load + periodic sync of demo status from backend
   useEffect(() => {

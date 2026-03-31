@@ -415,6 +415,10 @@ export const executeSql = (demoId: string, sql: string, catalog?: string, schema
 export const fetchTemplateGuide = (templateId: string) =>
   apiFetch<any>(`/api/templates/${templateId}/guide`);
 
+// FA Identity
+export const fetchIdentity = () =>
+  apiFetch<{ fa_id: string; identified: boolean; mode: string }>("/api/identity");
+
 // Template management
 export const saveAsTemplate = (payload: {
   demo_id: string;

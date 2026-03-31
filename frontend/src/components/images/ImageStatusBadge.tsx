@@ -2,10 +2,9 @@ import { Loader2 } from "lucide-react";
 
 interface Props {
   status: "cached" | "missing" | "pulling" | "unknown";
-  progressPct?: number | null;
 }
 
-export function ImageStatusBadge({ status, progressPct }: Props) {
+export function ImageStatusBadge({ status }: Props) {
   return (
     <span data-testid="image-status-badge" className="inline-flex items-center gap-1.5 text-xs font-medium">
       {status === "cached" && (
@@ -23,7 +22,7 @@ export function ImageStatusBadge({ status, progressPct }: Props) {
       {status === "pulling" && (
         <>
           <Loader2 data-testid="pull-spinner" className="w-3 h-3 animate-spin text-blue-400" />
-          <span className="text-blue-400">Pulling{progressPct != null ? ` ${progressPct}%` : ""}</span>
+          <span className="text-blue-400">Pulling...</span>
         </>
       )}
       {status === "unknown" && (

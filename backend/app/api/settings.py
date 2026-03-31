@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..config.license_store import license_store, LicenseEntry
 from ..registry.loader import get_registry
+from ..fa_identity import get_fa_id
 
 router = APIRouter()
 
@@ -77,3 +78,13 @@ def license_status():
 @router.get("/api/settings/mode")
 async def get_app_mode():
     return {"mode": os.environ.get("DEMOFORGE_MODE", "standard")}
+
+
+@router.get("/api/identity")
+async def get_identity():
+    fa_id = get_fa_id()
+    return {
+        "fa_id": fa_id,
+        "identified": bool(fa_id),
+        "mode": os.environ.get("DEMOFORGE_MODE", "standard"),
+    }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
+import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -115,12 +116,14 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
     return ["essentials", "advanced", "experience"].filter((t) => seen.has(t));
   }, [templates]);
 
-  // Filter by tier first (or by source=user when showMyTemplates)
+  const faId = useDemoStore((s) => s.faId);
+
+  // Filter by tier first (or by saved_by when showMyTemplates)
   const tierFiltered = useMemo(
     () => showMyTemplates
-      ? templates.filter((t) => (t as any).source === "user")
+      ? templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId))
       : templates.filter((t) => (t.tier || "essentials") === activeTier),
-    [templates, activeTier, showMyTemplates]
+    [templates, activeTier, showMyTemplates, faId]
   );
 
   // Derive unique categories within selected tier
@@ -417,7 +420,7 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
               }`}
           >
-            My Templates ({templates.filter((t) => (t as any).source === "user").length})
+            My Templates ({templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
           </button>
         </div>
       )}
@@ -613,6 +616,11 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
                 {/* Name — primary attention target */}
                 <h3 className="font-semibold text-base text-foreground leading-snug group-hover:text-primary transition-colors duration-150">
                   {t.name}
+                  {t.source === "user" && t.saved_by && t.saved_by !== faId && (
+                    <span className="ml-2 text-[10px] font-normal text-muted-foreground/50">
+                      by {t.saved_by.split("@")[0]}
+                    </span>
+                  )}
                 </h3>
 
                 {/* Description */}

@@ -68,8 +68,54 @@ done
 
 echo -e "${GREEN}✓ Hub connector running${NC}"
 
+# ─── Detect FA identity ──────────────────────────────────────────────
+echo -e "\n${CYAN}Detecting FA identity...${NC}"
+
+FA_ID=""
+
+# Try 1: git config user.email
+if command -v git &>/dev/null; then
+    FA_ID=$(git config user.email 2>/dev/null || echo "")
+fi
+
+# Try 2: GitHub CLI username
+if [[ -z "$FA_ID" ]] && command -v gh &>/dev/null; then
+    FA_ID=$(gh api user --jq '.login // empty' 2>/dev/null || echo "")
+fi
+
+# Try 3: existing .env.local (re-run scenario)
+if [[ -z "$FA_ID" ]] && [[ -f "$PROJECT_ROOT/.env.local" ]]; then
+    FA_ID=$(grep "^DEMOFORGE_FA_ID=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2 || echo "")
+fi
+
+# Confirm with user
+if [[ -n "$FA_ID" ]]; then
+    echo -e "  Detected identity: ${CYAN}${FA_ID}${NC}"
+    read -rp "  Press Enter to confirm, or type a different email/username: " FA_OVERRIDE
+    [[ -n "$FA_OVERRIDE" ]] && FA_ID="$FA_OVERRIDE"
+else
+    echo -e "${YELLOW}Could not auto-detect your identity.${NC}"
+    echo ""
+    echo -e "  ${CYAN}DemoForge identifies you to scope your templates and customizations.${NC}"
+    echo -e "  ${CYAN}Enter your email or username (e.g., ahmad@min.io or ahmad.tantawy).${NC}"
+    echo ""
+    read -rp "  Your identity: " FA_ID
+    echo ""
+fi
+
+# Hard fail if still empty
+if [[ -z "$FA_ID" ]]; then
+    echo -e "${RED}FA identity is required to use DemoForge.${NC}"
+    echo -e "  Option 1: git config --global user.email \"you@company.com\""
+    echo -e "  Option 2: Re-run 'make fa-setup' and enter your email/username when prompted"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ FA identity: ${FA_ID}${NC}"
+
 # ── Write .env.local ──
 cat > "$PROJECT_ROOT/.env.local" <<EOF
+DEMOFORGE_FA_ID=${FA_ID}
 DEMOFORGE_SYNC_ENABLED=true
 DEMOFORGE_SYNC_ENDPOINT=http://localhost:9000
 DEMOFORGE_SYNC_BUCKET=demoforge-templates
@@ -102,6 +148,7 @@ echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║  Setup complete!                                        ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║  FA identity:   ${FA_ID}  ${NC}"
 echo -e "${GREEN}║  Hub connector: running (auto-restarts)                 ║${NC}"
 echo -e "${GREEN}║  Templates:     sync on next 'make start'              ║${NC}"
 echo -e "${GREEN}║  Images:        pulled from registry                    ║${NC}"

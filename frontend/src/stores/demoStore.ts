@@ -24,6 +24,10 @@ interface DemoState {
   cockpitEnabled: boolean;
   walkthroughOpen: boolean;
   resilienceProbes: ResilienceProbe[];
+  faId: string;
+  faIdentified: boolean;
+  faMode: string;
+  setFaIdentity: (id: string, identified: boolean, mode?: string) => void;
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
@@ -74,6 +78,10 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   cockpitEnabled: false,
   walkthroughOpen: false,
   resilienceProbes: [],
+  faId: "",
+  faIdentified: false,
+  faMode: "standard",
+  setFaIdentity: (id, identified, mode) => set({ faId: id, faIdentified: identified, faMode: mode || "standard" }),
 
   setDemos: (demos) => set({ demos }),
 

@@ -29,6 +29,8 @@ services:
       - DEMOFORGE_SYNC_ACCESS_KEY=${DEMOFORGE_SYNC_ACCESS_KEY:-}
       - DEMOFORGE_SYNC_SECRET_KEY=${DEMOFORGE_SYNC_SECRET_KEY:-}
       - DEMOFORGE_REGISTRY_HOST=${DEMOFORGE_REGISTRY_HOST:-}
+      - DEMOFORGE_FA_ID=${DEMOFORGE_FA_ID:-}
+      - DEMOFORGE_MODE=${DEMOFORGE_MODE:-standard}
       # IMPORTANT: These must resolve to the DemoForge project root, not a subdirectory.
       # The backend auto-detects the correct paths from docker.sock if these are wrong.
       - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components

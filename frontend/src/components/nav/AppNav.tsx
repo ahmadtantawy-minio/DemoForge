@@ -20,9 +20,14 @@ export default function AppNav() {
   return (
     <nav className="flex flex-col items-center w-[52px] flex-shrink-0 bg-zinc-950 border-r border-zinc-800 py-2">
       {/* Logo */}
-      <div className="w-7 h-7 rounded-md bg-[#C72C48] flex items-center justify-center mb-3">
+      <div className="w-7 h-7 rounded-md bg-[#C72C48] flex items-center justify-center mb-1">
         <span className="text-white font-bold text-xs">DF</span>
       </div>
+      {useDemoStore.getState().faMode === "dev" && (
+        <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded mb-2 leading-none">
+          DEV
+        </span>
+      )}
 
       {/* Top nav items */}
       <div className="flex flex-col items-center gap-1 flex-1">
