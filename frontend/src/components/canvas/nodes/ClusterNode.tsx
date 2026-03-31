@@ -24,7 +24,8 @@ interface ClusterNodeData {
 export default function ClusterNode({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ClusterNodeData;
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
-  const { instances, activeDemoId, setActiveView } = useDemoStore();
+  const { instances, activeDemoId, demos, setActiveView } = useDemoStore();
+  const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
   const nodeCount = nodeData.nodeCount || 4;
   const drivesPerNode = nodeData.drivesPerNode || 1;
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
@@ -358,63 +359,84 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
             {nodeData.label || id}
           </div>
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
-            onClick={() => { setAdminDefaultTab("overview"); setAdminPanelOpen(true); setClusterMenu(null); }}
-          >
-            MinIO Admin
-          </button>
-          {mcpEnabled && (
+          {isRunning ? (
             <>
               <button
-                className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
-                onClick={() => { setMcpDefaultTab("mcp-tools"); setMcpPanelOpen(true); setClusterMenu(null); }}
+                className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                onClick={() => { setAdminDefaultTab("overview"); setAdminPanelOpen(true); setClusterMenu(null); }}
               >
-                MCP Tools
+                MinIO Admin
               </button>
-              <button
-                className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
-                onClick={() => { setMcpDefaultTab("ai-chat"); setMcpPanelOpen(true); setClusterMenu(null); }}
-              >
-                AI Chat
-              </button>
-            </>
-          )}
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
-            onClick={() => { setActiveView("control-plane"); setClusterMenu(null); }}
-          >
-            View in Instances
-          </button>
-          {activeDemoId && (
-            <>
-              <div className="border-t border-border my-1" />
-              {confirmReset ? (
-                <div className="px-3 py-2">
-                  <div className="text-xs text-destructive mb-2">Remove all buckets from this cluster? This cannot be undone.</div>
-                  <div className="flex gap-1">
-                    <button
-                      className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
-                      onClick={() => { handleResetCluster(); setClusterMenu(null); }}
-                    >
-                      Confirm Reset
-                    </button>
-                    <button
-                      className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
-                      onClick={() => setConfirmReset(false)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                  onClick={() => setConfirmReset(true)}
-                >
-                  Reset Cluster (Remove All Buckets)
-                </button>
+              {mcpEnabled && (
+                <>
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+                    onClick={() => { setMcpDefaultTab("mcp-tools"); setMcpPanelOpen(true); setClusterMenu(null); }}
+                  >
+                    MCP Tools
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+                    onClick={() => { setMcpDefaultTab("ai-chat"); setMcpPanelOpen(true); setClusterMenu(null); }}
+                  >
+                    AI Chat
+                  </button>
+                </>
               )}
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+                onClick={() => { setActiveView("control-plane"); setClusterMenu(null); }}
+              >
+                View in Instances
+              </button>
+              {activeDemoId && (
+                <>
+                  <div className="border-t border-border my-1" />
+                  {confirmReset ? (
+                    <div className="px-3 py-2">
+                      <div className="text-xs text-destructive mb-2">Remove all buckets from this cluster? This cannot be undone.</div>
+                      <div className="flex gap-1">
+                        <button
+                          className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
+                          onClick={() => { handleResetCluster(); setClusterMenu(null); }}
+                        >
+                          Confirm Reset
+                        </button>
+                        <button
+                          className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                          onClick={() => setConfirmReset(false)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                      onClick={() => setConfirmReset(true)}
+                    >
+                      Reset Cluster (Remove All Buckets)
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="px-3 py-1.5 text-xs text-muted-foreground">
+                Not deployed yet
+              </div>
+              <div className="border-t border-border my-1" />
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                onClick={() => {
+                  const { nodes, setNodes } = useDiagramStore.getState();
+                  setNodes(nodes.filter((n) => n.id !== id));
+                  setClusterMenu(null);
+                }}
+              >
+                Delete Cluster
+              </button>
             </>
           )}
           <div className="border-t border-border my-1" />
