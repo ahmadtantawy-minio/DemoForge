@@ -54,6 +54,13 @@ async def _check_live_replication_status(running, demo_id: str) -> bool | None:
             pass
         if demo_def and demo_def.clusters:
             alias = _re.sub(r"[^a-zA-Z0-9_]", "_", demo_def.clusters[0].label)
+        elif demo_def:
+            # Standalone MinIO nodes — site-replication uses "site1" alias
+            minio_nodes = [n for n in demo_def.nodes if n.component == "minio"]
+            if minio_nodes:
+                alias = _re.sub(r"[^a-zA-Z0-9_]", "_", minio_nodes[0].display_name) if minio_nodes[0].display_name else minio_nodes[0].id
+            else:
+                return None
         else:
             return None
         exit_code, stdout, stderr = await exec_in_container(
