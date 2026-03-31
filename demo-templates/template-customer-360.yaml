@@ -98,7 +98,6 @@ nodes:
     DG_SCENARIO: customer-360
 - id: minio-1
   component: minio
-  variant: single
   position:
     x: 100
     y: 150

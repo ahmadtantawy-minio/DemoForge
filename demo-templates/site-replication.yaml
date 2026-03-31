@@ -50,14 +50,12 @@ nodes:
   display_name: Site 1 LB
 - id: minio-site1-a
   component: minio
-  variant: single
   position:
     x: 400
     y: 50
   display_name: Site 1 - Node A
 - id: minio-site1-b
   component: minio
-  variant: single
   position:
     x: 400
     y: 250
@@ -71,14 +69,12 @@ nodes:
   display_name: Site 2 LB
 - id: minio-site2-a
   component: minio
-  variant: single
   position:
     x: 400
     y: 450
   display_name: Site 2 - Node A
 - id: minio-site2-b
   component: minio
-  variant: single
   position:
     x: 400
     y: 650

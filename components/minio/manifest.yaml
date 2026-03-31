@@ -158,17 +158,7 @@ connections:
       default: '1'
   - type: s3
   - type: failover
-variants:
-  single:
-    description: Single node, single drive
-    command:
-    - server
-    - /data
-    - --console-address
-    - :9001
-  cluster:
-    description: Multi-node erasure-coded cluster (command auto-generated)
-    command: []
+variants: {}
 template_mounts: []
 static_mounts: []
 config:

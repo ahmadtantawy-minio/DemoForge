@@ -47,14 +47,12 @@ nodes:
   display_name: LB - NVMe Cluster
 - id: minio-a1
   component: minio
-  variant: single
   position:
     x: 400
     y: 100
   display_name: NVMe Node 1
 - id: minio-a2
   component: minio
-  variant: single
   position:
     x: 400
     y: 300
@@ -68,14 +66,12 @@ nodes:
   display_name: LB - HDD Cluster
 - id: minio-b1
   component: minio
-  variant: single
   position:
     x: 400
     y: 500
   display_name: HDD Node 1
 - id: minio-b2
   component: minio
-  variant: single
   position:
     x: 400
     y: 700

@@ -98,7 +98,6 @@ nodes:
   config: {}
 - id: minio-1
   component: minio
-  variant: single
   position:
     x: 600
     y: 150

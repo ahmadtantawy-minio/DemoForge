@@ -98,7 +98,6 @@ nodes:
   config: {}
 - id: aistor-1
   component: minio
-  variant: single
   position:
     x: 250
     y: 150

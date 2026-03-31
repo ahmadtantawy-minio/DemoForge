@@ -101,28 +101,24 @@ nodes:
   display_name: Hot Tier LB
 - id: minio-hot-1
   component: minio
-  variant: single
   position:
     x: 400
     y: 250
   display_name: Hot NVMe Node 1
 - id: minio-hot-2
   component: minio
-  variant: single
   position:
     x: 400
     y: 450
   display_name: Hot NVMe Node 2
 - id: minio-cold-1
   component: minio
-  variant: single
   position:
     x: 750
     y: 250
   display_name: Cold HDD Node 1
 - id: minio-cold-2
   component: minio
-  variant: single
   position:
     x: 750
     y: 450
