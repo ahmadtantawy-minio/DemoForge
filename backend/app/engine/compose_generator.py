@@ -373,7 +373,18 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             env[key] = resolved
 
         # Inject license keys (before node.config overrides)
+        node_edition = node.config.get("MINIO_EDITION", "ce")
+        is_cluster_node = node.variant == "cluster"
         for lic_req in manifest.license_requirements:
+            # Skip edition-gated licenses that don't match
+            if lic_req.edition and lic_req.edition != node_edition:
+                continue
+            # For MinIO: use aistor-free for single nodes, enterprise for clusters
+            if node.component == "minio" and node_edition == "aistor":
+                if is_cluster_node and lic_req.license_id == "minio-aistor-free":
+                    continue  # Clusters use enterprise license
+                if not is_cluster_node and lic_req.license_id == "minio-enterprise":
+                    continue  # Single nodes use aistor-free license
             entry = license_store.get(lic_req.license_id)
             if entry and lic_req.injection_type == "env_var" and lic_req.env_var:
                 env[lic_req.env_var] = entry.value

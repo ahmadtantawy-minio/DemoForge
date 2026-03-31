@@ -166,13 +166,6 @@ variants:
     - /data
     - --console-address
     - :9001
-  multi-drive:
-    description: Single node, 4-drive erasure coding (simulated)
-    command:
-    - server
-    - /data{1...4}
-    - --console-address
-    - :9001
   cluster:
     description: Multi-node erasure-coded cluster (command auto-generated)
     command: []
@@ -207,3 +200,18 @@ init_scripts:
   timeout: 60
   order: 1
   description: Create default buckets
+license_requirements:
+- license_id: minio-aistor-free
+  label: AIStor Free License
+  description: Required for AIStor single-node deployments
+  injection_type: env_var
+  env_var: MINIO_LICENSE
+  required: false
+  edition: aistor
+- license_id: minio-enterprise
+  label: MinIO Enterprise License
+  description: Required for AIStor cluster deployments
+  injection_type: env_var
+  env_var: MINIO_LICENSE
+  required: false
+  edition: aistor

@@ -80,6 +80,7 @@ class LicenseRequirement(BaseModel):
     env_var: str | None = None       # e.g. "MINIO_SUBNET_LICENSE"
     mount_path: str | None = None    # e.g. "/etc/minio/license.key"
     required: bool = True
+    edition: str | None = None       # If set, only apply when node config MINIO_EDITION matches
 
 class InitScriptDef(BaseModel):
     command: str
