@@ -69,6 +69,12 @@ hub-trust:        ## [One-time] Configure Docker to trust the private registry
 seed-licenses:    ## Seed license keys to MinIO bucket
 	@scripts/seed-licenses.sh
 
+hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licenses
+	@scripts/hub-update.sh
+
+hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images
+	@scripts/hub-update.sh --$*
+
 ## Gateway
 gateway:          ## Deploy Cloud Run gateway + VPC (run after fresh GCP deploy)
 	@scripts/minio-gcp.sh --gateway

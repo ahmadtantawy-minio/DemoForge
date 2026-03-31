@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
@@ -84,6 +84,8 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
   const [showMyTemplates, setShowMyTemplates] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ enabled: boolean; synced_count: number; last_sync: string | null } | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const faMode = useDemoStore((s) => s.faMode);
   const [sourceMeta, setSourceMeta] = useState<{ sources: Record<string, number>; mode: string; sync: any } | null>(null);
 
   // Editable fields in the detail dialog
@@ -456,6 +458,28 @@ export default function TemplateGallery({ onCreateDemo }: TemplateGalleryProps) 
             <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
             Sync Now
           </Button>
+          {faMode === "dev" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs px-3 gap-1"
+              disabled={pushing}
+              onClick={async () => {
+                setPushing(true);
+                try {
+                  const result = await pushBuiltinTemplates();
+                  toast.success(`Pushed ${result.uploaded} templates to hub`);
+                } catch (err: any) {
+                  toast.error("Push failed", { description: err.message });
+                } finally {
+                  setPushing(false);
+                }
+              }}
+            >
+              <Upload className={`w-3 h-3 ${pushing ? "animate-spin" : ""}`} />
+              Push to Hub
+            </Button>
+          )}
         </div>
       )}
 

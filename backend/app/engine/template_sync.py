@@ -287,3 +287,35 @@ def publish_template(template_id: str) -> dict:
     except Exception as e:
         logger.error(f"Failed to publish template: {e}")
         return {"status": "error", "message": str(e)}
+
+
+def publish_builtin_templates() -> dict:
+    """Push all builtin templates to the remote bucket. Dev mode only."""
+    if not SYNC_ENABLED:
+        return {"status": "error", "message": "Sync not enabled."}
+
+    if not SYNC_ACCESS_KEY or not SYNC_SECRET_KEY:
+        return {"status": "error", "message": "Sync credentials not configured."}
+
+    builtin_dir = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
+    if not os.path.isdir(builtin_dir):
+        return {"status": "error", "message": f"Builtin templates dir not found: {builtin_dir}"}
+
+    s3 = _get_s3_client()
+    stats = {"uploaded": 0, "errors": 0, "templates": []}
+
+    for fname in sorted(os.listdir(builtin_dir)):
+        if not fname.endswith(".yaml"):
+            continue
+        local_path = os.path.join(builtin_dir, fname)
+        remote_key = f"{SYNC_PREFIX}{fname}"
+        try:
+            s3.upload_file(local_path, SYNC_BUCKET, remote_key)
+            stats["uploaded"] += 1
+            stats["templates"].append(fname)
+            logger.info(f"Pushed builtin template: {fname}")
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"Failed to push {fname}: {e}")
+
+    return {"status": "ok", **stats}

@@ -419,6 +419,10 @@ export const fetchTemplateGuide = (templateId: string) =>
 export const fetchIdentity = () =>
   apiFetch<{ fa_id: string; identified: boolean; mode: string }>("/api/identity");
 
+// Dev mode: push builtin templates to hub
+export const pushBuiltinTemplates = () =>
+  apiFetch<{ status: string; uploaded: number; errors: number }>("/api/templates/push-all-builtin", { method: "POST" });
+
 // Template management
 export const saveAsTemplate = (payload: {
   demo_id: string;

@@ -530,6 +530,20 @@ async def sync_status():
     return get_sync_status()
 
 
+@router.post("/api/templates/push-all-builtin")
+async def push_all_builtin():
+    """Push all builtin templates to the remote hub. Dev mode only."""
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    if mode != "dev":
+        raise HTTPException(403, "Push is only available in dev mode.")
+
+    from ..engine.template_sync import publish_builtin_templates
+    result = publish_builtin_templates()
+    if result.get("status") == "error":
+        raise HTTPException(500, result.get("message", "Push failed"))
+    return result
+
+
 @router.post("/api/templates/{template_id}/publish")
 async def publish_template_endpoint(template_id: str):
     """Publish a user template to the remote bucket for team sharing."""
