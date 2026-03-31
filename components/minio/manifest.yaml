@@ -188,14 +188,14 @@ init_scripts:
   description: Create default buckets
 license_requirements:
 - license_id: minio-aistor-free
-  label: AIStor Free License
+  label: AIStor Free
   description: Required for AIStor single-node deployments
   injection_type: env_var
   env_var: MINIO_LICENSE
   required: false
   edition: aistor
 - license_id: minio-enterprise
-  label: MinIO Enterprise License
+  label: AIStor Enterprise
   description: Required for AIStor cluster deployments
   injection_type: env_var
   env_var: MINIO_LICENSE

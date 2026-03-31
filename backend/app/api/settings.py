@@ -60,7 +60,7 @@ def license_status():
     """Cross-reference registry license_requirements with stored licenses."""
     registry = get_registry()
     results = []
-    for manifest in registry.values():
+    for manifest in {m.id: m for m in registry.values()}.values():
         for req in manifest.license_requirements:
             entry = license_store.get(req.license_id)
             results.append({
