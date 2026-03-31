@@ -158,30 +158,30 @@ def _gen_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: st
     if source_user != target_user or source_pass != target_pass:
         logger.warning(f"site-replication edge {edge.id}: credentials differ between {source_node.id} and {target_node.id}. Site replication requires matching root credentials.")
 
-    source_host = f"{project_name}-{source_node.id}"
-    target_host = f"{project_name}-{target_node.id}"
+    # Use the same alias names as mc-shell init (based on display_name or node id)
+    import re as _re
+    source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_node.display_name) if source_node.display_name else source_node.id
+    target_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", target_node.display_name) if target_node.display_name else target_node.id
 
     # Site-replication activation (same pattern as cluster-site-replication):
-    # 1. Set up aliases and wait for nodes to be ready
+    # 1. Wait for mc-shell aliases to be ready (set by init.sh)
     # 2. Check if already configured via mc admin replicate info
     # 3. If enabled → idempotent (already in group)
     # 4. If not enabled → clean target buckets first, then add
     # 5. Verify replication is active after adding
     command = (
-        f"mc alias set site1 http://{source_host}:9000 {_safe(source_user)} {_safe(source_pass)} && "
-        f"mc alias set site2 http://{target_host}:9000 {_safe(target_user)} {_safe(target_pass)} && "
-        f"for i in $(seq 1 15); do mc admin info site1 >/dev/null 2>&1 && mc admin info site2 >/dev/null 2>&1 && break; sleep 2; done && "
-        f"STATUS=$(mc admin replicate info site1 2>&1 | head -1) && "
+        f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && mc admin info {target_alias} >/dev/null 2>&1 && break; sleep 2; done && "
+        f"STATUS=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
         # Already enabled — nothing to do
-        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info site1;; "
+        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info {source_alias};; "
         # Not enabled — clean target and set up
         f"*) echo \"Setting up site replication...\"; "
-        f"mc ls site2/ 2>/dev/null | while read line; do "
+        f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
-        f"[ -n \"$b\" ] && echo \"Removing site2/$b\" && mc rb --force site2/$b 2>/dev/null; done; "
-        f"mc admin replicate add site1 site2 && "
-        f"VERIFY=$(mc admin replicate info site1 2>&1 | head -1) && "
+        f"[ -n \"$b\" ] && echo \"Removing {target_alias}/$b\" && mc rb --force {target_alias}/$b 2>/dev/null; done; "
+        f"mc admin replicate add {source_alias} {target_alias} && "
+        f"VERIFY=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
         f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
         f"esac"
