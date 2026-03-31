@@ -413,6 +413,12 @@ if [[ "$MODE" == "gateway" ]]; then
     reverse_proxy ${INTERNAL_IP}:9000
   }
 
+  # Templates bucket (anonymous read — path rewrite to MinIO bucket)
+  handle_path /templates/* {
+    rewrite * /demoforge-templates{uri}
+    reverse_proxy ${INTERNAL_IP}:9000
+  }
+
   # Docker Registry v2 API (path-based — Docker client doesn't sign requests)
   handle /v2/* {
     reverse_proxy ${INTERNAL_IP}:5000
@@ -536,6 +542,11 @@ GWDOCKERFILE
     reverse_proxy {$HUB_URL}
   }
   handle /licenses/* {
+    reverse_proxy {$HUB_URL} {
+      header_up X-Api-Key {$API_KEY}
+    }
+  }
+  handle /templates/* {
     reverse_proxy {$HUB_URL} {
       header_up X-Api-Key {$API_KEY}
     }

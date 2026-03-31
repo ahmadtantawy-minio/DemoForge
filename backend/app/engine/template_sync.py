@@ -1,20 +1,28 @@
 """
 Template sync — pulls templates from a remote MinIO bucket.
 
+Supports two sync modes:
+  1. HTTP (via hub connector) — no S3 signing, works for FAs behind gateway
+  2. S3 SDK (direct) — used as fallback, or for publish (dev mode only)
+
 Environment variables:
-  DEMOFORGE_SYNC_ENABLED=true|false       (default: false)
-  DEMOFORGE_SYNC_ENDPOINT=http://34.18.90.197:9000
+  DEMOFORGE_SYNC_ENABLED=true|false
+  DEMOFORGE_SYNC_ENDPOINT=http://34.18.90.197:9000   (S3 SDK endpoint)
   DEMOFORGE_SYNC_BUCKET=demoforge-templates
-  DEMOFORGE_SYNC_PREFIX=templates/        (prefix within bucket)
+  DEMOFORGE_SYNC_PREFIX=templates/
   DEMOFORGE_SYNC_ACCESS_KEY=demoforge-sync
   DEMOFORGE_SYNC_SECRET_KEY=<from .env.hub>
   DEMOFORGE_SYNC_REGION=us-east-1
   DEMOFORGE_SYNCED_TEMPLATES_DIR=./synced-templates
+  DEMOFORGE_REGISTRY_HOST=host.docker.internal:5000  (used to derive connector URL)
 """
 
 import os
 import json
 import logging
+import urllib.request
+import urllib.error
+import xml.etree.ElementTree as ET
 from datetime import datetime
 
 import boto3
@@ -30,6 +38,13 @@ SYNC_ACCESS_KEY = os.environ.get("DEMOFORGE_SYNC_ACCESS_KEY", "")
 SYNC_SECRET_KEY = os.environ.get("DEMOFORGE_SYNC_SECRET_KEY", "")
 SYNC_REGION = os.environ.get("DEMOFORGE_SYNC_REGION", "us-east-1")
 SYNCED_DIR = os.environ.get("DEMOFORGE_SYNCED_TEMPLATES_DIR", "./synced-templates")
+
+# Hub connector URL for HTTP-based sync (no S3 signing)
+_REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
+HUB_TEMPLATES_URL = ""
+if _REGISTRY_HOST:
+    _hub_host = _REGISTRY_HOST.split(":")[0]
+    HUB_TEMPLATES_URL = f"http://{_hub_host}:8080/templates"
 
 SYNC_MANIFEST_PATH = os.path.join(SYNCED_DIR, ".sync-manifest.json")
 
@@ -63,18 +78,112 @@ def _save_manifest(manifest: dict):
         json.dump(manifest, f, indent=2)
 
 
+def _sync_via_http() -> dict | None:
+    """Sync templates via HTTP (hub connector). Returns stats dict or None if unavailable."""
+    if not HUB_TEMPLATES_URL:
+        return None
+
+    try:
+        # List templates via S3 ListObjectsV2 through the connector
+        # The connector proxies /templates/* → gateway → MinIO bucket
+        list_url = f"{HUB_TEMPLATES_URL}/?list-type=2&prefix={SYNC_PREFIX}"
+        req = urllib.request.Request(list_url)
+        resp = urllib.request.urlopen(req, timeout=10)
+        xml_data = resp.read()
+        resp.close()
+    except Exception as e:
+        logger.debug(f"HTTP sync listing failed: {e}")
+        return None
+
+    try:
+        root = ET.fromstring(xml_data)
+        ns = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+
+        manifest = _load_manifest()
+        stats = {"downloaded": 0, "unchanged": 0, "deleted": 0, "errors": 0}
+        remote_keys: set[str] = set()
+
+        for content in root.findall(f"{ns}Contents"):
+            key_el = content.find(f"{ns}Key")
+            etag_el = content.find(f"{ns}ETag")
+            if key_el is None:
+                continue
+            key = key_el.text or ""
+            if not key.endswith(".yaml"):
+                continue
+
+            fname = key.removeprefix(SYNC_PREFIX).lstrip("/")
+            if "/" in fname or not fname:
+                continue
+
+            remote_keys.add(fname)
+            remote_etag = (etag_el.text or "").strip('"') if etag_el is not None else ""
+
+            if manifest.get(fname, {}).get("etag") == remote_etag and remote_etag:
+                stats["unchanged"] += 1
+                continue
+
+            # Download the template file
+            try:
+                file_url = f"{HUB_TEMPLATES_URL}/{SYNC_PREFIX}{fname}"
+                file_req = urllib.request.Request(file_url)
+                file_resp = urllib.request.urlopen(file_req, timeout=10)
+                content_bytes = file_resp.read()
+                file_resp.close()
+
+                local_path = os.path.join(SYNCED_DIR, fname)
+                if not os.path.realpath(local_path).startswith(os.path.realpath(SYNCED_DIR)):
+                    continue
+                with open(local_path, "wb") as f:
+                    f.write(content_bytes)
+
+                manifest[fname] = {
+                    "etag": remote_etag,
+                    "synced_at": datetime.utcnow().isoformat() + "Z",
+                    "size": len(content_bytes),
+                }
+                stats["downloaded"] += 1
+                logger.info(f"Synced template (HTTP): {fname}")
+            except Exception as e:
+                stats["errors"] += 1
+                logger.error(f"Failed to download {fname} via HTTP: {e}")
+
+        # Remove locally synced templates no longer on remote
+        for fname in list(manifest.keys()):
+            if fname not in remote_keys:
+                local_path = os.path.join(SYNCED_DIR, fname)
+                if os.path.exists(local_path):
+                    os.remove(local_path)
+                del manifest[fname]
+                stats["deleted"] += 1
+
+        _save_manifest(manifest)
+        return stats
+
+    except ET.ParseError as e:
+        logger.debug(f"HTTP sync XML parse failed: {e}")
+        return None
+
+
 def sync_templates() -> dict:
     """
     Pull templates from remote bucket. Returns summary of changes.
-    Only downloads files whose ETag has changed since last sync.
+    Tries HTTP (via connector) first, falls back to S3 SDK.
     """
     if not SYNC_ENABLED:
         return {"status": "disabled", "message": "Template sync is not enabled."}
 
+    os.makedirs(SYNCED_DIR, exist_ok=True)
+
+    # Try HTTP sync first (works for FAs behind gateway — no S3 signing)
+    http_stats = _sync_via_http()
+    if http_stats is not None:
+        return {"status": "ok", "method": "http", **http_stats}
+
+    # Fall back to S3 SDK (needs direct access or valid S3 credentials)
     if not SYNC_ACCESS_KEY or not SYNC_SECRET_KEY:
         return {"status": "error", "message": "Sync credentials not configured. Run scripts/hub-setup.sh and copy .env.hub to .env.local."}
 
-    os.makedirs(SYNCED_DIR, exist_ok=True)
     manifest = _load_manifest()
     s3 = _get_s3_client()
 
