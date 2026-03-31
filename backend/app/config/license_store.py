@@ -1,13 +1,24 @@
-"""License key storage — MinIO-backed with local YAML fallback."""
+"""License key storage — Hub HTTP API (via connector) → MinIO S3 SDK → local YAML fallback."""
 import os
 import json
 import logging
+import urllib.request
+import urllib.error
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# Hub connector endpoint for license reads (avoids S3 signature issues)
+HUB_LICENSES_URL = os.environ.get("DEMOFORGE_HUB_LICENSES_URL", "")
+# Auto-detect from registry host: if connector is at host.docker.internal:5000,
+# the licenses endpoint is at host.docker.internal:8080/licenses
+_REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
+if not HUB_LICENSES_URL and _REGISTRY_HOST:
+    _hub_host = _REGISTRY_HOST.split(":")[0]  # e.g. host.docker.internal
+    HUB_LICENSES_URL = f"http://{_hub_host}:8080/licenses"
 
 
 @dataclass
@@ -153,10 +164,32 @@ class LicenseStore:
                 pass
             raise
 
+    # --- HTTP read (via hub connector — no S3 signing needed) ---
+
+    def _http_get(self, license_id: str) -> LicenseEntry | None:
+        if not HUB_LICENSES_URL:
+            return None
+        try:
+            url = f"{HUB_LICENSES_URL}/{license_id}.json"
+            req = urllib.request.Request(url, method="GET")
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read())
+            return LicenseEntry(**data)
+        except Exception:
+            return None
+
+    def _http_list(self) -> list[LicenseEntry] | None:
+        """List licenses via HTTP — tries MinIO S3 list since HTTP directory listing isn't available."""
+        return None  # HTTP doesn't support listing; fall through to S3 or YAML
+
     # --- Public API ---
 
     def get(self, license_id: str) -> LicenseEntry | None:
-        # Try MinIO first
+        # Try HTTP (via connector — no S3 signing issues)
+        entry = self._http_get(license_id)
+        if entry:
+            return entry
+        # Try MinIO S3 SDK
         entry = self._minio_get(license_id)
         if entry:
             return entry

@@ -407,6 +407,12 @@ if [[ "$MODE" == "gateway" ]]; then
     reverse_proxy ${INTERNAL_IP}:9001
   }
 
+  # Licenses bucket (anonymous read — path rewrite to MinIO bucket)
+  handle_path /licenses/* {
+    rewrite * /demoforge-licenses{uri}
+    reverse_proxy ${INTERNAL_IP}:9000
+  }
+
   # Docker Registry v2 API (path-based — Docker client doesn't sign requests)
   handle /v2/* {
     reverse_proxy ${INTERNAL_IP}:5000
@@ -523,11 +529,16 @@ GWDOCKERFILE
   }
 }
 
-# Health endpoint
+# Health + Licenses endpoint
 :8080 {
   handle /health {
     rewrite * /health
     reverse_proxy {$HUB_URL}
+  }
+  handle /licenses/* {
+    reverse_proxy {$HUB_URL} {
+      header_up X-Api-Key {$API_KEY}
+    }
   }
   handle / {
     respond "hub-connector running" 200
