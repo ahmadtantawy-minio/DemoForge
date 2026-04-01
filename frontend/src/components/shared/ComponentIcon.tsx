@@ -479,25 +479,22 @@ function InferenceSimIcon({ size }: { size: number }) {
 }
 
 function SolaceIcon({ size }: { size: number }) {
+  // Solace brand green #00BF6F, stylised S-curve mark
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect width="32" height="32" rx="4" fill="#00BF6F" />
-      {/* Solace wave/flow motif */}
-      <path d="M5 20 Q9 14 13 18 Q17 22 21 16 Q25 10 27 14" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-      <path d="M5 24 Q9 18 13 22 Q17 26 21 20 Q25 14 27 18" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.6" />
-      <circle cx="7" cy="11" r="3" fill="white" />
-      <path d="M7 11 Q12 8 16 11" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+      {/* Upper arc: curves right from top-left to mid */}
+      <path d="M10 9 C10 9 22 9 22 13 C22 17 10 15 10 19 C10 23 22 23 22 23" stroke="white" strokeWidth="3" strokeLinecap="round" fill="none" />
     </svg>
   );
 }
 
 function KongIcon({ size }: { size: number }) {
+  // Official Kong icon from Simple Icons (viewBox 0 0 24 24), scaled to 32×32
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="4" fill="#003459" />
-      {/* Kong stylized gateway/arch */}
-      <path d="M8 24V10h3v5l5-5h4l-6 6 6 8h-4l-5-6v6H8z" fill="#00B4D8" />
-      <rect x="22" y="10" width="2" height="14" rx="1" fill="#00B4D8" opacity="0.6" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="3" fill="#003459" />
+      <path d="M7.88 18.96h4.405l2.286 2.876-.393.979h-5.69l.139-.979-1.341-2.117.594-.759Zm3.152-12.632 2.36-.004L24 18.97l-.824 3.845h-4.547l.283-1.083L9 9.912l2.032-3.584Zm4.17-5.144 4.932 3.876-.632.651.855 1.191v1.273l-2.458 2.004-4.135-4.884h-2.407l.969-1.777 2.876-2.334ZM4.852 13.597l3.44-2.989 4.565 5.494-1.296 2.012h-4.21l-2.912 3.822-.665.879H0v-4.689l3.517-4.529h1.335Z" fill="white" />
     </svg>
   );
 }
