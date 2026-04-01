@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class PortDef(BaseModel):
     name: str                     # "api", "console"
     container: int                # 9000, 9001
+    host: int | None = None       # Optional host port override (e.g. 18080 to avoid conflicts)
     protocol: str = "tcp"
 
 class ResourceDef(BaseModel):
@@ -124,3 +125,6 @@ class ComponentManifest(BaseModel):
     init_scripts: list[InitScriptDef] = []
     license_requirements: list[LicenseRequirement] = []
     image_size_mb: float | None = None  # compressed pull size MB, None = unknown
+    shm_size: str | None = None          # e.g. "1g" for Solace shared memory
+    resource_weight: str = "medium"      # "light" | "medium" | "heavy"
+    depends_on_components: list[str] = [] # component names resolved to node IDs at deploy time

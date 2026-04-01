@@ -1,0 +1,111 @@
+_template:
+  name: Event-Driven Ingestion Pipeline
+  tier: advanced
+  category: integration
+  tags:
+    - event-driven
+    - messaging
+    - api-gateway
+    - solace
+    - kong
+    - minio
+  description: >
+    Producers fire events freely into Solace PubSub+ without throttling.
+    Kong Gateway protects downstream MinIO storage with consumer-side rate
+    limiting and auth. MinIO bucket notifications feed back into the event
+    mesh via a lightweight bridge — enabling reactive fan-out to downstream
+    consumers.
+  objective: >
+    Demonstrate a production-grade event ingestion pattern where the broker
+    absorbs all producer traffic, the gateway protects storage, and bucket
+    notifications complete the feedback loop.
+  minio_value: >
+    MinIO is the S3-compatible landing zone protected by Kong. Bucket
+    notifications drive reactive downstream processing — MinIO is not just
+    storage, it's an event source.
+  estimated_resources:
+    memory: 8GB
+    cpu: 4
+    containers: 4
+  walkthrough:
+    - step: Deploy
+      description: Click Deploy. Solace takes ~60s to boot — watch for the green health indicator before proceeding.
+    - step: Open Solace Manager
+      description: Open PubSub+ Manager (port 18080). You'll see the default VPN with zero messages.
+    - step: Publish test events
+      description: Use the FA test commands to fire 10 events into Solace via REST ingress on port 8008.
+    - step: Watch MinIO
+      description: Open MinIO Console (port 9001). Objects appear in the ingestion bucket as events flow through Kong.
+    - step: Show the feedback loop
+      description: Delete an object in MinIO — watch the bucket notification appear as a new event in Solace's minio-events queue.
+    - step: Demo rate limiting
+      description: Fire a burst at Kong (200 requests). Show the mix of 200s and 429s — Solace buffers the overflow and retries.
+
+name: event-driven-ingestion
+description: >
+  Event-Driven Data Ingestion Pipeline — Solace PubSub+ → Kong Gateway → MinIO
+  with bucket notification feedback loop via Event Bridge.
+mode: standard
+
+nodes:
+  - id: solace
+    component: solace-pubsub
+    variant: default
+    position:
+      x: 150.0
+      y: 200.0
+    config: {}
+
+  - id: kong
+    component: kong-gateway
+    variant: default
+    position:
+      x: 500.0
+      y: 200.0
+    config: {}
+
+  - id: minio
+    component: minio
+    variant: default
+    position:
+      x: 850.0
+      y: 200.0
+    config:
+      MINIO_NOTIFY_WEBHOOK_ENABLE_BRIDGE: "on"
+      MINIO_NOTIFY_WEBHOOK_ENDPOINT_BRIDGE: "http://event-bridge:3500/webhook"
+      MINIO_NOTIFY_WEBHOOK_QUEUE_DIR_BRIDGE: /data/.minio/notify/webhook
+      MINIO_NOTIFY_WEBHOOK_QUEUE_LIMIT_BRIDGE: "10000"
+
+  - id: event-bridge
+    component: event-bridge
+    variant: default
+    position:
+      x: 500.0
+      y: 450.0
+    config:
+      SOLACE_REST_URL: "http://solace:8008"
+
+edges:
+  - id: edge-solace-kong
+    source: solace
+    target: kong
+    connection_type: event-stream
+    label: "Guaranteed delivery"
+
+  - id: edge-kong-minio
+    source: kong
+    target: minio
+    connection_type: s3
+    label: "Auth + rate limit"
+
+  - id: edge-minio-bridge
+    source: minio
+    target: event-bridge
+    connection_type: webhook
+    label: "Bucket notification"
+
+  - id: edge-bridge-solace
+    source: event-bridge
+    target: solace
+    connection_type: event-stream
+    label: "REST publish"

@@ -1,0 +1,60 @@
+id: kong-gateway
+name: Kong Gateway
+category: networking
+image: kong/kong-gateway:3.9
+image_size_mb: 500
+description: DB-less API gateway providing consumer-side rate limiting, auth, and request transformation.
+resource_weight: medium
+
+ports:
+  - name: proxy
+    container: 8000
+    protocol: tcp
+  - name: proxy-ssl
+    container: 8443
+    protocol: tcp
+  - name: admin
+    container: 8001
+    protocol: tcp
+
+environment:
+  KONG_DATABASE: "off"
+  KONG_PROXY_ACCESS_LOG: /dev/stdout
+  KONG_ADMIN_ACCESS_LOG: /dev/stdout
+  KONG_PROXY_ERROR_LOG: /dev/stderr
+  KONG_ADMIN_ERROR_LOG: /dev/stderr
+  KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+  KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+
+template_mounts:
+  - template: kong.yml.j2
+    mount_path: /etc/kong/kong.yml
+
+health_check:
+  endpoint: /status
+  port: 8001
+  interval: "10s"
+  timeout: "5s"
+  start_period: "15s"
+  retries: 10
+
+web_ui:
+  - name: Kong Admin API
+    port: 8001
+    path: /
+    description: Kong admin API
+
+connections:
+  accepts:
+    - type: s3
+      description: Upstream MinIO S3 endpoint
+  provides:
+    - type: s3
+      port: 8000
+      description: Rate-limited S3 proxy
+
+variants:
+  default:
+    description: DB-less Kong Gateway with declarative config
+static_mounts: []
+init_scripts: []

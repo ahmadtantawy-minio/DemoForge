@@ -1,6 +1,6 @@
 # DemoForge
 
-Interactive demo orchestration platform for MinIO Field Architects. Design, deploy, and manage Docker-based demo environments from a visual canvas with 26+ pre-built templates covering replication, analytics, AI/ML, lakehouse, and more.
+Interactive demo orchestration platform for MinIO Field Architects. Design, deploy, and manage Docker-based demo environments from a visual canvas with 27+ pre-built templates covering replication, analytics, AI/ML, lakehouse, event-driven ingestion, and more.
 
 ## Architecture
 
@@ -29,8 +29,8 @@ Interactive demo orchestration platform for MinIO Field Architects. Design, depl
 |-----------|---------|
 | `frontend/` | React 18 + Vite 6 + Tailwind + shadcn/ui |
 | `backend/` | FastAPI (Python), Docker orchestration engine |
-| `components/` | 25+ component manifests (image, ports, connections, init scripts) |
-| `demo-templates/` | 26 built-in demo templates (YAML) |
+| `components/` | 37+ component manifests (image, ports, connections, init scripts) |
+| `demo-templates/` | 27 built-in demo templates (YAML) |
 | `user-templates/` | Field Architect-saved custom templates |
 | `synced-templates/` | Templates synced from Hub (remote MinIO) |
 | `scripts/` | Hub management, GCP gateway, FA setup scripts |
@@ -192,6 +192,8 @@ make dev-be         # FastAPI with live reload on :9210
 - **`/api/templates/push-all-builtin`** endpoint enabled
 - FA identity check **skipped** at startup (uses `DEMOFORGE_FA_ID` from `.env.local` if set, falls back to git email)
 - Template **Override & Revert** with SHA-256 backup verification
+- **FA-Ready validation** — per-template shield toggle to mark templates as approved for Field Architects; validated list stored in MinIO (`{SYNC_PREFIX}validated.json`). In FA mode (non-dev), only validated templates are visible. Requires an active Hub connection — returns HTTP 503 if MinIO is unreachable.
+- **FA Ready tab** in the template gallery shows all validated templates across categories
 
 ### Hub Management (Dev Only)
 
@@ -286,8 +288,8 @@ DemoForge/
 │   ├── engine/                    # Docker manager, template sync/backup
 │   ├── models/                    # Pydantic models
 │   └── registry/                  # Component manifest loader
-├── components/*/manifest.yaml     # Component definitions
-├── demo-templates/*.yaml          # Built-in templates
+├── components/*/manifest.yaml     # Component definitions (minio, trino, spark, kafka, solace-pubsub, kong-gateway, event-bridge, grafana, and 29 more)
+├── demo-templates/*.yaml          # Built-in templates (27 total, including event-driven-ingestion)
 ├── scripts/
 │   ├── minio-gcp.sh              # GCP VM + gateway management
 │   ├── hub-update.sh             # Unified hub update (gateway/templates/images/licenses)

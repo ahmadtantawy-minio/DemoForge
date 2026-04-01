@@ -943,6 +943,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if manifest.entrypoint:
             service["entrypoint"] = manifest.entrypoint
 
+        if manifest.shm_size:
+            service["shm_size"] = manifest.shm_size
+
+        # Host port mappings for ports with explicit host overrides
+        host_ports = [f"{p.host}:{p.container}" for p in manifest.ports if p.host]
+        if host_ports:
+            service["ports"] = host_ports
+
         # Healthcheck
         if manifest.health_check and not getattr(manifest.health_check, 'disabled', False) and manifest.health_check.port:
             hc = manifest.health_check
@@ -999,6 +1007,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             service["volumes"] = service_volumes
 
         services[service_name] = service
+
+    # Resolve depends_on_components: map component names to actual node IDs
+    for node in demo.nodes:
+        manifest = get_component(node.component)
+        if manifest and manifest.depends_on_components:
+            resolved = {}
+            for dep_component in manifest.depends_on_components:
+                for other_node in demo.nodes:
+                    if other_node.component == dep_component:
+                        resolved[other_node.id] = {"condition": "service_healthy"}
+                        break
+            if resolved and node.id in services:
+                services[node.id]["depends_on"] = resolved
 
     # Enforce total demo budget — scale down per-container if total exceeds budget
     res = demo.resources

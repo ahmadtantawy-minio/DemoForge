@@ -1,0 +1,65 @@
+id: solace-pubsub
+name: Solace PubSub+
+category: messaging
+image: solace/solace-pubsub-standard:latest
+image_size_mb: 1200
+description: Enterprise event broker with guaranteed messaging, backpressure management, and multi-protocol support (MQTT, AMQP, REST, SMF).
+resource_weight: heavy
+shm_size: "1g"
+
+ports:
+  - name: manager
+    container: 8080
+    host: 18080
+    protocol: tcp
+  - name: smf
+    container: 55555
+    protocol: tcp
+  - name: mqtt
+    container: 1883
+    protocol: tcp
+  - name: rest
+    container: 8008
+    protocol: tcp
+  - name: amqp
+    container: 5672
+    protocol: tcp
+
+environment:
+  username_admin_globalaccesslevel: admin
+  username_admin_password: admin
+  system_scaling_maxconnectioncount: "100"
+
+health_check:
+  endpoint: /health
+  port: 8080
+  interval: "15s"
+  timeout: "10s"
+  start_period: "90s"
+  retries: 20
+
+web_ui:
+  - name: PubSub+ Manager
+    port: 8080
+    path: /
+    description: Solace web management console (available at host port 18080)
+
+connections:
+  provides:
+    - type: event-stream
+      port: 8008
+      description: REST messaging ingress
+      path: /TOPIC
+    - type: event-stream
+      port: 1883
+      description: MQTT ingress
+  accepts:
+    - type: event-stream
+      description: Incoming event publications
+
+variants:
+  default:
+    description: Single-node Solace PubSub+ Standard edition
+template_mounts: []
+static_mounts: []
+init_scripts: []

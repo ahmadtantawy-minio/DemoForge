@@ -1,0 +1,52 @@
+{%- set ns = namespace(minio_service="") %}
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 's3' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node and source_node.component == 'minio' %}
+{%- set ns.minio_service = project_name ~ "-" ~ source_node.id %}
+{%- endif %}
+{%- elif edge.source == node.id and edge.connection_type == 's3' %}
+{%- set target_node = nodes | selectattr('id', 'equalto', edge.target) | first %}
+{%- if target_node and target_node.component == 'minio' %}
+{%- set ns.minio_service = project_name ~ "-" ~ target_node.id %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: minio-s3
+    url: http://{{ ns.minio_service }}:9000
+    routes:
+      - name: minio-s3-route
+        paths:
+          - /s3
+        strip_path: true
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+      - name: key-auth
+        config:
+          key_names:
+            - x-api-key
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "X-Forwarded-Proto:http"
+
+  - name: minio-console
+    url: http://{{ ns.minio_service }}:9001
+    routes:
+      - name: minio-console-route
+        paths:
+          - /console
+        strip_path: true
+
+consumers:
+  - username: solace-consumer
+    keyauth_credentials:
+      - key: demo-solace-key-2024
