@@ -270,3 +270,57 @@ async def prune_dangling_images():
         client.close()
         return {"removed": deleted, "reclaimed_mb": round(reclaimed / 1_000_000, 1)}
     return await asyncio.to_thread(_prune)
+
+
+@router.post("/hub-push")
+async def hub_push_images():
+    """Build and push all custom component images to the hub registry. Dev mode only."""
+    if os.environ.get("DEMOFORGE_MODE") != "dev":
+        raise HTTPException(403, "Hub image push is only available in dev mode.")
+
+    registry = REGISTRY_HOST
+    if not registry:
+        raise HTTPException(400, "DEMOFORGE_REGISTRY_HOST is not configured.")
+
+    components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "/app/components")
+    host_components_dir = os.environ.get("DEMOFORGE_HOST_COMPONENTS_DIR", "")
+
+    import glob as _glob
+    dockerfiles = sorted(_glob.glob(f"{components_dir}/*/Dockerfile"))
+
+    async def _build_and_push(component: str, build_ctx: str) -> dict:
+        tag = f"{registry}/demoforge-{component}:latest"
+        build = await asyncio.create_subprocess_exec(
+            "docker", "build", "-t", tag, build_ctx,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _, build_err = await build.communicate()
+        if build.returncode != 0:
+            return {"component": component, "tag": tag, "status": "build_failed",
+                    "error": build_err.decode()[-500:]}
+
+        push = await asyncio.create_subprocess_exec(
+            "docker", "push", tag,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _, push_err = await push.communicate()
+        if push.returncode != 0:
+            return {"component": component, "tag": tag, "status": "push_failed",
+                    "error": push_err.decode()[-500:]}
+
+        return {"component": component, "tag": tag, "status": "ok"}
+
+    tasks = []
+    for df in dockerfiles:
+        component = os.path.basename(os.path.dirname(df))
+        # Docker daemon needs the host path for the build context
+        if host_components_dir:
+            build_ctx = os.path.join(host_components_dir, component)
+        else:
+            build_ctx = os.path.dirname(df)
+        tasks.append(_build_and_push(component, build_ctx))
+
+    results = await asyncio.gather(*tasks)
+    pushed = sum(1 for r in results if r["status"] == "ok")
+    failed = sum(1 for r in results if r["status"] != "ok")
+    return {"pushed": pushed, "failed": failed, "results": list(results)}

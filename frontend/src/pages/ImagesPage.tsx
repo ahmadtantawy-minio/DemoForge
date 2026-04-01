@@ -1,15 +1,19 @@
 import { useEffect, useState, useCallback } from "react";
 import { getImageStatus, pullImage, getPullStatus, pullAllMissing, getDanglingImages, pruneDanglingImages, ImageInfo } from "../api/images";
+import { hubPushImages } from "../api/client";
 import { ImageStatusBadge } from "../components/images/ImageStatusBadge";
-import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server } from "lucide-react";
+import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { useDemoStore } from "../stores/demoStore";
 
 type ImageWithPull = ImageInfo & { pullStatus?: "pulling" | "complete" | "error"; pullPct?: number };
 
 export function ImagesPage() {
+  const { faMode } = useDemoStore();
   const [images, setImages] = useState<ImageWithPull[]>([]);
   const [loading, setLoading] = useState(true);
   const [pullingAll, setPullingAll] = useState(false);
+  const [hubPushing, setHubPushing] = useState(false);
   const [dangling, setDangling] = useState<{ count: number; reclaimable_mb: number } | null>(null);
   const [pruning, setPruning] = useState(false);
   const [registryStatus, setRegistryStatus] = useState<"checking" | "connected" | "unreachable">("checking");
@@ -80,6 +84,25 @@ export function ImagesPage() {
     }
   };
 
+  const handleHubPush = async () => {
+    setHubPushing(true);
+    try {
+      const result = await hubPushImages();
+      if (result.failed > 0) {
+        toast.warning(`Pushed ${result.pushed} images, ${result.failed} failed`, {
+          description: result.results.filter(r => r.status !== "ok").map(r => `${r.component}: ${r.status}`).join(", ")
+        });
+      } else {
+        toast.success(`Pushed ${result.pushed} custom images to hub`);
+      }
+      loadImages();
+    } catch (err: any) {
+      toast.error("Hub push failed", { description: err.message });
+    } finally {
+      setHubPushing(false);
+    }
+  };
+
   const groups = {
     vendor: images.filter(i => i.category === "vendor"),
     custom: images.filter(i => i.category === "custom"),
@@ -115,6 +138,17 @@ export function ImagesPage() {
             <button onClick={loadImages} className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-muted border text-foreground hover:bg-accent transition-colors">
               <RefreshCw className="w-4 h-4" /> Refresh
             </button>
+            {faMode === "dev" && (
+              <button
+                onClick={handleHubPush}
+                disabled={hubPushing || registryStatus !== "connected"}
+                title={registryStatus !== "connected" ? "Registry unreachable" : "Build and push all custom images to hub"}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Upload className={`w-4 h-4 ${hubPushing ? "animate-spin" : ""}`} />
+                {hubPushing ? "Pushing…" : "Push Images to Hub"}
+              </button>
+            )}
             <button
               data-testid="pull-all-btn"
               onClick={handlePullAll}
