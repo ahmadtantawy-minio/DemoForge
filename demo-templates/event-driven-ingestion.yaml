@@ -13,12 +13,12 @@ _template:
     Producers fire events freely into Solace PubSub+ without throttling.
     Kong Gateway protects downstream MinIO storage with consumer-side rate
     limiting and auth. MinIO bucket notifications feed back into the event
-    mesh via a lightweight bridge — enabling reactive fan-out to downstream
-    consumers.
+    mesh via a lightweight MinIO Event Bridge — enabling reactive fan-out
+    to downstream consumers.
   objective: >
     Demonstrate a production-grade event ingestion pattern where the broker
     absorbs all producer traffic, the gateway protects storage, and bucket
-    notifications complete the feedback loop.
+    notifications complete the feedback loop back into Solace.
   minio_value: >
     MinIO is the S3-compatible landing zone protected by Kong. Bucket
     notifications drive reactive downstream processing — MinIO is not just
@@ -26,50 +26,61 @@ _template:
   estimated_resources:
     memory: 8GB
     cpu: 4
-    containers: 4
+    containers: 5
   walkthrough:
     - step: Deploy
       description: Click Deploy. Solace takes ~60s to boot — watch for the green health indicator before proceeding.
     - step: Open Solace Manager
       description: Open PubSub+ Manager (port 18080). You'll see the default VPN with zero messages.
-    - step: Publish test events
-      description: Use the FA test commands to fire 10 events into Solace via REST ingress on port 8008.
+    - step: Watch the producer
+      description: The Event Producer fires synthetic sensor events to Solace every 500ms. Open the Solace Manager and watch the message rate on the "sensor/data" topic.
     - step: Watch MinIO
       description: Open MinIO Console (port 9001). Objects appear in the ingestion bucket as events flow through Kong.
     - step: Show the feedback loop
-      description: Delete an object in MinIO — watch the bucket notification appear as a new event in Solace's minio-events queue.
+      description: Delete an object in MinIO — watch the bucket notification appear as a new event in Solace's minio-events queue via the MinIO Event Bridge.
     - step: Demo rate limiting
       description: Fire a burst at Kong (200 requests). Show the mix of 200s and 429s — Solace buffers the overflow and retries.
 
 name: event-driven-ingestion
 description: >
-  Event-Driven Data Ingestion Pipeline — Solace PubSub+ → Kong Gateway → MinIO
-  with bucket notification feedback loop via Event Bridge.
+  Event-Driven Data Ingestion Pipeline — Event Producer → Solace PubSub+ → Kong Gateway → MinIO
+  with bucket notification feedback loop via MinIO Event Bridge.
 mode: standard
 
 nodes:
+  - id: event-producer
+    component: event-producer
+    variant: default
+    position:
+      x: 80.0
+      y: 250.0
+    config:
+      SOLACE_REST_URL: "http://solace:8008"
+      TOPIC: "sensor/data"
+      INTERVAL_MS: "500"
+
   - id: solace
     component: solace-pubsub
     variant: default
     position:
-      x: 150.0
-      y: 200.0
+      x: 380.0
+      y: 250.0
     config: {}
 
   - id: kong
     component: kong-gateway
     variant: default
     position:
-      x: 500.0
-      y: 200.0
+      x: 730.0
+      y: 250.0
     config: {}
 
   - id: minio
     component: minio
     variant: default
     position:
-      x: 850.0
-      y: 200.0
+      x: 1080.0
+      y: 250.0
     config:
       MINIO_NOTIFY_WEBHOOK_ENABLE_BRIDGE: "on"
       MINIO_NOTIFY_WEBHOOK_ENDPOINT_BRIDGE: "http://event-bridge:3500/webhook"
@@ -80,12 +91,18 @@ nodes:
     component: event-bridge
     variant: default
     position:
-      x: 500.0
-      y: 450.0
+      x: 1080.0
+      y: 520.0
     config:
       SOLACE_REST_URL: "http://solace:8008"
 
 edges:
+  - id: edge-producer-solace
+    source: event-producer
+    target: solace
+    connection_type: event-stream
+    label: "Publish events"
+
   - id: edge-solace-kong
     source: solace
     target: kong
@@ -108,4 +125,59 @@ edges:
     source: event-bridge
     target: solace
     connection_type: event-stream
-    label: "REST publish"
+    label: "REST publish → Solace"
+
+annotations:
+  - id: ann-producer
+    position:
+      x: -20.0
+      y: 80.0
+    width: 220
+    title: "① Event Producer"
+    body: "Fires synthetic sensor events every 500ms into Solace via REST. Simulates IoT devices or upstream Kafka producers."
+    style: step
+    step_number: 1
+    pointer_target: event-producer
+
+  - id: ann-solace
+    position:
+      x: 320.0
+      y: 80.0
+    width: 230
+    title: "② Solace PubSub+"
+    body: "Enterprise message broker. Absorbs all producer traffic and guarantees delivery to downstream consumers — no data loss under load."
+    style: step
+    step_number: 2
+    pointer_target: solace
+
+  - id: ann-kong
+    position:
+      x: 670.0
+      y: 80.0
+    width: 220
+    title: "③ Kong Gateway"
+    body: "API gateway protecting MinIO. Enforces consumer-side **rate limiting** and auth — producers never see storage limits directly."
+    style: step
+    step_number: 3
+    pointer_target: kong
+
+  - id: ann-minio
+    position:
+      x: 1020.0
+      y: 80.0
+    width: 220
+    title: "④ MinIO"
+    body: "S3-compatible object store. Bucket notifications on every PUT/DELETE fire webhooks to the MinIO Event Bridge."
+    style: step
+    step_number: 4
+    pointer_target: minio
+
+  - id: ann-bridge
+    position:
+      x: 870.0
+      y: 530.0
+    width: 240
+    title: "⑤ MinIO Event Bridge"
+    body: "Receives MinIO bucket notification webhooks and republishes them as Kafka-compatible REST events back into Solace — closing the feedback loop."
+    style: callout
+    pointer_target: event-bridge

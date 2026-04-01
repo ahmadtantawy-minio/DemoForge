@@ -1,10 +1,11 @@
 id: event-bridge
-name: Event Bridge
+name: MinIO Event Bridge
 category: integration
+icon: event-bridge
 image: localhost:5000/demoforge-event-bridge:latest
 build_context: "."
 image_size_mb: 50
-description: Webhook relay that receives MinIO bucket notifications and publishes them to Solace PubSub+ REST ingress. Completes the event mesh feedback loop.
+description: "Webhook relay that receives MinIO bucket notifications and republishes them as Kafka-compatible REST events to Solace PubSub+. Completes the event mesh feedback loop."
 resource_weight: light
 depends_on_components:
   - solace-pubsub

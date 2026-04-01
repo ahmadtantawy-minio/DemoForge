@@ -1,6 +1,7 @@
 id: solace-pubsub
 name: Solace PubSub+
 category: messaging
+icon: solace-pubsub
 image: solace/solace-pubsub-standard:latest
 image_size_mb: 1200
 description: Enterprise event broker with guaranteed messaging, backpressure management, and multi-protocol support (MQTT, AMQP, REST, SMF).

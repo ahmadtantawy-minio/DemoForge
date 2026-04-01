@@ -1,6 +1,7 @@
 id: kong-gateway
 name: Kong Gateway
 category: networking
+icon: kong-gateway
 image: kong/kong-gateway:3.9
 image_size_mb: 500
 description: DB-less API gateway providing consumer-side rate limiting, auth, and request transformation.

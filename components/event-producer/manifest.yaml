@@ -1,0 +1,40 @@
+id: event-producer
+name: Event Producer
+category: generator
+icon: event-producer
+image: localhost:5000/demoforge-event-producer:latest
+build_context: "."
+image_size_mb: 50
+description: Lightweight synthetic event producer — continuously fires sensor/telemetry events into Solace PubSub+ via REST. Simulates upstream Kafka or IoT producers.
+resource_weight: light
+
+ports:
+  - name: status
+    container: 3600
+    protocol: tcp
+
+environment:
+  SOLACE_REST_URL: "http://localhost:8008"
+  TOPIC: "sensor/data"
+  INTERVAL_MS: "500"
+  PORT: "3600"
+
+health_check:
+  endpoint: /health
+  port: 3600
+  interval: "10s"
+  timeout: "3s"
+  start_period: "10s"
+  retries: 5
+
+connections:
+  provides:
+    - type: event-stream
+      description: REST events published to Solace
+
+variants:
+  default:
+    description: Continuous synthetic event producer targeting Solace REST API
+template_mounts: []
+static_mounts: []
+init_scripts: []

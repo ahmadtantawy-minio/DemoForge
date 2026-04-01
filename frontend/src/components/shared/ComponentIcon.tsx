@@ -478,6 +478,57 @@ function InferenceSimIcon({ size }: { size: number }) {
   );
 }
 
+function SolaceIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#00BF6F" />
+      {/* Solace wave/flow motif */}
+      <path d="M5 20 Q9 14 13 18 Q17 22 21 16 Q25 10 27 14" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+      <path d="M5 24 Q9 18 13 22 Q17 26 21 20 Q25 14 27 18" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.6" />
+      <circle cx="7" cy="11" r="3" fill="white" />
+      <path d="M7 11 Q12 8 16 11" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+
+function KongIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#003459" />
+      {/* Kong stylized gateway/arch */}
+      <path d="M8 24V10h3v5l5-5h4l-6 6 6 8h-4l-5-6v6H8z" fill="#00B4D8" />
+      <rect x="22" y="10" width="2" height="14" rx="1" fill="#00B4D8" opacity="0.6" />
+    </svg>
+  );
+}
+
+function EventBridgeIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#0E7490" />
+      {/* Bridge / relay arrows */}
+      <path d="M5 16h8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+      <path d="M19 16h8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+      <rect x="12" y="11" width="8" height="10" rx="2" fill="white" opacity="0.9" />
+      <path d="M16 14v4M14 16l2-2 2 2" stroke="#0E7490" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function EventProducerIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#7C3AED" />
+      {/* Broadcast / emit waves */}
+      <circle cx="12" cy="16" r="2.5" fill="white" />
+      <path d="M16 10 A8 8 0 0 1 16 22" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      <path d="M19 7 A12 12 0 0 1 19 25" stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.6" />
+      <path d="M13.5 16 L26 16" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M23 13 L26 16 L23 19" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -524,6 +575,10 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("ml-trainer") || id.includes("ml_trainer")) return <MLTrainerIcon size={size} />;
     if (id.includes("inference-client") || id.includes("inference_client")) return <InferenceClientIcon size={size} />;
     if (id.includes("inference-sim") || id.includes("inference_sim")) return <InferenceSimIcon size={size} />;
+    if (id.includes("solace")) return <SolaceIcon size={size} />;
+    if (id.includes("kong")) return <KongIcon size={size} />;
+    if (id.includes("event-bridge") || id.includes("event_bridge")) return <EventBridgeIcon size={size} />;
+    if (id.includes("event-producer") || id.includes("event_producer")) return <EventProducerIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 
