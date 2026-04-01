@@ -864,6 +864,81 @@ export default function PropertiesPanel() {
     );
   }
 
+  // --- Annotation properties ---
+  if (selectedNode.type === "annotation") {
+    const aData = selectedNode.data as any;
+    const updateAnnotation = (patch: Record<string, any>) => {
+      setNodes(nodes.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+    };
+    const styleOptions = [
+      { value: "info", label: "Info", color: "text-blue-500" },
+      { value: "callout", label: "Callout", color: "text-amber-500" },
+      { value: "warning", label: "Warning", color: "text-red-500" },
+      { value: "step", label: "Step", color: "text-foreground" },
+    ];
+    return (
+      <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Annotation</div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Title</label>
+          <input
+            value={aData.title ?? ""}
+            onChange={(e) => updateAnnotation({ title: e.target.value })}
+            className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            placeholder="Annotation title"
+          />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Body</label>
+          <textarea
+            value={aData.body ?? ""}
+            onChange={(e) => updateAnnotation({ body: e.target.value })}
+            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm min-h-[100px] resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+            placeholder="Description — supports **bold** text"
+          />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Style</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            {styleOptions.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => updateAnnotation({ style: s.value })}
+                className={`px-2 py-1.5 text-xs rounded border transition-colors ${aData.style === s.value ? "border-primary bg-primary/10 text-primary" : "border-input bg-background hover:border-primary/50"}`}
+              >
+                <span className={s.color}>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {aData.style === "step" && (
+          <div className="mb-3">
+            <label className="text-xs text-muted-foreground block mb-1">Step Number</label>
+            <input
+              type="number"
+              min={1}
+              value={aData.stepNumber ?? ""}
+              onChange={(e) => updateAnnotation({ stepNumber: e.target.value ? parseInt(e.target.value) : undefined })}
+              className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="1"
+            />
+          </div>
+        )}
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Width (px)</label>
+          <input
+            type="number"
+            min={120}
+            max={600}
+            value={aData.width ?? 260}
+            onChange={(e) => updateAnnotation({ width: parseInt(e.target.value) || 260 })}
+            className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
+    );
+  }
+
   // --- Sticky note properties ---
   if (selectedNode.type === "sticky") {
     const sData = selectedNode.data as any;
@@ -873,6 +948,15 @@ export default function PropertiesPanel() {
     return (
       <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Note</div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Title</label>
+          <input
+            value={sData.title ?? ""}
+            onChange={(e) => updateSticky({ title: e.target.value })}
+            className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            placeholder="Optional title"
+          />
+        </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Text</label>
           <textarea

@@ -365,12 +365,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
 
       const isGroup = e.dataTransfer.getData("isGroup") === "true";
       const isSticky = e.dataTransfer.getData("isSticky") === "true";
+      const isAnnotation = e.dataTransfer.getData("isAnnotation") === "true";
       const isCluster = e.dataTransfer.getData("isCluster") === "true";
       const componentId = e.dataTransfer.getData("componentId");
       const variant = e.dataTransfer.getData("variant") || "single";
       const label = e.dataTransfer.getData("label") || componentId;
 
-      if (!componentId && !isGroup && !isSticky && !isCluster) return;
+      if (!componentId && !isGroup && !isSticky && !isCluster && !isAnnotation) return;
 
       const bounds = (e.target as HTMLDivElement).closest(".react-flow")?.getBoundingClientRect();
       const x = bounds ? e.clientX - bounds.left - 70 : e.clientX;
@@ -414,6 +415,27 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         if (activeDemoId) {
           const state = useDiagramStore.getState();
           saveDiagram(activeDemoId, [...state.nodes, newSticky], state.edges).then(() => setDirty(false)).catch(() => {});
+        }
+        return;
+      }
+
+      if (isAnnotation) {
+        nodeCounter += 1;
+        const newAnnotation: Node = {
+          id: `annotation-${nodeCounter}`,
+          type: "annotation",
+          position: { x, y },
+          data: {
+            title: "Annotation",
+            body: "Add your description here...",
+            style: "info",
+            width: 260,
+          },
+        };
+        addNode(newAnnotation);
+        if (activeDemoId) {
+          const state = useDiagramStore.getState();
+          saveDiagram(activeDemoId, [...state.nodes, newAnnotation], state.edges).then(() => setDirty(false)).catch(() => {});
         }
         return;
       }

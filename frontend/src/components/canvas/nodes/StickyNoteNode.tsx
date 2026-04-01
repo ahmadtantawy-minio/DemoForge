@@ -2,6 +2,7 @@ import { type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 
 interface StickyNoteData {
+  title?: string;
   text: string;
   color?: string;
 }
@@ -28,6 +29,11 @@ export default function StickyNoteNode({ id, data, selected }: NodeProps) {
         }}
         onClick={() => setSelectedNode(id)}
       >
+        {nodeData.title && (
+          <div className="text-xs font-semibold text-foreground mb-1.5 truncate" style={{ color }}>
+            {nodeData.title}
+          </div>
+        )}
         <pre className="text-xs text-foreground whitespace-pre-wrap font-sans leading-relaxed m-0">
           {nodeData.text || "Double-click to edit in properties panel"}
         </pre>

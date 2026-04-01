@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchComponents, fetchLicenseStatus } from "../../api/client";
 import type { ComponentSummary } from "../../types";
 import ComponentIcon from "../shared/ComponentIcon";
-import { Loader2, AlertTriangle, LayoutGrid, StickyNote } from "lucide-react";
+import { Loader2, AlertTriangle, LayoutGrid, StickyNote, MessageSquareDashed } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -72,6 +72,10 @@ export default function ComponentPalette() {
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const onAnnotationDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("isAnnotation", "true");
+  };
+
   const onClusterDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("isCluster", "true");
     e.dataTransfer.setData("componentId", "minio");
@@ -115,6 +119,15 @@ export default function ComponentPalette() {
           >
             <StickyNote className="w-5 h-5 text-yellow-500 shrink-0" />
             <span className="font-medium text-foreground truncate flex-1">Note</span>
+          </div>
+          <div
+            draggable
+            onDragStart={onAnnotationDragStart}
+            className="flex items-center gap-2 px-2 py-2 mb-1 bg-background border border-border rounded cursor-grab hover:border-blue-500/50 hover:shadow-sm transition-all text-sm"
+            title="Drag to add an annotation callout"
+          >
+            <MessageSquareDashed className="w-5 h-5 text-blue-400 shrink-0" />
+            <span className="font-medium text-foreground truncate flex-1">Annotation</span>
           </div>
         </div>
         {Object.entries(grouped).map(([category, items]) => (

@@ -81,6 +81,9 @@ connections:
   - type: aistor-tables
     port: 9000
     description: AIStor Tables — direct Trino connection (requires aistor_tables_enabled)
+  - type: webhook
+    port: 9000
+    description: Bucket notification webhooks (SNS/webhook targets for event-driven pipelines)
   accepts:
   - type: load-balance
     config_schema: []
