@@ -1,3 +1,5 @@
+import io
+import json
 import os
 import re
 import uuid
@@ -33,6 +35,43 @@ if TEMPLATES_MODE == "synced":
     TEMPLATE_SOURCES = [("synced", SYNCED_TEMPLATES_DIR)]
 else:
     TEMPLATE_SOURCES = _ALL_SOURCES
+
+
+def _load_validated() -> set[str]:
+    """Load the set of validated (FA-approved) template IDs from MinIO.
+
+    Returns empty set if the manifest doesn't exist yet (no templates validated).
+    Raises RuntimeError if MinIO is unreachable or returns an unexpected error.
+    """
+    from ..engine.template_sync import SYNC_BUCKET, SYNC_PREFIX, _get_s3_client
+    try:
+        s3 = _get_s3_client()
+        key = f"{SYNC_PREFIX}validated.json"
+        obj = s3.get_object(Bucket=SYNC_BUCKET, Key=key)
+        data = json.loads(obj["Body"].read())
+        return set(data.get("validated", []))
+    except Exception as e:
+        if hasattr(e, "response") and e.response.get("Error", {}).get("Code") == "NoSuchKey":
+            return set()
+        logger.error(f"Cannot load validated templates from MinIO: {e}")
+        raise RuntimeError(f"Cannot reach MinIO to load validated templates: {e}") from e
+
+
+def _save_validated(ids: set[str]):
+    """Persist the set of validated template IDs to MinIO.
+
+    Raises RuntimeError if MinIO is unreachable.
+    """
+    from ..engine.template_sync import SYNC_BUCKET, SYNC_PREFIX, _get_s3_client
+    payload = json.dumps({"validated": sorted(ids)}, indent=2).encode()
+    try:
+        s3 = _get_s3_client()
+        key = f"{SYNC_PREFIX}validated.json"
+        s3.put_object(Bucket=SYNC_BUCKET, Key=key, Body=io.BytesIO(payload), ContentType="application/json")
+        logger.info(f"Saved validated manifest to MinIO: {key}")
+    except Exception as e:
+        logger.error(f"Cannot save validated templates to MinIO: {e}")
+        raise RuntimeError(f"Cannot reach MinIO to save validated templates: {e}") from e
 
 
 def _discover_all_templates() -> list[tuple[str, str, dict]]:
@@ -92,7 +131,7 @@ def _save_template_raw(template_id: str, raw: dict, target_dir: str | None = Non
         yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
+def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_ids: set | None = None) -> dict:
     """Build a template summary from raw YAML data."""
     meta = raw.get("_template", {})
     template_id = fname.replace(".yaml", "")
@@ -132,15 +171,20 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
         "customized": override_info is not None or meta.get("customized", False),
         "origin": meta.get("origin", source),
         "saved_by": meta.get("saved_by", ""),
+        "validated": template_id in (validated_ids or set()),
     }
 
 
 @router.get("/api/templates")
-async def list_templates(mine: bool = False):
+async def list_templates(mine: bool = False, fa_view: bool = False):
+    try:
+        validated_ids = _load_validated()
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
     templates = []
     source_counts = {"builtin": 0, "synced": 0, "user": 0}
     for template_id, source, raw in _discover_all_templates():
-        summary = _template_summary(f"{template_id}.yaml", raw, source=source)
+        summary = _template_summary(f"{template_id}.yaml", raw, source=source, validated_ids=validated_ids)
         templates.append(summary)
         source_counts[source] = source_counts.get(source, 0) + 1
 
@@ -150,6 +194,9 @@ async def list_templates(mine: bool = False):
             templates = [t for t in templates if t.get("saved_by") == current_fa]
         else:
             templates = []
+
+    if fa_view:
+        templates = [t for t in templates if t.get("validated")]
 
     # Get sync status for frontend indicator
     from ..engine.template_sync import get_sync_status, SYNC_ENABLED
@@ -169,7 +216,7 @@ async def get_template(template_id: str):
     if not raw:
         raise HTTPException(404, "Template not found")
     fname = f"{template_id}.yaml"
-    summary = _template_summary(fname, raw, source=source)
+    summary = _template_summary(fname, raw, source=source, validated_ids=_load_validated())
     # Include the full demo definition fields too
     summary["nodes"] = raw.get("nodes", [])
     summary["edges"] = raw.get("edges", [])
@@ -221,7 +268,7 @@ async def update_template(template_id: str, req: dict):
     _save_template_raw(template_id, raw)
 
     fname = f"{template_id}.yaml"
-    return _template_summary(fname, raw, source="user")
+    return _template_summary(fname, raw, source="user", validated_ids=_load_validated())
 
 
 @router.post("/api/demos/from-template/{template_id}")
@@ -511,6 +558,32 @@ async def revert_template(template_id: str):
     remove_override(template_id)
 
     return {"reverted": template_id}
+
+
+@router.post("/api/templates/{template_id}/validate")
+async def set_template_validated(template_id: str, req: dict = Body(default={})):
+    """Toggle the FA-approved flag for a template. Dev mode only."""
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    if mode != "dev":
+        raise HTTPException(403, "Validate is only available in dev mode. Set DEMOFORGE_MODE=dev.")
+
+    raw, source, path = _load_template_raw(template_id)
+    if not raw:
+        raise HTTPException(404, "Template not found")
+
+    validated = bool(req.get("validated", True))
+    try:
+        ids = _load_validated()
+        if validated:
+            ids.add(template_id)
+        else:
+            ids.discard(template_id)
+        _save_validated(ids)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+    logger.info(f"Template '{template_id}' validated={validated} by {get_fa_id()}")
+    return {"template_id": template_id, "validated": validated}
 
 
 @router.post("/api/templates/{template_id}/promote")

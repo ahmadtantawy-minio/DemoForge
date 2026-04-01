@@ -523,6 +523,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             # Find this generator's target cluster/node via edges
             target_cluster_id = None
             target_lb_id = None
+            target_standalone_id = None
             for edge in demo.edges:
                 if edge.source == node.id and edge.connection_type in s3_edge_types:
                     target_id = edge.target
@@ -536,14 +537,26 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         if tc:
                             target_cluster_id = tc.id
                             target_lb_id = f"{tc.id}-lb"
+                        else:
+                            target_standalone_id = target_id
                     break
+
+            # Handle standalone AIStor node (single minio node with MINIO_EDITION=aistor)
+            if not target_cluster_id and target_standalone_id:
+                standalone = next((n for n in demo.nodes if n.id == target_standalone_id), None)
+                if standalone and standalone.component == "minio":
+                    node_cfg = standalone.config or {}
+                    if node_cfg.get("MINIO_EDITION", "ce") == "aistor":
+                        env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{standalone.id}:9000/_iceberg"
+                        env["ICEBERG_WAREHOUSE"] = node_cfg.get("ICEBERG_WAREHOUSE", "analytics")
+                        env["ICEBERG_SIGV4"] = "true"
 
             if target_cluster_id:
                 target_cluster = next((c for c in demo.clusters if c.id == target_cluster_id), None)
                 if target_cluster and getattr(target_cluster, 'aistor_tables_enabled', False):
                     # AIStor Tables: use the cluster's /_iceberg endpoint
                     env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{target_lb_id or target_cluster_id + '-lb'}:80/_iceberg"
-                    env["ICEBERG_WAREHOUSE"] = "analytics"
+                    env["ICEBERG_WAREHOUSE"] = target_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
                     env["ICEBERG_SIGV4"] = "true"
                 else:
                     # External Iceberg REST: find iceberg-rest connected to this cluster
@@ -1089,9 +1102,18 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 node_url = f"http://{project_name}-{node_id}:9000"
                 cred_user = cluster.credentials.get("root_user", "minioadmin")
                 cred_pass = cluster.credentials.get("root_password", "minioadmin")
+                warehouse = cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
                 lines.append(f"# Setup AIStor Tables warehouse for {alias_name}")
                 lines.append(f"mc alias set '{alias_name}_direct' '{node_url}' '{cred_user}' '{cred_pass}' 2>/dev/null || true")
-                lines.append(f"mc table warehouse create '{alias_name}_direct' analytics --ignore-existing 2>/dev/null || echo 'Warehouse setup skipped (mc table not available)'")
+                lines.append(f"mc table warehouse create '{alias_name}_direct' {warehouse} --ignore-existing 2>/dev/null || echo 'Warehouse setup skipped (mc table not available)'")
+
+        # Auto-create AIStor Tables warehouse for standalone AIStor nodes
+        for snode in standalone_minio:
+            if snode.config.get("MINIO_EDITION", "ce") == "aistor":
+                alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", snode.display_name) if snode.display_name else snode.id
+                warehouse = snode.config.get("ICEBERG_WAREHOUSE", "analytics")
+                lines.append(f"# Setup AIStor Tables warehouse for standalone {alias_name}")
+                lines.append(f"mc table warehouse create '{alias_name}' {warehouse} --ignore-existing 2>/dev/null || echo 'Warehouse setup skipped (mc table not available)'")
 
         lines.append("echo 'mc aliases configured.'")
 
@@ -1105,7 +1127,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         init_host_path = _to_host_path(os.path.abspath(init_script_path), "data")
 
         # Use AIStor mc image if any cluster has AIStor features (mc table commands)
-        has_aistor = any(getattr(c, 'aistor_tables_enabled', False) for c in demo.clusters)
+        has_aistor = any(getattr(c, 'aistor_tables_enabled', False) for c in demo.clusters) or any(
+            n.config.get("MINIO_EDITION", "ce") == "aistor" for n in demo.nodes if n.component == "minio"
+        )
         mc_image = "quay.io/minio/aistor/mc:latest" if has_aistor else "minio/mc:latest"
 
         services["mc-shell"] = {

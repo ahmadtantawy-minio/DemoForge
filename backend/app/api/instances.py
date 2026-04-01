@@ -808,6 +808,12 @@ async def get_scenario_queries(demo_id: str, scenario_id: str):
                                     if cl.get("id") == target and cl.get("aistor_tables_enabled"):
                                         _scenario_catalog_map[sc] = ("aistor", "demo")
                                         break
+                        # Check standalone AIStor nodes
+                        if sc not in _scenario_catalog_map:
+                            for n in demo_def.get("nodes", []):
+                                if n.get("component") == "minio" and n.get("config", {}).get("MINIO_EDITION", "ce") == "aistor":
+                                    _scenario_catalog_map[sc] = ("aistor", "demo")
+                                    break
                         if sc not in _scenario_catalog_map:
                             _scenario_catalog_map[sc] = ("iceberg", "demo")
 
@@ -825,9 +831,15 @@ async def get_scenario_queries(demo_id: str, scenario_id: str):
             for col in schema_cols.get("columns", []):
                 col_types[col["name"]] = col.get("type", "string")
 
+        iceberg_cfg = raw.get("iceberg", {}) or {}
+        table = iceberg_cfg.get("table", raw.get("id", "").replace("-", "_"))
+
         queries = []
         for q in raw.get("queries", []):
-            sql = q.get("sql", "").replace("{catalog}", catalog).replace("{namespace}", namespace)
+            sql = (q.get("sql", "")
+                   .replace("{catalog}", catalog)
+                   .replace("{namespace}", namespace)
+                   .replace("{table}", table))
 
             # Auto-cast for Hive CSV: replace bare column refs with CAST
             if catalog == "hive":
@@ -991,9 +1003,32 @@ async def setup_tables(demo_id: str):
     if not trino_container:
         raise HTTPException(404, "No Trino container found in this demo")
 
-    # Load all scenario YAMLs
+    # Detect primary catalog from demo definition
     import os as _os
     import yaml as _yaml
+    demo_def = _load_demo(demo_id)
+    primary_catalog = "iceberg"
+    if demo_def:
+        trino_node_id = next((n.id for n in demo_def.nodes if n.component == "trino"), None)
+        if trino_node_id:
+            for edge in demo_def.edges:
+                if edge.target == trino_node_id:
+                    cat = (edge.connection_config or {}).get("catalog_name")
+                    if cat:
+                        primary_catalog = cat
+                        break
+        if primary_catalog == "iceberg":
+            # Also detect AIStor via node config
+            for n in demo_def.nodes:
+                if n.component == "minio" and n.config.get("MINIO_EDITION", "ce") == "aistor":
+                    primary_catalog = "aistor"
+                    break
+            for c in demo_def.clusters:
+                if getattr(c, 'aistor_tables_enabled', False):
+                    primary_catalog = "aistor"
+                    break
+
+    # Load all scenario YAMLs
     datasets_dir = _os.path.join(
         _os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components"),
         "data-generator", "datasets"
@@ -1007,7 +1042,7 @@ async def setup_tables(demo_id: str):
     }
 
     # Ensure schema exists
-    schema_cmd = 'trino --execute "CREATE SCHEMA IF NOT EXISTS iceberg.demo"'
+    schema_cmd = f'trino --execute "CREATE SCHEMA IF NOT EXISTS {primary_catalog}.demo"'
     await exec_in_container(trino_container, schema_cmd)
 
     if not _os.path.isdir(datasets_dir):
@@ -1022,7 +1057,8 @@ async def setup_tables(demo_id: str):
 
         iceberg_cfg = scenario.get("iceberg", {}) or {}
         table_name = iceberg_cfg.get("table", scenario.get("id", fname.replace(".yaml", "")).replace("-", "_"))
-        full_table = f"iceberg.demo.{table_name}"
+        table_schema = iceberg_cfg.get("namespace", "demo")
+        full_table = f"{primary_catalog}.{table_schema}.{table_name}"
 
         # Check if table exists
         check_cmd = f'trino --execute "SELECT 1 FROM {full_table} LIMIT 1"'
@@ -1044,7 +1080,6 @@ async def setup_tables(demo_id: str):
         )
         create_sql = f"CREATE TABLE IF NOT EXISTS {full_table} ({col_defs}) WITH (format = 'PARQUET')"
 
-        # Create in the iceberg catalog
         create_cmd = f'trino --execute "{create_sql}"'
         exit_code, stdout, stderr = await exec_in_container(trino_container, create_cmd)
         clean_err = "\n".join(l for l in (stderr or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
@@ -1053,24 +1088,8 @@ async def setup_tables(demo_id: str):
         else:
             results.append({"table": full_table, "status": "error", "detail": clean_err[:200]})
 
-        # Also create in the aistor catalog if it exists
-        aistor_table = f"aistor.demo.{table_name}"
-        aistor_check_cmd = f'trino --execute "SELECT 1 FROM {aistor_table} LIMIT 1"'
-        exit_code_a, _, _ = await exec_in_container(trino_container, aistor_check_cmd)
-        if exit_code_a != 0:
-            # Try to create schema + table in aistor catalog (may fail if no aistor catalog)
-            await exec_in_container(trino_container, 'trino --execute "CREATE SCHEMA IF NOT EXISTS aistor.demo"')
-            aistor_create_sql = f"CREATE TABLE IF NOT EXISTS {aistor_table} ({col_defs}) WITH (format = 'PARQUET')"
-            exit_code_a2, _, stderr_a = await exec_in_container(trino_container, f'trino --execute "{aistor_create_sql}"')
-            clean_err_a = "\n".join(l for l in (stderr_a or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
-            if exit_code_a2 == 0:
-                results.append({"table": aistor_table, "status": "created"})
-            elif "not exist" not in clean_err_a.lower() and "not found" not in clean_err_a.lower():
-                results.append({"table": aistor_table, "status": "error", "detail": clean_err_a[:200]})
-
     # Create Hive external tables for data generators in raw write mode
     try:
-        demo_def = _load_demo(demo_id)
         raw_generators = [
             n for n in demo_def.nodes
             if n.component == "data-generator"

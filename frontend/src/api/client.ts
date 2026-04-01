@@ -473,6 +473,12 @@ export const promoteTemplate = (templateId: string) =>
     method: "POST",
   });
 
+export const validateTemplate = (templateId: string, validated: boolean) =>
+  apiFetch<{ template_id: string; validated: boolean }>(`/api/templates/${templateId}/validate`, {
+    method: "POST",
+    body: JSON.stringify({ validated }),
+  });
+
 export const getAppMode = () =>
   apiFetch<{ mode: string }>("/api/settings/mode");
 

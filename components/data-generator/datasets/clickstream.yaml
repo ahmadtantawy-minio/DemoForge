@@ -176,7 +176,7 @@ playbook:
   - step: 1
     title: "Verify clickstream data"
     description: "Check that clickstream events are arriving."
-    sql: "SELECT count(*) as total_events FROM iceberg.default.clickstream"
+    sql: "SELECT count(*) as total_events FROM {catalog}.{namespace}.{table}"
     expected: "Should return a positive count."
   - step: 2
     title: "Events per page"
@@ -184,7 +184,7 @@ playbook:
     sql: |
       SELECT page_url, COUNT(*) as events,
              COUNT(DISTINCT session_id) as unique_sessions
-      FROM iceberg.default.clickstream
+      FROM {catalog}.{namespace}.{table}
       GROUP BY page_url
       ORDER BY events DESC
       LIMIT 15
@@ -195,7 +195,7 @@ playbook:
     sql: |
       SELECT event_type, COUNT(*) as count,
              COUNT(DISTINCT user_id) as unique_users
-      FROM iceberg.default.clickstream
+      FROM {catalog}.{namespace}.{table}
       GROUP BY event_type
       ORDER BY count DESC
     expected: "Event type distribution showing funnel stages."
@@ -205,7 +205,7 @@ playbook:
     sql: |
       SELECT device_type, COUNT(*) as events,
              COUNT(DISTINCT user_id) as unique_users
-      FROM iceberg.default.clickstream
+      FROM {catalog}.{namespace}.{table}
       GROUP BY device_type
       ORDER BY events DESC
     expected: "Traffic distribution across desktop, mobile, tablet."

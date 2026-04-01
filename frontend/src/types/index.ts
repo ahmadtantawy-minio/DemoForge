@@ -51,6 +51,7 @@ export interface DemoTemplate {
   customized?: boolean;
   origin?: string;  // "builtin" | "synced" | "user"
   saved_by?: string;
+  validated?: boolean;
 }
 
 // --- Demo Template Detail (includes demo definition fields) ---

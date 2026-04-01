@@ -290,6 +290,11 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
 
     _write_pid()
 
+    # Start paused if configured (write stop file after _write_pid cleans it)
+    if os.environ.get("DG_START_PAUSED", "").lower() in ("true", "1", "yes"):
+        print(f"[scenario] DG_START_PAUSED=true — starting idle. Trigger start signal to begin generating.")
+        open("/tmp/gen.stop", "w").close()
+
     print(f"[scenario] Loading scenario: {scenario_id}")
     scenario = load_scenario(scenario_id)
     columns = scenario["columns"]
@@ -356,20 +361,26 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
         else:
             # Iceberg mode (default) — try PyIceberg, then Trino INSERT, then raw fallback
 
+            iceberg_cfg = scenario.get("iceberg", {}) or {}
+            trino_table_name = iceberg_cfg.get("table", "orders")
+            trino_namespace = iceberg_cfg.get("namespace", "demo")
+            trino_host = os.environ.get("TRINO_HOST", "")
+            is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
+            trino_catalog_resolved = "aistor" if is_sigv4 else "iceberg"
+
             # Run table setup (create buckets + warehouse)
             try:
                 from src.table_setup import run_setup
                 endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
-                trino_host = os.environ.get("TRINO_HOST", "")
-                run_setup(scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY, trino_host=trino_host or None)
+                run_setup(
+                    scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY,
+                    trino_host=trino_host or None,
+                    trino_catalog=trino_catalog_resolved,
+                    trino_namespace=trino_namespace,
+                )
                 print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
             except Exception as exc:
                 print(f"[scenario] Table setup skipped: {exc}")
-
-            iceberg_cfg = scenario.get("iceberg", {}) or {}
-            trino_table_name = iceberg_cfg.get("table", "orders")
-            trino_host = os.environ.get("TRINO_HOST", "")
-            is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
 
             # Try PyIceberg first (decoupled from Trino)
             iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)

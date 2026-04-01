@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { useEffect, useRef, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import type { ComponentNodeData } from "../../../types";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
@@ -136,10 +137,16 @@ export default function ComponentNode({ id, data }: NodeProps) {
           )}
         </div>
         {isRunning && nodeData.health && (
-          <span
-            className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" ? "animate-pulse" : ""}`}
-            title={nodeData.health}
-          />
+          nodeData.health === "degraded" ? (
+            <span className="ml-auto shrink-0" title="Tables not ready — start data generation to create them">
+              <AlertTriangle className="w-4 h-4 text-orange-400" />
+            </span>
+          ) : (
+            <span
+              className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" ? "animate-pulse" : ""}`}
+              title={nodeData.health}
+            />
+          )
         )}
       </div>
       {isRunning && nodeIp && (

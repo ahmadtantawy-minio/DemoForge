@@ -1,12 +1,24 @@
-{%- set ns = namespace(aistor_endpoint="") %}
+{%- set ns = namespace(aistor_endpoint="", access_key="minioadmin", secret_key="minioadmin", warehouse="analytics", region="local") %}
 {%- for edge in edges %}
 {%- if edge.target == node.id and edge.connection_type in ['s3', 'aistor-tables'] %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
 {%- if source_node %}
 {%- if source_node.component == 'minio' and source_node.config.get('MINIO_EDITION', 'ce') == 'aistor' %}
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
+{%- set ns.access_key = source_node.config.get('MINIO_ROOT_USER', 'minioadmin') %}
+{%- set ns.secret_key = source_node.config.get('MINIO_ROOT_PASSWORD', 'minioadmin') %}
+{%- set ns.warehouse = source_node.config.get('ICEBERG_WAREHOUSE', 'analytics') %}
+{%- set ns.region = source_node.config.get('S3_REGION', 'local') %}
 {%- elif source_node.component == 'nginx' and source_node.id.endswith('-lb') %}
+{%- set cluster_id = source_node.id[:-3] %}
+{%- set cluster = demo.clusters | selectattr('id', 'equalto', cluster_id) | first %}
+{%- if cluster %}
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
+{%- set ns.access_key = cluster.credentials.get('root_user', 'minioadmin') %}
+{%- set ns.secret_key = cluster.credentials.get('root_password', 'minioadmin') %}
+{%- set ns.warehouse = cluster.config.get('ICEBERG_WAREHOUSE', 'analytics') %}
+{%- set ns.region = cluster.config.get('S3_REGION', 'local') %}
+{%- endif %}
 {%- endif %}
 {%- endif %}
 {%- endif %}
@@ -15,7 +27,7 @@
 connector.name=iceberg
 iceberg.catalog.type=rest
 iceberg.rest-catalog.uri={{ ns.aistor_endpoint }}/_iceberg
-iceberg.rest-catalog.warehouse=analytics
+iceberg.rest-catalog.warehouse={{ ns.warehouse }}
 iceberg.rest-catalog.security=SIGV4
 iceberg.rest-catalog.vended-credentials-enabled=true
 iceberg.rest-catalog.signing-name=s3tables
@@ -25,9 +37,9 @@ fs.native-s3.enabled=true
 fs.hadoop.enabled=false
 s3.endpoint={{ ns.aistor_endpoint }}
 s3.path-style-access=true
-s3.aws-access-key=minioadmin
-s3.aws-secret-key=minioadmin
-s3.region=local
+s3.aws-access-key={{ ns.access_key }}
+s3.aws-secret-key={{ ns.secret_key }}
+s3.region={{ ns.region }}
 {%- else %}
 connector.name=memory
 {%- endif %}

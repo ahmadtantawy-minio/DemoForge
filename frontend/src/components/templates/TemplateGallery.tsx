@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw } from "lucide-react";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
@@ -83,6 +83,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeTier, setActiveTier] = useState<string>("essentials");
   const [showMyTemplates, setShowMyTemplates] = useState(false);
+  const [showFAReady, setShowFAReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ enabled: boolean; synced_count: number; last_sync: string | null } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [pushing, setPushing] = useState(false);
@@ -113,22 +114,27 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { if (loadKey !== undefined && loadKey > 0) loadAll(); }, [loadKey]);
 
-  // Derive unique tiers
-  const tiers = useMemo(() => {
-    const seen = new Set<string>();
-    templates.forEach((t) => seen.add(t.tier || "essentials"));
-    return ["essentials", "advanced", "experience"].filter((t) => seen.has(t));
-  }, [templates]);
-
   const faId = useDemoStore((s) => s.faId);
 
-  // Filter by tier first (or by saved_by when showMyTemplates)
-  const tierFiltered = useMemo(
-    () => showMyTemplates
-      ? templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId))
-      : templates.filter((t) => (t.tier || "essentials") === activeTier),
-    [templates, activeTier, showMyTemplates, faId]
+  // In non-dev mode, only show validated (FA-approved) templates
+  const visibleTemplates = useMemo(
+    () => faMode === "dev" ? templates : templates.filter((t) => t.validated),
+    [templates, faMode]
   );
+
+  // Derive unique tiers from visible templates
+  const tiers = useMemo(() => {
+    const seen = new Set<string>();
+    visibleTemplates.forEach((t) => seen.add(t.tier || "essentials"));
+    return ["essentials", "advanced", "experience"].filter((t) => seen.has(t));
+  }, [visibleTemplates]);
+
+  // Filter by tier first (or by saved_by when showMyTemplates, or by validated when showFAReady)
+  const tierFiltered = useMemo(() => {
+    if (showFAReady) return templates.filter((t) => t.validated);
+    if (showMyTemplates) return visibleTemplates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId));
+    return visibleTemplates.filter((t) => (t.tier || "essentials") === activeTier);
+  }, [visibleTemplates, templates, activeTier, showMyTemplates, showFAReady, faId]);
 
   // Derive unique categories within selected tier
   const categories = useMemo(() => {
@@ -239,6 +245,16 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
     }
   };
 
+  const handleValidate = async (templateId: string, validated: boolean) => {
+    try {
+      await validateTemplate(templateId, validated);
+      setTemplates((prev) => prev.map((t) => t.id === templateId ? { ...t, validated } : t));
+      toast.success(validated ? "Template marked as FA Ready" : "Template removed from FA view");
+    } catch (err: any) {
+      toast.error("Cannot reach MinIO — template status not updated", { description: err.message });
+    }
+  };
+
   const handlePromote = async (templateId: string) => {
     try {
       const result = await promoteTemplate(templateId);
@@ -340,6 +356,20 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
     );
   }
 
+  if (faMode !== "dev" && visibleTemplates.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+        <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mb-1">
+          <ShieldCheck className="w-6 h-6 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium text-foreground">No approved templates</p>
+        <p className="text-xs text-muted-foreground max-w-[280px]">
+          No templates have been approved for Field Architects yet. Contact your demo environment admin.
+        </p>
+      </div>
+    );
+  }
+
   // ── Empty filtered state ─────────────────────────────────────────────
   const emptyMyTemplates = showMyTemplates && filtered.length === 0;
   const emptyFilter = !emptyMyTemplates && filtered.length === 0 && activeCategory !== null;
@@ -431,14 +461,14 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
       {tiers.length > 1 && (
         <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Template tiers">
           {tiers.map((tier) => {
-            const count = templates.filter((t) => (t.tier || "essentials") === tier).length;
+            const count = visibleTemplates.filter((t) => (t.tier || "essentials") === tier).length;
             return (
               <button
                 key={tier}
                 role="tab"
                 aria-selected={!showMyTemplates && activeTier === tier}
                 data-testid={`tier-tab-${tier === "experience" ? "experiences" : tier}`}
-                onClick={() => { setActiveTier(tier); setActiveCategory(null); setShowMyTemplates(false); }}
+                onClick={() => { setActiveTier(tier); setActiveCategory(null); setShowMyTemplates(false); setShowFAReady(false); }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
                   ${!showMyTemplates && activeTier === tier
                     ? "bg-primary/15 text-primary border border-primary/30"
@@ -453,15 +483,31 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
             role="tab"
             aria-selected={showMyTemplates}
             data-testid="tier-tab-my-templates"
-            onClick={() => { setShowMyTemplates(true); setActiveTier(""); setActiveCategory(null); }}
+            onClick={() => { setShowMyTemplates(true); setActiveTier(""); setActiveCategory(null); setShowFAReady(false); }}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
               ${showMyTemplates
                 ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
               }`}
           >
-            My Templates ({templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
+            My Templates ({visibleTemplates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
           </button>
+          {faMode === "dev" && (
+            <button
+              role="tab"
+              aria-selected={showFAReady}
+              data-testid="tier-tab-fa-ready"
+              onClick={() => { setShowFAReady(true); setShowMyTemplates(false); setActiveTier(""); setActiveCategory(null); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
+                ${showFAReady
+                  ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+                }`}
+            >
+              <ShieldCheck className="w-3 h-3" />
+              FA Ready ({templates.filter((t) => t.validated).length})
+            </button>
+          )}
         </div>
       )}
 
@@ -522,7 +568,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
       )}
 
       {/* ── Category filter bar ─────────────────────────────────────── */}
-      {categories.length > 1 && (
+      {categories.length > 1 && !showFAReady && (
         <div
           className="flex items-center gap-2 flex-wrap mb-4 pb-3 border-b border-border"
           role="group"
@@ -626,6 +672,12 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                         Customized
                       </span>
                     )}
+                    {faMode === "dev" && t.validated && (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium border border-green-500/20">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                        FA Ready
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <span
@@ -635,6 +687,19 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                       <Container className="w-3 h-3" aria-hidden="true" />
                       {t.container_count}
                     </span>
+                    {faMode === "dev" && (
+                      <button
+                        type="button"
+                        title={t.validated ? "Remove from FA view" : "Approve for Field Architects"}
+                        onClick={(e) => { e.stopPropagation(); handleValidate(t.id, !t.validated); }}
+                        className={`p-1 rounded transition-all ${t.validated ? "text-green-400 hover:text-red-400" : "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-green-400"}`}
+                      >
+                        {t.validated
+                          ? <ShieldCheck className="w-3.5 h-3.5" />
+                          : <ShieldOff className="w-3.5 h-3.5" />
+                        }
+                      </button>
+                    )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button

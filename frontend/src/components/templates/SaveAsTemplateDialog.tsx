@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { saveAsTemplate, overrideTemplate, fetchTemplates } from "../../api/client";
 import type { DemoTemplate } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "sonner";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -62,12 +62,25 @@ export function SaveAsTemplateDialog({
   // Override mode state
   const [existingTemplates, setExistingTemplates] = useState<DemoTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
+  const templateComboboxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open && mode === "override" && existingTemplates.length === 0) {
       fetchTemplates().then((res) => setExistingTemplates(res.templates)).catch(() => {});
     }
   }, [open, mode]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (templateComboboxRef.current && !templateComboboxRef.current.contains(e.target as Node)) {
+        setTemplateDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   function resetForm() {
     setMode("new");
@@ -82,6 +95,8 @@ export function SaveAsTemplateDialog({
     setConflict(false);
     setOverwrite(false);
     setSelectedTemplateId("");
+    setTemplateSearch("");
+    setTemplateDropdownOpen(false);
   }
 
   function handleOpenChange(next: boolean) {
@@ -207,18 +222,64 @@ export function SaveAsTemplateDialog({
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                   Template to Override <span className="text-red-400">*</span>
                 </label>
-                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-                  <SelectTrigger className="bg-background border-border text-foreground h-8 text-sm">
-                    <SelectValue placeholder="Select a template..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-popover border-border text-foreground max-h-60">
-                    {existingTemplates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name} ({t.source})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div ref={templateComboboxRef} className="relative">
+                  <div
+                    className="flex items-center h-8 rounded-md border border-border bg-background px-2 gap-1.5 cursor-pointer"
+                    onClick={() => setTemplateDropdownOpen((v) => !v)}
+                  >
+                    <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                      placeholder={
+                        selectedTemplateId
+                          ? (existingTemplates.find((t) => t.id === selectedTemplateId)?.name ?? "Select a template...")
+                          : "Search templates..."
+                      }
+                      value={templateDropdownOpen ? templateSearch : ""}
+                      onChange={(e) => {
+                        setTemplateSearch(e.target.value);
+                        setTemplateDropdownOpen(true);
+                      }}
+                      onFocus={() => setTemplateDropdownOpen(true)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  </div>
+                  {templateDropdownOpen && (
+                    <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md max-h-56 overflow-y-auto">
+                      {existingTemplates
+                        .filter((t) =>
+                          !templateSearch ||
+                          t.name.toLowerCase().includes(templateSearch.toLowerCase()) ||
+                          t.id.toLowerCase().includes(templateSearch.toLowerCase())
+                        )
+                        .map((t) => (
+                          <div
+                            key={t.id}
+                            className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground ${
+                              t.id === selectedTemplateId ? "bg-accent/50 text-foreground" : "text-foreground"
+                            }`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedTemplateId(t.id);
+                              setTemplateSearch("");
+                              setTemplateDropdownOpen(false);
+                            }}
+                          >
+                            <span className="font-medium">{t.name}</span>
+                            <span className="ml-1.5 text-xs text-muted-foreground">({t.source})</span>
+                          </div>
+                        ))}
+                      {existingTemplates.filter((t) =>
+                        !templateSearch ||
+                        t.name.toLowerCase().includes(templateSearch.toLowerCase()) ||
+                        t.id.toLowerCase().includes(templateSearch.toLowerCase())
+                      ).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No templates found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-300 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />

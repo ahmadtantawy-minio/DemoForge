@@ -261,14 +261,14 @@ playbook:
   - step: 1
     title: "Verify data landed"
     description: "Check that the data generator has written records to MinIO."
-    sql: "SELECT count(*) as total_rows FROM iceberg.default.ecommerce_orders"
+    sql: "SELECT count(*) as total_rows FROM {catalog}.{namespace}.{table}"
     expected: "Should return a positive count."
   - step: 2
     title: "Revenue by region"
     description: "Aggregate revenue by region to see geographic distribution."
     sql: |
       SELECT region, ROUND(SUM(total_amount), 2) as revenue, COUNT(*) as orders
-      FROM iceberg.default.ecommerce_orders
+      FROM {catalog}.{namespace}.{table}
       GROUP BY region
       ORDER BY revenue DESC
     expected: "Shows revenue breakdown across regions."
@@ -277,7 +277,7 @@ playbook:
     description: "Find the highest-spending customers."
     sql: |
       SELECT customer_id, COUNT(*) as order_count, ROUND(SUM(total_amount), 2) as total_spend
-      FROM iceberg.default.ecommerce_orders
+      FROM {catalog}.{namespace}.{table}
       GROUP BY customer_id
       ORDER BY total_spend DESC
       LIMIT 20
@@ -288,7 +288,7 @@ playbook:
     sql: |
       SELECT status, COUNT(*) as count,
              ROUND(AVG(total_amount), 2) as avg_amount
-      FROM iceberg.default.ecommerce_orders
+      FROM {catalog}.{namespace}.{table}
       GROUP BY status
       ORDER BY count DESC
     expected: "Shows pending, completed, cancelled distribution."
@@ -298,7 +298,7 @@ playbook:
     sql: |
       SELECT order_id, customer_id, region, status,
              ROUND(total_amount, 2) as amount, order_ts
-      FROM iceberg.default.ecommerce_orders
+      FROM {catalog}.{namespace}.{table}
       ORDER BY order_ts DESC
       LIMIT 10
     expected: "10 most recent orders."
