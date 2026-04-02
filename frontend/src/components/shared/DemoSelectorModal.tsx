@@ -98,7 +98,6 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   const handleDeploy = async (e: React.MouseEvent, demoId: string) => {
     e.stopPropagation();
     try {
-      toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
       await deployDemo(demoId);
       const res = await fetchDemos();
       setDemos(res.demos);

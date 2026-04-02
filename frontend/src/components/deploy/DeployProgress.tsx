@@ -33,6 +33,13 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
   const [steps, setSteps] = useState<DeployStep[]>([]);
   const [finished, setFinished] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Guard: ensure onDone fires exactly once regardless of how many paths reach it
+  const calledRef = useRef(false);
+  const safeOnDone = (success: boolean) => {
+    if (calledRef.current) return;
+    calledRef.current = true;
+    safeOnDone(success);
+  };
 
   useEffect(() => {
     const poll = async () => {
@@ -51,7 +58,7 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
           if (intervalRef.current) clearInterval(intervalRef.current);
           // Auto-dismiss on success — only keep modal open on error
           if (success) {
-            setTimeout(() => onDone(true), 500);
+            setTimeout(() => safeOnDone(true), 500);
           }
         }
       } catch {}
@@ -94,7 +101,7 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-muted-foreground"
-                onClick={() => onDone(finished)}
+                onClick={() => safeOnDone(finished)}
               >
                 <XCircle className="h-4 w-4" />
               </Button>
@@ -143,14 +150,14 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
                 <span className={`text-sm font-medium ${finished ? "text-green-400" : "text-red-400"}`}>
                   {finished ? "Deployment successful" : "Deployment failed"}
                 </span>
-                <Button size="sm" variant={finished ? "default" : "destructive"} onClick={() => onDone(finished)}>
+                <Button size="sm" variant={finished ? "default" : "destructive"} onClick={() => safeOnDone(finished)}>
                   {finished ? "Done" : "Close"}
                 </Button>
               </>
             ) : (
               <>
                 <span className="text-xs text-muted-foreground">Deploy in progress...</span>
-                <Button size="sm" variant="ghost" onClick={() => onDone(true)} className="text-xs text-muted-foreground">
+                <Button size="sm" variant="ghost" onClick={() => safeOnDone(true)} className="text-xs text-muted-foreground">
                   Dismiss
                 </Button>
               </>
