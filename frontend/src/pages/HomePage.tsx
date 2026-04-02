@@ -135,7 +135,7 @@ export function HomePage() {
                   className="group flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors cursor-pointer"
                   onClick={() => handleDemoClick(demo.id)}
                 >
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${demo.status === "running" ? "bg-green-500" : "bg-muted-foreground/30"}`} />
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${demo.status === "running" ? "bg-green-500 animate-pulse shadow-[0_0_6px_2px_rgba(34,197,94,0.5)]" : "bg-muted-foreground/30"}`} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-foreground truncate">{demo.name}</div>
                     <div className="text-xs text-muted-foreground">{demo.node_count} nodes · {demo.id.slice(0, 8)}</div>
