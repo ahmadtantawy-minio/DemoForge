@@ -195,7 +195,7 @@ SCENARIO_PARAMS: dict[str, dict] = {
 _SCENARIO_LABELS = {
     "file-g4": "File / POSIX Storage",
     "minio-g4": "MinIO Object Store",
-    "minio-full": "MinIO Object + RDMA",
+    "minio-full": "MinIO G4 S3 + G3.5 CTX RDMA",
 }
 
 # Backward-compat mapping: old g35_mode values → new scenario IDs.
@@ -291,9 +291,18 @@ class SimulationEngine:
         return SCENARIO_PARAMS.get(self.config.scenario, SCENARIO_PARAMS["file-g4"])
 
     def _apply_scenario(self) -> None:
-        """Update block_manager state based on current scenario."""
+        """Update block_manager state based on current scenario.
+
+        Also flushes in-flight stall/recompute ticks and clears the rolling
+        history so the GPU utilization bars and chart respond within 1-2 ticks
+        instead of waiting for a 100-tick rolling window to drain.
+        """
         params = self._get_params()
         self.block_manager.cmx_enabled = params["g35_enabled"]
+        for tracker in self.gpu_trackers.values():
+            tracker.remaining_stall_ticks = 0
+            tracker.remaining_recompute_ticks = 0
+            tracker.history.clear()
 
     def _init_components(self) -> None:
         params = self._get_params()

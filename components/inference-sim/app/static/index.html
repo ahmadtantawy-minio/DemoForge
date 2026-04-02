@@ -1161,8 +1161,8 @@
             <div class="scenario-card selector success" data-scenario="minio-full" onclick="setScenario('minio-full')">
               <div class="scenario-accent"></div>
               <div class="scenario-content">
-                <div class="scenario-label">MinIO Object + RDMA</div>
-                <div class="scenario-subtitle">G4 Object Store + G3.5 NVMe-oF/RDMA</div>
+                <div class="scenario-label">MinIO G4 S3 + G3.5 CTX RDMA</div>
+                <div class="scenario-subtitle">G4 MinIO S3/TCP · G3.5 Context Memory — NVMe-oF/RDMA (BlueField-4)</div>
               </div>
             </div>
           </div>
@@ -1697,7 +1697,7 @@
     const strip = document.getElementById('mode-comparison');
     if (!strip) return;
     const scenarios = ['file-g4', 'minio-g4', 'minio-full'];
-    const labels = { 'file-g4': 'File / POSIX', 'minio-g4': 'MinIO Object', 'minio-full': 'MinIO + RDMA' };
+    const labels = { 'file-g4': 'File / POSIX', 'minio-g4': 'MinIO S3', 'minio-full': 'MinIO G4 S3 + G3.5 CTX RDMA' };
 
     let html = '<div class="cmp-title">SCENARIO COMPARISON</div><div class="cmp-grid">';
     scenarios.forEach(scenario => {
@@ -1849,6 +1849,7 @@
     const W = dispW, H = dispH;
     const PAD_L = 40, PAD_R = 40, PAD_T = 14, PAD_B = 14;
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+    const xStep = plotW / (MAX_HISTORY - 1);
 
     ctx.clearRect(0, 0, W, H);
 
@@ -1889,7 +1890,6 @@
 
     // Find shared length
     const len = Math.max(...visible.map(([,s]) => s.data.length));
-    const xStep = plotW / (MAX_HISTORY - 1);
 
     // Draw each visible series independently scaled
     visible.forEach(([key, s]) => {
@@ -2108,15 +2108,15 @@
   // --- Guided Demo Script (manually advancing) ---
   const GUIDED_SCRIPT = [
     { phase: "tell", title: "The inference memory challenge", body: "Modern LLMs maintain a KV cache for every conversation \u2014 the model's short-term memory. As context windows grow to 128K+ tokens, this cache can reach tens of gigabytes per session.\n\nGPU HBM is fast but limited. When it fills up, cache gets evicted. If a user returns and their cache is gone, the GPU must recompute it from scratch.", icon: "\u26A1" },
-    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. MinIO Object Store (S3/TCP — drop-in replacement)\n3. MinIO Object + RDMA (G3.5 NVMe-oF via BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
+    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. MinIO Object Store (S3/TCP — drop-in replacement)\n3. MinIO G4 S3 + G3.5 CTX RDMA (G4 MinIO S3/TCP + G3.5 Context Memory via BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
     { phase: "tell", title: "Scenario 1: File / POSIX Storage", body: "Traditional NFS/Lustre as the G4 archive tier. POSIX metadata locks serialize reads under concurrent GPU access, causing non-linear latency collapse.\n\nClick Next to start. Watch for red 'recompute' segments and slow TTFT.", icon: "1", action: { scenario: "file-g4" } },
     { phase: "show", mode: "file-g4", body: "Running: File / POSIX Storage. Watch red recompute segments in GPU bars, high TTFT, and G4 filling up under contention. Click Next when ready." },
     { phase: "tell", title: "Scenario 1 results", useCapture: "file-g4", icon: "\uD83D\uDCCA" },
     { phase: "tell", title: "Scenario 2: MinIO Object Store", body: "Now we switch to MinIO as the G4 tier \u2014 S3 over TCP. No hardware change needed. S3 GET is stateless, so parallel reads scale linearly.\n\nClick Next to start.", icon: "2", action: { scenario: "minio-g4" } },
     { phase: "show", mode: "minio-g4", body: "Running: MinIO Object Store (S3/TCP). Watch the green 'inference' segment grow and G4 latency stabilize. Click Next when ready." },
     { phase: "tell", title: "Scenario 2 results", useCapture: "minio-g4", prevCapture: "file-g4", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "Scenario 3: MinIO Object + RDMA", body: "Now we add the G3.5 tier \u2014 MinIO on BlueField-4 with NVMe-oF/RDMA at 800 Gb/s. Sub-millisecond cross-GPU KV cache sharing.\n\nClick Next to start.", icon: "3", action: { scenario: "minio-full" } },
-    { phase: "show", mode: "minio-full", body: "Running: MinIO Object + RDMA. I/O stall nearly invisible. Cross-GPU migrations resolve in microseconds. Click Next when ready." },
+    { phase: "tell", title: "Scenario 3: MinIO G4 S3 + G3.5 CTX RDMA", body: "G4 stays MinIO S3/TCP. We now add the G3.5 Context Memory tier \u2014 MinIO on BlueField-4 with NVMe-oF/RDMA at 800 Gb/s. Sub-millisecond cross-GPU KV cache sharing eliminates recomputation stalls.\n\nClick Next to start.", icon: "3", action: { scenario: "minio-full" } },
+    { phase: "show", mode: "minio-full", body: "Running: MinIO G4 S3 + G3.5 CTX RDMA. I/O stall nearly invisible. Cross-GPU migrations resolve in microseconds via RDMA. Click Next when ready." },
     { phase: "tell", title: "Scenario 3 results", useCapture: "minio-full", prevCapture: "minio-g4", baselineCapture: "file-g4", icon: "\uD83D\uDCCA" },
     { phase: "tell", title: "The MinIO AIStor value", body: "MinIO AIStor transforms the AI storage stack:\n\n\u2022 Drop-in S3 replacement for file/POSIX G4 (immediate gain)\n\u2022 G3.5 NVMe-oF/RDMA via BlueField-4 (maximum gain)\n\u2022 Eliminates cross-GPU recomputation\n\u2022 Scales to petabytes\n\nOne storage platform for the entire AI lifecycle.", icon: "\uD83C\uDFC1", isFinale: true, baselineCapture: "file-g4" },
   ];
