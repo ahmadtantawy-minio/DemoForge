@@ -30,6 +30,7 @@ health_check:
 connections:
   provides:
     - type: event-stream
+      port: 3600
       description: REST events published to Solace
 
 variants:
