@@ -6,6 +6,9 @@ from app.simulation.kv_block_manager import GPU_IDS
 class RequestGenerator:
     """Simulated inference request arrival using Poisson-like arrival model."""
 
+    def __init__(self) -> None:
+        self._rr_index = 0
+
     def generate(
         self,
         tick: int,
@@ -35,15 +38,11 @@ class RequestGenerator:
         return count
 
     def pick_gpu(self, gpu_g1_free: dict[str, float]) -> str:
-        """Pick the GPU with more available G1 capacity.
+        """Pick GPU via round-robin for symmetric load across GPUs.
 
-        Args:
-            gpu_g1_free: mapping of gpu_id -> free G1 capacity in GB
+        Round-robin ensures both GPUs react simultaneously to scenario changes,
+        producing clean side-by-side utilization for demo comparisons.
         """
-        best_gpu = max(GPU_IDS, key=lambda g: gpu_g1_free.get(g, 0.0))
-        # If tied, pick randomly
-        best_free = gpu_g1_free.get(best_gpu, 0.0)
-        tied = [g for g in GPU_IDS if gpu_g1_free.get(g, 0.0) == best_free]
-        if len(tied) > 1:
-            return random.choice(tied)
-        return best_gpu
+        gpu = GPU_IDS[self._rr_index % len(GPU_IDS)]
+        self._rr_index += 1
+        return gpu

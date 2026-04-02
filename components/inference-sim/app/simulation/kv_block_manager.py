@@ -4,6 +4,44 @@ import time
 from dataclasses import dataclass, field
 
 
+def effective_g4_ticks(base_ticks: int, n_concurrent_reads: int, scenario_params: dict) -> int:
+    """Calculate effective G4 latency ticks accounting for concurrency.
+
+    For File/POSIX: non-linear degradation due to metadata lock contention.
+    For MinIO S3: graceful scaling up to parallel_factor, gentle degradation after.
+    """
+    parallel_factor = scenario_params["g4_parallel_factor"]
+
+    if scenario_params.get("concurrency_collapse_enabled", False):
+        # POSIX concurrency collapse model
+        if n_concurrent_reads <= 2:
+            multiplier = 1.0
+        elif n_concurrent_reads <= 5:
+            multiplier = 1.0 + 0.4 * (n_concurrent_reads - 2)
+        else:
+            multiplier = 1.0 + 0.4 * 3 + 0.8 * (n_concurrent_reads - 5)
+        return int(base_ticks * multiplier)
+    else:
+        # S3 parallel model: graceful up to parallel_factor
+        excess = max(0, n_concurrent_reads - parallel_factor)
+        multiplier = 1.0 + 0.1 * excess
+        return int(base_ticks * multiplier)
+
+
+def get_tier_ticks(tier: str, scenario_params: dict) -> int | None:
+    """Get latency ticks for a tier based on active scenario."""
+    STATIC_TICKS = {"G1": 0, "G2": 0, "G3": 1}
+    if tier in STATIC_TICKS:
+        return STATIC_TICKS[tier]
+    elif tier == "G3.5":
+        if not scenario_params["g35_enabled"]:
+            return None  # Tier doesn't exist in this scenario
+        return scenario_params["g35_ticks"]
+    elif tier == "G4":
+        return scenario_params["g4_base_ticks"]
+    return 0
+
+
 @dataclass
 class KVBlock:
     session_id: str
@@ -333,8 +371,9 @@ class KVBlockManager:
                 events.append((sid, "G1", "G2", gpu_id, idle_ticks))
         return events
 
-    def get_eviction_policy(self, g35_mode: str = "accelerated") -> dict:
+    def get_eviction_policy(self, scenario: str = "file-g4") -> dict:
         """Return current eviction policy configuration."""
+        _SCENARIO_TO_G35 = {"file-g4": "disabled", "minio-g4": "standard", "minio-full": "accelerated"}
         return {
             "g1_threshold": f"{int(self.EVICTION_THRESHOLDS['G1'] * 100)}%",
             "g2_threshold": f"{int(self.EVICTION_THRESHOLDS['G2'] * 100)}%",
@@ -342,7 +381,8 @@ class KVBlockManager:
             "g35_threshold": f"{int(self.EVICTION_THRESHOLDS['G3.5'] * 100)}%",
             "idle_timeout_ticks": 20,
             "strategy": "LRU (coldest idle session evicted first)",
-            "g35_mode": g35_mode,
+            "scenario": scenario,
+            "g35_mode": _SCENARIO_TO_G35.get(scenario, "disabled"),
         }
 
     def clear(self) -> None:

@@ -64,6 +64,53 @@ async def sim_config(request: Request) -> SimStatus:
     return await engine.get_state()
 
 
+@app.get("/sim/scenarios")
+async def get_scenarios():
+    return {
+        "scenarios": [
+            {
+                "id": "file-g4",
+                "label": "File / POSIX Storage",
+                "subtitle": "Traditional NFS/WEKA — today's baseline",
+                "g4_label": "File / POSIX",
+                "g35_label": None,
+                "accent": "destructive",
+                "expectations": {
+                    "gpu_util": "<50%",
+                    "recompute": "High",
+                    "ttft": "300-800ms",
+                },
+            },
+            {
+                "id": "minio-g4",
+                "label": "MinIO Object Store",
+                "subtitle": "S3-native G4 memory tier",
+                "g4_label": "MinIO S3",
+                "g35_label": None,
+                "accent": "warning",
+                "expectations": {
+                    "gpu_util": "55-70%",
+                    "recompute": "Moderate",
+                    "ttft": "80-200ms",
+                },
+            },
+            {
+                "id": "minio-full",
+                "label": "MinIO Object + RDMA",
+                "subtitle": "G4 Object Store + G3.5 NVMe-oF/RDMA",
+                "g4_label": "MinIO S3",
+                "g35_label": "MinIO RDMA (BlueField-4)",
+                "accent": "success",
+                "expectations": {
+                    "gpu_util": "82-92%",
+                    "recompute": "Rare",
+                    "ttft": "30-60ms",
+                },
+            },
+        ]
+    }
+
+
 @app.post("/sim/reset", response_model=SimStatus)
 async def sim_reset() -> SimStatus:
     await engine.reset()

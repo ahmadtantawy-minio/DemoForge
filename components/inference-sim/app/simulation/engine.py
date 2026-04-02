@@ -68,8 +68,11 @@ class GPUTimeTracker:
         self.history.append(budget)
 
     def register_io_stall(self, ticks: int):
-        # Cap: GPU can only have one outstanding stall at a time
-        self.remaining_stall_ticks = max(self.remaining_stall_ticks, ticks)
+        # Accumulate: concurrent G4/G3.5 restores pile up stall budget.
+        # G4 (12-18 ticks each) accumulates fast → high IO stall %.
+        # G3.5 (2-3 ticks each) accumulates slowly → low IO stall %.
+        # Cap at 80 to prevent runaway on extreme bursts.
+        self.remaining_stall_ticks = min(80, self.remaining_stall_ticks + ticks)
 
     def register_recompute(self, ticks: int):
         # Cap: only the longest recompute matters
@@ -114,7 +117,7 @@ class GPUTimeTracker:
 from app.models import (
     SimConfig, SimStatus, TierState, GPUTierState, SharedTierState, SessionState,
 )
-from app.simulation.kv_block_manager import KVBlockManager, GPU_IDS
+from app.simulation.kv_block_manager import KVBlockManager, GPU_IDS, effective_g4_ticks
 from app.simulation.session_manager import SessionManager
 from app.simulation.request_generator import RequestGenerator
 from app.simulation.minio_backend import MinIOBackend
@@ -123,12 +126,128 @@ from app.simulation import metrics as sim_metrics
 # 100 KB per KV block (laptop-friendly, not real 50 MB)
 KV_BLOCK_SIZE_BYTES = 100 * 1024
 
+# ---------------------------------------------------------------------------
+# Scenario Parameter Bundles
+# ---------------------------------------------------------------------------
+
+SCENARIO_PARAMS: dict[str, dict] = {
+    "file-g4": {
+        # G4 tier: Traditional NFS/POSIX file storage
+        # POSIX metadata bottlenecks, kernel overhead, lock convoys under concurrent GPU access.
+        # Sources: NVIDIA tech blog, Introl 2025, WEKA analysis
+        "g4_base_ticks": 50,            # ~500ms effective at tick=0.2s
+        "g4_jitter_pct": 0.50,          # ±50% variance (metadata lock jitter)
+        "g4_parallel_factor": 1,        # Serial: POSIX locks serialize readers
+        "g4_label": "File / POSIX",
+
+        "g35_enabled": False,
+        "g35_ticks": None,
+
+        # Cross-GPU migration: devastating without G3.5
+        "cross_gpu_recompute_chance": 0.35,  # 35% give up on slow file read
+        "cross_gpu_restore_ticks": 55,       # When it does try: slow + jittery
+        "cross_gpu_restore_jitter_pct": 0.30,
+
+        # POSIX degrades non-linearly under concurrent access
+        "concurrency_collapse_enabled": True,
+    },
+    "minio-g4": {
+        # G4 tier: MinIO S3 object storage over TCP
+        # S3 GET is stateless — no locks, no metadata server bottleneck.
+        # Sources: Pure Storage KVA ("6x faster with S3"), VAST Data, MinIO AIStor specs
+        "g4_base_ticks": 12,            # ~120ms effective (S3 GET over TCP)
+        "g4_jitter_pct": 0.20,          # ±20% (consistent, no lock contention)
+        "g4_parallel_factor": 4,        # 4 concurrent reads before degradation
+        "g4_label": "MinIO S3",
+
+        "g35_enabled": False,
+        "g35_ticks": None,
+
+        # Cross-GPU migration: viable via G4 S3 restore
+        "cross_gpu_recompute_chance": 0.10,  # 10% recompute — S3/TCP occasionally too slow
+        "cross_gpu_restore_ticks": 18,       # S3/TCP cross-GPU: ~120-180ms class
+        "cross_gpu_restore_jitter_pct": 0.15,
+
+        "concurrency_collapse_enabled": False,
+    },
+    "minio-full": {
+        # G4 tier: same MinIO S3 as minio-g4
+        "g4_base_ticks": 12,
+        "g4_jitter_pct": 0.20,
+        "g4_parallel_factor": 4,
+        "g4_label": "MinIO S3",
+
+        # G3.5 tier: MinIO NVMe-oF/RDMA via BlueField-4
+        # Sources: NVIDIA BF-4 tech blog, DataCore NVMe-oF ("10-20 microseconds"), VentureBeat STX ("5x TPS")
+        "g35_enabled": True,
+        "g35_ticks": 2,                 # ~20μs class (RDMA)
+        "g35_label": "MinIO RDMA",
+
+        # Cross-GPU migration: cheap via G3.5 RDMA
+        "cross_gpu_recompute_chance": 0.002,  # <0.2% recompute — RDMA almost never fails
+        "cross_gpu_restore_ticks": 2,         # RDMA promotion: ~20μs class
+        "cross_gpu_restore_jitter_pct": 0.10,
+
+        "concurrency_collapse_enabled": False,
+    },
+}
+
+_SCENARIO_LABELS = {
+    "file-g4": "File / POSIX Storage",
+    "minio-g4": "MinIO Object Store",
+    "minio-full": "MinIO Object + RDMA",
+}
+
+# Backward-compat mapping: old g35_mode values → new scenario IDs.
+# NOTE: "standard" mapped to "minio-g4" (G3.5 disabled) intentionally —
+# old "standard" meant S3/TCP without RDMA, which is exactly minio-g4.
+# Old "accelerated" (G3.5 RDMA on) → "minio-full".
+_G35_TO_SCENARIO = {
+    "disabled": "file-g4",
+    "standard": "minio-g4",
+    "accelerated": "minio-full",
+}
+
+_SCENARIO_TO_G35 = {v: k for k, v in _G35_TO_SCENARIO.items()}
+
+
+def _scenario_recompute_reason(scenario: str) -> str:
+    if scenario == "file-g4":
+        return "File/NFS read timeout — gave up on slow restore"
+    elif scenario == "minio-g4":
+        return "S3 restore fallback — rare but possible"
+    else:  # minio-full
+        return "Rare RDMA transfer timeout — fallback recompute"
+
+
+def _scenario_cross_gpu_labels(scenario: str, ticks: int) -> tuple[str, str, str]:
+    latency_ms = ticks * 200
+    if scenario == "minio-full":
+        return (
+            "MinIO RDMA",
+            f"Cross-GPU via G3.5 (NVMe-oF/RDMA, ~{latency_ms}ms)",
+            "Dynamo router → NIXL RDMA from shared G3.5",
+        )
+    elif scenario == "minio-g4":
+        return (
+            "MinIO S3",
+            f"Cross-GPU restore via G4 (S3/TCP, ~{latency_ms}ms)",
+            "Dynamo router → S3 GET from G4",
+        )
+    else:  # file-g4
+        return (
+            "File/NFS",
+            f"Cross-GPU restore via G4 (File/NFS, ~{latency_ms}ms)",
+            "File read from NFS/POSIX storage",
+        )
+
 
 class SimulationEngine:
     def __init__(self) -> None:
         self.config = SimConfig(
             users=settings.sim_default_users,
             context_tokens=settings.sim_default_context,
+            scenario=settings.sim_default_scenario,
         )
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
@@ -167,30 +286,24 @@ class SimulationEngine:
 
         self._init_components()
 
-    def _effective_g35_mode(self) -> str:
-        """Resolve g35_mode from config with backward compat for cmx_enabled."""
-        mode = getattr(self.config, "g35_mode", None)
-        if mode and mode != "accelerated":
-            # Explicit g35_mode takes precedence
-            return mode
-        # Backward compat: cmx_enabled=false -> disabled
-        if not self.config.cmx_enabled:
-            return "disabled"
-        return mode or "accelerated"
+    def _get_params(self) -> dict:
+        """Return scenario params for current scenario."""
+        return SCENARIO_PARAMS.get(self.config.scenario, SCENARIO_PARAMS["file-g4"])
 
-    def _apply_g35_mode(self) -> None:
-        """Set block_manager.cmx_enabled based on effective g35_mode."""
-        mode = self._effective_g35_mode()
-        self.block_manager.cmx_enabled = mode != "disabled"
+    def _apply_scenario(self) -> None:
+        """Update block_manager state based on current scenario."""
+        params = self._get_params()
+        self.block_manager.cmx_enabled = params["g35_enabled"]
 
     def _init_components(self) -> None:
+        params = self._get_params()
         self.block_manager = KVBlockManager(
             g1_cap=settings.g1_capacity_gb,
             g2_cap=settings.g2_capacity_gb,
             g3_cap=settings.g3_capacity_gb,
             g35_cap=settings.g35_capacity_gb,
             g4_cap=settings.g4_capacity_gb,
-            cmx_enabled=self._effective_g35_mode() != "disabled",
+            cmx_enabled=params["g35_enabled"],
         )
         self.session_manager = SessionManager()
         self.request_gen = RequestGenerator()
@@ -227,7 +340,7 @@ class SimulationEngine:
                 return
             if config:
                 self.config = config
-            self._apply_g35_mode()
+            self._apply_scenario()
             self._running = True
             self._task = asyncio.create_task(self._loop())
 
@@ -247,15 +360,28 @@ class SimulationEngine:
     async def update_config(self, config: SimConfig) -> None:
         async with self._lock:
             self.config = config
-            self._apply_g35_mode()
+            self._apply_scenario()
 
     async def update_config_partial(self, updates: dict) -> None:
         """Merge partial config updates without resetting unmentioned fields."""
         async with self._lock:
+            # Backward compat: map legacy g35_mode to scenario if scenario not explicitly set
+            if "g35_mode" in updates and "scenario" not in updates:
+                updates = dict(updates)
+                updates["scenario"] = _G35_TO_SCENARIO.get(updates["g35_mode"], "file-g4")
             for key, val in updates.items():
                 if hasattr(self.config, key):
                     setattr(self.config, key, val)
-            self._apply_g35_mode()
+            self._apply_scenario()
+
+    def jittered_g4_ticks(self, n_concurrent_reads: int = 1) -> int:
+        """Get G4 ticks with scenario-appropriate jitter and concurrency collapse."""
+        params = self._get_params()
+        base = params["g4_base_ticks"]
+        jitter_range = int(base * params["g4_jitter_pct"])
+        jitter = random.randint(-jitter_range, jitter_range) if jitter_range > 0 else 0
+        raw = max(1, base + jitter)
+        return effective_g4_ticks(raw, n_concurrent_reads, params)
 
     async def reset(self) -> None:
         await self.stop()
@@ -411,7 +537,9 @@ class SimulationEngine:
             "cache_misses": self._cache_misses,
         }
 
-        g35_mode = self._effective_g35_mode()
+        scenario = self.config.scenario
+        params = self._get_params()
+        g35_mode = _SCENARIO_TO_G35.get(scenario, "disabled")
 
         return SimStatus(
             running=self._running,
@@ -421,13 +549,19 @@ class SimulationEngine:
             sessions=session_states,
             metrics=metrics_dict,
             events=(self._all_events + self._tick_events)[-15:],
-            eviction_policy=self.block_manager.get_eviction_policy(g35_mode),
+            eviction_policy=self.block_manager.get_eviction_policy(scenario),
             config={
                 "users": self.config.users,
                 "context_tokens": self.config.context_tokens,
                 "speed": self.config.speed,
+                "scenario": scenario,
+                "scenario_label": _SCENARIO_LABELS.get(scenario, scenario),
+                "g4_type": "file-posix" if scenario == "file-g4" else "minio-s3",
+                "g35_enabled": params["g35_enabled"],
+                "g35_label": params.get("g35_label"),
+                # Backward compat
                 "g35_mode": g35_mode,
-                "cmx_enabled": g35_mode != "disabled",
+                "cmx_enabled": params["g35_enabled"],
             },
         )
 
@@ -538,7 +672,14 @@ class SimulationEngine:
                     self._s3_ops_count += 1
 
         # 6. Handle returning sessions: promote blocks back to G1
-        for s in self.session_manager.get_returning_sessions():
+        _returning = self.session_manager.get_returning_sessions()
+        # Pre-count concurrent G4 reads for concurrency collapse model
+        _n_concurrent_g4_reads = sum(
+            1 for s in _returning
+            if self.block_manager.get_block_tier(s.id) == "G4"
+        )
+
+        for s in _returning:
             current_tier = self.block_manager.get_block_tier(s.id)
             current_gpu = self.block_manager.get_block_gpu(s.id)
 
@@ -571,52 +712,56 @@ class SimulationEngine:
                 )
                 self._s3_ops_count += 1
 
+            params = self._get_params()
+
             if is_cross_gpu:
                 self._cross_gpu_migrations += 1
-                g35_mode = self._effective_g35_mode()
-                if g35_mode != "disabled":
-                    # Cross-GPU promotion goes through G3.5
-                    ticks = self.block_manager.promote(s.id, target_gpu, "G1")
-                    # Differentiate Standard vs Accelerated latency
-                    if g35_mode == "standard":
-                        ticks = max(ticks, 15)  # S3/TCP: ~5-10ms simulated
-                        reason = "Cross-GPU via G3.5 (S3/TCP, ~5-10ms)"
-                        policy = "Dynamo router → S3 transfer from shared G3.5"
-                    else:
-                        ticks = max(ticks, 3)   # RDMA: ~500μs simulated
-                        reason = "Cross-GPU via G3.5 (NVMe-oF/RDMA, ~500μs)"
-                        policy = "Dynamo router → NIXL RDMA from shared G3.5"
-                    self._promotion_latency_ticks.append(ticks)
-                    self.gpu_trackers[target_gpu].register_io_stall(ticks)
-                    self._tick_events.append({
-                        "type": "PROMOTE_CROSS_GPU",
-                        "session": s.id,
-                        "from_gpu": current_gpu or s.gpu_id,
-                        "to_gpu": target_gpu,
-                        "via": "G3.5",
-                        "reason": reason,
-                        "policy": policy,
-                    })
-                    self._cache_hits += 1
-                else:
-                    # G3.5 disabled — cross-GPU returns trigger RECOMPUTE
+
+                if random.random() < params["cross_gpu_recompute_chance"]:
+                    # Engine gives up on restore — recomputes from scratch
+                    # file-g4: 35% (file read too slow), minio-g4: 5%, minio-full: <1%
                     self.block_manager.promote(s.id, target_gpu, "G1")
-                    self._promotion_latency_ticks.append(50)
+                    ticks = 50
+                    self._promotion_latency_ticks.append(ticks)
                     self._recomputations += 1
                     self._cache_misses += 1
-                    self.gpu_trackers[target_gpu].register_recompute(50)
+                    self.gpu_trackers[target_gpu].register_recompute(ticks)
                     sim_metrics.recomputations_total.inc()
+                    reason = _scenario_recompute_reason(self.config.scenario)
                     self._tick_events.append({
                         "type": "RECOMPUTE_CROSS_GPU",
                         "session": s.id,
                         "from_gpu": current_gpu or s.gpu_id,
                         "to_gpu": target_gpu,
-                        "reason": "G3.5 disabled — no shared tier for cross-GPU cache",
+                        "reason": reason,
                         "policy": "Full KV cache recomputation required",
+                    })
+                else:
+                    # Restore path — latency depends on scenario
+                    base_restore = params["cross_gpu_restore_ticks"]
+                    jitter_range = int(base_restore * params["cross_gpu_restore_jitter_pct"])
+                    jitter = random.randint(-jitter_range, jitter_range) if jitter_range > 0 else 0
+                    ticks = self.block_manager.promote(s.id, target_gpu, "G1")
+                    ticks = max(ticks, base_restore + jitter)
+                    via, reason, policy = _scenario_cross_gpu_labels(self.config.scenario, ticks)
+                    self._promotion_latency_ticks.append(ticks)
+                    self.gpu_trackers[target_gpu].register_io_stall(ticks)
+                    self._cache_hits += 1
+                    self._tick_events.append({
+                        "type": "PROMOTE_CROSS_GPU",
+                        "session": s.id,
+                        "from_gpu": current_gpu or s.gpu_id,
+                        "to_gpu": target_gpu,
+                        "via": via,
+                        "reason": reason,
+                        "policy": policy,
                     })
             else:
                 # Same-GPU promotion
                 ticks = self.block_manager.promote(s.id, target_gpu, "G1")
+                # Override G4 ticks with scenario-aware jitter + concurrency collapse
+                if current_tier == "G4":
+                    ticks = max(ticks, self.jittered_g4_ticks(_n_concurrent_g4_reads))
                 self._promotion_latency_ticks.append(ticks)
                 if ticks == 50:
                     self._recomputations += 1

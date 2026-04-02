@@ -29,6 +29,7 @@ environment:
   GPU_COUNT: '2'
   SIM_DEFAULT_USERS: '100'
   SIM_DEFAULT_CONTEXT: '32768'
+  SIM_DEFAULT_SCENARIO: 'file-g4'
 volumes: []
 command: []
 health_check:
@@ -65,6 +66,7 @@ connections:
     port: 8080
   accepts:
   - type: s3
+    optional: true
     config_schema:
     - key: tier_role
       label: Storage Tier Role
@@ -75,6 +77,7 @@ connections:
       default: g35-cmx
       description: Which tier this MinIO instance represents
   - type: inference-api
+    optional: true
 variants:
   default:
     description: Full simulation with visualization UI

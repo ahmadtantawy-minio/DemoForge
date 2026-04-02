@@ -1,11 +1,4 @@
 import os
-from enum import Enum
-
-
-class G35Mode(str, Enum):
-    DISABLED = "disabled"        # No G3.5 — evict from G3 straight to G4
-    STANDARD = "standard"        # S3 over TCP — works, ~5-10ms latency
-    ACCELERATED = "accelerated"  # NVMe-oF/RDMA via BlueField-4 — ~500μs latency
 
 
 class Settings:
@@ -33,6 +26,7 @@ class Settings:
 
     sim_default_users: int = int(os.getenv("SIM_DEFAULT_USERS", "100"))
     sim_default_context: int = int(os.getenv("SIM_DEFAULT_CONTEXT", "32768"))
+    sim_default_scenario: str = os.getenv("SIM_DEFAULT_SCENARIO", "file-g4")
 
 
 settings = Settings()

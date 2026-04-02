@@ -32,8 +32,8 @@ _template:
     description: Open MinIO Console for the G3.5 instance. See real KV cache objects appearing.
   external_dependencies: []
 id: experience-stx-inference
-name: 'NVIDIA STX: The G3.5 Tier'
-description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO CMX to see the throughput difference.
+name: 'NVIDIA STX: Storage Tier Comparison'
+description: 'Three-scenario demo: File/POSIX baseline → MinIO Object Store → MinIO Object + RDMA. Demonstrates GPU utilization improvements from storage modernization.'
 mode: experience
 networks:
 - name: default

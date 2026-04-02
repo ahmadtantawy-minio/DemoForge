@@ -38,7 +38,7 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
   const safeOnDone = (success: boolean) => {
     if (calledRef.current) return;
     calledRef.current = true;
-    safeOnDone(success);
+    onDone(success);
   };
 
   useEffect(() => {

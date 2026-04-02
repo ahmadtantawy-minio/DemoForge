@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NVIDIA STX: The G3.5 Tier</title>
+<title>NVIDIA STX: Storage Tier Comparison</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -870,6 +870,31 @@
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* SCENARIO SELECTOR */
+  .scenario-selector { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .scenario-selector-hdr { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .scenario-card.selector { display: flex; align-items: stretch; gap: 0; overflow: hidden; padding: 0; border-radius: 8px; cursor: pointer; transition: all 0.2s; border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
+  .scenario-card.selector:hover { background: rgba(255,255,255,0.05); }
+  .scenario-card.selector.active { border-width: 2px; }
+  .scenario-card.selector.active.destructive { border-color: var(--red); background: rgba(239,68,68,0.08); }
+  .scenario-card.selector.active.warning { border-color: var(--amber); background: rgba(245,158,11,0.08); }
+  .scenario-card.selector.active.success { border-color: var(--green); background: rgba(34,197,94,0.08); }
+  .scenario-card.selector:not(.active):hover { border-color: var(--text-secondary); }
+  .scenario-accent { width: 4px; flex-shrink: 0; }
+  .destructive .scenario-accent { background: var(--red); }
+  .warning .scenario-accent { background: var(--amber); }
+  .success .scenario-accent { background: var(--green); }
+  .scenario-content { padding: 10px 12px; flex: 1; }
+  .scenario-label { font-size: 12px; font-weight: 700; color: var(--text); }
+  .scenario-subtitle { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* SCENARIO SUMMARY STRIP */
+  .scenario-summary { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+  .summary-item { display: flex; align-items: center; gap: 4px; }
+  .summary-label { font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+  .summary-value { font-size: 10px; font-weight: 600; color: var(--text); white-space: nowrap; }
+  .summary-divider { color: var(--border); font-size: 14px; }
 </style>
 </head>
 <body>
@@ -883,7 +908,7 @@
 
 <!-- HEADER -->
 <div class="header">
-  <div class="header-title">NVIDIA STX: <span>The G3.5 Tier</span></div>
+  <div class="header-title">NVIDIA STX: <span>Storage Tier Comparison</span></div>
   <div class="header-center">
     <button class="header-guide-btn" id="headerGuideBtn">How it works</button>
     <button class="header-action-btn header-start" id="btnStart">Start</button>
@@ -986,7 +1011,7 @@
 
       <div class="tier-row" id="tier-bar-g4" style="margin-top:12px">
         <div class="tier-label">
-          <div><span class="tier-name" style="color:var(--g4)">G4</span><span class="tier-desc">S3 Cold Storage</span></div>
+          <div><span class="tier-name" style="color:var(--g4)">G4</span><span class="tier-desc" id="g4TierDesc">File / POSIX</span></div>
           <div class="tier-capacity" id="shared-g4-cap">0 / 0 GB</div>
         </div>
         <div class="fill-bar-track" id="shared-g4-track">
@@ -1115,25 +1140,46 @@
     <div class="card">
       <div class="card-header">Controls</div>
       <div class="controls-section">
-        <!-- G3.5 Mode Selector -->
-        <div class="g35-selector" id="g35-selector">
-          <div class="g35-header">G3.5 Context Memory Tier</div>
-          <div class="g35-options">
-            <label class="g35-option" data-mode="disabled">
-              <input type="radio" name="g35mode" value="disabled">
-              <div><div class="g35-option-title">Disabled</div>
-              <div class="g35-option-desc">No G3.5. KV cache: G3 → G4. Cross-GPU = recompute.</div></div>
-            </label>
-            <label class="g35-option" data-mode="standard">
-              <input type="radio" name="g35mode" value="standard">
-              <div><div class="g35-option-title">Standard (S3 / TCP)</div>
-              <div class="g35-option-desc">MinIO AIStor via S3. Any infrastructure. ~5-10 ms.</div></div>
-            </label>
-            <label class="g35-option selected" data-mode="accelerated">
-              <input type="radio" name="g35mode" value="accelerated" checked>
-              <div><div class="g35-option-title">Accelerated (NVMe-oF / RDMA)</div>
-              <div class="g35-option-desc">MinIO on BlueField-4 + Spectrum-X. ~200-500 μs.</div></div>
-            </label>
+        <!-- Scenario Selector -->
+        <div id="scenarioSelector">
+          <div class="scenario-selector-hdr">Storage Scenario</div>
+          <div class="scenario-selector">
+            <div class="scenario-card selector active destructive" data-scenario="file-g4" onclick="setScenario('file-g4')">
+              <div class="scenario-accent"></div>
+              <div class="scenario-content">
+                <div class="scenario-label">File / POSIX Storage</div>
+                <div class="scenario-subtitle">Traditional NFS/Lustre — today's baseline</div>
+              </div>
+            </div>
+            <div class="scenario-card selector warning" data-scenario="minio-g4" onclick="setScenario('minio-g4')">
+              <div class="scenario-accent"></div>
+              <div class="scenario-content">
+                <div class="scenario-label">MinIO Object Store</div>
+                <div class="scenario-subtitle">S3-native G4 memory tier</div>
+              </div>
+            </div>
+            <div class="scenario-card selector success" data-scenario="minio-full" onclick="setScenario('minio-full')">
+              <div class="scenario-accent"></div>
+              <div class="scenario-content">
+                <div class="scenario-label">MinIO Object + RDMA</div>
+                <div class="scenario-subtitle">G4 Object Store + G3.5 NVMe-oF/RDMA</div>
+              </div>
+            </div>
+          </div>
+          <div class="scenario-summary" id="scenarioSummary">
+            <div class="summary-item">
+              <span class="summary-label">G4:</span>
+              <span class="summary-value" id="summaryG4">File / POSIX</span>
+            </div>
+            <div class="summary-divider">│</div>
+            <div class="summary-item">
+              <span class="summary-label">G3.5:</span>
+              <span class="summary-value" id="summaryG35">Disabled</span>
+            </div>
+            <div class="summary-divider">│</div>
+            <div class="summary-item">
+              <span class="summary-value" id="summaryExpect">&lt;50% GPU · High recompute</span>
+            </div>
           </div>
         </div>
 
@@ -1181,7 +1227,7 @@
         <span class="guided-btn-icon">&#9654;</span>
         <div class="guided-btn-text">
           <div class="guided-btn-title">Guided demo</div>
-          <div class="guided-btn-desc">Auto-runs the full story: disabled &rarr; standard &rarr; accelerated</div>
+          <div class="guided-btn-desc">Auto-runs the full story: File/POSIX &rarr; MinIO S3 &rarr; MinIO RDMA</div>
         </div>
       </button>
     </div>
@@ -1360,10 +1406,14 @@
     if (d.config && !configSynced) {
       configSynced = true;
       const c = d.config;
-      if (c.g35_mode !== undefined) {
-        const radio = document.querySelector(`input[name="g35mode"][value="${c.g35_mode}"]`);
-        if (radio) radio.checked = true;
-        updateG35Visuals(c.g35_mode);
+      if (c.scenario !== undefined) {
+        currentScenario = c.scenario;
+        updateScenarioVisuals(c.scenario);
+      } else if (c.g35_mode !== undefined) {
+        // Backward compat
+        const _map = {disabled: 'file-g4', standard: 'minio-g4', accelerated: 'minio-full'};
+        currentScenario = _map[c.g35_mode] || 'file-g4';
+        updateScenarioVisuals(currentScenario);
       }
       if (c.users !== undefined) {
         sessionsSlider.value = c.users;
@@ -1440,12 +1490,10 @@
     }
 
     // G4 stress + comparison strip (update each tick)
-    const g35r = document.querySelector('input[name="g35mode"]:checked');
-    const curMode = g35r ? g35r.value : 'accelerated';
-    updateG4Stress(curMode);
+    updateG4Stress(currentScenario);
     // G4 insight: show when G4 stressed
     const g4pct = d.shared && d.shared.g4 ? Math.round((d.shared.g4.used_gb / d.shared.g4.capacity_gb) * 100) : 0;
-    updateG4Insight(g4pct, curMode);
+    updateG4Insight(g4pct, currentScenario);
     if (isRunning) renderComparisonStrip();
 
     // Sessions
@@ -1460,7 +1508,8 @@
       if (p.g3_threshold) { const e = el('pol-g3'); if (e) e.textContent = p.g3_threshold.replace('%',''); }
       if (p.g35_threshold) { const e = el('pol-g35'); if (e) e.textContent = p.g35_threshold.replace('%',''); }
       if (p.idle_timeout_ticks) { const e = el('pol-idle'); if (e) e.textContent = p.idle_timeout_ticks; }
-      if (p.g35_mode) updateG35Visuals(p.g35_mode);
+      if (p.scenario) { currentScenario = p.scenario; updateScenarioVisuals(p.scenario); }
+      else if (p.g35_mode) { const _map = {disabled:'file-g4',standard:'minio-g4',accelerated:'minio-full'}; const s = _map[p.g35_mode]||'file-g4'; currentScenario = s; updateScenarioVisuals(s); }
     }
 
     // Events
@@ -1489,8 +1538,7 @@
 
     // Handle G3.5 disabled state
     if (id === 'shared-g35' && track) {
-      const g35radio = document.querySelector('input[name="g35mode"]:checked');
-      const g35disabled = g35radio ? g35radio.value === 'disabled' : false;
+      const g35disabled = currentScenario === 'file-g4' || currentScenario === 'minio-g4';
       track.classList.toggle('disabled', g35disabled);
     }
   }
@@ -1560,57 +1608,66 @@
   function colorGpuUtil(v) { return v > 70 ? 'green' : v >= 40 ? 'amber' : 'red'; }
 
   // --- G4 stress indicator ---
-  function updateG4Stress(g35Mode) {
+  function updateG4Stress(scenario) {
     const g4Track = $('shared-g4-track');
     if (!g4Track) return;
-    if (g35Mode === 'disabled') {
-      g4Track.classList.add('g4-stressed');
-    } else {
-      g4Track.classList.remove('g4-stressed');
-    }
+    // File/POSIX scenario stresses G4 most visibly
+    g4Track.classList.toggle('g4-stressed', scenario === 'file-g4');
   }
 
   // --- Cross-GPU return path diagram ---
-  function renderCrossGpuPath(g35Mode) {
+  function renderCrossGpuPath(scenario) {
     const container = document.getElementById('cross-gpu-path');
     if (!container) return;
-    if (g35Mode === 'disabled') {
+    if (scenario === 'file-g4') {
       container.innerHTML =
         '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
         '<div class="cgp-scenario">User returns \u2192 Dynamo routes to GPU-B</div>' +
         '<div class="cgp-diagram">' +
           '<div class="cgp-node"><div class="cgp-lbl">GPU-A</div><div class="cgp-box">G1</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
-          '<div class="cgp-node"><div class="cgp-lbl">G4</div><div class="cgp-box cgp-cold">cold</div><div class="cgp-det">~50-200 ms</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">G4</div><div class="cgp-box cgp-cold">NFS</div><div class="cgp-det">500ms+</div></div>' +
           '<div class="cgp-flow"><div class="cgp-arr cgp-arr-bad">\u2717\u2192</div></div>' +
           '<div class="cgp-node"><div class="cgp-lbl">GPU-B</div><div class="cgp-box cgp-recomp">G1</div><div class="cgp-det cgp-det-bad">\u26A1recompute</div></div>' +
         '</div>' +
         '<div class="cgp-res cgp-res-bad">Cache wasted. Full recomputation. GPU stalls ~500-2000 ms.</div>';
-    } else {
-      const lat = g35Mode === 'accelerated' ? '~500 \u03BCs (RDMA)' : '~5-10 ms (S3/TCP)';
-      const proto = g35Mode === 'accelerated' ? 'NVMe-oF / RDMA' : 'S3 over TCP';
+    } else if (scenario === 'minio-g4') {
       container.innerHTML =
         '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
         '<div class="cgp-scenario">User returns \u2192 Dynamo routes to GPU-B</div>' +
         '<div class="cgp-diagram">' +
           '<div class="cgp-node"><div class="cgp-lbl">GPU-A</div><div class="cgp-box">G1</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
-          '<div class="cgp-node cgp-node-minio"><div class="cgp-lbl">G3.5</div><div class="cgp-box cgp-minio">MinIO</div><div class="cgp-det">' + proto + '</div><div class="cgp-det">\u2461PUT + GET</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">G4</div><div class="cgp-box cgp-cold" style="border-color:rgba(245,158,11,0.5);color:#f59e0b;">S3</div><div class="cgp-det">~120ms</div></div>' +
+          '<div class="cgp-flow"><div class="cgp-step">\u2461restore</div><div class="cgp-arr">\u2192</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">GPU-B</div><div class="cgp-box cgp-promoted" style="border-color:rgba(245,158,11,0.5);color:#f59e0b;">G1</div></div>' +
+        '</div>' +
+        '<div class="cgp-lat" style="color:rgba(245,158,11,0.8);">Round-trip: ~120ms (S3/TCP)</div>' +
+        '<div class="cgp-res" style="color:#f59e0b;background:rgba(245,158,11,0.08);">Cache restored via MinIO S3. Occasional recompute fallback.</div>';
+    } else {
+      container.innerHTML =
+        '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
+        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to GPU-B</div>' +
+        '<div class="cgp-diagram">' +
+          '<div class="cgp-node"><div class="cgp-lbl">GPU-A</div><div class="cgp-box">G1</div></div>' +
+          '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
+          '<div class="cgp-node cgp-node-minio"><div class="cgp-lbl">G3.5</div><div class="cgp-box cgp-minio">MinIO</div><div class="cgp-det">NVMe-oF / RDMA</div><div class="cgp-det">\u2461PUT + GET</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2462promote</div><div class="cgp-arr">\u2192</div></div>' +
           '<div class="cgp-node"><div class="cgp-lbl">GPU-B</div><div class="cgp-box cgp-promoted">G1</div></div>' +
         '</div>' +
-        '<div class="cgp-lat">Round-trip: ' + lat + '</div>' +
+        '<div class="cgp-lat">Round-trip: ~500\u03BCs (RDMA)</div>' +
         '<div class="cgp-res cgp-res-good">Cache reused. No recomputation. GPU stays busy.</div>';
     }
   }
 
   // --- Mode comparison strip ---
-  let modeSnapshots = { disabled: null, standard: null, accelerated: null };
+  let currentScenario = 'file-g4';
+  let modeSnapshots = { 'file-g4': null, 'minio-g4': null, 'minio-full': null };
   let latestGpus = null;
   let latestMetrics = null;
   let latestShared = null;
 
-  function buildSnapshot(m, gpus, g35Mode) {
+  function buildSnapshot(m, gpus, scenario) {
     let avgActive = 0, avgStall = 0, avgRecomp = 0;
     if (gpus && gpus.length) {
       gpus.forEach(g => {
@@ -1624,6 +1681,7 @@
       avgRecomp = Math.round(avgRecomp / gpus.length);
     }
     const g4pct = latestShared && latestShared.g4 ? (latestShared.g4.pct || Math.round((latestShared.g4.used_gb / latestShared.g4.capacity_gb) * 100) || 0) : 0;
+    const viaLabel = scenario === 'minio-full' ? 'RDMA ~500\u03BCs' : scenario === 'minio-g4' ? 'S3 ~120ms' : 'recompute';
     return {
       gpu_effective: avgActive,
       ttft: Math.round(m.avg_ttft_ms || 0),
@@ -1631,27 +1689,25 @@
       recompute_pct: avgRecomp,
       g4_pct: g4pct,
       cross_gpu: m.cross_gpu_migrations || 0,
-      via: g35Mode === 'disabled' ? 'recompute' : g35Mode === 'standard' ? 'S3 GET ~10 ms' : 'RDMA GET ~500 \u03BCs',
+      via: viaLabel,
     };
   }
 
   function renderComparisonStrip() {
     const strip = document.getElementById('mode-comparison');
     if (!strip) return;
-    const g35radio = document.querySelector('input[name="g35mode"]:checked');
-    const currentMode = g35radio ? g35radio.value : 'accelerated';
-    const modes = ['disabled', 'standard', 'accelerated'];
-    const labels = { disabled: 'Disabled', standard: 'Standard (S3/TCP)', accelerated: 'Accelerated (RDMA)' };
+    const scenarios = ['file-g4', 'minio-g4', 'minio-full'];
+    const labels = { 'file-g4': 'File / POSIX', 'minio-g4': 'MinIO Object', 'minio-full': 'MinIO + RDMA' };
 
-    let html = '<div class="cmp-title">MODE COMPARISON</div><div class="cmp-grid">';
-    modes.forEach(mode => {
-      const isActive = mode === currentMode;
-      const snap = (isActive && latestMetrics && latestGpus) ? buildSnapshot(latestMetrics, latestGpus, mode) : modeSnapshots[mode];
+    let html = '<div class="cmp-title">SCENARIO COMPARISON</div><div class="cmp-grid">';
+    scenarios.forEach(scenario => {
+      const isActive = scenario === currentScenario;
+      const snap = (isActive && latestMetrics && latestGpus) ? buildSnapshot(latestMetrics, latestGpus, scenario) : modeSnapshots[scenario];
       if (!snap) {
-        html += '<div class="cmp-col empty"><div class="cmp-col-hdr">' + labels[mode] + '</div><div class="cmp-empty">Switch to capture</div></div>';
+        html += '<div class="cmp-col empty"><div class="cmp-col-hdr">' + labels[scenario] + '</div><div class="cmp-empty">Switch to capture</div></div>';
       } else {
         html += '<div class="cmp-col ' + (isActive ? 'active' : '') + '">' +
-          '<div class="cmp-col-hdr">' + labels[mode] + (isActive ? ' <span class="cmp-live">\u25CF live</span>' : '') + '</div>' +
+          '<div class="cmp-col-hdr">' + labels[scenario] + (isActive ? ' <span class="cmp-live">\u25CF live</span>' : '') + '</div>' +
           '<div class="cmp-row cmp-highlight"><span>GPU effective</span><span class="' + (snap.gpu_effective >= 80 ? 'val-good' : snap.gpu_effective >= 50 ? 'val-warn' : 'val-bad') + '">' + snap.gpu_effective + '%</span></div>' +
           '<div class="cmp-row"><span>Avg TTFT</span><span class="' + (snap.ttft <= 100 ? 'val-good' : snap.ttft <= 500 ? 'val-warn' : 'val-bad') + '">' + snap.ttft + ' ms</span></div>' +
           '<div class="cmp-row"><span>I/O stall</span><span class="' + (snap.io_stall > 15 ? 'val-bad' : snap.io_stall > 5 ? 'val-warn' : 'val-good') + '">' + snap.io_stall + '%</span></div>' +
@@ -1729,6 +1785,9 @@
   const MAX_HISTORY = 300;
   let graphSampleCounter = 0;
   let lastRecomp = null;
+  let _totalSamples = 0;
+  let scenarioHistory = []; // [{at: absoluteSampleIdx, scenario}]
+  const SCENARIO_BG = { 'file-g4': 'rgba(239,68,68,0.09)', 'minio-g4': 'rgba(245,158,11,0.09)', 'minio-full': 'rgba(34,197,94,0.09)' };
   const chartSeries = {
     ttft:           { data: [], color: '#EF9F27', label: 'TTFT', unit: 'ms', visible: true },
     recompRate:     { data: [], color: '#ef4444', label: 'Recomp/s', unit: '/s', visible: true },
@@ -1758,6 +1817,17 @@
     chartSeries.gpuUtil.data.push(gpuAvg);
 
     Object.values(chartSeries).forEach(s => { if (s.data.length > MAX_HISTORY) s.data.shift(); });
+
+    // Track scenario at this sample for background band rendering
+    _totalSamples++;
+    const _lastSH = scenarioHistory[scenarioHistory.length - 1];
+    if (!_lastSH || _lastSH.scenario !== currentScenario) {
+      scenarioHistory.push({ at: _totalSamples - 1, scenario: currentScenario });
+    }
+    // Trim entries outside the visible window
+    const _winStart = _totalSamples - MAX_HISTORY;
+    scenarioHistory = scenarioHistory.filter((e, i) => i === scenarioHistory.length - 1 || e.at >= _winStart - 1);
+
     if (graphMode) drawGraph();
   }
 
@@ -1781,6 +1851,24 @@
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
 
     ctx.clearRect(0, 0, W, H);
+
+    // Scenario background bands
+    if (scenarioHistory.length > 0) {
+      const sLen = Math.max(2, ...Object.values(chartSeries).filter(s => s.visible).map(s => s.data.length));
+      const winStart = _totalSamples - sLen;
+      for (let i = 0; i < scenarioHistory.length; i++) {
+        const entry = scenarioHistory[i];
+        const next = scenarioHistory[i + 1];
+        const startIdx = Math.max(0, entry.at - winStart);
+        const endIdx = next ? Math.min(sLen, next.at - winStart) : sLen;
+        const x1 = PAD_L + (MAX_HISTORY - sLen + startIdx) * xStep;
+        const x2 = PAD_L + (MAX_HISTORY - sLen + endIdx) * xStep;
+        if (x2 > PAD_L && x1 < PAD_L + plotW) {
+          ctx.fillStyle = SCENARIO_BG[entry.scenario] || 'rgba(255,255,255,0.03)';
+          ctx.fillRect(Math.max(PAD_L, x1), PAD_T, Math.min(x2, PAD_L + plotW) - Math.max(PAD_L, x1), plotH);
+        }
+      }
+    }
 
     // Grid
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
@@ -1885,39 +1973,55 @@
     }
   }
 
-  // --- Event Listeners ---
-  // G3.5 mode radio buttons
-  document.querySelectorAll('input[name="g35mode"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      // Snapshot current mode before switching
-      const prevRadio = document.querySelector('input[name="g35mode"][data-prev]');
-      const prevMode = prevRadio ? prevRadio.dataset.prev : null;
-      if (prevMode && isRunning && latestMetrics && latestGpus) {
-        modeSnapshots[prevMode] = buildSnapshot(latestMetrics, latestGpus, prevMode);
-      }
-      const mode = radio.value;
-      // Mark current as previous for next switch
-      document.querySelectorAll('input[name="g35mode"]').forEach(r => delete r.dataset.prev);
-      radio.dataset.prev = mode;
-      sendConfig({g35_mode: mode, cmx_enabled: mode !== 'disabled'});
-      updateG35Visuals(mode);
-      updateG4Stress(mode);
-      renderCrossGpuPath(mode);
-      renderComparisonStrip();
-    });
-  });
-  // Initialize cross-GPU path
-  renderCrossGpuPath('accelerated');
-  // Mark initial mode
-  const initRadio = document.querySelector('input[name="g35mode"]:checked');
-  if (initRadio) initRadio.dataset.prev = initRadio.value;
+  // --- Scenario selector ---
+  const SCENARIO_SUMMARIES = {
+    'file-g4':    { g4: 'File / POSIX', g35: 'Disabled', expect: '<50% GPU util \u00B7 High recompute \u00B7 Slow TTFT' },
+    'minio-g4':   { g4: 'MinIO S3 (TCP)', g35: 'Disabled', expect: '55-70% GPU util \u00B7 Moderate recompute \u00B7 Faster TTFT' },
+    'minio-full': { g4: 'MinIO S3 (TCP)', g35: 'MinIO RDMA (BlueField-4)', expect: '82-92% GPU util \u00B7 Rare recompute \u00B7 Lowest TTFT' },
+  };
 
-  function updateG35Visuals(mode) {
+  function updateScenarioSummary(scenario) {
+    const s = SCENARIO_SUMMARIES[scenario] || SCENARIO_SUMMARIES['file-g4'];
+    const g4El = document.getElementById('summaryG4');
+    const g35El = document.getElementById('summaryG35');
+    const expEl = document.getElementById('summaryExpect');
+    if (g4El) g4El.textContent = s.g4;
+    if (g35El) g35El.textContent = s.g35;
+    if (expEl) expEl.textContent = s.expect;
+  }
+
+  function setScenario(scenario) {
+    // Snapshot current scenario metrics before switching
+    if (isRunning && latestMetrics && latestGpus) {
+      modeSnapshots[currentScenario] = buildSnapshot(latestMetrics, latestGpus, currentScenario);
+    }
+    currentScenario = scenario;
+
+    // Update selector card active state
+    document.querySelectorAll('.scenario-card.selector').forEach(card => {
+      card.classList.toggle('active', card.dataset.scenario === scenario);
+    });
+
+    updateScenarioSummary(scenario);
+    updateScenarioVisuals(scenario);
+    updateG4Stress(scenario);
+    renderCrossGpuPath(scenario);
+    renderComparisonStrip();
+
+    sendConfig({ scenario: scenario });
+  }
+  window.setScenario = setScenario;
+
+  function updateScenarioVisuals(scenario) {
+    const g35Enabled = scenario === 'minio-full';
     const polG35 = document.getElementById('pol-g35-tier');
     const polG3Arrow = document.getElementById('pol-g3-arrow');
     const warning = document.getElementById('cmxWarning');
     const g35Row = document.getElementById('g35-tier-row');
-    if (mode === 'disabled') {
+    const g4Desc = document.getElementById('g4TierDesc');
+    if (g4Desc) g4Desc.textContent = scenario === 'file-g4' ? 'File / POSIX' : 'MinIO S3';
+
+    if (!g35Enabled) {
       if (sharedCard) sharedCard.classList.add('cmx-off');
       if (polG35) polG35.classList.add('disabled');
       if (polG3Arrow) polG3Arrow.innerHTML = '&#8595; G4 (skip G3.5)';
@@ -1930,10 +2034,17 @@
       if (warning) warning.style.display = 'none';
       if (g35Row) g35Row.style.display = '';
     }
-    document.querySelectorAll('.g35-option').forEach(opt => {
-      opt.classList.toggle('selected', opt.dataset.mode === mode);
+
+    // Update selector card active state (in case called from data sync)
+    document.querySelectorAll('.scenario-card.selector').forEach(card => {
+      card.classList.toggle('active', card.dataset.scenario === scenario);
     });
+
+    updateScenarioSummary(scenario);
   }
+
+  // Initialize cross-GPU path
+  renderCrossGpuPath('file-g4');
 
   sessionsSlider.addEventListener('input', () => {
     sessionsValue.textContent = sessionsSlider.value;
@@ -1968,51 +2079,46 @@
     sendCommand('reset');
   });
 
-  // Scenario cards
-  document.querySelectorAll('.scenario-card').forEach(card => {
+  // Scenario preset cards (the workload cards, not the selector)
+  document.querySelectorAll('.scenario-card:not(.selector)').forEach(card => {
     card.addEventListener('click', () => {
       const users = parseInt(card.dataset.users);
       const context = parseInt(card.dataset.context);
       const speed = parseInt(card.dataset.speed);
-      const cmx = card.dataset.cmx === 'true';
 
       sessionsSlider.value = users;
       sessionsValue.textContent = users;
       contextSelect.value = context;
-      const mode = cmx ? 'accelerated' : 'disabled';
-      const radio = document.querySelector(`input[name="g35mode"][value="${mode}"]`);
-      if (radio) radio.checked = true;
-      updateG35Visuals(mode);
       document.querySelectorAll('.speed-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.speed) === speed);
       });
 
-      sendConfig({users, context_tokens: context, speed, g35_mode: mode, cmx_enabled: cmx});
+      sendConfig({users, context_tokens: context, speed, scenario: currentScenario});
       setTimeout(() => sendCommand('start'), 200);
     });
   });
 
   // --- G4 Insight ---
-  function updateG4Insight(g4Pct, g35Mode) {
+  function updateG4Insight(g4Pct, scenario) {
     const el = $('g4-insight');
     if (!el) return;
-    el.style.display = (g35Mode === 'disabled' && g4Pct > 30) ? 'block' : 'none';
+    el.style.display = (scenario === 'file-g4' && g4Pct > 30) ? 'block' : 'none';
   }
 
   // --- Guided Demo Script (manually advancing) ---
   const GUIDED_SCRIPT = [
     { phase: "tell", title: "The inference memory challenge", body: "Modern LLMs maintain a KV cache for every conversation \u2014 the model's short-term memory. As context windows grow to 128K+ tokens, this cache can reach tens of gigabytes per session.\n\nGPU HBM is fast but limited. When it fills up, cache gets evicted. If a user returns and their cache is gone, the GPU must recompute it from scratch.", icon: "\u26A1" },
-    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. No shared cache tier (baseline)\n2. MinIO AIStor over standard S3/TCP\n3. MinIO AIStor over NVMe-oF/RDMA (BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
-    { phase: "tell", title: "Scenario 1: No shared tier", body: "KV cache evicts from G3 directly to G4. When a session moves between GPUs, there's no fast shared layer \u2014 the GPU must recompute the entire KV cache.\n\nClick Next, then watch the GPU utilization bar and event stream.", icon: "1", action: { mode: "disabled" } },
-    { phase: "show", mode: "disabled", body: "Simulation running with G3.5 DISABLED. Watch for red 'recompute' segments in GPU bars, rising TTFT, and G4 filling up. Click Next when ready." },
-    { phase: "tell", title: "Scenario 1 results", useCapture: "disabled", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "Scenario 2: MinIO AIStor (S3/TCP)", body: "Now we enable the G3.5 tier \u2014 MinIO AIStor via standard S3 over TCP. No special hardware required.\n\nClick Next to start the simulation.", icon: "2", action: { mode: "standard" } },
-    { phase: "show", mode: "standard", body: "Simulation running with G3.5 STANDARD (S3/TCP). Watch the green 'inference' segment grow and recompute events disappear. Click Next when ready." },
-    { phase: "tell", title: "Scenario 2 results", useCapture: "standard", prevCapture: "disabled", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "Scenario 3: MinIO AIStor (RDMA)", body: "Now we enable hardware acceleration \u2014 BlueField-4 DPU with NVMe-over-Fabrics and RDMA at 800 Gb/s.\n\nClick Next to start.", icon: "3", action: { mode: "accelerated" } },
-    { phase: "show", mode: "accelerated", body: "Simulation running with G3.5 ACCELERATED (NVMe-oF/RDMA). I/O stall nearly invisible. Click Next when ready." },
-    { phase: "tell", title: "Scenario 3 results", useCapture: "accelerated", prevCapture: "standard", baselineCapture: "disabled", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "The MinIO AIStor value", body: "MinIO AIStor serves as the shared KV cache tier between GPU servers.\n\n\u2022 Works today on any infrastructure (S3/TCP)\n\u2022 Hardware-accelerated with BlueField-4 (RDMA)\n\u2022 Eliminates cross-GPU recomputation\n\u2022 Scales to petabytes\n\nOne storage platform for the entire AI lifecycle.", icon: "\uD83C\uDFC1", isFinale: true, baselineCapture: "disabled" },
+    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. MinIO Object Store (S3/TCP — drop-in replacement)\n3. MinIO Object + RDMA (G3.5 NVMe-oF via BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
+    { phase: "tell", title: "Scenario 1: File / POSIX Storage", body: "Traditional NFS/Lustre as the G4 archive tier. POSIX metadata locks serialize reads under concurrent GPU access, causing non-linear latency collapse.\n\nClick Next to start. Watch for red 'recompute' segments and slow TTFT.", icon: "1", action: { scenario: "file-g4" } },
+    { phase: "show", mode: "file-g4", body: "Running: File / POSIX Storage. Watch red recompute segments in GPU bars, high TTFT, and G4 filling up under contention. Click Next when ready." },
+    { phase: "tell", title: "Scenario 1 results", useCapture: "file-g4", icon: "\uD83D\uDCCA" },
+    { phase: "tell", title: "Scenario 2: MinIO Object Store", body: "Now we switch to MinIO as the G4 tier \u2014 S3 over TCP. No hardware change needed. S3 GET is stateless, so parallel reads scale linearly.\n\nClick Next to start.", icon: "2", action: { scenario: "minio-g4" } },
+    { phase: "show", mode: "minio-g4", body: "Running: MinIO Object Store (S3/TCP). Watch the green 'inference' segment grow and G4 latency stabilize. Click Next when ready." },
+    { phase: "tell", title: "Scenario 2 results", useCapture: "minio-g4", prevCapture: "file-g4", icon: "\uD83D\uDCCA" },
+    { phase: "tell", title: "Scenario 3: MinIO Object + RDMA", body: "Now we add the G3.5 tier \u2014 MinIO on BlueField-4 with NVMe-oF/RDMA at 800 Gb/s. Sub-millisecond cross-GPU KV cache sharing.\n\nClick Next to start.", icon: "3", action: { scenario: "minio-full" } },
+    { phase: "show", mode: "minio-full", body: "Running: MinIO Object + RDMA. I/O stall nearly invisible. Cross-GPU migrations resolve in microseconds. Click Next when ready." },
+    { phase: "tell", title: "Scenario 3 results", useCapture: "minio-full", prevCapture: "minio-g4", baselineCapture: "file-g4", icon: "\uD83D\uDCCA" },
+    { phase: "tell", title: "The MinIO AIStor value", body: "MinIO AIStor transforms the AI storage stack:\n\n\u2022 Drop-in S3 replacement for file/POSIX G4 (immediate gain)\n\u2022 G3.5 NVMe-oF/RDMA via BlueField-4 (maximum gain)\n\u2022 Eliminates cross-GPU recomputation\n\u2022 Scales to petabytes\n\nOne storage platform for the entire AI lifecycle.", icon: "\uD83C\uDFC1", isFinale: true, baselineCapture: "file-g4" },
   ];
 
   // --- Guided Demo Runner (manual advancing) ---
@@ -2068,10 +2174,10 @@
     html += '<div class="gc-body">\u2022 G4 load: <strong>' + snap.g4_pct + '%</strong></div>';
     html += '</div>';
 
-    if (base && step.useCapture === 'accelerated') {
+    if (base && step.useCapture === 'minio-full') {
       html += '<div style="margin-top:8px;padding:8px;background:rgba(29,158,117,0.08);border-radius:6px;font-size:12px;color:rgba(255,255,255,0.7);">';
       html += 'GPU utilization: <strong>' + base.gpu_effective + '%</strong> \u2192 ';
-      if (guidedCaptures['standard']) html += '<strong>' + guidedCaptures['standard'].gpu_effective + '%</strong> \u2192 ';
+      if (guidedCaptures['minio-g4']) html += '<strong>' + guidedCaptures['minio-g4'].gpu_effective + '%</strong> \u2192 ';
       html += '<strong class="gc-gain">' + snap.gpu_effective + '%</strong>';
       html += '</div>';
     }
@@ -2089,19 +2195,16 @@
     const needsDelay = step.phase === 'show' || step.useCapture;
     const delayMs = needsDelay ? 12000 : 0;
 
-    // Apply action immediately (mode switch)
-    if (step.action && step.action.mode) {
-      sendConfig({g35_mode: step.action.mode, cmx_enabled: step.action.mode !== 'disabled'});
-      updateG35Visuals(step.action.mode);
-      updateG4Stress(step.action.mode);
-      renderCrossGpuPath(step.action.mode);
+    // Apply action immediately (scenario switch)
+    if (step.action && step.action.scenario) {
+      setScenario(step.action.scenario);
     }
 
     if (step.phase === 'show') {
       // Show phase: start simulation immediately
       sendCommand('reset');
       setTimeout(() => sendCommand('start'), 500);
-      const modeLabel = step.mode === 'disabled' ? 'No G3.5' : step.mode === 'standard' ? 'S3/TCP' : 'RDMA';
+      const modeLabel = step.mode === 'file-g4' ? 'File / POSIX' : step.mode === 'minio-g4' ? 'MinIO S3' : 'MinIO RDMA';
       guidedCardEl.innerHTML =
         '<div class="gc-card">' +
           '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
@@ -2216,7 +2319,7 @@
   const SE_TOUR_STEPS = [
     { target: 'gpu-util-section', title: 'GPU utilization breakdown', body: "This stacked bar shows how each GPU spends its time. Green = useful inference. Amber = waiting for storage I/O. Red = wasted recomputation. The goal is to maximize green.", position: 'left' },
     { target: 'shared-g35-track', title: 'G3.5 \u2014 the MinIO tier (shared)', body: "This is MinIO AIStor. It's shared between both GPUs. When a session moves from GPU-A to GPU-B, the KV cache is pulled from G3.5 instead of being recomputed.", position: 'left' },
-    { target: 'g35-selector', title: 'The three modes \u2014 your main demo control', body: "Disabled: no G3.5 (baseline). Standard: MinIO over S3/TCP (works today). Accelerated: MinIO over RDMA (BlueField-4). Toggle between these to show the customer the impact.", position: 'left' },
+    { target: 'scenarioSelector', title: 'The three scenarios \u2014 your main demo control', body: "File/POSIX: customer's painful baseline. MinIO Object: S3 drop-in replacement, immediate gain. MinIO + RDMA: full vision with BlueField-4. Advance through these to show the progression.", position: 'left' },
     { target: 'cross-gpu-path', title: 'Cross-GPU return path', body: "This diagram shows what happens when a user's session is routed to a different GPU. With G3.5: cache is shared, no recompute. Without: cache is lost, GPU must rebuild it.", position: 'left' },
     { target: 'mode-comparison', title: 'Mode comparison \u2014 builds automatically', body: "As you switch between modes, metrics are captured here. After running all three modes, you have a side-by-side comparison. The 'Guided demo' button does this for you.", position: 'left' },
     { target: 'guided-demo-btn', title: 'Guided demo \u2014 autopilot mode', body: "Click this to run the full demo story automatically. It walks through all three modes with explanation cards. Perfect for narrating along without managing controls.", position: 'left' },
@@ -2305,7 +2408,7 @@
   $('headerGuideBtn').addEventListener('click', tourStart);
 
   // --- Init ---
-  updateG35Visuals('accelerated');
+  updateScenarioVisuals('file-g4');
   connectWS();
 })();
 </script>

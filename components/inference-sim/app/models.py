@@ -8,8 +8,9 @@ class SimConfig(BaseModel):
     users: int = 50
     context_tokens: int = 32768
     speed: float = 1.0
-    cmx_enabled: bool = True       # Backward compat — maps to g35_mode
-    g35_mode: str = "accelerated"   # "disabled" | "standard" | "accelerated"
+    cmx_enabled: bool = True       # Backward compat
+    g35_mode: str = "accelerated"  # Backward compat — maps to scenario
+    scenario: str = "file-g4"      # "file-g4" | "minio-g4" | "minio-full"
 
 
 class TierState(BaseModel):
