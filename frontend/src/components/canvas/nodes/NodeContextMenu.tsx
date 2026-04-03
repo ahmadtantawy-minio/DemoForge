@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "../../../lib/toast";
 import type { ContainerInstance } from "../../../types";
 import { proxyUrl, restartInstance, execCommand, startGenerator, stopGenerator } from "../../../api/client";
 
@@ -152,7 +152,6 @@ export default function NodeContextMenu({
             className="w-full text-left px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-500/10 transition-colors"
             onClick={async () => {
               onClose();
-              const { toast } = await import("sonner");
               toast.info("Setting up tables...");
               try {
                 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";

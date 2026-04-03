@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
 import { stopInstance, startInstance, resetCluster } from "../../../api/client";
-import { toast } from "sonner";
+import { toast } from "../../../lib/toast";
 import ComponentIcon from "../../shared/ComponentIcon";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
 import McpPanel from "../../minio/McpPanel";

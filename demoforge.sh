@@ -23,8 +23,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PROJECT_NAME="demoforge"
-COMPOSE_FILE="docker-compose.yml"
 BACKEND_PORT=9210
+
+# Build compose file flags — layer dev override when DEMOFORGE_MODE=dev
+DC_FLAGS=(-f "docker-compose.yml")
+if [[ "${DEMOFORGE_MODE:-standard}" == "dev" && -f "$SCRIPT_DIR/docker-compose.dev.yml" ]]; then
+    DC_FLAGS+=(-f "docker-compose.dev.yml")
+fi
 FRONTEND_PORT=3000
 
 # Colors
@@ -65,7 +70,7 @@ stop_services() {
     log "Stopping DemoForge services..."
 
     # Stop compose services gracefully
-    docker compose -f "$COMPOSE_FILE" down --remove-orphans 2>/dev/null || true
+    docker compose "${DC_FLAGS[@]}" down --remove-orphans 2>/dev/null || true
 
     # Stop any orphaned demo containers (from deployed demos)
     local demo_containers
@@ -183,11 +188,11 @@ cmd_start() {
 
     # Build and start
     log "Building images..."
-    docker compose -f "$COMPOSE_FILE" build
+    docker compose "${DC_FLAGS[@]}" build
     docker image prune -f --filter "until=1h" &>/dev/null || true
 
     log "Starting services..."
-    docker compose -f "$COMPOSE_FILE" up -d
+    docker compose "${DC_FLAGS[@]}" up -d
 
     echo ""
     # Wait for services to be ready
@@ -226,7 +231,7 @@ cmd_status() {
 
     # Compose services
     echo -e "${CYAN}Services:${NC}"
-    docker compose -f "$COMPOSE_FILE" ps 2>/dev/null || echo "  No compose services running."
+    docker compose "${DC_FLAGS[@]}" ps 2>/dev/null || echo "  No compose services running."
     echo ""
 
     # Demo containers
@@ -267,22 +272,22 @@ cmd_status() {
 }
 
 cmd_logs() {
-    docker compose -f "$COMPOSE_FILE" logs -f --tail=100
+    docker compose "${DC_FLAGS[@]}" logs -f --tail=100
 }
 
 cmd_logs_be() {
-    docker compose -f "$COMPOSE_FILE" logs -f --tail=100 backend
+    docker compose "${DC_FLAGS[@]}" logs -f --tail=100 backend
 }
 
 cmd_logs_fe() {
-    docker compose -f "$COMPOSE_FILE" logs -f --tail=100 frontend
+    docker compose "${DC_FLAGS[@]}" logs -f --tail=100 frontend
 }
 
 cmd_build() {
     check_deps
     log "Building DemoForge images..."
     build_component_images
-    docker compose -f "$COMPOSE_FILE" build
+    docker compose "${DC_FLAGS[@]}" build
     docker image prune -f --filter "until=1h" &>/dev/null || true
     ok "Build complete."
 }
@@ -293,7 +298,7 @@ cmd_clean() {
     clean_demo_networks
 
     # Remove volumes
-    docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
+    docker compose "${DC_FLAGS[@]}" down -v 2>/dev/null || true
 
     # Clean data directory
     if [ -d "data" ]; then
@@ -309,7 +314,7 @@ cmd_nuke() {
 
     # Remove built images
     log "Removing DemoForge images..."
-    docker compose -f "$COMPOSE_FILE" down --rmi local 2>/dev/null || true
+    docker compose "${DC_FLAGS[@]}" down --rmi local 2>/dev/null || true
 
     # Remove component-built images
     for manifest in components/*/manifest.yaml; do
@@ -348,6 +353,7 @@ cmd_dev_be() {
     DEMOFORGE_USER_TEMPLATES_DIR="$SCRIPT_DIR/user-templates" \
     DEMOFORGE_SYNCED_TEMPLATES_DIR="$SCRIPT_DIR/synced-templates" \
     DEMOFORGE_TEMPLATES_MODE="${DEMOFORGE_TEMPLATES_MODE:-all}" \
+    DEMOFORGE_READINESS_CONFIG="$SCRIPT_DIR/component-readiness.yaml" \
     uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload
 }
 

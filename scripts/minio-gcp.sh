@@ -361,6 +361,46 @@ if [[ "$MODE" == "gateway" ]]; then
     ok "Using existing API key from VM metadata."
   fi
 
+  # Hub API admin key (separate from gateway key)
+  HUB_API_ADMIN_KEY=$(get_vm_metadata "hub-api-admin-key")
+  if [[ -z "$HUB_API_ADMIN_KEY" ]]; then
+    HUB_API_ADMIN_KEY="hubadm-$(openssl rand -hex 20)"
+    gcloud compute instances add-metadata "${VM_NAME}" \
+      --zone="${ZONE}" --project="${PROJECT_ID}" \
+      --metadata="hub-api-admin-key=${HUB_API_ADMIN_KEY}"
+    ok "Hub API admin key generated and stored in VM metadata."
+  else
+    ok "Using existing Hub API admin key from VM metadata."
+  fi
+
+  # ── Step 7b: Start Hub API service on VM ──
+  step "7b" "Start Hub API service on VM"
+
+  run_on_vm "
+    # Pull latest hub-api image
+    docker pull demoforge/hub-api:latest 2>/dev/null || true
+
+    # Stop existing hub-api container if running
+    docker rm -f demoforge-hub-api 2>/dev/null || true
+
+    # Start Hub API service
+    docker run -d \
+      --name demoforge-hub-api \
+      --restart unless-stopped \
+      -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
+      -v /data/hub-api:/data/hub-api \
+      -p 8000:8000 \
+      demoforge/hub-api:latest
+  "
+
+  # Verify hub-api is running
+  sleep 2
+  if run_on_vm "curl -sf http://localhost:8000/health" &>/dev/null; then
+    ok "Hub API service is healthy."
+  else
+    warn "Hub API service may need a moment to start. Continuing..."
+  fi
+
   # ── Step 8: Build and deploy Cloud Run gateway ──
   step 8 "Build and deploy Cloud Run gateway"
 
@@ -417,6 +457,15 @@ if [[ "$MODE" == "gateway" ]]; then
   handle_path /templates/* {
     rewrite * /demoforge-templates{uri}
     reverse_proxy ${INTERNAL_IP}:9000
+  }
+
+  # Hub API (routed by X-Service header)
+  @hub_api {
+    header X-Service hub-api
+  }
+  handle @hub_api {
+    request_header -X-Service
+    reverse_proxy ${INTERNAL_IP}:8000
   }
 
   # Docker Registry v2 API (path-based — Docker client doesn't sign requests)
@@ -535,11 +584,17 @@ GWDOCKERFILE
   }
 }
 
-# Health + Licenses endpoint
+# Health + Licenses + Hub API endpoint
 :8080 {
   handle /health {
     rewrite * /health
     reverse_proxy {$HUB_URL}
+  }
+  handle /api/hub/* {
+    reverse_proxy {$HUB_URL} {
+      header_up X-Api-Key {$API_KEY}
+      header_up X-Service hub-api
+    }
   }
   handle /licenses/* {
     reverse_proxy {$HUB_URL} {
@@ -600,6 +655,9 @@ CONNDOCKERFILE
 DEMOFORGE_HUB_URL=${GATEWAY_URL}
 DEMOFORGE_API_KEY=${GATEWAY_API_KEY}
 
+# ── Hub API ──
+DEMOFORGE_HUB_API_ADMIN_KEY=${HUB_API_ADMIN_KEY}
+
 # ── Template Sync (via gateway) ──
 DEMOFORGE_SYNC_ENABLED=true
 DEMOFORGE_SYNC_ENDPOINT=${GATEWAY_URL}/s3
@@ -625,6 +683,7 @@ ENV_EOF
   echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
   echo -e "${GREEN}║  Gateway URL : ${GATEWAY_URL}  ${NC}"
   echo -e "${GREEN}║  API Key     : ${GATEWAY_API_KEY:0:12}...  ${NC}"
+  echo -e "${GREEN}║  Hub API Key : ${HUB_API_ADMIN_KEY:0:12}...  ${NC}"
   echo -e "${GREEN}║  VM internal : ${INTERNAL_IP}  ${NC}"
   echo -e "${GREEN}║  VPC         : ${VPC_NAME} / ${SUBNET_NAME}  ${NC}"
   echo -e "${GREEN}║  Connector   : ${VPC_CONNECTOR_NAME}  ${NC}"

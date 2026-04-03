@@ -1,0 +1,76 @@
+components:
+  minio:
+    fa_ready: true
+  prometheus:
+    fa_ready: true
+  grafana:
+    fa_ready: true
+  nginx:
+    fa_ready: true
+  redpanda:
+    fa_ready: true
+  clickhouse:
+    fa_ready: true
+  trino:
+    fa_ready: true
+  spark:
+    fa_ready: true
+  hdfs:
+    fa_ready: true
+  nessie:
+    fa_ready: true
+  iceberg-rest:
+    fa_ready: true
+  jupyterlab:
+    fa_ready: true
+  mlflow:
+    fa_ready: true
+  airflow:
+    fa_ready: true
+  rag-app:
+    fa_ready: true
+  milvus:
+    fa_ready: true
+  qdrant:
+    fa_ready: true
+  ollama:
+    fa_ready: true
+  s3-file-browser:
+    fa_ready: true
+  file-generator:
+    fa_ready: true
+  data-generator:
+    fa_ready: true
+  redpanda-console:
+    fa_ready: true
+  inference-sim:
+    fa_ready: true
+  inference-client:
+    fa_ready: true
+  litellm:
+    fa_ready: false
+  etcd:
+    fa_ready: false
+  dremio:
+    fa_ready: false
+  metabase:
+    fa_ready: false
+  ml-trainer:
+    fa_ready: true
+    notes: test toggle
+    updated_at: '2026-04-03T03:15:09.003616+00:00'
+  label-studio:
+    fa_ready: false
+  kafka-connect-s3:
+    fa_ready: false
+  resilience-tester:
+    fa_ready: false
+  solace-pubsub:
+    fa_ready: false
+  kong-gateway:
+    fa_ready: false
+  event-bridge:
+    fa_ready: false
+  event-producer:
+    fa_ready: false
+    updated_at: '2026-04-03T03:26:41.703091+00:00'

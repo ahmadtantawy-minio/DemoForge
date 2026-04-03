@@ -1,8 +1,8 @@
-import { Home, LayoutDashboard, FileText, HardDrive, Settings, Sun, Moon } from "lucide-react";
+import { Home, LayoutDashboard, FileText, HardDrive, ShieldCheck, Settings, Sun, Moon } from "lucide-react";
 import { useDemoStore, type PageKey } from "../../stores/demoStore";
 import { useState } from "react";
 
-const topItems: { key: PageKey; icon: typeof Home; label: string }[] = [
+const baseTopItems: { key: PageKey; icon: typeof Home; label: string }[] = [
   { key: "home", icon: Home, label: "Home" },
   { key: "designer", icon: LayoutDashboard, label: "Designer" },
   { key: "templates", icon: FileText, label: "Templates" },
@@ -16,6 +16,11 @@ const bottomItems: { key: PageKey; icon: typeof Settings; label: string }[] = [
 export default function AppNav() {
   const currentPage = useDemoStore((s) => s.currentPage);
   const setCurrentPage = useDemoStore((s) => s.setCurrentPage);
+  const faMode = useDemoStore((s) => s.faMode);
+
+  const topItems = faMode !== "fa"
+    ? [...baseTopItems, { key: "readiness" as PageKey, icon: ShieldCheck, label: "Readiness" }]
+    : baseTopItems;
 
   return (
     <nav className="flex flex-col items-center w-[52px] flex-shrink-0 bg-zinc-950 border-r border-zinc-800 py-2">

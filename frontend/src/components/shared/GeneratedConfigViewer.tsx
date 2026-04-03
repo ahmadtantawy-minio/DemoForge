@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Copy, Check } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 
 interface MinioCommand {
   category: string;

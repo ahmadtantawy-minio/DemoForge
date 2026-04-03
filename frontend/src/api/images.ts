@@ -10,6 +10,7 @@ export interface ImageInfo {
   effective_size_mb: number | null;
   pull_source: string;
   status: "cached" | "missing" | "unknown";
+  built_at: string | null;
 }
 
 export interface PullStatus {

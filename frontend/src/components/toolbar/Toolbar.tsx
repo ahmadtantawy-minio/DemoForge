@@ -3,7 +3,7 @@ import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
 import { deployDemo, stopDemo, fetchDemos, updateDemo, saveDiagram } from "../../api/client";
 import { useDiagramStore } from "../../stores/diagramStore";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
 import LicenseSettings from "../admin/LicenseSettings";

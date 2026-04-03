@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import time as _time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,7 @@ from .registry.loader import load_registry
 from .engine.health_monitor import health_monitor_loop
 from .engine.network_manager import join_network
 from .state.store import state
-from .api import registry, demos, deploy, instances, proxy, terminal, health, settings, cockpit, minio_actions, config_export, templates, mcp_proxy, mcp_chat, failover_status, resilience_status, sql, playbook, images as images_router
+from .api import registry, demos, deploy, instances, proxy, terminal, health, settings, cockpit, minio_actions, config_export, templates, mcp_proxy, mcp_chat, failover_status, resilience_status, sql, playbook, images as images_router, readiness as readiness_router
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +56,26 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Template sync failed on startup (continuing with local): {e}")
 
+    # Telemetry init (fire-and-forget, FA mode only)
+    from .telemetry import init_telemetry, shutdown_telemetry, emit_event
+    _mode = os.getenv("DEMOFORGE_MODE", "dev")
+    _hub_url = os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://localhost:8080")
+    _api_key = os.getenv("DEMOFORGE_API_KEY", "")
+    await init_telemetry(
+        hub_url=_hub_url,
+        api_key=_api_key,
+        enabled=(_mode == "fa" and bool(_api_key)),
+    )
+    app.state.start_time = _time.time()
+    asyncio.create_task(emit_event("app_started", {"mode": _mode}))
+
     monitor_task = asyncio.create_task(health_monitor_loop())
     sync_task = asyncio.create_task(docker_sync_loop())
     yield
     # Shutdown
+    uptime = int(_time.time() - getattr(app.state, "start_time", _time.time()))
+    await emit_event("app_stopped", {"uptime_seconds": uptime})
+    await shutdown_telemetry()
     monitor_task.cancel()
     sync_task.cancel()
 
@@ -91,6 +108,7 @@ app.include_router(resilience_status.router)
 app.include_router(sql.router)
 app.include_router(playbook.router)
 app.include_router(images_router.router)
+app.include_router(readiness_router.router)
 
 # Proxy routes (must be last — catch-all pattern)
 app.include_router(proxy.router)

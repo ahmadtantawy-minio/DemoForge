@@ -52,6 +52,23 @@ async def deploy(demo_id: str):
     if existing and existing.status == "running":
         raise HTTPException(409, "Demo is already running")
 
+    # FA-mode readiness check
+    mode = os.getenv("DEMOFORGE_MODE", "dev")
+    if mode == "fa":
+        from ..engine.readiness import readiness
+        readiness.load()
+        component_ids = [node.component for node in demo.nodes if node.component]
+        component_ids += [cluster.component for cluster in (demo.clusters or []) if cluster.component]
+        blocking = readiness.get_blocking_components(component_ids)
+        if blocking:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Demo contains components that are not yet available to Field Architects",
+                    "blocking_components": blocking,
+                },
+            )
+
     # Drain guard: wait for previous containers to be fully removed
     if not await wait_for_clean_state(demo_id, timeout=30):
         raise HTTPException(409, "Previous deploy still cleaning up — retry in a few seconds")
@@ -78,6 +95,11 @@ async def deploy(demo_id: str):
         running = await deploy_demo(demo, DATA_DIR, COMPONENTS_DIR, on_progress=on_progress)
         progress.finished = True
         logger.info(f"Demo {demo_id} deployed successfully: {running.status}")
+        from ..telemetry import emit_event
+        asyncio.create_task(emit_event("demo_deployed", {
+            "demo_id": demo_id,
+            "component_count": len(demo.nodes) + len(demo.clusters or []),
+        }))
         return DeployResponse(demo_id=demo_id, status=running.status)
     except Exception as e:
         progress.add("error", "error", str(e))
@@ -131,4 +153,6 @@ async def stop(demo_id: str):
             logger.exception(f"Background stop cleanup failed for {demo_id}")
 
     asyncio.create_task(_bg_stop())
+    from ..telemetry import emit_event
+    asyncio.create_task(emit_event("demo_stopped", {"demo_id": demo_id}))
     return DeployResponse(demo_id=demo_id, status="stopped")

@@ -300,6 +300,11 @@ log "  ✓ Registry is healthy at http://${REGISTRY_ADDR}"
 CATALOG=$(curl -sf "http://${REGISTRY_ADDR}/v2/_catalog" 2>/dev/null || echo '{"error":"failed"}')
 log "  ✓ Registry catalog: ${CATALOG}"
 
+# ─── Step 9b: Generate Hub API admin key ─────────────────────────────
+log "Step 9b: Generating Hub API admin key"
+HUB_API_ADMIN_KEY="hubadm-$(openssl rand -hex 20)"
+log "  ✓ Hub API admin key generated"
+
 # ─── Step 10: Generate .env.hub ──────────────────────────────────────
 log "Step 10/10: Generating ${ENV_FILE}"
 
@@ -319,6 +324,9 @@ DEMOFORGE_SYNC_SECRET_KEY=${SVC_PASS}
 # ── Private Registry ──
 DEMOFORGE_REGISTRY_URL=${HUB_ENDPOINT%%:*}:${REGISTRY_PORT}
 DEMOFORGE_REGISTRY_HOST=$(echo "${HUB_ENDPOINT}" | sed 's|http[s]*://||' | sed 's|:[0-9]*$||'):${REGISTRY_PORT}
+
+# ── Hub API ──
+DEMOFORGE_HUB_API_ADMIN_KEY=${HUB_API_ADMIN_KEY}
 ENV_EOF
 
 chmod 600 "${ENV_FILE}"

@@ -17,7 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Settings, Key, Bot, Palette, Loader2, Eye, EyeOff, Sun, Moon } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import {
   fetchLicenseStatus,
   setLicense,

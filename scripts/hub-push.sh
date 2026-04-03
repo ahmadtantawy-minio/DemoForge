@@ -26,8 +26,12 @@ log()  { echo -e "${GREEN}[hub-push]${NC} $*"; }
 err()  { echo -e "${RED}[hub-push]${NC} $*" >&2; }
 
 log "Checking registry at ${REGISTRY_HOST}..."
-curl -sf --connect-timeout 5 --max-time 10 "http://${REGISTRY_HOST}/v2/" &>/dev/null || { err "Registry unreachable at http://${REGISTRY_HOST}"; exit 1; }
-log "✓ Registry reachable"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "http://${REGISTRY_HOST}/v2/" 2>/dev/null || echo "000")
+# 200=ok, 401/403=auth required but reachable — all acceptable
+if [[ "$HTTP_CODE" == "000" ]]; then
+    err "Registry unreachable at http://${REGISTRY_HOST}"; exit 1
+fi
+log "✓ Registry reachable (HTTP ${HTTP_CODE})"
 
 COMPONENTS=(); DOCKERFILES=()
 while IFS= read -r df; do

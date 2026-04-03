@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Copy, Check, Download } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 
 interface ConfigScriptPanelProps {
   open: boolean;

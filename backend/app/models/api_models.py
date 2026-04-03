@@ -121,6 +121,7 @@ class ImageInfo(BaseModel):
     effective_size_mb: Optional[float] = None
     pull_source: str
     status: Literal["cached", "missing", "unknown"]
+    built_at: Optional[str] = None
 
 class PullRequest(BaseModel):
     image_ref: str

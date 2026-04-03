@@ -1,0 +1,20 @@
+# docker-compose.dev.yml — Dev mode hot-reload overrides
+# Applied automatically by demoforge-dev.sh when DEMOFORGE_MODE=dev.
+# Layered on top of docker-compose.yml via: docker compose -f docker-compose.yml -f docker-compose.dev.yml
+services:
+  backend:
+    # Enable uvicorn --reload: watches /app/app (already volume-mounted from ./backend/app)
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9210", "--reload"]
+
+  frontend:
+    # Mount source files so Vite HMR picks up changes without rebuilding the image
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/public:/app/public
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
+      - ./frontend/components:/app/components

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { DemoSummary, ContainerInstance } from "../types";
 
 type ViewType = "diagram" | "control-plane";
-export type PageKey = "home" | "designer" | "templates" | "images" | "settings";
+export type PageKey = "home" | "designer" | "templates" | "images" | "readiness" | "settings";
 
 export interface ResilienceProbe {
   node_id: string;
@@ -44,6 +44,7 @@ function viewFromPath(path: string): { demoId: string | null; view: ViewType; pa
   if (path === "/" || path === "") return { demoId: null, view: "diagram", page: "home" };
   if (path === "/templates") return { demoId: null, view: "diagram", page: "templates" };
   if (path === "/images") return { demoId: null, view: "diagram", page: "images" };
+  if (path === "/readiness") return { demoId: null, view: "diagram", page: "readiness" };
   if (path === "/settings") return { demoId: null, view: "diagram", page: "settings" };
   const m = path.match(/^\/demo\/([^/]+)(\/instances)?/);
   if (m) return { demoId: m[1], view: m[2] ? "control-plane" : "diagram", page: "designer" };
@@ -53,6 +54,7 @@ function viewFromPath(path: string): { demoId: string | null; view: ViewType; pa
 function pathFromState(demoId: string | null, view: ViewType, page: PageKey): string {
   if (page === "templates") return "/templates";
   if (page === "images") return "/images";
+  if (page === "readiness") return "/readiness";
   if (page === "settings") return "/settings";
   if (page === "home" || !demoId) return "/";
   if (view === "control-plane") return `/demo/${demoId}/instances`;

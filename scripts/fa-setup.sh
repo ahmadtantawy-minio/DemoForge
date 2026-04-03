@@ -113,6 +113,29 @@ fi
 
 echo -e "${GREEN}✓ FA identity: ${FA_ID}${NC}"
 
+# ── Register with Hub API ──
+echo ""
+echo -e "${CYAN}Registering with DemoForge Hub API...${NC}"
+
+_FA_ID="${FA_ID}"
+_FA_NAME="$(git config user.name 2>/dev/null || echo "$_FA_ID")"
+_API_KEY="${API_KEY}"
+
+if [[ -n "$_FA_ID" && -n "$_API_KEY" ]]; then
+    _REGISTER_RESP=$(curl -sf -X POST http://localhost:8080/api/hub/fa/register \
+        -H "Content-Type: application/json" \
+        -d "{\"fa_id\": \"$_FA_ID\", \"fa_name\": \"$_FA_NAME\", \"api_key\": \"$_API_KEY\"}" \
+        2>/dev/null || echo "")
+
+    if echo "$_REGISTER_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('fa_id')" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} Registered as: $_FA_ID"
+    else
+        echo -e "  ${YELLOW}⚠${NC}  Hub registration failed (non-blocking). Local use still works."
+    fi
+else
+    echo -e "  ${YELLOW}⚠${NC}  Skipping registration (FA_ID or API_KEY not set)"
+fi
+
 # ── Write .env.local ──
 cat > "$PROJECT_ROOT/.env.local" <<EOF
 DEMOFORGE_FA_ID=${FA_ID}

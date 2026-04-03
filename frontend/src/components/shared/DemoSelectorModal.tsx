@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo, exportDemo, importDemo } from "../../api/client";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

@@ -3,7 +3,7 @@ import { getImageStatus, pullImage, getPullStatus, pullAllMissing, getDanglingIm
 import { hubPushImages } from "../api/client";
 import { ImageStatusBadge } from "../components/images/ImageStatusBadge";
 import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server, Upload } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { useDemoStore } from "../stores/demoStore";
 
 type ImageWithPull = ImageInfo & { pullStatus?: "pulling" | "complete" | "error"; pullPct?: number };
@@ -115,6 +115,21 @@ export function ImagesPage() {
   const formatSize = (mb: number | null) => {
     if (mb == null) return "?";
     return mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${mb} MB`;
+  };
+
+  const formatBuiltAt = (iso: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const now = Date.now();
+    const diff = now - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(diff / 3600000);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(diff / 86400000);
+    if (days < 7) return `${days}d ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   };
 
   const groupTotalSize = (items: ImageWithPull[]) => {
@@ -243,7 +258,14 @@ export function ImagesPage() {
                                 : img.pull_source === "docker.io" ? "Docker Hub" : img.pull_source}
                             </span>
                           </div>
-                          <div className="text-xs text-muted-foreground">{img.component_name}</div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            <span>{img.component_name}</span>
+                            {img.category !== "vendor" && formatBuiltAt(img.built_at) && (
+                              <span className="text-[10px] text-zinc-500" title={img.built_at ?? undefined}>
+                                built {formatBuiltAt(img.built_at)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="w-24 text-right">
                           <ImageStatusBadge status={displayStatus} />

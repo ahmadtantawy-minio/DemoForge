@@ -15,6 +15,7 @@ services:
       - ./user-templates:/app/user-templates           # SE-saved templates, rw
       - ./synced-templates:/app/synced-templates        # Remote sync target, rw
       - ./backend/app:/app/app                        # Backend source (live reload)
+      - ./component-readiness.yaml:/app/component-readiness.yaml  # Component readiness config
     environment:
       - DEMOFORGE_COMPONENTS_DIR=/app/components
       - DEMOFORGE_DEMOS_DIR=/app/demos
@@ -28,9 +29,13 @@ services:
       - DEMOFORGE_SYNC_PREFIX=${DEMOFORGE_SYNC_PREFIX:-templates/}
       - DEMOFORGE_SYNC_ACCESS_KEY=${DEMOFORGE_SYNC_ACCESS_KEY:-}
       - DEMOFORGE_SYNC_SECRET_KEY=${DEMOFORGE_SYNC_SECRET_KEY:-}
-      - DEMOFORGE_REGISTRY_HOST=${DEMOFORGE_REGISTRY_HOST:-}
+      - DEMOFORGE_REGISTRY_HOST=host.docker.internal:5000
+      - DEMOFORGE_REGISTRY_PUSH_HOST=${DEMOFORGE_REGISTRY_PUSH_HOST:-}
       - DEMOFORGE_FA_ID=${DEMOFORGE_FA_ID:-}
       - DEMOFORGE_MODE=${DEMOFORGE_MODE:-standard}
+      - DEMOFORGE_API_KEY=${DEMOFORGE_API_KEY:-}
+      - DEMOFORGE_HUB_CONNECTOR_URL=${DEMOFORGE_HUB_CONNECTOR_URL:-http://host.docker.internal:8080}
+      - DEMOFORGE_READINESS_CONFIG=/app/component-readiness.yaml
       # IMPORTANT: These must resolve to the DemoForge project root, not a subdirectory.
       # The backend auto-detects the correct paths from docker.sock if these are wrong.
       - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import {
   Dialog,
   DialogContent,

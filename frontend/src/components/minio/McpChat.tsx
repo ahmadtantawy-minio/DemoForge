@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import { ChevronDown, ChevronRight, Send } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";

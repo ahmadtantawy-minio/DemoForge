@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import type { ContainerInstance } from "../../types";
 import HealthBadge from "./HealthBadge";
 import WebUIFrame from "./WebUIFrame";

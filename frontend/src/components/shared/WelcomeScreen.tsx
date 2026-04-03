@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { createDemo, fetchDemos, fetchTemplates, createFromTemplate } from "../../api/client";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import type { DemoTemplate } from "../../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

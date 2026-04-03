@@ -21,6 +21,7 @@ import { HomePage } from "./pages/HomePage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { ReadinessPage } from "./pages/ReadinessPage";
 
 export default function App() {
   const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage } = useDemoStore();
@@ -310,6 +311,13 @@ export default function App() {
         <div style={{ display: currentPage === "images" ? "contents" : "none" }}>
           <ImagesPage />
         </div>
+
+        {/* Readiness page (dev + standard only) */}
+        {useDemoStore.getState().faMode !== "fa" && (
+          <div style={{ display: currentPage === "readiness" ? "contents" : "none" }}>
+            <ReadinessPage />
+          </div>
+        )}
 
         {/* Settings page */}
         <div style={{ display: currentPage === "settings" ? "contents" : "none" }}>

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { saveAsTemplate, overrideTemplate, fetchTemplates } from "../../api/client";
 import type { DemoTemplate } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import { Loader2, AlertTriangle, ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

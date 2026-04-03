@@ -12,7 +12,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 import { saveDiagram, saveLayout, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
@@ -844,6 +844,36 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       {contextMenu && (() => {
         // For cluster nodes, use the embedded LB for web UIs, but node-1 for terminal
         const ctxNode = nodes.find((n) => n.id === contextMenu.nodeId);
+        const isAnnotation = ctxNode?.type === "annotation";
+
+        if (isAnnotation) {
+          return (
+            <div
+              className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
+              style={{ top: Math.min(contextMenu.y, window.innerHeight - 100), left: Math.min(contextMenu.x, window.innerWidth - 200) }}
+            >
+              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">Annotation</div>
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                onClick={() => {
+                  document.dispatchEvent(new CustomEvent("annotation:edit", { detail: { id: contextMenu.nodeId } }));
+                  setContextMenu(null);
+                }}
+              >
+                Edit
+              </button>
+              <div className="border-t border-border mt-1 pt-1">
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={() => { handleDeleteNode(contextMenu.nodeId); setContextMenu(null); }}
+                >
+                  Delete Annotation
+                </button>
+              </div>
+            </div>
+          );
+        }
+
         const isCluster = ctxNode?.type === "cluster";
         let instance = instances.find((i) => i.node_id === contextMenu.nodeId);
         if (!instance && isCluster) {

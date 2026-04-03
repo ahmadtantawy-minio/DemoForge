@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import os
@@ -55,6 +56,15 @@ def _load_validated() -> set[str]:
             return set()
         logger.error(f"Cannot load validated templates from MinIO: {e}")
         raise RuntimeError(f"Cannot reach MinIO to load validated templates: {e}") from e
+
+
+def _load_validated_safe() -> set[str]:
+    """Like _load_validated but returns empty set on any error (MinIO offline, etc.)."""
+    try:
+        return _load_validated()
+    except RuntimeError as e:
+        logger.warning(f"MinIO unreachable, using empty validated set: {e}")
+        return set()
 
 
 def _save_validated(ids: set[str]):
@@ -177,10 +187,7 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_
 
 @router.get("/api/templates")
 async def list_templates(mine: bool = False, fa_view: bool = False):
-    try:
-        validated_ids = _load_validated()
-    except RuntimeError as e:
-        raise HTTPException(503, str(e))
+    validated_ids = _load_validated_safe()
     templates = []
     source_counts = {"builtin": 0, "synced": 0, "user": 0}
     for template_id, source, raw in _discover_all_templates():
@@ -197,6 +204,25 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
 
     if fa_view:
         templates = [t for t in templates if t.get("validated")]
+
+    # In FA mode, additionally filter out templates with non-ready components
+    if os.getenv("DEMOFORGE_MODE") == "fa":
+        from ..engine.readiness import readiness
+        if not readiness._components:
+            readiness.load()
+        fa_filtered = []
+        for t in templates:
+            # Re-load raw template to extract component IDs
+            tid = t["id"]
+            raw_t, _, _ = _load_template_raw(tid)
+            if raw_t:
+                comp_ids = [n.get("component") for n in raw_t.get("nodes", []) if n.get("component")]
+                comp_ids += [c.get("component") for c in raw_t.get("clusters", []) if c.get("component")]
+                if readiness.is_template_fa_ready(comp_ids):
+                    fa_filtered.append(t)
+            else:
+                fa_filtered.append(t)
+        templates = fa_filtered
 
     # Get sync status for frontend indicator
     from ..engine.template_sync import get_sync_status, SYNC_ENABLED
@@ -216,7 +242,7 @@ async def get_template(template_id: str):
     if not raw:
         raise HTTPException(404, "Template not found")
     fname = f"{template_id}.yaml"
-    summary = _template_summary(fname, raw, source=source, validated_ids=_load_validated())
+    summary = _template_summary(fname, raw, source=source, validated_ids=_load_validated_safe())
     # Include the full demo definition fields too
     summary["nodes"] = raw.get("nodes", [])
     summary["edges"] = raw.get("edges", [])
@@ -268,7 +294,7 @@ async def update_template(template_id: str, req: dict):
     _save_template_raw(template_id, raw)
 
     fname = f"{template_id}.yaml"
-    return _template_summary(fname, raw, source="user", validated_ids=_load_validated())
+    return _template_summary(fname, raw, source="user", validated_ids=_load_validated_safe())
 
 
 @router.post("/api/demos/from-template/{template_id}")
@@ -276,6 +302,22 @@ async def create_from_template(template_id: str):
     raw, source, path = _load_template_raw(template_id)
     if not raw:
         raise HTTPException(404, "Template not found")
+
+    # FA-mode readiness check
+    if os.getenv("DEMOFORGE_MODE") == "fa":
+        from ..engine.readiness import readiness
+        readiness.load()
+        component_ids = [n.get("component") for n in raw.get("nodes", []) if n.get("component")]
+        component_ids += [c.get("component") for c in raw.get("clusters", []) if c.get("component")]
+        blocking = readiness.get_blocking_components(component_ids)
+        if blocking:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Demo contains components that are not yet available to Field Architects",
+                    "blocking_components": blocking,
+                },
+            )
 
     # Strip template metadata before creating the demo
     demo_raw = {k: v for k, v in raw.items() if k != "_template"}
@@ -431,6 +473,12 @@ async def fork_template(template_id: str, req: dict = Body(default={})):
     raw["id"] = f"template-{new_id}"
 
     _save_template_raw(new_id, raw)
+
+    from ..telemetry import emit_event
+    asyncio.create_task(emit_event("template_forked", {
+        "template_id": new_id,
+        "forked_from": template_id,
+    }))
 
     return {
         "template_id": new_id,
@@ -694,4 +742,8 @@ async def publish_template_endpoint(template_id: str):
     result = publish_template(template_id)
     if result["status"] == "error":
         raise HTTPException(500, result["message"])
+    from ..telemetry import emit_event
+    asyncio.create_task(emit_event("template_published", {
+        "template_id": template_id,
+    }))
     return result

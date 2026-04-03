@@ -21,6 +21,10 @@ REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
 # Docker pulls go through the host daemon (via socket), so use localhost
 # even though the backend container reaches the registry at host.docker.internal
 REGISTRY_PULL_HOST = os.environ.get("DEMOFORGE_REGISTRY_PULL_HOST", "localhost:5000")
+# Push host: hub-connector (host.docker.internal:5000) requires X-Api-Key which Docker's
+# binary push protocol can't provide. Set DEMOFORGE_REGISTRY_PUSH_HOST to the direct
+# registry IP (e.g. 34.18.175.14:5000) to bypass the connector. Falls back to REGISTRY_HOST.
+REGISTRY_PUSH_HOST = os.environ.get("DEMOFORGE_REGISTRY_PUSH_HOST", "") or REGISTRY_HOST
 
 
 @router.get("/registry-health")
@@ -66,17 +70,18 @@ def _pull_source(image_ref: str) -> str:
     return "docker.io"
 
 
-def _check_image_cached(image_ref: str) -> tuple[bool, Optional[float]]:
-    """Check if image is cached locally. Returns (cached, size_mb). BLOCKING — run in thread."""
+def _check_image_cached(image_ref: str) -> tuple[bool, Optional[float], Optional[str]]:
+    """Check if image is cached locally. Returns (cached, size_mb, created_at). BLOCKING — run in thread."""
     try:
         import docker
         client = docker.from_env()
         img = client.images.get(image_ref)
         size_mb = round(img.attrs.get("Size", 0) / 1_000_000, 1)
+        created_at = img.attrs.get("Created")
         client.close()
-        return True, size_mb
+        return True, size_mb, created_at
     except Exception:
-        return False, None
+        return False, None, None
 
 
 # Platform images — DemoForge infrastructure, pulled from private registry
@@ -106,9 +111,9 @@ async def get_image_status():
 
     for (name, manifest), cache_result in zip(manifests_with_images, cache_results):
         if isinstance(cache_result, Exception):
-            cached, local_size = False, None
+            cached, local_size, built_at = False, None, None
         else:
-            cached, local_size = cache_result
+            cached, local_size, built_at = cache_result
 
         category = _categorise(manifest)
         manifest_size = manifest.image_size_mb
@@ -135,27 +140,28 @@ async def get_image_status():
             effective_size_mb=effective_size,
             pull_source=pull_source,
             status=status,
+            built_at=built_at if category in ("custom", "platform") else None,
         ))
 
     # Add platform images (DemoForge infrastructure)
     # Check registry ref + alternate local tags (locally-built images use shorter names)
     async def _check_platform(pname, pref, alt_tags):
-        cached, local_size = await asyncio.to_thread(_check_image_cached, pref)
+        cached, local_size, built_at = await asyncio.to_thread(_check_image_cached, pref)
         if not cached:
             for alt in alt_tags:
-                cached, local_size = await asyncio.to_thread(_check_image_cached, alt)
+                cached, local_size, built_at = await asyncio.to_thread(_check_image_cached, alt)
                 if cached:
                     break
-        return cached, local_size
+        return cached, local_size, built_at
 
     platform_tasks = [_check_platform(n, r, a) for n, r, a in PLATFORM_IMAGES]
     platform_results = await asyncio.gather(*platform_tasks, return_exceptions=True)
 
     for (pname, pref, _alt), presult in zip(PLATFORM_IMAGES, platform_results):
         if isinstance(presult, Exception):
-            cached, local_size = False, None
+            cached, local_size, built_at = False, None, None
         else:
-            cached, local_size = presult
+            cached, local_size, built_at = presult
 
         if pref.startswith("demoforge/") and REGISTRY_HOST:
             psource = f"Private Registry ({REGISTRY_HOST})"
@@ -174,6 +180,7 @@ async def get_image_status():
             effective_size_mb=local_size,
             pull_source=psource,
             status="cached" if cached else "missing",
+            built_at=built_at,
         ))
 
     return results
@@ -278,7 +285,7 @@ async def hub_push_images():
     if os.environ.get("DEMOFORGE_MODE") != "dev":
         raise HTTPException(403, "Hub image push is only available in dev mode.")
 
-    registry = REGISTRY_HOST
+    registry = REGISTRY_PUSH_HOST
     if not registry:
         raise HTTPException(400, "DEMOFORGE_REGISTRY_HOST is not configured.")
 
@@ -313,11 +320,10 @@ async def hub_push_images():
     tasks = []
     for df in dockerfiles:
         component = os.path.basename(os.path.dirname(df))
-        # Docker daemon needs the host path for the build context
-        if host_components_dir:
-            build_ctx = os.path.join(host_components_dir, component)
-        else:
-            build_ctx = os.path.dirname(df)
+        # Always use container-local path: the Docker CLI runs inside the container
+        # and reads the build context from its own filesystem (mounted at /app/components).
+        # host_components_dir is irrelevant here — the CLI streams the context to the daemon.
+        build_ctx = os.path.dirname(df)
         tasks.append(_build_and_push(component, build_ctx))
 
     results = await asyncio.gather(*tasks)

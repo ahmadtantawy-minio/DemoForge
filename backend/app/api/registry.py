@@ -1,12 +1,23 @@
+import os
 from fastapi import APIRouter, HTTPException
 from ..registry.loader import get_registry
 from ..models.api_models import RegistryResponse, ComponentSummary
+from ..engine.readiness import readiness
 
 router = APIRouter()
 
 @router.get("/api/registry/components", response_model=RegistryResponse)
 async def list_components():
     registry = get_registry()
+    manifests = {m.id: m for m in registry.values()}.values()
+
+    # In FA mode, filter to only FA-ready components
+    if os.getenv("DEMOFORGE_MODE") == "fa":
+        if not readiness._components:
+            readiness.load()
+        ready_ids = readiness.get_ready_component_ids()
+        manifests = [m for m in manifests if m.id in ready_ids]
+
     return RegistryResponse(
         components=[
             ComponentSummary(
@@ -23,7 +34,7 @@ async def list_components():
                 },
                 image_size_mb=m.image_size_mb,
             )
-            for m in {m.id: m for m in registry.values()}.values()
+            for m in manifests
         ]
     )
 

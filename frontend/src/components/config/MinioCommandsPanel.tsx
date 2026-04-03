@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Copy, Check } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../../lib/toast";
 
 interface MinioCommand {
   category: string;
