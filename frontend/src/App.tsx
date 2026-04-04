@@ -22,6 +22,8 @@ import { TemplatesPage } from "./pages/TemplatesPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ReadinessPage } from "./pages/ReadinessPage";
+import { FAManagementPage } from "./pages/FAManagementPage";
+import { ConnectivityPage } from "./pages/ConnectivityPage";
 
 export default function App() {
   const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage } = useDemoStore();
@@ -312,12 +314,24 @@ export default function App() {
           <ImagesPage />
         </div>
 
-        {/* Readiness page (dev + standard only) */}
-        {useDemoStore.getState().faMode !== "fa" && (
+        {/* Readiness page (dev only) */}
+        {useDemoStore.getState().faMode === "dev" && (
           <div style={{ display: currentPage === "readiness" ? "contents" : "none" }}>
             <ReadinessPage />
           </div>
         )}
+
+        {/* FA Management page (dev only) */}
+        {useDemoStore.getState().faMode === "dev" && (
+          <div style={{ display: currentPage === "fa-management" ? "contents" : "none" }}>
+            <FAManagementPage />
+          </div>
+        )}
+
+        {/* Connectivity page (all modes) */}
+        <div style={{ display: currentPage === "connectivity" ? "contents" : "none" }}>
+          <ConnectivityPage />
+        </div>
 
         {/* Settings page */}
         <div style={{ display: currentPage === "settings" ? "contents" : "none" }}>

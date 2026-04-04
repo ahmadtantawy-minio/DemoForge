@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     admin_api_key: str = "changeme"
     log_level: str = "INFO"
     default_permissions: dict[str, Any] = {
-        "manual_demo_creation": True,
-        "template_publish": True,
-        "template_fork": True,
+        "manual_demo_creation": False,
+        "template_publish": False,
+        "template_fork": False,
         "max_concurrent_demos": 5,
     }
 

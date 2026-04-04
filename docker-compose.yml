@@ -35,6 +35,7 @@ services:
       - DEMOFORGE_MODE=${DEMOFORGE_MODE:-standard}
       - DEMOFORGE_API_KEY=${DEMOFORGE_API_KEY:-}
       - DEMOFORGE_HUB_CONNECTOR_URL=${DEMOFORGE_HUB_CONNECTOR_URL:-http://host.docker.internal:8080}
+      - DEMOFORGE_HUB_API_ADMIN_KEY=${DEMOFORGE_HUB_API_ADMIN_KEY:-}
       - DEMOFORGE_READINESS_CONFIG=/app/component-readiness.yaml
       # IMPORTANT: These must resolve to the DemoForge project root, not a subdirectory.
       # The backend auto-detects the correct paths from docker.sock if these are wrong.

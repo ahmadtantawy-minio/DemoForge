@@ -344,6 +344,11 @@ cmd_dev_be() {
     # Source hub/sync config if available
     [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
     [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+    # Optional sim FA override — written by `make dev-as FA=...`, removed on exit
+    if [[ -f "$SCRIPT_DIR/.env.sim" ]]; then
+        set -a && source "$SCRIPT_DIR/.env.sim" && set +a
+        echo -e "${YELLOW}Simulating FA: ${DEMOFORGE_FA_ID}${NC}"
+    fi
 
     cd backend
     DEMOFORGE_COMPONENTS_DIR="$SCRIPT_DIR/components" \
@@ -354,6 +359,7 @@ cmd_dev_be() {
     DEMOFORGE_SYNCED_TEMPLATES_DIR="$SCRIPT_DIR/synced-templates" \
     DEMOFORGE_TEMPLATES_MODE="${DEMOFORGE_TEMPLATES_MODE:-all}" \
     DEMOFORGE_READINESS_CONFIG="$SCRIPT_DIR/component-readiness.yaml" \
+    DEMOFORGE_HUB_API_ADMIN_KEY="${DEMOFORGE_HUB_API_ADMIN_KEY:-}" \
     uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload
 }
 

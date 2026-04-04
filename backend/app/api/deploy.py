@@ -68,6 +68,9 @@ async def deploy(demo_id: str):
                     "blocking_components": blocking,
                 },
             )
+        from ..fa_permissions import permission_cache
+        if not await permission_cache.check_permission("manual_demo_creation"):
+            raise HTTPException(403, "Your account does not have permission to create demos manually.")
 
     # Drain guard: wait for previous containers to be fully removed
     if not await wait_for_clean_state(demo_id, timeout=30):

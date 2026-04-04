@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, FileText, HardDrive, ShieldCheck, Settings, Sun, Moon } from "lucide-react";
+import { Home, LayoutDashboard, FileText, HardDrive, ShieldCheck, Users, Wifi, Settings, Sun, Moon } from "lucide-react";
 import { useDemoStore, type PageKey } from "../../stores/demoStore";
 import { useState } from "react";
 
@@ -10,6 +10,7 @@ const baseTopItems: { key: PageKey; icon: typeof Home; label: string }[] = [
 ];
 
 const bottomItems: { key: PageKey; icon: typeof Settings; label: string }[] = [
+  { key: "connectivity", icon: Wifi, label: "Network" },
   { key: "settings", icon: Settings, label: "Settings" },
 ];
 
@@ -18,8 +19,12 @@ export default function AppNav() {
   const setCurrentPage = useDemoStore((s) => s.setCurrentPage);
   const faMode = useDemoStore((s) => s.faMode);
 
-  const topItems = faMode !== "fa"
-    ? [...baseTopItems, { key: "readiness" as PageKey, icon: ShieldCheck, label: "Readiness" }]
+  const topItems = faMode === "dev"
+    ? [
+        ...baseTopItems,
+        { key: "readiness" as PageKey, icon: ShieldCheck, label: "Readiness" },
+        { key: "fa-management" as PageKey, icon: Users, label: "FA Mgmt" },
+      ]
     : baseTopItems;
 
   return (

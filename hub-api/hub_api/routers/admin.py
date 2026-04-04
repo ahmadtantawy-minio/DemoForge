@@ -193,17 +193,16 @@ async def pre_register_fa(
 @router.delete("/fas/{fa_id}")
 async def delete_fa(fa_id: str, db: aiosqlite.Connection = Depends(get_db)):
     cursor = await db.execute(
-        "SELECT * FROM field_architects WHERE fa_id = ?", (fa_id,)
+        "SELECT fa_id FROM field_architects WHERE fa_id = ?", (fa_id,)
     )
     row = await cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="FA not found")
 
-    await db.execute(
-        "UPDATE field_architects SET is_active = 0 WHERE fa_id = ?", (fa_id,)
-    )
+    await db.execute("DELETE FROM events WHERE fa_id = ?", (fa_id,))
+    await db.execute("DELETE FROM field_architects WHERE fa_id = ?", (fa_id,))
     await db.commit()
-    return {"detail": "FA deactivated"}
+    return {"detail": "FA purged"}
 
 
 @router.get("/events")
