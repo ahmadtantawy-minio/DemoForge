@@ -369,6 +369,36 @@ function RedpandaConsoleIcon({ size }: { size: number }) {
   );
 }
 
+function SupersetIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#20A7C9" />
+      {/* Official Apache Superset "S" — two overlapping arcs */}
+      <path
+        d="M20.5 9C18.0 9 16 11.0 16 13.5C16 15.4 17.1 17.0 18.7 17.7C17.6 18.1 16.9 19.1 16.9 20.2C16.9 21.6 18.0 22.8 19.4 23H12.5C11.1 23 10 21.9 10 20.5C10 19.1 11.1 18 12.5 18H15C17.5 18 19.5 16.0 19.5 13.5C19.5 11.0 17.5 9 15 9H20.5Z"
+        fill="white"
+        opacity="0.15"
+      />
+      {/* Top arc (upper lobe of S) */}
+      <path
+        d="M13 10.5 C13 10.5 14.5 9 17 9 C19.5 9 21.5 11 21.5 13.5 C21.5 16 19.5 18 17 18 L15 18 C13.3 18 12 19.3 12 21 C12 22.7 13.3 24 15 24 C15 24 13.5 24 12 23.5"
+        stroke="white"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* Bottom arc (lower lobe of S) */}
+      <path
+        d="M19 21.5 C19 21.5 17.5 23 15 23 C12.5 23 10.5 21 10.5 18.5 C10.5 16 12.5 14 15 14 L17 14 C18.7 14 20 12.7 20 11 C20 9.3 18.7 8 17 8 C17 8 18.5 8 20 8.5"
+        stroke="white"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 function MetabaseIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -566,6 +596,7 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("litellm")) return <LiteLLMIcon size={size} />;
     if (id.includes("etcd")) return <EtcdIcon size={size} />;
     if (id.includes("milvus")) return <MilvusIcon size={size} />;
+    if (id.includes("superset")) return <SupersetIcon size={size} />;
     if (id.includes("metabase")) return <MetabaseIcon size={size} />;
     if (id.includes("qdrant")) return <QdrantIcon size={size} />;
     if (id === "rag" || id.startsWith("rag-") || id.endsWith("-rag")) return <RAGAppIcon size={size} />;
