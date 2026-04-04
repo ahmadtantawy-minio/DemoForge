@@ -50,7 +50,7 @@ nodes:
     y: 250
   display_name: Data Generator
   config:
-    DG_SCENARIO: text-classification
+    DG_SCENARIO: ecommerce-orders
     DG_FORMAT: json
 - id: label-studio-1
   component: label-studio

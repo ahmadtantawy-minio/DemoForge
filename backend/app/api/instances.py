@@ -1388,3 +1388,361 @@ _METABASE_CHART_MAP = {
     "pivot_table": ("pivot", {}),
     "table": ("table", {}),
 }
+
+
+def _build_superset_position_json(chart_layout: list) -> dict:
+    """Build Superset dashboard position JSON from a simplified layout spec."""
+    import json as _json
+    position = {
+        "DASHBOARD_VERSION_KEY": "v2",
+        "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+        "GRID_ID": {
+            "type": "GRID",
+            "id": "GRID_ID",
+            "children": [],
+            "parents": ["ROOT_ID"],
+        },
+        "HEADER_ID": {
+            "type": "HEADER",
+            "id": "HEADER_ID",
+            "meta": {"text": ""},
+        },
+    }
+    rows: dict = {}
+    for item in chart_layout:
+        r = item["row"]
+        rows.setdefault(r, []).append(item)
+    for row_idx in sorted(rows.keys()):
+        row_id = f"ROW-row{row_idx}"
+        position["GRID_ID"]["children"].append(row_id)
+        position[row_id] = {
+            "type": "ROW",
+            "id": row_id,
+            "children": [],
+            "parents": ["ROOT_ID", "GRID_ID"],
+            "meta": {"background": "BACKGROUND_TRANSPARENT"},
+        }
+        for item in sorted(rows[row_idx], key=lambda x: x["col"]):
+            chart_key = f"CHART-{item['chart_id']}"
+            position[row_id]["children"].append(chart_key)
+            position[chart_key] = {
+                "type": "CHART",
+                "id": chart_key,
+                "children": [],
+                "parents": ["ROOT_ID", "GRID_ID", row_id],
+                "meta": {
+                    "width": item["width"],
+                    "height": item["height"],
+                    "chartId": item["chart_id"],
+                    "sliceName": item.get("name", ""),
+                },
+            }
+    return position
+
+
+def _build_superset_dashboard_specs() -> dict:
+    """Return dashboard specs for all 5 DemoForge scenarios."""
+    return {
+        "ecommerce-orders": {
+            "title": "Live Orders Analytics",
+            "slug": "live-orders",
+            "schema": "demo",
+            "table": "orders",
+            "charts": [
+                {"name": "Orders: Total Count", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Total Orders"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "Orders: Total Revenue", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "SUM(total_amount)", "label": "Revenue"}, "header_font_size": 0.4, "y_axis_format": "$,.2f"}},
+                {"name": "Orders: Avg Order Value", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "AVG(total_amount)", "label": "Avg Order"}, "header_font_size": 0.4, "y_axis_format": "$,.2f"}},
+                {"name": "Orders: Orders/min", "viz_type": "echarts_timeseries_line", "params": {"x_axis": "order_ts", "time_grain_sqla": "PT1M", "metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "orders/min"}], "row_limit": 1000, "show_legend": False, "x_axis_time_format": "%H:%M"}},
+                {"name": "Orders: Revenue by Region", "viz_type": "dist_bar", "params": {"groupby": ["region"], "metrics": [{"expressionType": "SQL", "sqlExpression": "SUM(total_amount)", "label": "Revenue"}], "row_limit": 50, "y_axis_format": "$,.0f", "color_scheme": "supersetColors", "show_bar_value": True}},
+                {"name": "Orders: Top Products", "viz_type": "dist_bar", "params": {"groupby": ["product_name"], "metrics": [{"expressionType": "SQL", "sqlExpression": "SUM(total_amount)", "label": "Revenue"}], "row_limit": 10, "order_bars": True, "y_axis_format": "$,.0f", "show_bar_value": True}},
+                {"name": "Orders: Categories", "viz_type": "pie", "params": {"groupby": ["category"], "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Orders"}, "donut": True, "show_labels": True, "label_type": "key_percent", "color_scheme": "supersetColors"}},
+                {"name": "Orders: Payment Methods", "viz_type": "pie", "params": {"groupby": ["payment_method"], "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Orders"}, "donut": True, "show_labels": True, "label_type": "key_percent", "color_scheme": "supersetColors"}},
+            ],
+            "layout": [
+                {"row": 0, "col": 0, "width": 4, "height": 8, "name": "Total Orders"},
+                {"row": 0, "col": 4, "width": 4, "height": 8, "name": "Total Revenue"},
+                {"row": 0, "col": 8, "width": 4, "height": 8, "name": "Avg Order Value"},
+                {"row": 1, "col": 0, "width": 12, "height": 12, "name": "Orders/min"},
+                {"row": 2, "col": 0, "width": 6, "height": 12, "name": "Revenue by Region"},
+                {"row": 2, "col": 6, "width": 6, "height": 12, "name": "Top Products"},
+                {"row": 3, "col": 0, "width": 6, "height": 12, "name": "Categories"},
+                {"row": 3, "col": 6, "width": 6, "height": 12, "name": "Payment Methods"},
+            ],
+        },
+        "iot-telemetry": {
+            "title": "IoT Sensor Monitoring",
+            "slug": "iot-sensors",
+            "schema": "demo",
+            "table": "sensor_readings",
+            "charts": [
+                {"name": "IoT: Total Readings", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Readings"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "IoT: Active Sensors", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(DISTINCT device_id)", "label": "Sensors"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "IoT: Critical Alerts", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*) FILTER (WHERE alert_level = 'critical')", "label": "Critical"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "IoT: Readings/min", "viz_type": "echarts_timeseries_line", "params": {"x_axis": "reading_ts", "time_grain_sqla": "PT1M", "metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "readings/min"}], "row_limit": 1000, "show_legend": False, "x_axis_time_format": "%H:%M"}},
+                {"name": "IoT: Alert Levels", "viz_type": "pie", "params": {"groupby": ["alert_level"], "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Count"}, "donut": True, "show_labels": True, "label_type": "key_percent", "color_scheme": "supersetColors"}},
+                {"name": "IoT: Temp by Facility", "viz_type": "dist_bar", "params": {"groupby": ["facility"], "metrics": [{"expressionType": "SQL", "sqlExpression": "ROUND(AVG(temperature_c), 1)", "label": "Avg Temp (°C)"}], "y_axis_format": ",.1f", "show_bar_value": True}},
+                {"name": "IoT: Battery Levels", "viz_type": "dist_bar", "params": {"groupby": ["battery_pct"], "metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Sensors"}], "row_limit": 100}},
+            ],
+            "layout": [
+                {"row": 0, "col": 0, "width": 4, "height": 8, "name": "Total Readings"},
+                {"row": 0, "col": 4, "width": 4, "height": 8, "name": "Active Sensors"},
+                {"row": 0, "col": 8, "width": 4, "height": 8, "name": "Critical Alerts"},
+                {"row": 1, "col": 0, "width": 12, "height": 12, "name": "Readings/min"},
+                {"row": 2, "col": 0, "width": 4, "height": 12, "name": "Alert Levels"},
+                {"row": 2, "col": 4, "width": 4, "height": 12, "name": "Temp by Facility"},
+                {"row": 2, "col": 8, "width": 4, "height": 12, "name": "Battery Levels"},
+            ],
+        },
+        "financial-txn": {
+            "title": "Financial Transactions Monitor",
+            "slug": "financial-txns",
+            "schema": "demo",
+            "table": "transactions",
+            "charts": [
+                {"name": "Fin: Total Transactions", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Transactions"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "Fin: Total Volume", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "SUM(amount)", "label": "Volume"}, "header_font_size": 0.4, "y_axis_format": "$,.0f"}},
+                {"name": "Fin: Flagged %", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "ROUND(100.0 * COUNT(*) FILTER (WHERE flagged = true) / NULLIF(COUNT(*), 0), 2)", "label": "Flagged %"}, "header_font_size": 0.4, "y_axis_format": ",.2f"}},
+                {"name": "Fin: Txns/min", "viz_type": "echarts_timeseries_line", "params": {"x_axis": "txn_ts", "time_grain_sqla": "PT1M", "metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "txns/min"}], "row_limit": 1000, "show_legend": False, "x_axis_time_format": "%H:%M"}},
+                {"name": "Fin: Volume by Currency", "viz_type": "dist_bar", "params": {"groupby": ["currency"], "metrics": [{"expressionType": "SQL", "sqlExpression": "SUM(amount)", "label": "Volume"}], "order_bars": True, "y_axis_format": "$,.0f", "show_bar_value": True}},
+                {"name": "Fin: Channels", "viz_type": "pie", "params": {"groupby": ["channel"], "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Txns"}, "donut": True, "show_labels": True, "label_type": "key_percent"}},
+                {"name": "Fin: High-Risk Accounts", "viz_type": "table", "params": {"query_mode": "raw", "all_columns": ["account_from", "country", "risk_score", "compliance_status", "amount", "txn_type"], "adhoc_filters": [{"expressionType": "SQL", "sqlExpression": "risk_score > 0.65", "clause": "WHERE"}], "row_limit": 50, "page_length": 15}},
+            ],
+            "layout": [
+                {"row": 0, "col": 0, "width": 4, "height": 8, "name": "Total Txns"},
+                {"row": 0, "col": 4, "width": 4, "height": 8, "name": "Total Volume"},
+                {"row": 0, "col": 8, "width": 4, "height": 8, "name": "Flagged %"},
+                {"row": 1, "col": 0, "width": 12, "height": 12, "name": "Txns/min"},
+                {"row": 2, "col": 0, "width": 6, "height": 12, "name": "Volume by Currency"},
+                {"row": 2, "col": 6, "width": 6, "height": 12, "name": "Channels"},
+                {"row": 3, "col": 0, "width": 12, "height": 14, "name": "High-Risk Accounts"},
+            ],
+        },
+        "clickstream": {
+            "title": "Real-time Clickstream",
+            "slug": "clickstream",
+            "schema": "demo",
+            "table": "clickstream",
+            "charts": [
+                {"name": "Click: Total Events", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Events"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "Click: Unique Sessions", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(DISTINCT session_id)", "label": "Sessions"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "Click: Events/min", "viz_type": "echarts_timeseries_line", "params": {"x_axis": "event_ts", "time_grain_sqla": "PT1M", "metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "events/min"}], "row_limit": 1000, "show_legend": False, "x_axis_time_format": "%H:%M"}},
+                {"name": "Click: Device Types", "viz_type": "pie", "params": {"groupby": ["device_type"], "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Events"}, "donut": True, "show_labels": True, "label_type": "key_percent"}},
+                {"name": "Click: Top Pages", "viz_type": "dist_bar", "params": {"groupby": ["page_url"], "metrics": [{"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Hits"}], "row_limit": 10, "order_bars": True, "show_bar_value": True}},
+            ],
+            "layout": [
+                {"row": 0, "col": 0, "width": 6, "height": 8, "name": "Total Events"},
+                {"row": 0, "col": 6, "width": 6, "height": 8, "name": "Unique Sessions"},
+                {"row": 1, "col": 0, "width": 12, "height": 12, "name": "Events/min"},
+                {"row": 2, "col": 0, "width": 4, "height": 12, "name": "Device Types"},
+                {"row": 2, "col": 4, "width": 8, "height": 12, "name": "Top Pages"},
+            ],
+        },
+        "customer-360": {
+            "title": "Customer 360 Overview",
+            "slug": "customer-360",
+            "schema": "default",
+            "table": "customer_360",
+            "charts": [
+                {"name": "C360: Total Customers", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "COUNT(DISTINCT customer_id)", "label": "Customers"}, "header_font_size": 0.4, "y_axis_format": "SMART_NUMBER"}},
+                {"name": "C360: Total Volume", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "SUM(amount)", "label": "Volume"}, "header_font_size": 0.4, "y_axis_format": "$,.0f"}},
+                {"name": "C360: Avg Transaction", "viz_type": "big_number_total", "params": {"metric": {"expressionType": "SQL", "sqlExpression": "ROUND(AVG(amount), 2)", "label": "Avg Txn"}, "header_font_size": 0.4, "y_axis_format": "$,.2f"}},
+                {"name": "C360: Spend by Segment", "viz_type": "dist_bar", "params": {"groupby": ["segment"], "metrics": [{"expressionType": "SQL", "sqlExpression": "SUM(amount)", "label": "Total Spend"}], "y_axis_format": "$,.0f", "show_bar_value": True}},
+                {"name": "C360: Countries", "viz_type": "pie", "params": {"groupby": ["country"], "metric": {"expressionType": "SQL", "sqlExpression": "COUNT(*)", "label": "Transactions"}, "donut": True, "show_labels": True, "label_type": "key_percent"}},
+                {"name": "C360: Top Merchants", "viz_type": "dist_bar", "params": {"groupby": ["merchant"], "metrics": [{"expressionType": "SQL", "sqlExpression": "SUM(amount)", "label": "Revenue"}], "row_limit": 10, "order_bars": True, "y_axis_format": "$,.0f", "show_bar_value": True}},
+            ],
+            "layout": [
+                {"row": 0, "col": 0, "width": 4, "height": 8, "name": "Total Customers"},
+                {"row": 0, "col": 4, "width": 4, "height": 8, "name": "Total Volume"},
+                {"row": 0, "col": 8, "width": 4, "height": 8, "name": "Avg Transaction"},
+                {"row": 1, "col": 0, "width": 6, "height": 12, "name": "Spend by Segment"},
+                {"row": 1, "col": 6, "width": 6, "height": 12, "name": "Countries"},
+                {"row": 2, "col": 0, "width": 12, "height": 12, "name": "Top Merchants"},
+            ],
+        },
+    }
+
+
+@router.post("/api/demos/{demo_id}/setup-superset")
+async def setup_superset_dashboards(demo_id: str):
+    """Auto-create Superset dashboards for all active data generator scenarios.
+
+    Authenticates to Superset via JWT, creates a Trino database connection,
+    registers datasets, and provisions dashboards for each active scenario.
+    """
+    import yaml as _yaml
+    import json as _json
+
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    # Find Superset container
+    superset_container = None
+    for node_id, container in running.containers.items():
+        if container.component_id == "superset":
+            superset_container = container.container_name
+            break
+    if not superset_container:
+        raise HTTPException(404, "No Superset container in this demo")
+
+    # Load demo definition for catalog routing
+    demos_dir = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
+    demo_path = os.path.join(demos_dir, f"{demo_id}.yaml")
+    if not os.path.isfile(demo_path):
+        raise HTTPException(404, "Demo definition not found")
+    with open(demo_path) as f:
+        demo_def = _yaml.safe_load(f)
+
+    # Build scenario → (catalog, namespace) map (same logic as Metabase)
+    scenario_catalog: dict = {}
+    for node in demo_def.get("nodes", []):
+        if node.get("component") != "data-generator":
+            continue
+        cfg = node.get("config", {})
+        sc = cfg.get("DG_SCENARIO", "ecommerce-orders")
+        wm = cfg.get("DG_WRITE_MODE", "iceberg")
+        if wm == "raw":
+            scenario_catalog[sc] = ("hive", "raw")
+        else:
+            is_aistor = False
+            for e in demo_def.get("edges", []):
+                if e.get("source") == node.get("id") and e.get("connection_type") in ("structured-data", "s3"):
+                    target = e.get("target", "")
+                    for cl in demo_def.get("clusters", []):
+                        if cl.get("id") == target and cl.get("aistor_tables_enabled"):
+                            is_aistor = True
+                            break
+            # Also detect AIStor via minio node MINIO_EDITION config
+            if not is_aistor:
+                for n in demo_def.get("nodes", []):
+                    if n.get("component") == "minio" and n.get("config", {}).get("MINIO_EDITION", "ce") == "aistor":
+                        is_aistor = True
+                        break
+            scenario_catalog[sc] = ("aistor", "demo") if is_aistor else ("iceberg", "demo")
+
+    # Wait for Superset to be ready (up to 60s) via health endpoint
+    import httpx
+    superset_url = f"http://{superset_container}:8088"
+    async with httpx.AsyncClient(timeout=10) as client:
+        for attempt in range(12):
+            try:
+                r = await client.get(f"{superset_url}/health")
+                if r.status_code == 200:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+        else:
+            return {"results": [{"status": "error", "detail": "Superset not ready after 60s"}]}
+
+    # Find Trino container for URI
+    trino_container = None
+    for node_id, container in running.containers.items():
+        if container.component_id == "trino":
+            trino_container = container.container_name
+            break
+
+    primary_catalog = next(
+        (cat for cat, _ in scenario_catalog.values()), "iceberg"
+    )
+    trino_uri = f"trino://demoforge@{trino_container or 'trino'}:8080/{primary_catalog}"
+
+    dashboard_specs = _build_superset_dashboard_specs()
+    results = []
+
+    # Process each active scenario via docker exec (avoids Flask-Login/JWT auth issues)
+    for scenario_id, (catalog, namespace) in scenario_catalog.items():
+        spec = dashboard_specs.get(scenario_id)
+        if not spec:
+            results.append({"scenario": scenario_id, "status": "skipped", "detail": "No Superset dashboard spec"})
+            continue
+
+        try:
+            charts_json = _json.dumps(spec["charts"])
+            layout_json = _json.dumps(spec["layout"])
+            script = (
+                "import os, json, sys\n"
+                "os.environ['SUPERSET_CONFIG_PATH'] = '/app/superset_config.py'\n"
+                "from superset.app import create_app\n"
+                "app = create_app()\n"
+                "with app.app_context():\n"
+                "    from superset import db, security_manager\n"
+                "    from superset.models.core import Database\n"
+                "    from superset.connectors.sqla.models import SqlaTable\n"
+                "    from superset.models.slice import Slice\n"
+                "    from superset.models.dashboard import Dashboard\n"
+                "    from flask_login import login_user\n"
+                "    admin = security_manager.find_user('admin')\n"
+                "    with app.test_request_context():\n"
+                "        login_user(admin)\n"
+                f"        trino_uri = {_json.dumps(trino_uri)}\n"
+                f"        schema = {_json.dumps(spec['schema'])}\n"
+                f"        table_name = {_json.dumps(spec['table'])}\n"
+                f"        dash_title = {_json.dumps(spec['title'])}\n"
+                f"        dash_slug = {_json.dumps(spec['slug'])}\n"
+                f"        charts_spec = json.loads({_json.dumps(charts_json)})\n"
+                f"        layout_spec = json.loads({_json.dumps(layout_json)})\n"
+                "        database = db.session.query(Database).filter_by(database_name='DemoForge Trino').first()\n"
+                "        if not database:\n"
+                "            database = Database(database_name='DemoForge Trino', sqlalchemy_uri=trino_uri, expose_in_sqllab=True, allow_run_async=False)\n"
+                "            db.session.add(database)\n"
+                "            db.session.commit()\n"
+                "        table = db.session.query(SqlaTable).filter_by(database_id=database.id, schema=schema, table_name=table_name).first()\n"
+                "        if not table:\n"
+                "            table = SqlaTable(table_name=table_name, schema=schema, database_id=database.id)\n"
+                "            db.session.add(table)\n"
+                "            db.session.commit()\n"
+                "        chart_ids = []\n"
+                "        for cs in charts_spec:\n"
+                "            ch = db.session.query(Slice).filter_by(slice_name=cs['name']).first()\n"
+                "            if not ch:\n"
+                "                ch = Slice(slice_name=cs['name'], viz_type=cs['viz_type'], datasource_id=table.id, datasource_type='table', params=json.dumps(cs['params']))\n"
+                "                db.session.add(ch)\n"
+                "            else:\n"
+                "                ch.params = json.dumps(cs['params'])\n"
+                "            db.session.commit()\n"
+                "            chart_ids.append(ch.id)\n"
+                "        dash = db.session.query(Dashboard).filter_by(slug=dash_slug).first()\n"
+                "        if not dash:\n"
+                "            slices = [db.session.get(Slice, cid) for cid in chart_ids]\n"
+                "            dash = Dashboard(dashboard_title=dash_title, slug=dash_slug, published=True, slices=slices)\n"
+                "            db.session.add(dash)\n"
+                "            db.session.commit()\n"
+                "        meta = json.loads(dash.json_metadata or '{}')\n"
+                "        meta['refresh_frequency'] = 60\n"
+                "        meta['stagger_refresh'] = False\n"
+                "        meta['timed_refresh_immune_slices'] = []\n"
+                "        dash.json_metadata = json.dumps(meta)\n"
+                "        db.session.commit()\n"
+                "        # Grant Public role Admin-level permissions so unauthenticated users see dashboards\n"
+                "        admin_role = security_manager.find_role('Admin')\n"
+                "        public_role = security_manager.find_role('Public')\n"
+                "        if admin_role and public_role:\n"
+                "            public_role.permissions = list(admin_role.permissions)\n"
+                "            db.session.commit()\n"
+                "        print(json.dumps({'status': 'created', 'dashboard_id': dash.id, 'charts': len(chart_ids)}))\n"
+            )
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "exec", superset_container, "python3", "-c", script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90)
+            if proc.returncode == 0:
+                output = stdout.decode().strip().splitlines()
+                # Last line should be the JSON result
+                for line in reversed(output):
+                    try:
+                        result = _json.loads(line)
+                        results.append({"scenario": scenario_id, **result})
+                        break
+                    except Exception:
+                        continue
+                else:
+                    results.append({"scenario": scenario_id, "status": "error", "detail": stdout.decode()[-200:]})
+            else:
+                results.append({"scenario": scenario_id, "status": "error", "detail": stderr.decode()[-300:]})
+        except Exception as exc:
+            results.append({"scenario": scenario_id, "status": "error", "detail": str(exc)[:200]})
+
+    return {"results": results}

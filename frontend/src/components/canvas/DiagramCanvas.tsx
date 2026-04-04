@@ -32,7 +32,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MousePointerClick, Group, Save, Check, X, Loader2 } from "lucide-react";
+import { MousePointerClick, Group, Save, Check, X, Loader2, Copy } from "lucide-react";
 
 const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
@@ -951,13 +951,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                       else toast.error("Activation failed", {
                         description: r.error?.slice(0, 200),
                         duration: 10000,
-                        action: r.error ? { label: "Copy", onClick: () => navigator.clipboard.writeText(r.error!) } : undefined,
+                        action: r.error ? { label: <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />, onClick: () => navigator.clipboard.writeText(r.error!) } : undefined,
                       });
                     })
                     .catch((e: any) => toast.error("Activation failed", {
                       description: e.message?.slice(0, 200),
                       duration: 10000,
-                      action: { label: "Copy", onClick: () => navigator.clipboard.writeText(e.message) },
+                      action: { label: <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />, onClick: () => navigator.clipboard.writeText(e.message) },
                     }));
                   setEdgeContextMenu(null);
                 }}
@@ -989,13 +989,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                       else toast.error("Resync failed", {
                         description: r.error?.slice(0, 200),
                         duration: 10000,
-                        action: r.error ? { label: "Copy", onClick: () => navigator.clipboard.writeText(r.error!) } : undefined,
+                        action: r.error ? { label: <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />, onClick: () => navigator.clipboard.writeText(r.error!) } : undefined,
                       });
                     })
                     .catch((e: any) => toast.error("Resync failed", {
                       description: e.message?.slice(0, 200),
                       duration: 10000,
-                      action: { label: "Copy", onClick: () => navigator.clipboard.writeText(e.message) },
+                      action: { label: <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />, onClick: () => navigator.clipboard.writeText(e.message) },
                     }));
                   setEdgeContextMenu(null);
                 }}

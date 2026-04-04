@@ -1,4 +1,30 @@
 """Reverse proxy route: /proxy/{demo_id}/{node_id}/{ui_name}/{path:path}"""
+# SPA recovery HTML — returned when the browser navigates to a Superset SPA path
+# directly (e.g. after React Router pushState strips the proxy prefix from the URL
+# and the user refreshes). Reads sessionStorage._dfproxy (set by the injected JS
+# on first proxy load) and immediately redirects back through the correct proxy URL.
+_SPA_RECOVERY_HTML = """<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>DemoForge — Redirecting\u2026</title>
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5}
+.box{text-align:center;padding:2rem;background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}</style>
+<script>
+(function(){
+  var proxy = sessionStorage.getItem('_dfproxy');
+  if (proxy) {
+    var target = proxy + window.location.pathname + window.location.search + window.location.hash;
+    window.location.replace(target);
+  }
+})();
+</script>
+</head>
+<body>
+<div class="box">
+  <h2>\u23f3 Session not found</h2>
+  <p>Navigate to your demo to open this panel, or <a href="/">return to DemoForge</a>.</p>
+</div>
+</body>
+</html>"""
 import asyncio
 import websockets
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
@@ -92,3 +118,30 @@ async def proxy_ws_handler(
             await websocket.close()
         except Exception:
             pass
+
+
+# Catch-all for Superset SPA paths that escape the proxy after React Router
+# strips the proxy prefix via history.replaceState / pushState.
+# Returns a recovery page that reads sessionStorage._dfproxy (set by the proxy's
+# injected JS) and immediately redirects back through the correct proxy URL.
+from fastapi.responses import HTMLResponse
+
+_SPA_PATHS = [
+    "/superset/{path:path}",
+    "/dashboard/{path:path}",
+    "/chart/{path:path}",
+    "/dataset/{path:path}",
+    "/explore/{path:path}",
+    "/tablemodelview/{path:path}",
+    "/databaseview/{path:path}",
+    "/savedqueryview/{path:path}",
+    "/login",
+    "/login/",
+    "/logout",
+    "/logout/",
+]
+
+for _spa_path in _SPA_PATHS:
+    @router.get(_spa_path, response_class=HTMLResponse, include_in_schema=False)
+    async def _spa_recovery(request: Request) -> HTMLResponse:
+        return HTMLResponse(content=_SPA_RECOVERY_HTML, status_code=200)

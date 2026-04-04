@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Copy } from "lucide-react";
 import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
@@ -88,7 +89,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
       toast.error(`Failed to reset cluster`, {
         description: errMsg,
         duration: 10000,
-        action: { label: "Copy", onClick: () => navigator.clipboard.writeText(errMsg) },
+        action: { label: <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />, onClick: () => navigator.clipboard.writeText(errMsg) },
       });
     }
   };

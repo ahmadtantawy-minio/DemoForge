@@ -87,6 +87,11 @@ async def forward_request(
     headers = dict(request.headers)
     headers.pop("host", None)
     headers.pop("Host", None)
+    # Remove Accept-Encoding so upstream sends uncompressed content.
+    # The proxy does HTML injection on the raw bytes; compressed bytes would
+    # be stripped of their Content-Encoding header and rendered as garbage.
+    headers.pop("accept-encoding", None)
+    headers.pop("Accept-Encoding", None)
 
     # Read request body
     body = await request.body()
@@ -99,11 +104,19 @@ async def forward_request(
         content=body if body else None,
     )
 
+    content_type = upstream_resp.headers.get("content-type", "")
+    _rewrite_content = "text/html" in content_type or "javascript" in content_type
+
     # Build response headers, rewriting as needed
     resp_headers = {}
     # Headers to strip — they break iframe embedding or cause issues
     strip_headers = {"transfer-encoding", "content-encoding", "content-length",
                      "x-frame-options", "content-security-policy"}
+    # For rewritten content (HTML/JS), also strip cache headers so the browser
+    # always fetches fresh rewritten content (our rewrites embed the demo/node path).
+    if _rewrite_content:
+        strip_headers |= {"cache-control", "expires", "etag", "last-modified",
+                          "pragma", "vary"}
     for key, value in upstream_resp.headers.multi_items():
         lower = key.lower()
         if lower in strip_headers:
@@ -116,8 +129,11 @@ async def forward_request(
             value = _rewrite_cookie_path(value, proxy_prefix)
         resp_headers[key] = value
 
+    # Prevent browser from caching rewritten HTML/JS (rewrites are demo/node-specific)
+    if _rewrite_content:
+        resp_headers["Cache-Control"] = "no-store"
+
     content = upstream_resp.content
-    content_type = upstream_resp.headers.get("content-type", "")
 
     # For HTML responses, inject a <base> tag so relative asset paths resolve through proxy
     if "text/html" in content_type:
@@ -129,6 +145,20 @@ async def forward_request(
         else:
             base_path = f"{proxy_prefix}/"
         content = _inject_base_tag(content, base_path, proxy_prefix)
+
+    elif "javascript" in content_type and proxy_prefix:
+        # Rewrite webpack public path inside JS bundles.
+        # SPAs like Superset hardcode /static/assets/ as webpack's publicPath; lazy-loaded
+        # chunks are then fetched from the wrong origin-relative URL. By replacing the
+        # string in the served JS we fix the public path at the source so chunk loading
+        # works without any additional client-side monkey-patching.
+        try:
+            js = content.decode("utf-8", errors="ignore")
+            js = js.replace('"/static/assets/"', f'"{proxy_prefix}/static/assets/"')
+            js = js.replace("'/static/assets/'", f"'{proxy_prefix}/static/assets/'")
+            content = js.encode("utf-8")
+        except Exception:
+            pass
 
     return Response(
         content=content,
@@ -158,7 +188,11 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
     The base tag fixes relative CSS/JS paths. The fetch interceptor rewrites
     absolute API paths (like /ui/api/...) through the proxy prefix so that
     SPAs with hardcoded fetch() calls work correctly.
+    Also rewrites absolute paths in href/src/action HTML attributes so that
+    <link>, <script>, and <img> tags with hardcoded /static/... paths are
+    proxied correctly.
     """
+    import re
     try:
         html = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -168,15 +202,57 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
     proxy_base = proxy_prefix.rstrip("/") if proxy_prefix else base_href.rstrip("/")
 
     base_tag = f'<base href="{base_href}">'
-    # Intercept fetch() to rewrite absolute paths through the proxy
+    # Comprehensive proxy interceptor (runs synchronously before SPA bundle scripts):
+    # 1. history.replaceState: strips the proxy prefix from the URL immediately so that
+    #    SPAs with client-side routing (React Router, Vue Router) see the correct route
+    #    path when they initialize — e.g. "/dashboard/list/" instead of
+    #    "/proxy/demo/node/Superset/dashboard/list/". Runs before entry bundles execute.
+    # 2. fetch() / XHR: rewrites "/path" and "http://origin/path" API calls through
+    #    the proxy prefix so Superset's REST API calls reach the right container.
+    # 3. Node.prototype.appendChild/insertBefore: rewrites src/href on dynamically
+    #    injected script/link elements (webpack lazy chunk loading).
     fetch_interceptor = (
         f'<script>'
-        f'(function(){{var _f=window.fetch;window.fetch=function(u,o){{'
-        f'if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith("{proxy_base}")){{u="{proxy_base}"+u;}}'
-        f'return _f.call(this,u,o);}};'
-        f'var _x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){{'
-        f'if(typeof u==="string"&&u.startsWith("/")&&!u.startsWith("{proxy_base}")){{u="{proxy_base}"+u;}}'
-        f'return _x.apply(this,arguments);}};'
+        f'(function(){{'
+        # proxy prefix
+        f'var pb="{proxy_base}";'
+        # Persist proxy prefix in sessionStorage so refresh-recovery redirects work
+        # (the backend catch-all for /dashboard/, /chart/ etc. reads this).
+        f'try{{sessionStorage.setItem("_dfproxy",pb);}}catch(e){{}}'
+        # Strip proxy prefix from URL before SPA initializes.
+        # React Router reads window.location.pathname on init; by stripping the prefix
+        # here (synchronously, before entry scripts run) the SPA sees the correct path.
+        # SKIP replaceState on login/register pages so the form action stays on the
+        # proxy URL — the login POST must go through the proxy to reach Superset.
+        f'try{{var p=window.location.pathname;'
+        f'var stripped=p.slice(pb.length)||"/";'
+        f'var isAuth=stripped==="/login/"||stripped==="/login"||stripped==="/logout/"||stripped==="/logout";'
+        f'if(!isAuth&&(p===pb||p.startsWith(pb+"/")))'
+        f'window.history.replaceState(window.history.state,"",stripped'
+        f'+window.location.search+window.location.hash);}}catch(e){{}}'
+        # rewrite helper: "/path" and "http://origin/path" → proxy-prefixed URL
+        f'function rw(u){{'
+        f'if(typeof u!=="string")return u;'
+        f'if(u.startsWith("/")&&!u.startsWith(pb))return pb+u;'
+        f'try{{var og=window.location.origin;'
+        f'if(u.startsWith(og+"/")&&!u.startsWith(og+pb))return og+pb+u.slice(og.length);}}catch(e){{}}'
+        f'return u;}}'
+        # patch script/link before DOM insertion (webpack lazy chunk loading)
+        f'function ps(c){{'
+        f'if(!c||!c.tagName)return c;'
+        f'var t=c.tagName;'
+        f'if(t==="SCRIPT"&&c.src){{var ns=rw(c.src);if(ns!==c.src)c.setAttribute("src",ns);}}'
+        f'if(t==="LINK"&&c.href){{var nh=rw(c.href);if(nh!==c.href)c.setAttribute("href",nh);}}'
+        f'return c;}}'
+        f'var _ac=Node.prototype.appendChild;'
+        f'Node.prototype.appendChild=function(c){{return _ac.call(this,ps(c));}};'
+        f'var _ib=Node.prototype.insertBefore;'
+        f'Node.prototype.insertBefore=function(c,r){{return _ib.call(this,ps(c),r);}};'
+        # fetch
+        f'var _f=window.fetch;window.fetch=function(u,o){{return _f.call(this,rw(u),o);}};'
+        # XHR
+        f'var _x=XMLHttpRequest.prototype.open;'
+        f'XMLHttpRequest.prototype.open=function(m,u){{return _x.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)));}};'
         f'}})();'
         f'</script>'
     )
@@ -193,5 +269,17 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         html = base_tag + html
     else:
         return content
+
+    # Rewrite absolute paths in HTML attributes (href, src, action) so that
+    # <link>, <script>, <img> etc. with hardcoded /static/... paths are proxied.
+    # Skip protocol-relative URLs (//) and paths already going through the proxy.
+    if proxy_base:
+        def _rewrite_attr(m: re.Match) -> str:
+            attr, quote, path = m.group(1), m.group(2), m.group(3)
+            if path.startswith("//") or path.startswith(proxy_base):
+                return m.group(0)
+            return f'{attr}={quote}{proxy_base}{path}{quote}'
+
+        html = re.sub(r'(href|src|action)=(["\'])(/[^"\']*)\2', _rewrite_attr, html)
 
     return html.encode("utf-8")

@@ -50,6 +50,26 @@ const DG_SCENARIOS = [
       high: { rows_per_batch: 1000, batches_per_minute: 20 },
     },
   },
+  {
+    id: "clickstream",
+    name: "Web Clickstream",
+    description: "Web browsing events — page views, clicks, sessions, conversions. High-volume streaming.",
+    rateProfiles: {
+      low: { rows_per_batch: 50, batches_per_minute: 6 },
+      medium: { rows_per_batch: 200, batches_per_minute: 30 },
+      high: { rows_per_batch: 1000, batches_per_minute: 60 },
+    },
+  },
+  {
+    id: "customer-360",
+    name: "Customer 360",
+    description: "Customer analytics with transactions — segments, merchants, MENA-weighted countries.",
+    rateProfiles: {
+      low: { rows_per_batch: 50, batches_per_minute: 4 },
+      medium: { rows_per_batch: 200, batches_per_minute: 10 },
+      high: { rows_per_batch: 1000, batches_per_minute: 30 },
+    },
+  },
 ] as const;
 
 const DG_FORMATS = [

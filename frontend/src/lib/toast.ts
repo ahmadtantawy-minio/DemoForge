@@ -3,6 +3,8 @@
  * button on every notification (copies title + description to clipboard).
  * If the caller already provides an `action`, it is preserved as-is.
  */
+import { createElement } from "react";
+import { Copy } from "lucide-react";
 import { toast as sonnerToast } from "sonner";
 
 type SonnerToast = typeof sonnerToast;
@@ -20,7 +22,7 @@ function withCopy(
   return {
     ...opts,
     action: {
-      label: "Copy",
+      label: createElement(Copy, { className: "w-3.5 h-3.5", strokeWidth: 1.5 }) as unknown as string,
       onClick: () => navigator.clipboard.writeText(text).catch(() => {}),
     },
   };

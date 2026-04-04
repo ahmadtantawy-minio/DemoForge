@@ -60,8 +60,48 @@ def _find_scenario_id(demo_id: str) -> str | None:
     return None
 
 
-def _load_scenario_playbook(scenario_id: str) -> tuple[str, list[dict]] | None:
-    """Load a scenario YAML and extract its playbook."""
+def _resolve_catalog_namespace(demo_id: str, scenario_id: str) -> tuple[str, str]:
+    """Determine the Trino catalog and namespace for a scenario in a running demo."""
+    from ..api.demos import _load_demo
+    demo = _load_demo(demo_id)
+    if not demo:
+        return ("iceberg", "demo")
+
+    # Find the data-generator node — prefer one with matching DG_SCENARIO,
+    # fall back to any data-generator (covers nodes with empty config)
+    dg_node = next(
+        (n for n in demo.nodes if n.component == "data-generator"
+         and n.config.get("DG_SCENARIO") == scenario_id),
+        None,
+    ) or next(
+        (n for n in demo.nodes if n.component == "data-generator"),
+        None,
+    )
+    if dg_node is None:
+        return ("iceberg", "demo")
+
+    wm = dg_node.config.get("DG_WRITE_MODE", "iceberg")
+    if wm == "raw":
+        return ("hive", "raw")
+
+    # Check if this generator targets an AIStor cluster via an edge
+    for edge in demo.edges:
+        if edge.source == dg_node.id and edge.connection_type in ("structured-data", "s3"):
+            target = edge.target
+            for cl in demo.clusters:
+                if cl.id == target and getattr(cl, "aistor_tables_enabled", False):
+                    return ("aistor", "demo")
+
+    # Check if any minio node is AIStor edition
+    for n in demo.nodes:
+        if n.component == "minio" and n.config.get("MINIO_EDITION", "ce") == "aistor":
+            return ("aistor", "demo")
+
+    return ("iceberg", "demo")
+
+
+def _load_scenario_playbook(scenario_id: str) -> tuple[str, list[dict], dict] | None:
+    """Load a scenario YAML and return (name, playbook_steps, iceberg_config)."""
     path = os.path.join(DATASETS_DIR, f"{scenario_id}.yaml")
     if not os.path.isfile(path):
         return None
@@ -69,12 +109,17 @@ def _load_scenario_playbook(scenario_id: str) -> tuple[str, list[dict]] | None:
         data = yaml.safe_load(f)
     name = data.get("name", scenario_id)
     playbook = data.get("playbook", [])
-    return name, playbook
+    iceberg = data.get("iceberg", {})
+    return name, playbook, iceberg
 
 
 @router.get("/api/demos/{demo_id}/playbook", response_model=PlaybookResponse)
 async def get_playbook(demo_id: str):
-    """Return the SQL playbook for the demo's data generator scenario."""
+    """Return the SQL playbook for the demo's data generator scenario.
+
+    Resolves {catalog}, {namespace}, and {table} placeholders in SQL before
+    returning steps so queries run correctly against Trino.
+    """
     running = state.get_demo(demo_id)
     if not running:
         raise HTTPException(404, "Demo not running")
@@ -87,16 +132,22 @@ async def get_playbook(demo_id: str):
     if not result:
         raise HTTPException(404, f"Scenario '{scenario_id}' not found")
 
-    name, playbook_raw = result
+    name, playbook_raw, iceberg_cfg = result
     if not playbook_raw:
         raise HTTPException(404, f"Scenario '{scenario_id}' has no playbook")
+
+    catalog, namespace = _resolve_catalog_namespace(demo_id, scenario_id)
+    table = iceberg_cfg.get("table", scenario_id.replace("-", "_"))
 
     steps = [
         PlaybookStep(
             step=s.get("step", i + 1),
             title=s.get("title", f"Step {i + 1}"),
             description=s.get("description", ""),
-            sql=s.get("sql", ""),
+            sql=(s.get("sql", "")
+                 .replace("{catalog}", catalog)
+                 .replace("{namespace}", namespace)
+                 .replace("{table}", table)),
             expected=s.get("expected", ""),
         )
         for i, s in enumerate(playbook_raw)

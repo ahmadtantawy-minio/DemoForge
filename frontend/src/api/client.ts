@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { Copy } from "lucide-react";
 import { useDebugStore } from "../stores/debugStore";
 import { toast } from "../lib/toast";
 
@@ -23,7 +25,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
         toast.error(`API Error: ${method} ${path}`, {
           description: body.slice(0, 200),
           duration: 10000,
-          action: { label: "Copy", onClick: () => navigator.clipboard.writeText(body) },
+          action: { label: createElement(Copy, { className: "w-3.5 h-3.5", strokeWidth: 1.5 }) as unknown as string, onClick: () => navigator.clipboard.writeText(body) },
         });
       }
       throw new Error(`API error ${res.status}: ${body}`);

@@ -170,6 +170,35 @@ export default function NodeContextMenu({
           </button>
         </>
       )}
+      {componentId === "superset" && isRunning && (
+        <>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+            onClick={async () => {
+              onClose();
+              toast.info("Setting up Superset dashboards...");
+              try {
+                const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+                const res = await fetch(`${API_BASE}/api/demos/${demoId}/setup-superset`, { method: "POST" });
+                const data = await res.json();
+                const created = data.results?.filter((r: any) => r.status === "created") || [];
+                const exists = data.results?.filter((r: any) => r.status === "exists") || [];
+                const errors = data.results?.filter((r: any) => r.status === "error") || [];
+                if (errors.length) {
+                  toast.error(`Dashboard setup failed`, { description: errors.map((r: any) => r.detail).join("; ").slice(0, 200) });
+                } else {
+                  toast.success(`Superset: ${created.length} created, ${exists.length} already exist`);
+                }
+              } catch (e: any) {
+                toast.error("Superset setup failed", { description: e.message });
+              }
+            }}
+          >
+            Setup Dashboards
+          </button>
+        </>
+      )}
       {menuItems.length === 0 && !isRunning && componentId !== "trino" && (
         <div className="px-3 py-1.5 text-xs text-muted-foreground">
           Not deployed yet
