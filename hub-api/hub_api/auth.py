@@ -45,6 +45,8 @@ async def get_current_fa(
 
 
 async def require_admin(request: Request) -> None:
-    api_key = request.headers.get("X-Api-Key")
+    # Accept X-Hub-Admin-Key (passes through gateway/connector untouched)
+    # or fall back to X-Api-Key for direct local access
+    api_key = request.headers.get("X-Hub-Admin-Key") or request.headers.get("X-Api-Key")
     if not api_key or api_key != settings.admin_api_key:
         raise HTTPException(status_code=403, detail="Admin access required")

@@ -42,7 +42,7 @@ def _dev_guard():
 
 
 def _admin_headers() -> dict:
-    return {"X-Api-Key": os.getenv("DEMOFORGE_HUB_API_ADMIN_KEY", ""), "Content-Type": "application/json"}
+    return {"X-Hub-Admin-Key": os.getenv("DEMOFORGE_HUB_API_ADMIN_KEY", ""), "Content-Type": "application/json"}
 
 
 def _parse_response(r: httpx.Response) -> JSONResponse:
