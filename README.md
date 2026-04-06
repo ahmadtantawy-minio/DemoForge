@@ -70,17 +70,13 @@ make restart
 ### Day-to-Day Commands
 
 ```bash
-make start          # Start DemoForge
-make stop           # Stop DemoForge
-make restart        # Restart
-make status         # Show running services
-make logs           # Tail logs
-
-make check-images   # Show which images are cached vs missing
-make pull-missing   # Pull all missing vendor images
-make hub-pull       # Pull custom images from Hub registry
-make hub-trust      # Trust the private registry (one-time, for TLS errors)
+make start    # Start DemoForge
+make stop     # Stop DemoForge
+make restart  # Restart
+make logs     # Tail logs
 ```
+
+> Templates and images can be refreshed from the UI (Templates → Sync).
 
 ### Using the UI
 
