@@ -51,6 +51,22 @@ make update
 
 This single command pulls the latest changes from git, re-runs setup (silent — no prompts), and restarts DemoForge. Run this whenever your team lead says there's an update.
 
+<details>
+<summary>Manual steps (if <code>make update</code> isn't available)</summary>
+
+```bash
+# 1. Pull latest code
+git pull
+
+# 2. Re-run setup (pulls new images, refreshes hub-connector)
+make fa-setup
+
+# 3. Restart DemoForge
+make restart
+```
+
+</details>
+
 ### Day-to-Day Commands
 
 ```bash
