@@ -24,6 +24,9 @@ DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 if [[ -f "$PROJECT_ROOT/.env.hub" ]]; then
     source "$PROJECT_ROOT/.env.hub"
     echo -e "${GREEN}✓ Loaded config from .env.hub${NC}"
+elif [[ -f "$PROJECT_ROOT/.env.local" ]] && grep -q "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null; then
+    DEMOFORGE_API_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" | cut -d= -f2-)
+    echo -e "${GREEN}✓ Loaded API key from .env.local${NC}"
 else
     DEMOFORGE_HUB_URL="${DEFAULT_HUB_URL}"
     echo "Enter your API key (provided by your team lead):"
@@ -141,6 +144,7 @@ fi
 # ── Write .env.local ──
 cat > "$PROJECT_ROOT/.env.local" <<EOF
 DEMOFORGE_FA_ID=${FA_ID}
+DEMOFORGE_API_KEY=${API_KEY}
 DEMOFORGE_SYNC_ENABLED=true
 DEMOFORGE_SYNC_ENDPOINT=http://localhost:9000
 DEMOFORGE_SYNC_BUCKET=demoforge-templates

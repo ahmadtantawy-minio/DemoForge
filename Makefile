@@ -1,4 +1,9 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-stop dev-restart dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses
+.PHONY: start stop restart status logs build clean nuke dev-start dev-stop dev-restart dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update
+
+update:         ## Pull latest changes and restart DemoForge
+	git pull
+	@scripts/fa-setup.sh
+	./demoforge.sh restart
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)

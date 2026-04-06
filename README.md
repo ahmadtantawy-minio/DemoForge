@@ -43,6 +43,14 @@ open http://localhost:3000
 
 After setup, DemoForge automatically syncs templates from the Hub on every start.
 
+### Keeping Up to Date
+
+```bash
+make update
+```
+
+This single command pulls the latest changes from git, re-runs setup (silent — no prompts), and restarts DemoForge. Run this whenever your team lead says there's an update.
+
 ### Day-to-Day Commands
 
 ```bash
