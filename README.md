@@ -11,7 +11,7 @@ Interactive demo orchestration platform for MinIO Field Architects. Design, depl
 - **macOS** with [OrbStack](https://orbstack.dev) (recommended) or Docker Desktop
 - **16GB RAM** minimum (32GB recommended for heavy templates)
 - **Docker** running (`docker ps` should work)
-- **Hub URL + API key** from your team lead
+- **API key** from your team lead
 
 ### Quick Start
 
@@ -19,7 +19,7 @@ Interactive demo orchestration platform for MinIO Field Architects. Design, depl
 # 1. Clone
 git clone <repo-url> && cd DemoForge
 
-# 2. Connect to Hub (starts connector, writes .env.local, pulls images)
+# 2. Connect to Hub — you'll be prompted for your API key only
 make fa-setup
 
 # 3. Start
@@ -29,14 +29,17 @@ make start
 open http://localhost:3000
 ```
 
+> **You only need your API key** (provided by your team lead). The Hub URL is already configured.
+
 ### What `make fa-setup` does
 
 1. Verifies Docker is running
-2. Starts the **hub-connector** container (Caddy reverse proxy, auto-restarts on reboot)
-3. Verifies Hub gateway connectivity
-4. Detects your FA identity (git email → GitHub CLI → prompt)
-5. Writes `.env.local` with sync credentials and FA identity
-6. Pulls all custom component images from the private registry
+2. Prompts for your **API key** (one-time, saved to `.env.local`)
+3. Starts the **hub-connector** container (Caddy reverse proxy, auto-restarts on reboot)
+4. Verifies Hub gateway connectivity
+5. Detects your FA identity (git email → GitHub CLI → prompt)
+6. Writes `.env.local` with sync credentials and FA identity
+7. Pulls all custom component images from the registry (pre-built — no local build needed)
 
 After setup, DemoForge automatically syncs templates from the Hub on every start.
 

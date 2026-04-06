@@ -18,19 +18,21 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Hub URL is fixed — no need to ask FAs for it
+DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
+
 if [[ -f "$PROJECT_ROOT/.env.hub" ]]; then
     source "$PROJECT_ROOT/.env.hub"
     echo -e "${GREEN}✓ Loaded config from .env.hub${NC}"
 else
-    echo "Enter the Hub URL (from your team lead):"
-    read -rp "  HUB_URL: " DEMOFORGE_HUB_URL
-    echo "Enter your API key:"
+    DEMOFORGE_HUB_URL="${DEFAULT_HUB_URL}"
+    echo "Enter your API key (provided by your team lead):"
     read -rsp "  API_KEY: " DEMOFORGE_API_KEY
     echo ""
 fi
 
-HUB_URL="${DEMOFORGE_HUB_URL:?Missing HUB_URL}"
-API_KEY="${DEMOFORGE_API_KEY:?Missing API_KEY}"
+HUB_URL="${DEMOFORGE_HUB_URL:-$DEFAULT_HUB_URL}"
+API_KEY="${DEMOFORGE_API_KEY:?Missing API_KEY — run: make fa-setup}"
 
 # ── Verify gateway ──
 echo -e "\n${CYAN}Checking hub connectivity...${NC}"
@@ -160,8 +162,10 @@ if [[ -n "$REPOS" ]]; then
         [[ -z "$repo" ]] && continue
         echo "  Pulling localhost:5000/${repo}:latest..."
         docker pull "localhost:5000/${repo}:latest" 2>&1 | tail -1
+        # Retag to canonical name so backend finds image without rebuilding from source
+        docker tag "localhost:5000/${repo}:latest" "${repo}:latest" 2>/dev/null && echo "  ↳ tagged ${repo}:latest"
     done <<< "$REPOS"
-    echo -e "${GREEN}✓ Custom images pulled${NC}"
+    echo -e "${GREEN}✓ Custom images pulled and tagged${NC}"
 else
     echo -e "${YELLOW}No custom images in registry yet.${NC}"
 fi

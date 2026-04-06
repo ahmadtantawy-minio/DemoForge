@@ -30,6 +30,9 @@ while IFS= read -r repo; do
     IMAGE="${REGISTRY_HOST}/${repo}:latest"
     log "Pulling ${IMAGE}..."
     if docker pull "$IMAGE" 2>&1 | tail -2; then
+        # Retag to canonical name (e.g. localhost:5000/demoforge/X → demoforge/X)
+        # so backend image-existence check finds it without rebuilding from source
+        docker tag "$IMAGE" "${repo}:latest" 2>/dev/null && log "  ↳ tagged ${repo}:latest"
         log "  ✓ ${repo}"; ((PULLED++))
     else
         err "  ✗ ${repo}"; ((FAILED++))
