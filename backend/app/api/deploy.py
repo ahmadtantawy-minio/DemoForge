@@ -45,7 +45,7 @@ async def deploy(demo_id: str):
     demo = _load_demo(demo_id)
     if not demo:
         raise HTTPException(404, "Demo not found")
-    if not demo.nodes:
+    if not demo.nodes and not demo.clusters:
         raise HTTPException(400, "Demo has no nodes to deploy")
 
     existing = state.get_demo(demo_id)

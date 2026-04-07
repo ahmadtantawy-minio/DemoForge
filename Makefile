@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-push-direct hub-pull hub-trust seed-licenses update hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
 
 update:         ## Pull latest changes, rebuild, and restart DemoForge
 	git pull
@@ -167,11 +167,8 @@ hub-seed:         ## Re-seed templates to hub after local changes
 hub-status:       ## Show local vs remote template counts, sync config, registry health
 	@scripts/hub-status.sh
 
-hub-push:         ## [Dev] Build all custom images and push to private registry (via hub-connector)
+hub-push:         ## [Dev] Build all custom images and push to GCR
 	@scripts/hub-push.sh
-
-hub-push-direct:  ## [Dev] Build and push images directly via IAP tunnel (bypasses Cloud Run 32MB limit)
-	@scripts/hub-push.sh --direct
 
 hub-push-%:       ## [Dev] Build and push one image, e.g.: make hub-push-inference-sim
 	@scripts/hub-push.sh $*

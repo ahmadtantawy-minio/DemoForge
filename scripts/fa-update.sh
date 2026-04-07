@@ -49,6 +49,14 @@ else
       else
         echo "DEMOFORGE_SYNC_SECRET_KEY=${SYNC_SECRET}" >> "$PROJECT_ROOT/.env.local"
       fi
+      if grep -q "^DEMOFORGE_SYNC_ENABLED=" "$PROJECT_ROOT/.env.local" 2>/dev/null; then
+        sed -i.bak "s|^DEMOFORGE_SYNC_ENABLED=.*|DEMOFORGE_SYNC_ENABLED=true|" "$PROJECT_ROOT/.env.local" && rm -f "${ENVFILE}.bak"
+      fi
+    else
+      # Hub returned no sync secret — disable sync so connectivity check doesn't block demo creation
+      if grep -q "^DEMOFORGE_SYNC_ENABLED=" "$PROJECT_ROOT/.env.local" 2>/dev/null; then
+        sed -i.bak "s|^DEMOFORGE_SYNC_ENABLED=.*|DEMOFORGE_SYNC_ENABLED=false|" "$PROJECT_ROOT/.env.local" && rm -f "${ENVFILE}.bak"
+      fi
     fi
 
     if [[ -z "$CONNECTOR_KEY" ]]; then

@@ -177,13 +177,19 @@ _set_env() {
 
 _set_env "DEMOFORGE_FA_ID"           "${FA_ID}"
 _set_env "DEMOFORGE_API_KEY"         "${FA_KEY}"
-_set_env "DEMOFORGE_SYNC_ENABLED"    "true"
-_set_env "DEMOFORGE_SYNC_ENDPOINT"   "http://host.docker.internal:9000"
-_set_env "DEMOFORGE_SYNC_BUCKET"     "demoforge-templates"
-_set_env "DEMOFORGE_SYNC_PREFIX"     "templates/"
-_set_env "DEMOFORGE_SYNC_ACCESS_KEY" "demoforge-sync"
-_set_env "DEMOFORGE_SYNC_SECRET_KEY" "${SYNC_SECRET:-change-me}"
 _set_env "DEMOFORGE_REGISTRY_HOST"   "localhost:5050"
+
+if [[ -n "$SYNC_SECRET" ]]; then
+    _set_env "DEMOFORGE_SYNC_ENABLED"    "true"
+    _set_env "DEMOFORGE_SYNC_ENDPOINT"   "http://host.docker.internal:9000"
+    _set_env "DEMOFORGE_SYNC_BUCKET"     "demoforge-templates"
+    _set_env "DEMOFORGE_SYNC_PREFIX"     "templates/"
+    _set_env "DEMOFORGE_SYNC_ACCESS_KEY" "demoforge-sync"
+    _set_env "DEMOFORGE_SYNC_SECRET_KEY" "${SYNC_SECRET}"
+else
+    _set_env "DEMOFORGE_SYNC_ENABLED"    "false"
+    echo -e "  ${YELLOW}⚠${NC}  Hub did not return sync credentials — template sync disabled."
+fi
 
 echo -e "${GREEN}✓ Updated .env.local${NC}"
 

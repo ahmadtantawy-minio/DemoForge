@@ -50,13 +50,13 @@ print('\n'.join(r for r in repos if not r.startswith('test/')))
     echo -e "${CYAN}Pulling all images from GCR (${GCR_HOST}):${NC}\n"
     while IFS= read -r repo; do
         [[ -z "$repo" ]] && continue
-        pull_image "$repo" && ((PULLED++)) || ((FAILED++))
+        if pull_image "$repo"; then ((++PULLED)); else ((++FAILED)); fi
     done <<< "$REPOS"
 else
     # Default: pull only critical images (components pull on-demand at deploy time)
     echo -e "${CYAN}Pulling core images from GCR:${NC}\n"
     for repo in "${CRITICAL_IMAGES[@]}"; do
-        pull_image "$repo" && ((PULLED++)) || ((FAILED++))
+        if pull_image "$repo"; then ((++PULLED)); else ((++FAILED)); fi
     done
 fi
 
