@@ -46,6 +46,9 @@ FIREWALL_RULE_INTERNAL="allow-internal-to-minio"
 FIREWALL_RULE_MYIP="allow-myip-to-minio"
 CONNECTOR_IMAGE="gcr.io/${PROJECT_ID}/demoforge-hub-connector:latest"
 HUB_API_IMAGE="gcr.io/${PROJECT_ID}/demoforge-hub-api:latest"
+HUB_API_SERVICE="demoforge-hub-api"
+HUB_API_SA_NAME="demoforge-hub-api"
+LITESTREAM_BUCKET="${PROJECT_ID}-demoforge-hub-litestream"
 
 # API key for gateway auth (generated on first deploy, stored in metadata)
 GATEWAY_API_KEY=""
@@ -88,6 +91,110 @@ get_vm_metadata() {
   gcloud compute instances describe "${VM_NAME}" \
     --zone="${ZONE}" --project="${PROJECT_ID}" \
     --format="value(metadata.items.filter(key='$1').extract(value).flatten())" 2>/dev/null || echo ""
+}
+
+# Helper: provision GCS bucket + service account + IAM for Litestream (idempotent)
+setup_hub_api_litestream_infra() {
+  local bucket="gs://${LITESTREAM_BUCKET}"
+  local sa="${HUB_API_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+  # GCS bucket (versioning on, uniform ACL, regional)
+  if ! gcloud storage buckets describe "${bucket}" --project="${PROJECT_ID}" &>/dev/null; then
+    gcloud storage buckets create "${bucket}" \
+      --project="${PROJECT_ID}" \
+      --location="${CLOUD_RUN_REGION}" \
+      --uniform-bucket-level-access \
+      --quiet
+    gcloud storage buckets update "${bucket}" --versioning --quiet
+    ok "Created Litestream bucket: ${bucket}"
+  else
+    ok "Litestream bucket already exists: ${bucket}"
+  fi
+
+  # Service account
+  if ! gcloud iam service-accounts describe "${sa}" --project="${PROJECT_ID}" &>/dev/null; then
+    gcloud iam service-accounts create "${HUB_API_SA_NAME}" \
+      --project="${PROJECT_ID}" \
+      --display-name="DemoForge Hub API (Litestream)" \
+      --quiet
+    ok "Created service account: ${sa}"
+  else
+    ok "Service account already exists: ${sa}"
+  fi
+
+  # objectAdmin on the bucket only (not project-wide)
+  gcloud storage buckets add-iam-policy-binding "${bucket}" \
+    --member="serviceAccount:${sa}" \
+    --role="roles/storage.objectAdmin" \
+    --project="${PROJECT_ID}" \
+    --quiet 2>/dev/null || true
+  ok "IAM binding set: ${sa} → objectAdmin on ${bucket}"
+}
+
+# Helper: build hub-api image and deploy/update the Cloud Run service
+deploy_hub_api_cloudrun() {
+  local admin_key="${1:-}"
+  local sync_key="${2:-}"
+  local connector_key="${3:-}"
+
+  # Fall back to VM metadata when called from --hub-api-only
+  [[ -z "$admin_key" ]]     && admin_key=$(get_vm_metadata "hub-api-admin-key" 2>/dev/null || echo "")
+  [[ -z "$sync_key" ]]      && sync_key=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
+  [[ -z "$connector_key" ]] && connector_key=$(get_vm_metadata "gateway-api-key" 2>/dev/null || echo "")
+
+  [[ -z "$admin_key" ]] && fail "hub-api-admin-key not available. Run 'make hub-update-gateway' first."
+
+  local hub_api_dir
+  hub_api_dir="$(dirname "$SCRIPT_DIR")/hub-api"
+  [[ -f "${hub_api_dir}/Dockerfile" ]] || fail "hub-api/Dockerfile not found at ${hub_api_dir}"
+
+  setup_hub_api_litestream_infra
+
+  local sa="${HUB_API_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+  ok "Building hub-api image via Cloud Build..."
+  gcloud builds submit "${hub_api_dir}" \
+    --project="${PROJECT_ID}" \
+    --tag="${HUB_API_IMAGE}" \
+    --quiet
+
+  ok "Deploying hub-api to Cloud Run..."
+  gcloud run deploy "${HUB_API_SERVICE}" \
+    --project="${PROJECT_ID}" \
+    --region="${CLOUD_RUN_REGION}" \
+    --image="${HUB_API_IMAGE}" \
+    --platform=managed \
+    --port=8000 \
+    --allow-unauthenticated \
+    --service-account="${sa}" \
+    --min-instances=1 \
+    --max-instances=1 \
+    --cpu=1 --memory=512Mi \
+    --cpu-boost \
+    --no-cpu-throttling \
+    --timeout=300 \
+    --concurrency=80 \
+    --set-env-vars="LITESTREAM_BUCKET=${LITESTREAM_BUCKET},HUB_API_ADMIN_API_KEY=${admin_key},HUB_API_SYNC_SECRET_KEY=${sync_key},HUB_API_CONNECTOR_KEY=${connector_key},HUB_API_DATABASE_PATH=/data/hub-api/demoforge-hub.db" \
+    --quiet
+
+  HUB_API_URL=$(gcloud run services describe "${HUB_API_SERVICE}" \
+    --region="${CLOUD_RUN_REGION}" --project="${PROJECT_ID}" \
+    --format='value(status.url)')
+  HUB_API_HOST="${HUB_API_URL#https://}"
+
+  # Persist URL in VM metadata for future --hub-api-only redeploys
+  gcloud compute instances add-metadata "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
+    --metadata="hub-api-url=${HUB_API_URL}" 2>/dev/null || true
+
+  ok "Hub API deployed: ${HUB_API_URL}"
+
+  # Health check
+  sleep 3
+  if curl -sf "${HUB_API_URL}/health" &>/dev/null; then
+    ok "Hub API health check passed."
+  else
+    warn "Hub API may still be starting — check: curl ${HUB_API_URL}/health"
+  fi
 }
 
 usage() {
@@ -377,52 +484,14 @@ if [[ "$MODE" == "gateway" ]]; then
     ok "Using existing Hub API admin key from VM metadata."
   fi
 
-  # ── Step 7b: Build & deploy Hub API to GCR, then start on VM ──
-  step "7b" "Build and deploy Hub API service"
-
-  HUB_API_DIR="$(dirname "$SCRIPT_DIR")/hub-api"
-  if [[ ! -f "${HUB_API_DIR}/Dockerfile" ]]; then
-    err "hub-api/Dockerfile not found at ${HUB_API_DIR}"; exit 1
-  fi
-
-  ok "Building hub-api image via Cloud Build..."
-  gcloud builds submit "${HUB_API_DIR}" \
-    --project="${PROJECT_ID}" \
-    --tag="${HUB_API_IMAGE}" \
-    --quiet
-
+  # ── Step 7b: Deploy Hub API to Cloud Run with Litestream ──
+  step "7b" "Deploy Hub API to Cloud Run (Litestream → GCS)"
   HUB_API_SYNC_KEY=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
+  deploy_hub_api_cloudrun "${HUB_API_ADMIN_KEY}" "${HUB_API_SYNC_KEY}" "${GATEWAY_API_KEY}"
 
-  ok "Configuring VM to trust GCR and starting hub-api..."
-  run_on_vm "
-    # Authenticate Docker with GCR
-    gcloud auth configure-docker --quiet 2>/dev/null || true
-
-    # Pull latest hub-api image from GCR
-    sudo docker pull ${HUB_API_IMAGE}
-
-    # Stop existing hub-api container if running
-    sudo docker rm -f demoforge-hub-api 2>/dev/null || true
-
-    # Start Hub API service
-    sudo docker run -d \
-      --name demoforge-hub-api \
-      --restart unless-stopped \
-      -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
-      -e HUB_API_SYNC_SECRET_KEY='${HUB_API_SYNC_KEY}' \
-      -e HUB_API_CONNECTOR_KEY='${GATEWAY_API_KEY}' \
-      -v /data/hub-api:/data/hub-api \
-      -p 8000:8000 \
-      ${HUB_API_IMAGE}
-  "
-
-  # Verify hub-api is running
-  sleep 2
-  if run_on_vm "curl -sf http://localhost:8000/health" &>/dev/null; then
-    ok "Hub API service is healthy."
-  else
-    warn "Hub API service may need a moment to start. Continuing..."
-  fi
+  # Remove hub-api from VM — VM now runs MinIO only
+  run_on_vm "sudo docker rm -f demoforge-hub-api 2>/dev/null || true" 2>/dev/null || true
+  ok "hub-api removed from VM — VM now runs MinIO only."
 
   # ── Step 8: Build and deploy Cloud Run gateway ──
   step 8 "Build and deploy Cloud Run gateway"
@@ -444,10 +513,16 @@ if [[ "$MODE" == "gateway" ]]; then
     respond "ok" 200
   }
 
-  # FA bootstrap — no gateway key required here; hub-api validates the FA's unique key
+  # FA bootstrap — no gateway key required; hub-api validates the FA's unique key directly
   # Called by fa-setup.sh before the connector exists
   handle /api/hub/fa/bootstrap {
-    reverse_proxy ${INTERNAL_IP}:8000
+    reverse_proxy https://{env.HUB_API_HOST} {
+      header_up Host {env.HUB_API_HOST}
+      transport http {
+        tls
+        tls_server_name {env.HUB_API_HOST}
+      }
+    }
   }
 
   # API key validation — uses runtime env var (not baked into image)
@@ -488,13 +563,19 @@ if [[ "$MODE" == "gateway" ]]; then
     reverse_proxy ${INTERNAL_IP}:9000
   }
 
-  # Hub API (routed by X-Service header)
+  # Hub API (routed by X-Service header) → Cloud Run service
   @hub_api {
     header X-Service hub-api
   }
   handle @hub_api {
     request_header -X-Service
-    reverse_proxy ${INTERNAL_IP}:8000
+    reverse_proxy https://{env.HUB_API_HOST} {
+      header_up Host {env.HUB_API_HOST}
+      transport http {
+        tls
+        tls_server_name {env.HUB_API_HOST}
+      }
+    }
   }
 
   # Docker Registry v2 API (path-based — Docker client doesn't sign requests)
@@ -542,7 +623,7 @@ GWDOCKERFILE
     --cpu=1 \
     --timeout=300 \
     --concurrency=100 \
-    --set-env-vars="GATEWAY_TARGET=${INTERNAL_IP},GATEWAY_API_KEY=${GATEWAY_API_KEY}" \
+    --set-env-vars="GATEWAY_TARGET=${INTERNAL_IP},GATEWAY_API_KEY=${GATEWAY_API_KEY},HUB_API_HOST=${HUB_API_HOST}" \
     --quiet
 
   GATEWAY_URL=$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
@@ -640,6 +721,9 @@ DEMOFORGE_SYNC_SECRET_KEY=
 # ── Registry (via hub-connector on localhost) ──
 DEMOFORGE_REGISTRY_HOST=localhost:5000
 
+# ── Hub API (Cloud Run) ──
+DEMOFORGE_HUB_API_URL=${HUB_API_URL}
+
 # ── Direct access (dev only) ──
 DEMOFORGE_DIRECT_IP=${EXTERNAL_IP:-${INTERNAL_IP}}
 DEMOFORGE_VM_NAME=${VM_NAME}
@@ -697,50 +781,27 @@ fi
 # ═════════════════════════════════════════════════════════════════════
 if [[ "$MODE" == "hub-api-only" ]]; then
   echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${CYAN}║  DemoForge — Rebuild & Redeploy Hub API                 ║${NC}"
+  echo -e "${CYAN}║  DemoForge — Rebuild & Redeploy Hub API (Cloud Run)     ║${NC}"
   echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 
-  # Fetch admin key from VM metadata
-  HUB_API_ADMIN_KEY=$(get_vm_metadata "hub-api-admin-key")
-  if [[ -z "$HUB_API_ADMIN_KEY" ]]; then
-    fail "hub-api-admin-key not found in VM metadata. Run: make hub-update-gateway first."
-  fi
+  # All keys come from VM metadata (set during hub-update-gateway)
+  deploy_hub_api_cloudrun
 
-  step 1 "Build hub-api image via Cloud Build"
-  HUB_API_DIR="$(dirname "$SCRIPT_DIR")/hub-api"
-  [[ -f "${HUB_API_DIR}/Dockerfile" ]] || fail "hub-api/Dockerfile not found at ${HUB_API_DIR}"
-  gcloud builds submit "${HUB_API_DIR}" \
+  # Update the gateway's HUB_API_HOST env var so it routes to the new revision
+  step 2 "Update gateway env → new hub-api URL"
+  HUB_API_URL=$(gcloud run services describe "${HUB_API_SERVICE}" \
+    --region="${CLOUD_RUN_REGION}" --project="${PROJECT_ID}" \
+    --format='value(status.url)')
+  HUB_API_HOST="${HUB_API_URL#https://}"
+  gcloud run services update "${CLOUD_RUN_SERVICE}" \
     --project="${PROJECT_ID}" \
-    --tag="${HUB_API_IMAGE}" \
+    --region="${CLOUD_RUN_REGION}" \
+    --update-env-vars="HUB_API_HOST=${HUB_API_HOST}" \
     --quiet
-  ok "Image pushed: ${HUB_API_IMAGE}"
+  ok "Gateway updated → HUB_API_HOST=${HUB_API_HOST}"
 
-  HUB_API_SYNC_KEY=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
-  HUB_API_CONNECTOR_KEY=$(get_vm_metadata "gateway-api-key" 2>/dev/null || echo "")
-
-  step 2 "Restart hub-api on VM"
-  run_on_vm "
-    gcloud auth configure-docker --quiet 2>/dev/null || true
-    sudo docker pull ${HUB_API_IMAGE}
-    sudo docker rm -f demoforge-hub-api 2>/dev/null || true
-    sudo docker run -d \
-      --name demoforge-hub-api \
-      --restart unless-stopped \
-      -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
-      -e HUB_API_SYNC_SECRET_KEY='${HUB_API_SYNC_KEY}' \
-      -e HUB_API_CONNECTOR_KEY='${HUB_API_CONNECTOR_KEY}' \
-      -v /data/hub-api:/data/hub-api \
-      -p 8000:8000 \
-      ${HUB_API_IMAGE}
-  "
-  sleep 2
-  if run_on_vm "curl -sf http://localhost:8000/api/hub/health" &>/dev/null; then
-    ok "Hub API is healthy."
-  else
-    warn "Hub API may still be starting — check with: gcloud compute ssh minio-node --tunnel-through-iap --command='curl -s http://localhost:8000/api/hub/health'"
-  fi
   echo ""
-  ok "Hub API redeployed. Run 'make dev-restart-gcp' to pick up changes."
+  ok "Hub API redeployed to Cloud Run. No SSH required."
   exit 0
 fi
 

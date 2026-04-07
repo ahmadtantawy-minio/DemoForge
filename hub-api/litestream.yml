@@ -1,0 +1,9 @@
+dbs:
+  - path: ${HUB_API_DATABASE_PATH:-/data/hub-api/demoforge-hub.db}
+    replicas:
+      - type: gcs
+        bucket: ${LITESTREAM_BUCKET}
+        path: demoforge-hub.db
+        retention: 72h
+        snapshot-interval: 1h
+        sync-interval: 1s
