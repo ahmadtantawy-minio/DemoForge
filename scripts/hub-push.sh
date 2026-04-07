@@ -123,6 +123,16 @@ for i in "${!COMPONENTS[@]}"; do
         err "  ✗ Push failed after ${PUSH_ELAPSED}s: $comp"; ((FAILED++))
     fi
 
+    # Also push to GCR so FAs can pull directly (bypasses Cloud Run 32MB limit)
+    GCR_IMAGE="gcr.io/minio-demoforge/${REGISTRY_PREFIX}/${comp}:latest"
+    log "  Pushing to GCR: ${GCR_IMAGE}..."
+    docker tag "$IMAGE_TAG" "$GCR_IMAGE" 2>/dev/null
+    if docker push "$GCR_IMAGE" 2>&1; then
+        log "  ✓ GCR: $GCR_IMAGE"
+    else
+        echo -e "${YELLOW}[hub-push]  ⚠ GCR push failed (non-fatal) — run: gcloud auth configure-docker gcr.io${NC}"
+    fi
+
     # Git hash tag
     if command -v git &>/dev/null && git rev-parse --short HEAD &>/dev/null 2>&1; then
         GIT_TAG="${REGISTRY_HOST}/${REGISTRY_PREFIX}/${comp}:$(git rev-parse --short HEAD)"

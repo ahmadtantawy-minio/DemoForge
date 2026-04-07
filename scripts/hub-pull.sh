@@ -8,31 +8,35 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 [[ -f "$PROJECT_ROOT/.env.local" ]] && source "$PROJECT_ROOT/.env.local"
 
 REGISTRY_HOST="${DEMOFORGE_REGISTRY_HOST:-localhost:5050}"
+GCR_HOST="gcr.io/minio-demoforge"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[hub-pull]${NC} $*"; }
 err()  { echo -e "${RED}[hub-pull]${NC} $*" >&2; }
 
-log "Checking registry at ${REGISTRY_HOST}..."
-curl -sf --connect-timeout 5 --max-time 10 "http://${REGISTRY_HOST}/v2/" &>/dev/null || { err "Registry unreachable at http://${REGISTRY_HOST}"; exit 1; }
-log "✓ Registry reachable"
+# Catalog comes from the connector (small response, no size limit)
+log "Getting image catalog via connector..."
+CATALOG=$(curl -sf --connect-timeout 5 --max-time 10 "http://${REGISTRY_HOST}/v2/_catalog" 2>/dev/null || echo '{"repositories":[]}')
+REPOS=$(echo "$CATALOG" | python3 -c "
+import sys, json
+repos = json.load(sys.stdin).get('repositories', [])
+# Exclude test images
+print('\n'.join(r for r in repos if not r.startswith('test/')))
+" 2>/dev/null)
 
-CATALOG=$(curl -sf "http://${REGISTRY_HOST}/v2/_catalog" 2>/dev/null || echo '{"repositories":[]}')
-REPOS=$(echo "$CATALOG" | python3 -c "import sys,json; [print(r) for r in json.load(sys.stdin).get('repositories',[])]" 2>/dev/null)
+[[ -z "$REPOS" ]] && { echo -e "${YELLOW}No images in catalog. Dev needs to run: make hub-push${NC}"; exit 0; }
 
-[[ -z "$REPOS" ]] && { echo -e "${YELLOW}No images in registry. Dev needs to run: make hub-push${NC}"; exit 0; }
-
-echo -e "${CYAN}Pulling custom images from ${REGISTRY_HOST}:${NC}\n"
+echo -e "${CYAN}Pulling custom images from GCR (${GCR_HOST}):${NC}\n"
 PULLED=0; FAILED=0
 
 while IFS= read -r repo; do
     [[ -z "$repo" ]] && continue
-    IMAGE="${REGISTRY_HOST}/${repo}:latest"
-    log "Pulling ${IMAGE}..."
-    if docker pull "$IMAGE" 2>&1 | tail -2; then
-        # Retag to canonical name (e.g. localhost:5050/demoforge/X → demoforge/X)
-        # so backend image-existence check finds it without rebuilding from source
-        docker tag "$IMAGE" "${repo}:latest" 2>/dev/null && log "  ↳ tagged ${repo}:latest"
+    GCR_IMAGE="${GCR_HOST}/${repo}:latest"
+    log "Pulling ${GCR_IMAGE}..."
+    if docker pull "$GCR_IMAGE" 2>&1 | tail -2; then
+        # Retag to canonical name (e.g. demoforge/data-generator) so backend
+        # image-existence check finds it without rebuilding from source
+        docker tag "$GCR_IMAGE" "${repo}:latest" 2>/dev/null && log "  ↳ tagged ${repo}:latest"
         log "  ✓ ${repo}"; ((PULLED++))
     else
         err "  ✗ ${repo}"; ((FAILED++))
