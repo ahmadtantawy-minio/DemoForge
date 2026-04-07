@@ -17,7 +17,7 @@ usage() {
     echo "Usage: $0 [--all | --gateway | --templates | --images | --licenses]"
     echo ""
     echo "  --all         Run all update steps (default)"
-    echo "  --gateway     Rebuild and deploy Cloud Run gateway + hub-connector"
+    echo "  --gateway     Rebuild and deploy Cloud Run gateway only"
     echo "  --templates   Seed base templates to MinIO hub"
     echo "  --images      Build and push custom images to registry"
     echo "  --licenses    Seed license keys to MinIO"
@@ -52,7 +52,7 @@ echo ""
 # ── Step 1: Gateway ──
 if [[ "$MODE" == "--all" || "$MODE" == "--gateway" ]]; then
     log "=== Updating Gateway ==="
-    "$SCRIPT_DIR/minio-gcp.sh" --gateway
+    "$SCRIPT_DIR/minio-gcp.sh" --deploy-gateway
     echo ""
 fi
 

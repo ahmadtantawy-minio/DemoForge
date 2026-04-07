@@ -222,7 +222,7 @@ make dev-hub-api    # hub-api with live reload on :8000
 |-----------|---------|
 | `frontend/` | React 18 + Vite 6 + Tailwind + shadcn/ui |
 | `backend/` | FastAPI (Python), Docker orchestration engine |
-| `hub-api/` | FastAPI + SQLite — FA registry and telemetry (dev: local; prod: GCP VM) |
+| `hub-api/` | FastAPI + SQLite + Litestream — FA registry and telemetry (dev: local; prod: Cloud Run + GCS) |
 | `components/` | 37+ component manifests (image, ports, connections, init scripts) |
 | `demo-templates/` | 27 built-in demo templates (YAML) |
 | `user-templates/` | Field Architect-saved custom templates |
@@ -230,27 +230,27 @@ make dev-hub-api    # hub-api with live reload on :8000
 | `scripts/` | Hub management, GCP gateway, FA setup scripts |
 | `data/` | Runtime state (template backups, hub-api DB, override manifests) |
 
-## Hub Architecture (GCP Gateway)
+## Hub Architecture (GCP)
 
 ```
 Field Architect Laptop              GCP
-┌──────────────┐     HTTPS     ┌───────────────────┐
-│  DemoForge   │◄─────────────►│  Cloud Run        │
-│  (local)     │               │  Gateway (Caddy)  │
-│              │               │  API key auth     │
-│  hub-        │               │       │            │
-│  connector   │               │       ▼ VPC        │
-│  (Caddy)     │               │  ┌────────────┐   │
-│  :8080       │               │  │ GCE VM     │   │
-│              │               │  │ MinIO +    │   │
-│  localhost:  │               │  │ hub-api +  │   │
-│  9000 (S3)   │               │  │ Registry   │   │
-│  5000 (Reg)  │               │  └────────────┘   │
-│  9001 (UI)   │               └───────────────────┘
-└──────────────┘
+┌──────────────┐     HTTPS     ┌────────────────────────────┐
+│  DemoForge   │◄─────────────►│  Cloud Run: Gateway (Caddy)│
+│  (local)     │               │  API key auth              │
+│              │               │       │            │        │
+│  hub-        │               │  VPC  ▼     HTTPS  ▼       │
+│  connector   │               │  ┌─────────┐ ┌──────────┐  │
+│  (Caddy)     │               │  │  GCE VM │ │ Cloud Run│  │
+│  :8080       │               │  │  MinIO  │ │ hub-api  │  │
+│              │               │  │  +Reg.  │ │+Litestr. │  │
+│  localhost:  │               │  └─────────┘ └──────────┘  │
+│  9000 (S3)   │               │                  │          │
+│  5000 (Reg)  │               │            GCS bucket       │
+│  9001 (UI)   │               │         (SQLite replica)    │
+└──────────────┘               └────────────────────────────┘
 ```
 
-The hub-connector (local Docker container) proxies `localhost:9000/5000/9001` through the Cloud Run gateway to the private VM. FAs get the same ports as if MinIO were running locally.
+The hub-connector (local Docker container) proxies `localhost:9000/5000/9001` through the Cloud Run gateway to the private VM. FAs get the same ports as if MinIO were running locally. Hub API runs as a separate Cloud Run service with SQLite replicated to GCS via Litestream.
 
 ---
 
@@ -258,6 +258,9 @@ The hub-connector (local Docker container) proxies `localhost:9000/5000/9001` th
 
 ```bash
 make hub-setup              # First-time: bucket + IAM + registry + seed templates
+make hub-deploy             # Full GCP deploy: VPC + gateway + hub-api Cloud Run + Litestream infra
+make hub-deploy-gateway     # Rebuild and redeploy gateway Cloud Run only (~1 min)
+make hub-deploy-api         # Rebuild and redeploy hub-api Cloud Run only (~2 min)
 make hub-update             # Update everything: gateway + templates + images + licenses
 make hub-update-gateway     # Rebuild and deploy Cloud Run gateway only
 make hub-update-templates   # Seed built-in templates to MinIO hub only
@@ -270,21 +273,14 @@ make hub-push-<name>        # Build and push one image (e.g. make hub-push-infer
 make seed-licenses          # Seed licenses from data/licenses.yaml
 ```
 
-### GCP Gateway Management
-
-```bash
-make gateway        # Deploy/update Cloud Run gateway + VPC
-make gateway-test   # Integration test (simulates FA experience)
-make update-myip    # Update firewall with your current IP
-```
-
-**First-time gateway setup:**
+### First-time GCP setup
 
 ```bash
 scripts/minio-gcp.sh            # Deploy the VM
 scripts/minio-gcp.sh --activate # Activate AIStor license
-scripts/minio-gcp.sh --gateway  # Deploy VPC + Cloud Run + connector image
-make gateway-test
+make hub-deploy                  # Deploy VPC + Cloud Run gateway + hub-api + Litestream
+make gateway-test                # Integration test (simulates FA experience)
+make update-myip                 # Update firewall with your current IP
 ```
 
 ---
@@ -324,8 +320,11 @@ make gateway-test
 | `make dev-be` | Backend dev server with hot-reload |
 | `make dev-sim-fa FA=user@min.io` | Register a simulated FA in local hub-api |
 | `make dev-purge-fa FA=user@min.io` | Hard-delete an FA (can re-register immediately) |
+| `make hub-deploy` | Full GCP deploy: VPC + gateway + hub-api Cloud Run + Litestream |
+| `make hub-deploy-gateway` | Rebuild/deploy gateway Cloud Run only (~1 min) |
+| `make hub-deploy-api` | Rebuild/deploy hub-api Cloud Run only (~2 min) |
 | `make hub-update` | Update GCP hub: gateway + templates + images + licenses |
-| `make hub-update-gateway` | Rebuild/deploy Cloud Run gateway |
+| `make hub-update-gateway` | Rebuild and redeploy Cloud Run gateway |
 | `make hub-update-templates` | Seed templates to MinIO |
 | `make hub-update-images` | Push custom images to registry |
 | `make hub-setup` | First-time Hub setup |
@@ -333,7 +332,6 @@ make gateway-test
 | `make hub-status` | Hub health and sync status |
 | `make hub-push` | Build and push all custom images |
 | `make seed-licenses` | Seed licenses from data/licenses.yaml |
-| `make gateway` | Deploy Cloud Run gateway |
 | `make gateway-test` | Test gateway connectivity |
 | `make update-myip` | Update firewall with current IP |
 
@@ -344,7 +342,8 @@ make gateway-test
 | Component | Monthly |
 |---|---|
 | VM (e2-medium, private) | ~$25 |
-| Cloud Run (1 min instance) | ~$5–8 |
+| Cloud Run gateway (1 min instance) | ~$3–5 |
+| Cloud Run hub-api (1 min instance) | ~$3–5 |
 | VPC connector (2 instances) | ~$7 |
 | Data disk (50GB) | ~$5 |
 | Egress | ~$1–3 |
