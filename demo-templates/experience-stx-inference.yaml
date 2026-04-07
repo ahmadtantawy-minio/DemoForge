@@ -1,5 +1,5 @@
 _template:
-  name: 'NVIDIA STX: Storage Tier Comparison'
+  name: 'NVIDIA STX: inside inference memory'
   tier: experience
   mode: experience
   category: simulation
@@ -11,45 +11,56 @@ _template:
   - kv-cache
   - memory-hierarchy
   - bluefield-4
-  description: 'Three-scenario demo of NVIDIA STX inference storage: File/POSIX/NFS baseline → MinIO S3 over TCP → MinIO S3 + G3.5 NVMe-oF/RDMA via BlueField-4. Shows how storage modernization compounds GPU utilization gains.'
-  objective: Demonstrate how each storage tier upgrade — from legacy file protocols to MinIO S3 to MinIO with RDMA — compounds GPU throughput and eliminates KV cache recomputation stalls
-  minio_value: MinIO AIStor serves dual roles in the NVIDIA STX architecture — as the G4 archive tier (S3/TCP) and as the G3.5 context memory tier (NVMe-oF/RDMA via BlueField-4), providing petabyte-scale KV cache storage at sub-millisecond latency.
+  description: Interactive simulation of the NVIDIA STX/CMX inference memory architecture.
+    Visualizes how KV cache blocks flow through 5 memory tiers during LLM inference,
+    and demonstrates why the G3.5 context memory tier (MinIO AIStor) dramatically
+    improves throughput.
+  objective: Explain the NVIDIA STX architecture and demonstrate MinIO AIStor's role
+    as the G3.5 context memory tier for agentic AI inference
+  minio_value: MinIO AIStor operates as the G3.5 context memory storage tier in the
+    NVIDIA STX architecture, providing petabyte-scale, high-bandwidth KV cache storage
+    between local NVMe and enterprise storage.
   estimated_resources:
     memory: 2.5GB
     cpu: 2.5
     containers: 6
   walkthrough:
   - step: Deploy the simulation
-    description: Click Deploy. The GPU server, inference client, two MinIO tiers, and monitoring start up.
+    description: Click Deploy. The GPU server, inference client, two MinIO tiers,
+      and monitoring start up.
   - step: Open the simulation
-    description: Click 'Simulation' on the Inference Simulator node inside the GPU Server group.
-  - step: Scenario 1 — File/POSIX baseline
-    description: The simulation starts in File/POSIX mode (NFS/Lustre). Watch GPU utilization and recomputation rate. This is the legacy baseline.
-  - step: Switch to Scenario 2 — MinIO S3
-    description: Click 'MinIO S3 / TCP' in the scenario panel. KV cache now offloads to MinIO over standard S3. Recomputations drop and GPU utilization improves.
-  - step: Switch to Scenario 3 — MinIO + RDMA
-    description: Click 'MinIO + RDMA (G3.5)' to enable the BlueField-4 NVMe-oF path. Cross-GPU restores become near-instant. Watch utilization climb to its peak.
-  - step: Read the chart
-    description: The chart background is color-coded by scenario. Compare each band side-by-side to see the compounding effect of each storage tier upgrade.
+    description: Click 'Simulation' on the Inference Simulator node inside the GPU
+      Server group.
+  - step: Run with CMX enabled
+    description: Click 'Multi-turn chat burst'. Watch blocks flow through all 5 tiers.
+      GPU utilization stays high.
+  - step: Toggle CMX off
+    description: Flip the G3.5 CMX toggle. Blocks skip MinIO and dump to G4. Recomputations
+      spike.
+  - step: Check MinIO Console
+    description: Open MinIO Console for the G3.5 instance. See real KV cache objects
+      appearing.
   external_dependencies: []
 id: experience-stx-inference
-name: 'NVIDIA STX: Storage Tier Comparison'
-description: 'Three-scenario demo: File/POSIX baseline → MinIO Object Store → MinIO Object + RDMA. Demonstrates GPU utilization improvements from storage modernization.'
+name: 'NVIDIA STX: The G3.5 Tier'
+description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO
+  CMX to see the throughput difference.
 mode: experience
 networks:
 - name: default
   subnet: 172.20.0.0/16
+  dns_suffix: demo.local
   driver: bridge
 nodes:
 - id: inference-client
   component: inference-client
   variant: default
   position:
-    x: -36.815384615384616
-    y: 199.29230769230767
-  display_name: Inference Client
+    x: -39.84926405246888
+    y: 276.1505867651097
   config: {}
   networks: {}
+  display_name: Inference Client
   labels: {}
   group_id: null
 - id: sim-1
@@ -58,9 +69,9 @@ nodes:
   position:
     x: 150
     y: 260
-  display_name: Inference Simulator
   config: {}
   networks: {}
+  display_name: Inference Simulator
   labels: {}
   group_id: gpu-server
 - id: prometheus-1
@@ -69,11 +80,292 @@ nodes:
   position:
     x: 450
     y: 962.4557692307692
-  display_name: Prometheus
   config: {}
   networks: {}
+  display_name: Prometheus
   labels: {}
   group_id: null
+edges:
+- id: e-client-sim
+  source: inference-client
+  target: sim-1
+  connection_type: inference-api
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: Inference requests
+  protocol: gRPC
+  latency: ~1 ms
+  bandwidth: 100 Gb/s
+  source_handle: null
+  target_handle: null
+- id: e-sim-g35
+  source: sim-1
+  target: minio-g35
+  connection_type: s3
+  network: default
+  connection_config:
+    tier_role: g35-cmx
+  auto_configure: true
+  label: G3.5 context memory
+  protocol: NVMe-oF / RDMA
+  latency: ~200-500 μs
+  bandwidth: 800 Gb/s
+  source_handle: bottom-out
+  target_handle: data-in-top
+- id: e-sim-g4
+  source: sim-1
+  target: minio-g4
+  connection_type: s3
+  network: default
+  connection_config:
+    tier_role: g4-archive
+  auto_configure: true
+  label: G4 enterprise storage
+  protocol: S3 over TCP
+  latency: ~5-50 ms
+  bandwidth: 100 Gb/s
+  source_handle: null
+  target_handle: data-in
+- id: e-sim-prom
+  source: sim-1
+  target: prometheus-1
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: Sim metrics
+  protocol: HTTP
+  latency: ''
+  bandwidth: ''
+  source_handle: bottom-out
+  target_handle: null
+- id: e-g35-prom
+  source: minio-g35
+  target: prometheus-1
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: G3.5 metrics
+  protocol: HTTP
+  latency: ''
+  bandwidth: ''
+  source_handle: cluster-out-bottom
+  target_handle: null
+- id: e-g4-prom
+  source: minio-g4
+  target: prometheus-1
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: G4 metrics
+  protocol: HTTP
+  latency: ''
+  bandwidth: ''
+  source_handle: cluster-out-bottom
+  target_handle: null
+groups:
+- id: gpu-server
+  label: GPU Server — Vera Rubin Compute Tray
+  description: ''
+  color: '#a855f7'
+  style: dashed
+  position:
+    x: 241.96153846153845
+    y: 44.82307692307691
+  width: 500.0
+  height: 380.0
+  mode: visual
+  cluster_config: {}
+sticky_notes: []
+annotations:
+- id: ann-arch
+  position:
+    x: -300
+    y: 30
+  width: 260
+  title: NVIDIA STX architecture
+  body: 'STX is a modular reference architecture for AI storage, built on **BlueField-4**
+    processors.
+
+
+    It introduces a **G3.5 context memory tier** between local NVMe and enterprise
+    storage, designed for KV cache in LLM inference.'
+  style: info
+  step_number: null
+  pointer_target: null
+  collapsed: false
+- id: ann-connectivity
+  position:
+    x: -280.86153846153843
+    y: 658.1384615384616
+  width: 350
+  title: Why G3.5 is faster than G4
+  body: 'G3.5 uses **NVMe-oF over RDMA** via BlueField-4 and Spectrum-X Ethernet —
+    **800 Gb/s** with sub-millisecond latency.
+
+
+    G4 uses standard **S3 over TCP** — 10-100x slower. Without G3.5, every cross-GPU
+    cache miss means a full recomputation.'
+  style: callout
+  step_number: null
+  pointer_target: null
+  collapsed: false
+- id: ann-gpu-isolation
+  position:
+    x: 800
+    y: 50
+  width: 240
+  title: GPU memory is isolated
+  body: 'Each GPU has its own G1/G2/G3 memory. GPU-B **cannot access** GPU-A''s HBM
+    directly.
+
+
+    G3.5 (MinIO CMX) bridges this gap — shared, pod-level storage both GPUs can access.'
+  style: callout
+  step_number: null
+  pointer_target: null
+  collapsed: false
+- id: ann-step1
+  position:
+    x: -21.610360535968283
+    y: 112.05219158196604
+  width: 200
+  title: Start here
+  body: Deploy, then click **Simulation** on the inference node.
+  style: step
+  step_number: 1
+  pointer_target: sim-1
+  collapsed: false
+- id: ann-step2
+  position:
+    x: 794.4692307692308
+    y: 265.5923076923077
+  width: 220
+  title: The key toggle
+  body: In the simulation UI, toggle **G3.5 CMX** on and off to see the dramatic difference.
+  style: step
+  step_number: 2
+  pointer_target: null
+  collapsed: false
+- id: ann-g35
+  position:
+    x: -183.59999999999997
+    y: 454.9846153846154
+  width: 260
+  title: The G3.5 tier — MinIO AIStor
+  body: 'Runs on BlueField-4 with **800Gb/s** connectivity. Provides petabyte-scale
+    KV cache with **sub-millisecond** access via RDMA.
+
+
+    The simulation writes **real S3 objects** to this instance.'
+  style: callout
+  step_number: null
+  pointer_target: minio-g35
+  collapsed: false
+- id: ann-g4
+  position:
+    x: 950
+    y: 450
+  width: 240
+  title: G4 — enterprise storage
+  body: 'Long-term archival tier for cold KV cache. Higher latency than G3.5.
+
+
+    Without CMX, blocks evict directly here, causing **recomputation stalls**.'
+  style: info
+  step_number: null
+  pointer_target: minio-g4
+  collapsed: false
+- id: ann-step3
+  position:
+    x: -464.94615384615383
+    y: 427.5923076923077
+  width: 240
+  title: See real S3 ops
+  body: Open **MinIO Console** for the G3.5 instance. Watch KV cache objects appear
+    and disappear as the simulation runs.
+  style: step
+  step_number: 3
+  pointer_target: minio-g35
+  collapsed: false
+- id: ann-client
+  position:
+    x: -298.0692307692308
+    y: 250.0307692307692
+  width: 220
+  title: Inference workload
+  body: Simulates multi-turn chat sessions, agentic reasoning, and code generation
+    requests hitting the GPU server.
+  style: info
+  step_number: null
+  pointer_target: inference-client
+  collapsed: false
+- id: ann-claim
+  position:
+    x: 944.6846153846154
+    y: 624.2153846153846
+  width: 350
+  title: Performance claim
+  body: 'NVIDIA reports **up to 5x tokens/sec** and **5x power efficiency** with CMX
+    vs traditional storage.
+
+
+    This simulation models the architectural reason: eliminating KV cache recomputation
+    by keeping context in a fast, accessible tier.'
+  style: warning
+  step_number: null
+  pointer_target: null
+  collapsed: false
+schematics:
+- id: sch-gpu-a
+  position:
+    x: 20
+    y: 50
+  label: GPU-A
+  sublabel: Rubin Ultra
+  variant: gpu
+  children:
+  - id: g1a
+    label: G1 — GPU HBM
+    detail: 80 GB · ~1 ns access
+    color: red
+  - id: g2a
+    label: G2 — CPU DRAM
+    detail: 512 GB · ~100 ns access
+    color: amber
+  - id: g3a
+    label: G3 — local NVMe
+    detail: 4 TB · ~100 μs access
+    color: blue
+  parent_group: gpu-server
+  width: 200
+  height: 190
+- id: sch-gpu-b
+  position:
+    x: 260
+    y: 50
+  label: GPU-B
+  sublabel: Rubin Ultra
+  variant: gpu
+  children:
+  - id: g1b
+    label: G1 — GPU HBM
+    detail: 80 GB · ~1 ns access
+    color: red
+  - id: g2b
+    label: G2 — CPU DRAM
+    detail: 512 GB · ~100 ns access
+    color: amber
+  - id: g3b
+    label: G3 — local NVMe
+    detail: 4 TB · ~100 μs access
+    color: blue
+  parent_group: gpu-server
+  width: 200
+  height: 190
 clusters:
 - id: minio-g35
   component: minio
@@ -87,8 +379,8 @@ clusters:
     root_user: minioadmin
     root_password: minioadmin
   config: {}
-  width: 280
-  height: 200
+  width: 280.0
+  height: 200.0
   mcp_enabled: false
   aistor_tables_enabled: false
 - id: minio-g4
@@ -103,250 +395,15 @@ clusters:
     root_user: minioadmin
     root_password: minioadmin
   config: {}
-  width: 280
-  height: 200
+  width: 280.0
+  height: 200.0
   mcp_enabled: false
   aistor_tables_enabled: false
-groups:
-- id: gpu-server
-  label: GPU Server — Vera Rubin Compute Tray
-  description: ''
-  color: '#a855f7'
-  style: dashed
-  position:
-    x: 241.96153846153845
-    y: 44.82307692307691
-  width: 500.0
-  height: 380.0
-sticky_notes: []
-schematics:
-- id: sch-gpu-a
-  position:
-    x: 20
-    y: 50
-  parent_group: gpu-server
-  label: GPU-A
-  sublabel: Rubin Ultra
-  variant: gpu
-  width: 200
-  height: 190
-  children:
-  - id: g1a
-    label: G1 — GPU HBM
-    detail: 80 GB · ~1 ns access
-    color: red
-  - id: g2a
-    label: G2 — CPU DRAM
-    detail: 512 GB · ~100 ns access
-    color: amber
-  - id: g3a
-    label: G3 — local NVMe
-    detail: 4 TB · ~100 μs access
-    color: blue
-- id: sch-gpu-b
-  position:
-    x: 260
-    y: 50
-  parent_group: gpu-server
-  label: GPU-B
-  sublabel: Rubin Ultra
-  variant: gpu
-  width: 200
-  height: 190
-  children:
-  - id: g1b
-    label: G1 — GPU HBM
-    detail: 80 GB · ~1 ns access
-    color: red
-  - id: g2b
-    label: G2 — CPU DRAM
-    detail: 512 GB · ~100 ns access
-    color: amber
-  - id: g3b
-    label: G3 — local NVMe
-    detail: 4 TB · ~100 μs access
-    color: blue
-edges:
-- id: e-client-sim
-  source: inference-client
-  target: sim-1
-  connection_type: inference-api
-  network: default
-  auto_configure: true
-  label: Inference requests
-  protocol: gRPC
-  latency: ~1 ms
-  bandwidth: 100 Gb/s
-  connection_config: {}
-  source_handle: null
-  target_handle: null
-- id: e-sim-g35
-  source: sim-1
-  target: minio-g35
-  connection_type: s3
-  network: default
-  auto_configure: true
-  label: G3.5 context memory
-  protocol: NVMe-oF / RDMA
-  latency: ~200-500 μs
-  bandwidth: 800 Gb/s
-  connection_config:
-    tier_role: g35-cmx
-  source_handle: bottom-out
-  target_handle: data-in-top
-- id: e-sim-g4
-  source: sim-1
-  target: minio-g4
-  connection_type: s3
-  network: default
-  auto_configure: true
-  label: G4 enterprise storage
-  protocol: S3 over TCP
-  latency: ~5-50 ms
-  bandwidth: 100 Gb/s
-  connection_config:
-    tier_role: g4-archive
-  target_handle: data-in
-- id: e-sim-prom
-  source: sim-1
-  target: prometheus-1
-  connection_type: metrics
-  network: default
-  auto_configure: true
-  label: Sim metrics
-  protocol: HTTP
-  connection_config: {}
-  source_handle: bottom-out
-  target_handle: null
-- id: e-g35-prom
-  source: minio-g35
-  target: prometheus-1
-  connection_type: metrics
-  network: default
-  auto_configure: true
-  label: G3.5 metrics
-  protocol: HTTP
-  connection_config: {}
-  source_handle: cluster-out-bottom
-- id: e-g4-prom
-  source: minio-g4
-  target: prometheus-1
-  connection_type: metrics
-  network: default
-  auto_configure: true
-  label: G4 metrics
-  protocol: HTTP
-  connection_config: {}
-  source_handle: cluster-out-bottom
-annotations:
-- id: ann-arch
-  position:
-    x: -300
-    y: 30
-  width: 260
-  title: NVIDIA STX architecture
-  body: 'STX is a modular reference architecture for AI inference storage, built on **BlueField-4** processors.
-
-
-    This demo walks through **three storage tiers**: File/POSIX (NFS/Lustre baseline), MinIO S3 over TCP, and MinIO with **G3.5 NVMe-oF/RDMA** — showing how each upgrade compounds GPU throughput.'
-  style: info
-- id: ann-connectivity
-  position:
-    x: -280.86153846153843
-    y: 658.1384615384616
-  width: 350
-  title: Why G3.5 is faster than G4
-  body: 'G3.5 uses **NVMe-oF over RDMA** via BlueField-4 and Spectrum-X Ethernet — **800 Gb/s** with sub-millisecond latency.
-
-
-    G4 uses standard **S3 over TCP** — 10-100x slower. Without G3.5, every cross-GPU cache miss means a full recomputation.'
-  style: callout
-- id: ann-gpu-isolation
-  position:
-    x: 800
-    y: 50
-  width: 240
-  title: GPU memory is isolated
-  body: 'Each GPU has its own G1/G2/G3 memory. GPU-B **cannot access** GPU-A''s HBM directly.
-
-
-    G3.5 (MinIO CMX) bridges this gap — shared, pod-level storage both GPUs can access.'
-  style: callout
-- id: ann-step1
-  position:
-    x: 12.30384145233262
-    y: 30.770331013619256
-  width: 200
-  title: Start here
-  body: Deploy, then click **Simulation** on the inference node.
-  style: step
-  step_number: 1
-  pointer_target: sim-1
-- id: ann-step2
-  position:
-    x: 794.4692307692308
-    y: 265.5923076923077
-  width: 220
-  title: Step through the scenarios
-  body: 'Use the **Scenario** buttons in the simulation UI to progress: **File/POSIX → MinIO S3 → MinIO + RDMA**. Each switch is live — watch GPU utilization and recomputations respond immediately.'
-  style: step
-  step_number: 2
-- id: ann-g35
-  position:
-    x: -183.59999999999997
-    y: 454.9846153846154
-  width: 260
-  title: The G3.5 tier — MinIO AIStor
-  body: 'Runs on BlueField-4 with **800Gb/s** connectivity. Provides petabyte-scale KV cache with **sub-millisecond** access via RDMA.
-
-
-    The simulation writes **real S3 objects** to this instance.'
-  style: callout
-  pointer_target: minio-g35
-- id: ann-g4
-  position:
-    x: 950
-    y: 450
-  width: 240
-  title: G4 — enterprise storage
-  body: 'Long-term archival tier for cold KV cache. Higher latency than G3.5.
-
-
-    Without CMX, blocks evict directly here, causing **recomputation stalls**.'
-  style: info
-  pointer_target: minio-g4
-- id: ann-step3
-  position:
-    x: -464.94615384615383
-    y: 427.5923076923077
-  width: 240
-  title: See real S3 ops
-  body: Open **MinIO Console** for the G3.5 instance (Scenario 3 only). Watch KV cache objects appear and disappear as RDMA-backed restores run.
-  style: step
-  step_number: 3
-  pointer_target: minio-g35
-- id: ann-client
-  position:
-    x: -298.0692307692308
-    y: 250.0307692307692
-  width: 220
-  title: Inference workload
-  body: Simulates multi-turn chat sessions, agentic reasoning, and code generation requests hitting the GPU server.
-  style: info
-  pointer_target: inference-client
-- id: ann-claim
-  position:
-    x: 944.6846153846154
-    y: 624.2153846153846
-  width: 350
-  title: Performance claim
-  body: 'NVIDIA reports **up to 5x tokens/sec** and **5x power efficiency** with CMX vs traditional storage.
-
-
-    This simulation models the architectural reason: eliminating KV cache recomputation by keeping context in a fast, accessible tier.'
-  style: warning
 resources:
   default_memory: 256m
   default_cpu: 0.25
+  max_memory: ''
+  max_cpu: 0.0
   total_memory: 3g
   total_cpu: 3.0
+deploy_timeout_seconds: null

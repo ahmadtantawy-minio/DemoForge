@@ -8,6 +8,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_path: str = "/data/hub-api/demoforge-hub.db"
     admin_api_key: str = "changeme"
+    sync_secret_key: str = ""   # read-only MinIO sync credentials for FA distribution
+    connector_key: str = ""     # shared gateway connector auth key — returned via bootstrap
     log_level: str = "INFO"
     default_permissions: dict[str, Any] = {
         "manual_demo_creation": False,

@@ -704,8 +704,18 @@ async def promote_template(template_id: str):
 @router.post("/api/templates/sync")
 async def trigger_sync():
     """Manually trigger template sync from remote."""
+    import asyncio
     from ..engine.template_sync import sync_templates
+    from ..telemetry import emit_event
     result = sync_templates()
+    if result.get("status") == "ok":
+        asyncio.create_task(emit_event("template_synced", {
+            "method": result.get("method", "s3"),
+            "downloaded": result.get("downloaded", 0),
+            "unchanged": result.get("unchanged", 0),
+            "deleted": result.get("deleted", 0),
+            "errors": result.get("errors", 0),
+        }))
     return result
 
 

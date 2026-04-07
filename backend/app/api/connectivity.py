@@ -297,6 +297,108 @@ async def _find_local_hub_api() -> tuple[str | None, float]:
     return None, 0.0
 
 
+async def _check_template_sync() -> dict:
+    """FA mode: can we reach the sync endpoint and list the templates bucket?"""
+    from ..engine.template_sync import (
+        SYNC_ENABLED, SYNC_ACCESS_KEY, SYNC_SECRET_KEY,
+        SYNC_ENDPOINT, SYNC_BUCKET, SYNC_PREFIX,
+    )
+    steps = []
+
+    if not SYNC_ENABLED:
+        steps.append(_step("Template sync enabled", False,
+            "DEMOFORGE_SYNC_ENABLED is not set. Run 'make fa-setup' to configure template sync."))
+        return {"ok": False, "steps": steps}
+
+    steps.append(_step("Template sync enabled", True, f"Endpoint: {SYNC_ENDPOINT}, bucket: {SYNC_BUCKET}"))
+
+    if not SYNC_SECRET_KEY or SYNC_SECRET_KEY == "change-me":
+        steps.append(_step("Sync credentials configured", False,
+            "DEMOFORGE_SYNC_SECRET_KEY is not set or is the default placeholder. "
+            "Run 'make fa-setup' to fetch credentials from the hub."))
+        return {"ok": False, "steps": steps}
+
+    steps.append(_step("Sync credentials configured", True,
+        f"Access key: {SYNC_ACCESS_KEY}"))
+
+    # Try a quick S3 list to verify connectivity + credentials
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=SYNC_ENDPOINT,
+            aws_access_key_id=SYNC_ACCESS_KEY,
+            aws_secret_access_key=SYNC_SECRET_KEY,
+            region_name="us-east-1",
+            config=BotoConfig(
+                signature_version="s3v4",
+                connect_timeout=5,
+                read_timeout=5,
+                retries={"max_attempts": 1},
+            ),
+        )
+        import functools
+        resp = await asyncio.get_event_loop().run_in_executor(
+            None,
+            functools.partial(s3.list_objects_v2, Bucket=SYNC_BUCKET, Prefix=SYNC_PREFIX, MaxKeys=5)
+        )
+        count = resp.get("KeyCount", 0)
+        steps.append(_step("Templates bucket reachable", True,
+            f"Listed {count} template file(s) from {SYNC_BUCKET}/{SYNC_PREFIX}"))
+        return {"ok": True, "template_count": count, "steps": steps}
+    except Exception as e:
+        err_str = str(e)[:120]
+        if "AccessDenied" in err_str or "403" in err_str:
+            steps.append(_step("Templates bucket reachable", False,
+                f"Access denied — sync credentials rejected. Run 'make fa-setup' to refresh. Detail: {err_str}"))
+        elif "EndpointResolutionError" in err_str or "ConnectionError" in err_str or "connect" in err_str.lower():
+            steps.append(_step("Templates bucket reachable", False,
+                f"Cannot reach sync endpoint {SYNC_ENDPOINT}. Is the hub-connector running? Run 'make fa-setup'. Detail: {err_str}"))
+        else:
+            steps.append(_step("Templates bucket reachable", False, err_str))
+        return {"ok": False, "steps": steps}
+
+
+async def _check_components() -> dict:
+    """FA mode: check component availability via readiness system."""
+    steps = []
+    try:
+        from ..engine.readiness import readiness
+        if not readiness._components:
+            readiness.load()
+        total = len(readiness._components)
+        if total == 0:
+            steps.append(_step("Component readiness loaded", False,
+                "No component readiness config found. Check component-readiness.yaml is mounted."))
+            return {"ok": False, "steps": steps}
+
+        fa_ready = [c for c in readiness._components.values()
+                    if c.get("fa_status") in ("released", "available")]
+        blocked = [c for c in readiness._components.values()
+                   if c.get("fa_status") not in ("released", "available")]
+
+        steps.append(_step("Component readiness loaded", True,
+            f"{len(fa_ready)}/{total} components FA-ready, {len(blocked)} blocked/pending"))
+        if len(fa_ready) == 0:
+            steps.append(_step("FA-ready components available", False,
+                "No components are currently available to Field Architects. Contact your hub admin."))
+            return {"ok": False, "steps": steps}
+
+        steps.append(_step("FA-ready components available", True,
+            f"{len(fa_ready)} component(s) available for demo creation"))
+        from ..telemetry import emit_event
+        asyncio.create_task(emit_event("components_checked", {
+            "fa_ready_count": len(fa_ready),
+            "total_count": total,
+            "blocked_count": len(blocked),
+        }))
+        return {"ok": True, "fa_ready_count": len(fa_ready), "total_count": total, "steps": steps}
+    except Exception as e:
+        steps.append(_step("Component readiness loaded", False, str(e)[:120]))
+        return {"ok": False, "steps": steps}
+
+
 async def _check_local_hub_api() -> dict:
     """Dev: direct hub-api (localhost or host.docker.internal) — health + DB + admin."""
     steps = []
@@ -390,7 +492,10 @@ async def check_connectivity():
             },
             "fa_auth": {
                 "label": "FA Authentication",
-                "description": "FA API key validated via hub-api",
+                "description": "FA API key validated via hub-api (optional in dev — admin key takes precedence)",
+                # In dev mode, FA auth failure is non-blocking: admin key grants full access.
+                # Mark optional so the overall status stays green when admin key is valid.
+                "optional": True,
                 **fa_auth,
             },
         }
@@ -398,9 +503,11 @@ async def check_connectivity():
         results = await asyncio.gather(
             _check_hub_connector(hub_url),
             _check_fa_auth(hub_url, api_key),
+            _check_template_sync(),
+            _check_components(),
             return_exceptions=True,
         )
-        connector, fa_auth = [
+        connector, fa_auth, template_sync, components = [
             r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
             for r in results
         ]
@@ -414,6 +521,16 @@ async def check_connectivity():
                 "label": "FA Authentication",
                 "description": "FA API key validated against hub-api",
                 **fa_auth,
+            },
+            "template_sync": {
+                "label": "Template Sync",
+                "description": "Templates pulled from hub MinIO bucket",
+                **template_sync,
+            },
+            "components": {
+                "label": "Component Availability",
+                "description": "FA-ready components available for demo creation",
+                **components,
             },
         }
 

@@ -231,13 +231,23 @@ cmd_start() {
     # Build component images (custom Dockerfiles in components/)
     build_component_images
 
-    # Build and start
-    log "Building images..."
-    docker compose "${DC_FLAGS[@]}" build
-    docker image prune -f --filter "until=1h" &>/dev/null || true
-
-    log "Starting services..."
-    docker compose "${DC_FLAGS[@]}" up -d
+    if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
+        # Dev mode: build from source
+        log "Building images..."
+        docker compose "${DC_FLAGS[@]}" build
+        docker image prune -f --filter "until=1h" &>/dev/null || true
+        log "Starting services..."
+        docker compose "${DC_FLAGS[@]}" up -d
+    else
+        # FA mode: use pre-built images pulled during fa-setup
+        log "Starting services (using pre-built images)..."
+        if ! docker compose "${DC_FLAGS[@]}" up -d --no-build 2>/dev/null; then
+            warn "Pre-built images not found — run 'make fa-setup' to pull them first, or 'make build' to build locally."
+            log "Falling back to building images locally..."
+            docker compose "${DC_FLAGS[@]}" build
+            docker compose "${DC_FLAGS[@]}" up -d
+        fi
+    fi
 
     echo ""
     # Wait for services to be ready

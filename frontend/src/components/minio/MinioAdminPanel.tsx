@@ -43,9 +43,10 @@ interface Props {
   clusterId: string;
   clusterLabel: string;
   defaultTab?: TabType;
+  consoleUrl?: string;
 }
 
-export default function MinioAdminPanel({ open, onOpenChange, clusterId, clusterLabel, defaultTab = "overview" }: Props) {
+export default function MinioAdminPanel({ open, onOpenChange, clusterId, clusterLabel, defaultTab = "overview", consoleUrl }: Props) {
   const { activeDemoId } = useDemoStore();
   const [info, setInfo] = useState<ClusterInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -158,8 +159,18 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-        <DialogHeader>
+        <DialogHeader className="flex flex-row items-center justify-between">
           <DialogTitle className="text-base">MinIO Admin — {clusterLabel}</DialogTitle>
+          {consoleUrl && (
+            <a
+              href={consoleUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors mr-6"
+            >
+              Web Console ↗
+            </a>
+          )}
         </DialogHeader>
 
         {/* Tab bar */}

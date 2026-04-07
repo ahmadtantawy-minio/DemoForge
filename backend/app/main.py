@@ -49,10 +49,11 @@ async def lifespan(app: FastAPI):
 
     # Sync templates from remote (non-blocking, best-effort)
     from .engine.template_sync import sync_templates, SYNC_ENABLED
+    _startup_sync_result = None
     if SYNC_ENABLED:
         try:
-            result = sync_templates()
-            logger.info(f"Template sync on startup: {result}")
+            _startup_sync_result = sync_templates()
+            logger.info(f"Template sync on startup: {_startup_sync_result}")
         except Exception as e:
             logger.warning(f"Template sync failed on startup (continuing with local): {e}")
 
@@ -68,6 +69,14 @@ async def lifespan(app: FastAPI):
     )
     app.state.start_time = _time.time()
     asyncio.create_task(emit_event("app_started", {"mode": _mode}))
+    if _startup_sync_result and _startup_sync_result.get("status") == "ok":
+        asyncio.create_task(emit_event("template_synced", {
+            "method": _startup_sync_result.get("method", "s3"),
+            "downloaded": _startup_sync_result.get("downloaded", 0),
+            "unchanged": _startup_sync_result.get("unchanged", 0),
+            "deleted": _startup_sync_result.get("deleted", 0),
+            "errors": _startup_sync_result.get("errors", 0),
+        }))
 
     monitor_task = asyncio.create_task(health_monitor_loop())
     sync_task = asyncio.create_task(docker_sync_loop())

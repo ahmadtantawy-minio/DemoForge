@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate, apiFetch } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "../../lib/toast";
@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff, AlertTriangle } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
@@ -89,6 +89,8 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const [pushing, setPushing] = useState(false);
   const faMode = useDemoStore((s) => s.faMode);
   const [sourceMeta, setSourceMeta] = useState<{ sources: Record<string, number>; mode: string; sync: any } | null>(null);
+  const [connectivityBlocked, setConnectivityBlocked] = useState(false);
+  const [connectivityChecked, setConnectivityChecked] = useState(false);
 
   // Editable fields in the detail dialog
   const [editDescription, setEditDescription] = useState("");
@@ -114,12 +116,24 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { if (loadKey !== undefined && loadKey > 0) loadAll(); }, [loadKey]);
 
+  useEffect(() => {
+    if (!faMode) { setConnectivityChecked(true); return; }
+    apiFetch<{ overall: string; checks: Record<string, { ok: boolean }> }>("/api/connectivity/check")
+      .then(r => {
+        const syncOk = r.checks?.template_sync?.ok ?? true;
+        const compOk = r.checks?.components?.ok ?? true;
+        setConnectivityBlocked(!syncOk || !compOk);
+      })
+      .catch(() => { /* don't block on check failure */ })
+      .finally(() => setConnectivityChecked(true));
+  }, [faMode]);
+
   const faId = useDemoStore((s) => s.faId);
 
-  // In non-dev mode, only show validated (FA-approved) templates
+  // Show all templates returned by backend (FA mode already filters by component readiness server-side)
   const visibleTemplates = useMemo(
-    () => faMode === "dev" ? templates : templates.filter((t) => t.validated),
-    [templates, faMode]
+    () => templates,
+    [templates]
   );
 
   // Derive unique tiers from visible templates
@@ -362,9 +376,9 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
         <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mb-1">
           <ShieldCheck className="w-6 h-6 text-muted-foreground" />
         </div>
-        <p className="text-sm font-medium text-foreground">No approved templates</p>
+        <p className="text-sm font-medium text-foreground">No templates available</p>
         <p className="text-xs text-muted-foreground max-w-[280px]">
-          No templates have been approved for Field Architects yet. Contact your demo environment admin.
+          No templates found. Try syncing from the hub or contact your demo environment admin.
         </p>
       </div>
     );
@@ -599,6 +613,19 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
         </div>
       )}
 
+      {!!faMode && connectivityBlocked && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-300">Hub connectivity degraded</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Templates or components could not be loaded from the hub. Demo creation is disabled until connectivity is restored.
+              Check the <button className="underline text-amber-400" onClick={() => useDemoStore.getState().setCurrentPage('connectivity')}>Network tab</button> for details.
+            </p>
+          </div>
+        </div>
+      )}
+
       {emptyMyTemplates ? (
         <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
           <p className="text-sm text-muted-foreground">
@@ -810,7 +837,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 <Button
                   size="sm"
                   className="h-7 text-xs shrink-0"
-                  disabled={creating === t.id || !!loadingDetail}
+                  disabled={creating === t.id || !!loadingDetail || (!!faMode && connectivityBlocked)}
                   aria-label={`Create demo from template: ${t.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -974,7 +1001,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 </div>
 
                 <Button
-                  disabled={creating === selectedTemplate.id}
+                  disabled={creating === selectedTemplate.id || (!!faMode && connectivityBlocked)}
                   aria-label={`Create demo from template: ${selectedTemplate.name}`}
                   onClick={() => handleCreate(selectedTemplate.id)}
                 >

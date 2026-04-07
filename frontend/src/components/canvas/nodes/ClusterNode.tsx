@@ -44,6 +44,14 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
   const healthyCount = clusterInstances.filter((i) => i.health === "healthy").length;
 
+  // LB console URL (used in context menu and admin panel)
+  const _lbId = `${id}-lb`;
+  const _lbInst = instances.find((i) => i.node_id === _lbId);
+  const _apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:9210";
+  const consoleUrl = _lbInst?.health === "healthy" && activeDemoId
+    ? `${_apiBase}/proxy/${activeDemoId}/${_lbId}/console/`
+    : null;
+
   const handleNodeRightClick = (e: React.MouseEvent, idx: number) => {
     e.preventDefault();
     e.stopPropagation();
@@ -363,6 +371,14 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           </div>
           {isRunning ? (
             <>
+              {consoleUrl && (
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors"
+                  onClick={() => { window.open(consoleUrl, "_blank"); setClusterMenu(null); }}
+                >
+                  MinIO Console
+                </button>
+              )}
               <button
                 className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
                 onClick={() => { setAdminDefaultTab("overview"); setAdminPanelOpen(true); setClusterMenu(null); }}
@@ -477,6 +493,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         clusterId={id}
         clusterLabel={nodeData.label || "MinIO Cluster"}
         defaultTab={adminDefaultTab}
+        consoleUrl={consoleUrl ?? undefined}
       />
 
       {mcpPanelOpen && activeDemoId && (

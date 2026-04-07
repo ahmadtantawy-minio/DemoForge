@@ -6,6 +6,7 @@ Phase 4 features:
   4.6 - IAM setup (pre-create demo users)
   4.7 - SSE-S3 encryption toggle per bucket
 """
+import re
 import shlex
 import logging
 from fastapi import APIRouter, HTTPException
@@ -21,8 +22,8 @@ VALID_POLICIES = {"none", "public", "download", "upload"}
 
 
 def _cluster_alias(cluster) -> str:
-    """Derive the mc alias name for a cluster (matches compose_generator logic)."""
-    return cluster.label.replace(" ", "_").replace("-", "_")
+    """Derive the mc alias name for a cluster (matches compose_generator init.sh logic)."""
+    return re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
 
 
 def _find_cluster_in_demo(demo, cluster_id: str):

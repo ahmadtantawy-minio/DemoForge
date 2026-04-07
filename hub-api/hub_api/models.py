@@ -14,6 +14,8 @@ ALLOWED_EVENT_TYPES = {
     "manual_demo_created",
     "app_started",
     "app_stopped",
+    "components_checked",    # FA checked component availability
+    "setup_completed",       # FA completed fa-setup
 }
 
 

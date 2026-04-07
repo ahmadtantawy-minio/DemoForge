@@ -201,35 +201,45 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
     # Use the proxy prefix (without subdir) for fetch rewriting
     proxy_base = proxy_prefix.rstrip("/") if proxy_prefix else base_href.rstrip("/")
 
+    # Detect if the original HTML already has a <base> tag.
+    # Apps with their own <base> tag (e.g. MinIO console) read it as their React Router
+    # basename and expect the URL to retain the proxy prefix — replaceState would break them.
+    # Apps without a <base> tag (e.g. Superset) use window.location.pathname directly for
+    # routing and need replaceState to strip the proxy prefix before their router initializes.
+    has_own_base = bool(re.search(r'<base\s', html, re.IGNORECASE))
+
+    # Remove any existing <base> tag so our injected one is the only one
+    html = re.sub(r'<base\s[^>]*/?>',  '', html, flags=re.IGNORECASE)
+
     base_tag = f'<base href="{base_href}">'
     # Comprehensive proxy interceptor (runs synchronously before SPA bundle scripts):
     # 1. history.replaceState: strips the proxy prefix from the URL immediately so that
-    #    SPAs with client-side routing (React Router, Vue Router) see the correct route
-    #    path when they initialize — e.g. "/dashboard/list/" instead of
-    #    "/proxy/demo/node/Superset/dashboard/list/". Runs before entry bundles execute.
+    #    SPAs with client-side routing see the correct route path on init.
+    #    SKIPPED for apps that already have a <base> tag (they use it as router basename
+    #    and expect window.location to keep the full proxy-prefixed URL).
     # 2. fetch() / XHR: rewrites "/path" and "http://origin/path" API calls through
-    #    the proxy prefix so Superset's REST API calls reach the right container.
+    #    the proxy prefix so REST API calls reach the right container.
     # 3. Node.prototype.appendChild/insertBefore: rewrites src/href on dynamically
     #    injected script/link elements (webpack lazy chunk loading).
-    fetch_interceptor = (
-        f'<script>'
-        f'(function(){{'
-        # proxy prefix
-        f'var pb="{proxy_base}";'
-        # Persist proxy prefix in sessionStorage so refresh-recovery redirects work
-        # (the backend catch-all for /dashboard/, /chart/ etc. reads this).
-        f'try{{sessionStorage.setItem("_dfproxy",pb);}}catch(e){{}}'
+    replace_state_block = (
         # Strip proxy prefix from URL before SPA initializes.
-        # React Router reads window.location.pathname on init; by stripping the prefix
-        # here (synchronously, before entry scripts run) the SPA sees the correct path.
-        # SKIP replaceState on login/register pages so the form action stays on the
-        # proxy URL — the login POST must go through the proxy to reach Superset.
+        # SKIP on login/logout pages so form actions stay on the proxy URL.
         f'try{{var p=window.location.pathname;'
         f'var stripped=p.slice(pb.length)||"/";'
         f'var isAuth=stripped==="/login/"||stripped==="/login"||stripped==="/logout/"||stripped==="/logout";'
         f'if(!isAuth&&(p===pb||p.startsWith(pb+"/")))'
         f'window.history.replaceState(window.history.state,"",stripped'
         f'+window.location.search+window.location.hash);}}catch(e){{}}'
+    ) if not has_own_base else ""
+
+    fetch_interceptor = (
+        f'<script>'
+        f'(function(){{'
+        # proxy prefix
+        f'var pb="{proxy_base}";'
+        # Persist proxy prefix in sessionStorage so refresh-recovery redirects work
+        f'try{{sessionStorage.setItem("_dfproxy",pb);}}catch(e){{}}'
+        + replace_state_block +
         # rewrite helper: "/path" and "http://origin/path" → proxy-prefixed URL
         f'function rw(u){{'
         f'if(typeof u!=="string")return u;'

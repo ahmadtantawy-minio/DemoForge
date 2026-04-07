@@ -391,6 +391,8 @@ if [[ "$MODE" == "gateway" ]]; then
     --tag="${HUB_API_IMAGE}" \
     --quiet
 
+  HUB_API_SYNC_KEY=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
+
   ok "Configuring VM to trust GCR and starting hub-api..."
   run_on_vm "
     # Authenticate Docker with GCR
@@ -407,6 +409,8 @@ if [[ "$MODE" == "gateway" ]]; then
       --name demoforge-hub-api \
       --restart unless-stopped \
       -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
+      -e HUB_API_SYNC_SECRET_KEY='${HUB_API_SYNC_KEY}' \
+      -e HUB_API_CONNECTOR_KEY='${GATEWAY_API_KEY}' \
       -v /data/hub-api:/data/hub-api \
       -p 8000:8000 \
       ${HUB_API_IMAGE}
@@ -438,6 +442,12 @@ if [[ "$MODE" == "gateway" ]]; then
   # Health check — no auth required
   handle /health {
     respond "ok" 200
+  }
+
+  # FA bootstrap — no gateway key required here; hub-api validates the FA's unique key
+  # Called by fa-setup.sh before the connector exists
+  handle /api/hub/fa/bootstrap {
+    reverse_proxy ${INTERNAL_IP}:8000
   }
 
   # API key validation — uses runtime env var (not baked into image)
@@ -540,6 +550,10 @@ GWDOCKERFILE
     --format='value(status.url)')
   ok "Gateway deployed: ${GATEWAY_URL}"
 
+  # Store gateway API key in VM metadata so hub-api-only redeploy can retrieve it
+  gcloud compute instances add-metadata "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
+    --metadata="gateway-api-key=${GATEWAY_API_KEY}" 2>/dev/null || true
+
   # Clean up temp dir
   rm -rf "${GATEWAY_DIR}"
 
@@ -575,8 +589,7 @@ GWDOCKERFILE
   # Use the canonical hub-connector source from the repo
   CONNECTOR_DIR="$(dirname "$SCRIPT_DIR")/hub-connector"
   if [[ ! -f "${CONNECTOR_DIR}/Caddyfile" || ! -f "${CONNECTOR_DIR}/Dockerfile" ]]; then
-    err "hub-connector/Caddyfile or Dockerfile not found at ${CONNECTOR_DIR}"
-    exit 1
+    fail "hub-connector/Caddyfile or Dockerfile not found at ${CONNECTOR_DIR}"
   fi
 
   # Build connector image
@@ -699,6 +712,9 @@ if [[ "$MODE" == "hub-api-only" ]]; then
     --quiet
   ok "Image pushed: ${HUB_API_IMAGE}"
 
+  HUB_API_SYNC_KEY=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
+  HUB_API_CONNECTOR_KEY=$(get_vm_metadata "gateway-api-key" 2>/dev/null || echo "")
+
   step 2 "Restart hub-api on VM"
   run_on_vm "
     gcloud auth configure-docker --quiet 2>/dev/null || true
@@ -708,6 +724,8 @@ if [[ "$MODE" == "hub-api-only" ]]; then
       --name demoforge-hub-api \
       --restart unless-stopped \
       -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
+      -e HUB_API_SYNC_SECRET_KEY='${HUB_API_SYNC_KEY}' \
+      -e HUB_API_CONNECTOR_KEY='${HUB_API_CONNECTOR_KEY}' \
       -v /data/hub-api:/data/hub-api \
       -p 8000:8000 \
       ${HUB_API_IMAGE}

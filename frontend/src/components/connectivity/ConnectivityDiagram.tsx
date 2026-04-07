@@ -78,6 +78,7 @@ function checkStatus(check: CheckResult | undefined): NodeStatus {
   if (check.skipped) return "skip";
   if (check.ok) return "ok";
   if (check.warning) return "warn";
+  if (check.optional) return "warn"; // optional failing = amber, not red
   return "fail";
 }
 
@@ -311,7 +312,8 @@ function buildDevDiagram(result: ConnectivityResult): {
 
   const localBranch = propagate([
     { from: "dev_pc", to: "local_hub", status: eDevLocal, label: localHub?.error },
-    { from: "local_hub", to: "fa_auth", status: eLocalAuth, label: faAuth?.error },
+    // fa_auth is optional in dev mode — use warn edge so it doesn't animate broken
+    { from: "local_hub", to: "fa_auth", status: faAuth?.optional && eLocalAuth === "fail" ? "warn" : eLocalAuth },
   ]);
 
   const adminBranch: EdgeDef[] = [

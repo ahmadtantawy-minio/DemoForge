@@ -1,6 +1,7 @@
 # docker-compose.yml — runs DemoForge itself
 services:
   backend:
+    image: demoforge/demoforge-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -45,6 +46,7 @@ services:
       - "demoforge.role=backend"                     # So we can find ourselves
 
   frontend:
+    image: demoforge/demoforge-frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile

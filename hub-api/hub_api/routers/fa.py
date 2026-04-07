@@ -59,3 +59,33 @@ async def get_my_profile(fa: dict = Depends(get_current_fa)):
         last_seen_at=fa["last_seen_at"],
         is_active=fa["is_active"],
     )
+
+
+@router.get("/config")
+async def get_fa_config(fa: dict = Depends(get_current_fa)):
+    """Return sync configuration for this FA (read-only credentials, safe to share)."""
+    return {
+        "sync_enabled": bool(settings.sync_secret_key),
+        "sync_access_key": "demoforge-sync" if settings.sync_secret_key else "",
+        "sync_secret_key": settings.sync_secret_key,
+        "sync_bucket": "demoforge-templates",
+        "sync_prefix": "templates/",
+    }
+
+
+@router.get("/bootstrap")
+async def fa_bootstrap(fa: dict = Depends(get_current_fa)):
+    """Called by fa-setup.sh BEFORE the connector is running.
+    Validates the FA's unique key and returns connector + sync configuration.
+    This endpoint is unauthenticated at the gateway level but hub-api validates the FA key."""
+    return {
+        "fa_id": fa["fa_id"],
+        "fa_name": fa["fa_name"],
+        "is_active": fa["is_active"],
+        "connector_key": settings.connector_key,
+        "sync_enabled": bool(settings.sync_secret_key),
+        "sync_access_key": "demoforge-sync" if settings.sync_secret_key else "",
+        "sync_secret_key": settings.sync_secret_key,
+        "sync_bucket": "demoforge-templates",
+        "sync_prefix": "templates/",
+    }

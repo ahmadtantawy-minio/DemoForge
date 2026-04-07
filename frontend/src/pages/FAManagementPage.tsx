@@ -45,9 +45,26 @@ const EVENT_TYPES = [
   "demo_stopped",
   "template_forked",
   "template_published",
+  "template_synced",
+  "components_checked",
+  "setup_completed",
   "app_started",
   "app_stopped",
 ];
+
+const EVENT_LABELS: Record<string, string> = {
+  demo_deployed: "Demo Deployed",
+  demo_stopped: "Demo Stopped",
+  demo_destroyed: "Demo Destroyed",
+  template_forked: "Template Fork",
+  template_published: "Template Published",
+  template_synced: "Template Sync",
+  components_checked: "Components Check",
+  setup_completed: "Setup Completed",
+  manual_demo_created: "Manual Demo",
+  app_started: "App Started",
+  app_stopped: "App Stopped",
+};
 
 function formatDate(iso: string | null) {
   if (!iso) return "--";
@@ -400,7 +417,7 @@ function FADetailPanel({
                         : "border-transparent text-muted-foreground hover:bg-muted"
                     )}
                   >
-                    {t === "all" ? "All" : t.replace(/_/g, " ")}
+                    {t === "all" ? "All" : (EVENT_LABELS[t] ?? t.replace(/_/g, " "))}
                   </button>
                 ))}
               </div>
@@ -431,7 +448,7 @@ function FADetailPanel({
                         className="grid grid-cols-[140px_1fr_150px] gap-2 px-4 py-2 items-center"
                       >
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 w-fit">
-                          {ev.event_type.replace(/_/g, " ")}
+                          {EVENT_LABELS[ev.event_type] ?? ev.event_type.replace(/_/g, " ")}
                         </Badge>
                         <span className="text-xs text-muted-foreground truncate font-mono">
                           {Object.keys(ev.payload).length > 0

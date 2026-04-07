@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-update-hub-api fa-setup fa-cleanup
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-update-hub-api fa-setup fa-cleanup fa-update
 
 update:         ## Pull latest changes, rebuild, and restart DemoForge
 	git pull
@@ -200,6 +200,11 @@ gateway-test:     ## Test hub connectivity locally (simulates Field Architect)
 
 fa-setup:         ## Field Architect first-time setup (starts hub-connector, pulls images)
 	@scripts/fa-setup.sh
+
+fa-update:        ## Pull latest scripts + images and restart (FA day-to-day update workflow)
+	git pull
+	@scripts/hub-pull.sh
+	./demoforge.sh restart
 
 fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .env.local, stops hub-connector)
 	@echo "Stopping hub-connector..."
