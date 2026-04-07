@@ -373,10 +373,8 @@ async def _check_components() -> dict:
                 "No component readiness config found. Check component-readiness.yaml is mounted."))
             return {"ok": False, "steps": steps}
 
-        fa_ready = [c for c in readiness._components.values()
-                    if c.get("fa_status") in ("released", "available")]
-        blocked = [c for c in readiness._components.values()
-                   if c.get("fa_status") not in ("released", "available")]
+        fa_ready = [c for c in readiness._components.values() if c.get("fa_ready")]
+        blocked = [c for c in readiness._components.values() if not c.get("fa_ready")]
 
         steps.append(_step("Component readiness loaded", True,
             f"{len(fa_ready)}/{total} components FA-ready, {len(blocked)} blocked/pending"))
