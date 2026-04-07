@@ -41,6 +41,15 @@ else
   else
     CONNECTOR_KEY=$(echo "$BOOTSTRAP_RESP" | python3 -c \
       "import sys,json; print(json.load(sys.stdin).get('connector_key',''))" 2>/dev/null || echo "")
+    SYNC_SECRET=$(echo "$BOOTSTRAP_RESP" | python3 -c \
+      "import sys,json; print(json.load(sys.stdin).get('sync_secret_key',''))" 2>/dev/null || echo "")
+    if [[ -n "$SYNC_SECRET" ]]; then
+      if grep -q "^DEMOFORGE_SYNC_SECRET_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null; then
+        sed -i.bak "s|^DEMOFORGE_SYNC_SECRET_KEY=.*|DEMOFORGE_SYNC_SECRET_KEY=${SYNC_SECRET}|" "$PROJECT_ROOT/.env.local" && rm -f "${ENVFILE}.bak"
+      else
+        echo "DEMOFORGE_SYNC_SECRET_KEY=${SYNC_SECRET}" >> "$PROJECT_ROOT/.env.local"
+      fi
+    fi
 
     if [[ -z "$CONNECTOR_KEY" ]]; then
       fail "Hub returned no connector key. Run 'make fa-setup' to re-register."

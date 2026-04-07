@@ -137,7 +137,7 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
 
     async with httpx.AsyncClient() as client:
         code, data, text, ms = await _get(client, target_url + "/api/hub/fa/me",
-                                           {"X-Api-Key": api_key})
+                                           {"X-Api-Key": api_key, "X-Fa-Api-Key": api_key})
         if code == -1:
             steps.append(_step(reach_label, False, f"Connection refused at {target_url}"))
             return {"ok": False, "steps": steps}

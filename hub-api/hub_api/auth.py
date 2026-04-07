@@ -11,7 +11,7 @@ from .database import get_db
 async def get_current_fa(
     request: Request, db: aiosqlite.Connection = Depends(get_db)
 ) -> dict:
-    api_key = request.headers.get("X-Api-Key")
+    api_key = request.headers.get("X-Fa-Api-Key") or request.headers.get("X-Api-Key")
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing X-Api-Key header")
 
