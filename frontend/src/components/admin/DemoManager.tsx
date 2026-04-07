@@ -6,6 +6,7 @@ import {
   createDemo,
 } from "../../api/client";
 import { toast } from "../../lib/toast";
+import { usePermissions } from "../../hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ interface InventoryImage {
 export default function DemoManager() {
   const { demos, activeDemoId, setDemos, setActiveDemoId, setActiveView, updateDemoStatus } = useDemoStore();
   const debugStore = useDebugStore();
+  const { permissions } = usePermissions();
 
   const [containers, setContainers] = useState<InventoryContainer[]>([]);
   const [images, setImages] = useState<InventoryImage[]>([]);
@@ -197,7 +199,7 @@ export default function DemoManager() {
               </div>
             ) : (
               <>
-                <Button onClick={() => setCreating(true)} size="sm">
+                <Button onClick={() => setCreating(true)} size="sm" disabled={!permissions.manual_demo_creation}>
                   + New Demo
                 </Button>
               </>

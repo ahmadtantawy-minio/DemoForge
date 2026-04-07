@@ -14,10 +14,11 @@ err()  { echo -e "${RED}[hub-update]${NC} $*" >&2; }
 [[ -f "$PROJECT_ROOT/.env.local" ]] && source "$PROJECT_ROOT/.env.local"
 
 usage() {
-    echo "Usage: $0 [--all | --gateway | --templates | --images | --licenses]"
+    echo "Usage: $0 [--all | --gateway | --hub-api | --templates | --images | --licenses]"
     echo ""
     echo "  --all         Run all update steps (default)"
     echo "  --gateway     Rebuild and deploy Cloud Run gateway only"
+    echo "  --hub-api     Redeploy hub-api Cloud Run only (SSH-free, ~2 min)"
     echo "  --templates   Seed base templates to MinIO hub"
     echo "  --images      Build and push custom images to registry"
     echo "  --licenses    Seed license keys to MinIO"
@@ -29,7 +30,7 @@ usage() {
 MODE="${1:---all}"
 case "$MODE" in
     --help|-h) usage ;;
-    --all|--gateway|--templates|--images|--licenses) ;;
+    --all|--gateway|--hub-api|--templates|--images|--licenses) ;;
     *) echo "Unknown flag: $MODE"; usage ;;
 esac
 
@@ -37,6 +38,14 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║  DemoForge Hub — Update                                 ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+# ── hub-api only: no DIRECT_IP needed (Cloud Run deploy is SSH-free) ──
+if [[ "$MODE" == "--hub-api" ]]; then
+    log "=== Redeploying hub-api Cloud Run ==="
+    "$SCRIPT_DIR/minio-gcp.sh" --deploy-api
+    echo ""
+    exit 0
+fi
 
 # ── Pre-flight checks ──
 DIRECT_IP="${DEMOFORGE_DIRECT_IP:-}"

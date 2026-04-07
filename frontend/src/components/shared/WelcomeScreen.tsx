@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { createDemo, fetchDemos, fetchTemplates, createFromTemplate } from "../../api/client";
 import { toast } from "../../lib/toast";
+import { usePermissions } from "../../hooks/usePermissions";
 import type { DemoTemplate } from "../../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import DemoSelectorModal from "./DemoSelectorModal";
 
 export default function WelcomeScreen() {
   const { setDemos, setActiveDemoId, setActiveView } = useDemoStore();
+  const { permissions } = usePermissions();
   const [creating, setCreating] = useState(false);
   const [newDemoName, setNewDemoName] = useState("");
   const [templates, setTemplates] = useState<DemoTemplate[]>([]);
@@ -103,6 +105,7 @@ export default function WelcomeScreen() {
                 onClick={() => setCreating(true)}
                 size="sm"
                 className="gap-2"
+                disabled={!permissions.manual_demo_creation}
               >
                 <Plus className="w-4 h-4" />
                 Create New Demo

@@ -545,3 +545,32 @@ async def check_connectivity():
         "admin_key_configured": bool(admin_key) if mode == "dev" else None,
         "checks": checks,
     }
+
+
+@router.get("/api/connectivity/me")
+async def get_me():
+    """Return current FA's identity and permissions from hub-api."""
+    api_key = os.getenv("DEMOFORGE_API_KEY", "")
+    hub_url = os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://host.docker.internal:8080")
+
+    if not api_key:
+        return {"ok": False, "permissions": {}}
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            resp = await client.get(
+                hub_url + "/api/hub/fa/me",
+                headers={"X-Api-Key": api_key, "X-Fa-Api-Key": api_key},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return {
+                    "ok": True,
+                    "fa_id": data.get("fa_id"),
+                    "fa_name": data.get("fa_name"),
+                    "is_active": data.get("is_active", True),
+                    "permissions": data.get("permissions", {}),
+                }
+        except Exception:
+            pass
+    return {"ok": False, "permissions": {}}

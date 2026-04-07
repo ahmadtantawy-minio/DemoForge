@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo, exportDemo, importDemo } from "../../api/client";
 import { toast } from "../../lib/toast";
+import { usePermissions } from "../../hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -37,6 +38,7 @@ interface Props {
 
 export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   const { demos, activeDemoId, setActiveDemoId, setActiveView, setDemos } = useDemoStore();
+  const { permissions } = usePermissions();
   const [creating, setCreating] = useState(false);
   const [newDemoName, setNewDemoName] = useState("");
   const [activeTab, setActiveTab] = useState<"demos" | "templates">("demos");
@@ -213,7 +215,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                     <Upload className="w-3.5 h-3.5" />
                     Import
                   </Button>
-                  <Button onClick={() => setCreating(true)} size="sm" className="gap-1.5 h-7 text-xs">
+                  <Button onClick={() => setCreating(true)} size="sm" className="gap-1.5 h-7 text-xs" disabled={!permissions.manual_demo_creation}>
                     <Plus className="w-3.5 h-3.5" />
                     New Blank Demo
                   </Button>

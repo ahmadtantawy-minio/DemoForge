@@ -504,3 +504,6 @@ export const hubPushImages = () =>
   apiFetch<{ pushed: number; failed: number; results: { component: string; tag: string; status: string; error?: string }[] }>(
     "/api/images/hub-push", { method: "POST" }
   );
+
+export const fetchMe = () =>
+  apiFetch<{ ok: boolean; fa_id?: string; fa_name?: string; is_active?: boolean; permissions?: Record<string, unknown> }>("/api/connectivity/me");
