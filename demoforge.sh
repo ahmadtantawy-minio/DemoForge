@@ -223,6 +223,20 @@ cmd_start() {
         echo -e "  FA: ${CYAN}${DEMOFORGE_FA_ID}${NC}"
     fi
 
+    # Hub connectivity check (FA/standard mode only)
+    if [[ "${DEMOFORGE_MODE:-standard}" != "dev" ]]; then
+        log "Checking hub connectivity..."
+        if ! docker inspect hub-connector --format='{{.State.Status}}' 2>/dev/null | grep -q "running"; then
+            err "hub-connector is not running. Run: make fa-setup"
+            exit 1
+        fi
+        if ! curl -sf --connect-timeout 5 "http://localhost:8080/health" &>/dev/null; then
+            err "Hub gateway unreachable through connector. Run: make fa-update"
+            exit 1
+        fi
+        ok "Hub connectivity verified"
+    fi
+
     # Kill anything that's already running
     stop_services
 

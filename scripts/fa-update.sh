@@ -35,15 +35,13 @@ else
     -H "X-Api-Key: ${FA_KEY}" 2>/dev/null || echo "")
 
   if [[ -z "$BOOTSTRAP_RESP" ]]; then
-    warn "Bootstrap failed (hub unreachable or FA key invalid) — restarting existing connector."
-    docker restart hub-connector 2>/dev/null || warn "hub-connector not found. Run 'make fa-setup'."
+    fail "Bootstrap failed — hub unreachable or FA key invalid. Check your network or run 'make fa-setup'."
   else
     CONNECTOR_KEY=$(echo "$BOOTSTRAP_RESP" | python3 -c \
       "import sys,json; print(json.load(sys.stdin).get('connector_key',''))" 2>/dev/null || echo "")
 
     if [[ -z "$CONNECTOR_KEY" ]]; then
-      warn "Hub returned no connector key — restarting existing connector."
-      docker restart hub-connector 2>/dev/null || warn "hub-connector not found. Run 'make fa-setup'."
+      fail "Hub returned no connector key. Run 'make fa-setup' to re-register."
     else
       # ── Step 4: Pull latest hub-connector image ──────────────────────────
       log "Pulling latest hub-connector image..."
