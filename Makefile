@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-push-direct hub-pull hub-trust seed-licenses update hub-update-hub-api fa-setup fa-cleanup fa-update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-push-direct hub-pull hub-trust seed-licenses update hub-deploy hub-deploy-api hub-update-hub-api fa-setup fa-cleanup fa-update
 
 update:         ## Pull latest changes, rebuild, and restart DemoForge
 	git pull
@@ -191,12 +191,18 @@ hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licens
 hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images
 	@scripts/hub-update.sh --$*
 
-hub-update-hub-api: ## [Dev] Rebuild + redeploy only the hub-api on GCP VM (fast, no gateway rebuild)
+hub-deploy:       ## [Dev] Full GCP deploy: VPC + gateway Cloud Run + hub-api Cloud Run + Litestream infra
+	@scripts/minio-gcp.sh --gateway
+
+hub-deploy-api:   ## [Dev] Redeploy hub-api Cloud Run only (SSH-free, ~2 min)
 	@scripts/minio-gcp.sh --hub-api-only
 
-## Gateway
-gateway:          ## Deploy Cloud Run gateway + VPC (run after fresh GCP deploy)
+# Kept as aliases for backward compatibility
+gateway:          ## [Dev] Alias for hub-deploy
 	@scripts/minio-gcp.sh --gateway
+
+hub-update-hub-api: ## [Dev] Alias for hub-deploy-api
+	@scripts/minio-gcp.sh --hub-api-only
 
 gateway-test:     ## Test hub connectivity locally (simulates Field Architect)
 	@scripts/local-hub-test.sh
