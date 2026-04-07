@@ -92,6 +92,7 @@ echo -e "\n${CYAN}Starting hub connector...${NC}"
 CONNECTOR_IMAGE="gcr.io/minio-demoforge/demoforge-hub-connector:latest"
 docker pull "${CONNECTOR_IMAGE}" 2>/dev/null || true
 
+HUB_HOST="${HUB_URL#https://}"
 docker run -d \
     --name hub-connector \
     --restart=always \
@@ -100,6 +101,7 @@ docker run -d \
     -p 9001:9001 \
     -p 8080:8080 \
     -e "HUB_URL=${HUB_URL}" \
+    -e "HUB_HOST=${HUB_HOST}" \
     -e "API_KEY=${CONNECTOR_KEY}" \
     "${CONNECTOR_IMAGE}"
 

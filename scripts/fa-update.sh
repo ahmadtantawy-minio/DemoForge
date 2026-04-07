@@ -50,6 +50,7 @@ else
       # ── Step 5: Restart connector with fresh key ─────────────────────────
       log "Restarting hub-connector..."
       docker rm -f hub-connector 2>/dev/null || true
+      HUB_HOST="${HUB_URL#https://}"
       docker run -d \
         --name hub-connector \
         --restart=always \
@@ -58,13 +59,16 @@ else
         -p 9001:9001 \
         -p 8080:8080 \
         -e "HUB_URL=${HUB_URL}" \
+        -e "HUB_HOST=${HUB_HOST}" \
         -e "API_KEY=${CONNECTOR_KEY}" \
         "${CONNECTOR_IMAGE}"
 
-      for i in $(seq 1 15); do
-        curl -sf "http://localhost:8080/health" &>/dev/null && break
+      CONNECTOR_OK=0
+      for i in $(seq 1 20); do
+        curl -sf "http://localhost:8080/health" &>/dev/null && CONNECTOR_OK=1 && break
         sleep 1
       done
+      [[ "$CONNECTOR_OK" -eq 1 ]] || fail "hub-connector failed to start. Check: docker logs hub-connector"
       ok "hub-connector running"
     fi
   fi

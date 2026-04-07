@@ -713,8 +713,6 @@ if [[ "$MODE" == "deploy" ]]; then
     warn "Push manually via hub-connector: make hub-push"
   fi
 
-  rm -rf "${CONNECTOR_DIR}"
-
   # ── Step 11: Generate .env.hub ──
   step 11 "Generate .env.hub"
 
