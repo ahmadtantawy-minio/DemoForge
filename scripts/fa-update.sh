@@ -26,7 +26,14 @@ if [[ "$_GIT_BEFORE" != "$_GIT_AFTER" ]]; then
   exit 0
 fi
 
-# ── Step 2: Load FA key ────────────────────────────────────────────────────
+# ── Step 2: Migrate stale config values ───────────────────────────────────
+ENVFILE="$PROJECT_ROOT/.env.local"
+if grep -q "^DEMOFORGE_REGISTRY_HOST=localhost:5000$" "$ENVFILE" 2>/dev/null; then
+  sed -i.bak "s|^DEMOFORGE_REGISTRY_HOST=localhost:5000$|DEMOFORGE_REGISTRY_HOST=localhost:5050|" "$ENVFILE" && rm -f "${ENVFILE}.bak"
+  ok "Migrated DEMOFORGE_REGISTRY_HOST → localhost:5050 (port 5000 is reserved by macOS AirPlay)"
+fi
+
+# ── Step 3: Load FA key ────────────────────────────────────────────────────
 FA_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
 HUB_URL=$(grep "^DEMOFORGE_HUB_URL=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "$DEFAULT_HUB_URL")
 [[ -z "$HUB_URL" ]] && HUB_URL="$DEFAULT_HUB_URL"
