@@ -17,8 +17,14 @@ DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 
 # ── Step 1: Pull latest scripts / configs ──────────────────────────────────
 log "Pulling latest scripts and configs..."
+_GIT_BEFORE=$(git rev-parse HEAD)
 git pull
+_GIT_AFTER=$(git rev-parse HEAD)
 echo ""
+if [[ "$_GIT_BEFORE" != "$_GIT_AFTER" ]]; then
+  ok "Scripts updated — please re-run 'make fa-update' to use the latest version."
+  exit 0
+fi
 
 # ── Step 2: Load FA key ────────────────────────────────────────────────────
 FA_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
