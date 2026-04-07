@@ -1,5 +1,5 @@
 dbs:
-  - path: ${HUB_API_DATABASE_PATH:-/data/hub-api/demoforge-hub.db}
+  - path: /data/hub-api/demoforge-hub.db
     replicas:
       - type: gcs
         bucket: ${LITESTREAM_BUCKET}

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-DB_PATH="${HUB_API_DATABASE_PATH:-/data/hub-api/demoforge-hub.db}"
+DB_PATH="/data/hub-api/demoforge-hub.db"
 mkdir -p "$(dirname "$DB_PATH")"
 
 if [ ! -f "$DB_PATH" ]; then
