@@ -120,9 +120,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
     if (!faMode) { setConnectivityChecked(true); return; }
     apiFetch<{ overall: string; checks: Record<string, { ok: boolean }> }>("/api/connectivity/check")
       .then(r => {
-        const syncOk = r.checks?.template_sync?.ok ?? true;
-        const compOk = r.checks?.components?.ok ?? true;
-        setConnectivityBlocked(!syncOk || !compOk);
+        setConnectivityBlocked(r.overall !== "ok");
       })
       .catch(() => { /* don't block on check failure */ })
       .finally(() => setConnectivityChecked(true));
