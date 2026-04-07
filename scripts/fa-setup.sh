@@ -97,7 +97,7 @@ docker run -d \
     --name hub-connector \
     --restart=always \
     -p 9000:9000 \
-    -p 5000:5000 \
+    -p 5050:5000 \
     -p 9001:9001 \
     -p 8080:8080 \
     -e "HUB_URL=${HUB_URL}" \
@@ -183,21 +183,21 @@ _set_env "DEMOFORGE_SYNC_BUCKET"     "demoforge-templates"
 _set_env "DEMOFORGE_SYNC_PREFIX"     "templates/"
 _set_env "DEMOFORGE_SYNC_ACCESS_KEY" "demoforge-sync"
 _set_env "DEMOFORGE_SYNC_SECRET_KEY" "${SYNC_SECRET:-change-me}"
-_set_env "DEMOFORGE_REGISTRY_HOST"   "localhost:5000"
+_set_env "DEMOFORGE_REGISTRY_HOST"   "localhost:5050"
 
 echo -e "${GREEN}✓ Updated .env.local${NC}"
 
 # ── Pull custom images ──
 echo -e "\n${CYAN}Pulling custom DemoForge images...${NC}"
-CATALOG=$(curl -sf "http://localhost:5000/v2/_catalog" 2>/dev/null || echo '{"repositories":[]}')
+CATALOG=$(curl -sf "http://localhost:5050/v2/_catalog" 2>/dev/null || echo '{"repositories":[]}')
 REPOS=$(echo "$CATALOG" | python3 -c "import sys,json; [print(r) for r in json.load(sys.stdin).get('repositories',[])]" 2>/dev/null || true)
 
 if [[ -n "$REPOS" ]]; then
     while IFS= read -r repo; do
         [[ -z "$repo" ]] && continue
-        echo "  Pulling localhost:5000/${repo}:latest..."
-        docker pull "localhost:5000/${repo}:latest" 2>&1 | tail -1
-        docker tag "localhost:5000/${repo}:latest" "${repo}:latest" 2>/dev/null && echo "  ↳ tagged ${repo}:latest"
+        echo "  Pulling localhost:5050/${repo}:latest..."
+        docker pull "localhost:5050/${repo}:latest" 2>&1 | tail -1
+        docker tag "localhost:5050/${repo}:latest" "${repo}:latest" 2>/dev/null && echo "  ↳ tagged ${repo}:latest"
     done <<< "$REPOS"
     echo -e "${GREEN}✓ Custom images pulled and tagged${NC}"
 else

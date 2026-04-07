@@ -7,7 +7,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 [[ -f "$PROJECT_ROOT/.env.hub" ]] && source "$PROJECT_ROOT/.env.hub"
 [[ -f "$PROJECT_ROOT/.env.local" ]] && source "$PROJECT_ROOT/.env.local"
 
-REGISTRY_HOST="${DEMOFORGE_REGISTRY_HOST:-34.18.90.197:5000}"
+REGISTRY_HOST="${DEMOFORGE_REGISTRY_HOST:-localhost:5050}"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[hub-pull]${NC} $*"; }
@@ -30,7 +30,7 @@ while IFS= read -r repo; do
     IMAGE="${REGISTRY_HOST}/${repo}:latest"
     log "Pulling ${IMAGE}..."
     if docker pull "$IMAGE" 2>&1 | tail -2; then
-        # Retag to canonical name (e.g. localhost:5000/demoforge/X → demoforge/X)
+        # Retag to canonical name (e.g. localhost:5050/demoforge/X → demoforge/X)
         # so backend image-existence check finds it without rebuilding from source
         docker tag "$IMAGE" "${repo}:latest" 2>/dev/null && log "  ↳ tagged ${repo}:latest"
         log "  ✓ ${repo}"; ((PULLED++))

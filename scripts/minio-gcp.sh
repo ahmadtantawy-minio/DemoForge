@@ -738,7 +738,7 @@ DEMOFORGE_SYNC_ACCESS_KEY=demoforge-sync
 DEMOFORGE_SYNC_SECRET_KEY=
 
 # ── Registry (via hub-connector on localhost) ──
-DEMOFORGE_REGISTRY_HOST=localhost:5000
+DEMOFORGE_REGISTRY_HOST=localhost:5050
 
 # ── Hub API (Cloud Run) ──
 DEMOFORGE_HUB_API_URL=${HUB_API_URL}
@@ -780,7 +780,7 @@ ENV_EOF
   echo -e "${YELLOW}Field Architect setup (one command):${NC}"
   echo ""
   echo "  docker run -d --name hub-connector --restart=always \\"
-  echo "    -p 9000:9000 -p 5000:5000 -p 9001:9001 -p 8080:8080 \\"
+  echo "    -p 9000:9000 -p 5050:5000 -p 9001:9001 -p 8080:8080 \\"
   echo "    -e HUB_URL=${GATEWAY_URL} \\"
   echo "    -e API_KEY=${GATEWAY_API_KEY} \\"
   echo "    ${CONNECTOR_IMAGE}"

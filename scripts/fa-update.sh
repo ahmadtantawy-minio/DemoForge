@@ -61,7 +61,7 @@ else
         --name hub-connector \
         --restart=always \
         -p 9000:9000 \
-        -p 5000:5000 \
+        -p 5050:5000 \
         -p 9001:9001 \
         -p 8080:8080 \
         -e "HUB_URL=${HUB_URL}" \
@@ -94,7 +94,7 @@ else
 
   # ── Step 6: Pull latest custom images via connector ──────────────────────
   log "Pulling latest images from registry..."
-  if curl -sf --connect-timeout 5 --max-time 8 "http://localhost:5000/v2/" &>/dev/null; then
+  if curl -sf --connect-timeout 5 --max-time 8 "http://localhost:5050/v2/" &>/dev/null; then
     "$SCRIPT_DIR/hub-pull.sh" || warn "Some images failed to pull (will use cached versions)"
   else
     warn "Registry still unreachable — skipping image pull."

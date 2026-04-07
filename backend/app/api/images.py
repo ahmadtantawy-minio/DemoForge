@@ -20,7 +20,7 @@ _pulls: dict[str, PullStatus] = {}
 REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
 # Docker pulls go through the host daemon (via socket), so use localhost
 # even though the backend container reaches the registry at host.docker.internal
-REGISTRY_PULL_HOST = os.environ.get("DEMOFORGE_REGISTRY_PULL_HOST", "localhost:5000")
+REGISTRY_PULL_HOST = os.environ.get("DEMOFORGE_REGISTRY_PULL_HOST", "localhost:5050")
 # Push host: hub-connector (host.docker.internal:5000) requires X-Api-Key which Docker's
 # binary push protocol can't provide. Set DEMOFORGE_REGISTRY_PUSH_HOST to the direct
 # registry IP (e.g. 34.18.175.14:5000) to bypass the connector. Falls back to REGISTRY_HOST.
