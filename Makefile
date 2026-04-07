@@ -1,8 +1,9 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-stop dev-restart dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-update-hub-api
 
-update:         ## Pull latest changes and restart DemoForge
+update:         ## Pull latest changes, rebuild, and restart DemoForge
 	git pull
 	@scripts/fa-setup.sh
+	./demoforge.sh build
 	./demoforge.sh restart
 
 ## Field Architect mode (standard)
@@ -33,9 +34,11 @@ nuke:           ## Full clean + remove built images
 help:
 	./demoforge.sh help
 
-dev-init:       ## Generate local dev keys (.env.local) without needing hub-setup
+dev-init:       ## Generate local dev keys (.env.local) for use with make dev-start (local hub-api only)
 	@if grep -q "DEMOFORGE_HUB_API_ADMIN_KEY" .env.local 2>/dev/null; then \
 		echo "DEMOFORGE_HUB_API_ADMIN_KEY already set in .env.local"; \
+	elif [ -f .env.hub ]; then \
+		echo "GCP hub detected (.env.hub exists) — skipping local admin key (not needed for dev-start-gcp)"; \
 	else \
 		KEY="hubadm-$$(openssl rand -hex 20)"; \
 		echo "DEMOFORGE_HUB_API_ADMIN_KEY=$$KEY" >> .env.local; \
@@ -53,10 +56,15 @@ dev-hub-api:    ## [Dev] Start hub-api locally on :8000 with hot-reload
 
 dev-sim-fa:     ## [Dev] Register a simulated FA. Usage: make dev-sim-fa FA=user@min.io
 	@if [ -z "$(FA)" ]; then echo "Usage: make dev-sim-fa FA=user@min.io"; exit 1; fi
-	@KEY="sim-$$(openssl rand -hex 16)"; \
-	mkdir -p data/dev-sim; \
+	@mkdir -p data/dev-sim; \
 	FA_SLUG=$$(echo "$(FA)" | sed 's/[@.]/_/g'); \
 	FA_FILE="data/dev-sim/$${FA_SLUG}.env"; \
+	KEY=$$(grep DEMOFORGE_API_KEY "$$FA_FILE" 2>/dev/null | cut -d= -f2); \
+	if [ -n "$$KEY" ]; then \
+	  echo "Reusing existing key for $(FA) (delete $$FA_FILE to generate a new one)"; \
+	else \
+	  KEY="sim-$$(openssl rand -hex 16)"; \
+	fi; \
 	for URL in http://localhost:8000 http://host.docker.internal:8000; do \
 	  RESULT=$$(curl -sf -X POST "$$URL/api/hub/fa/register" \
 	    -H "Content-Type: application/json" \
@@ -67,7 +75,7 @@ dev-sim-fa:     ## [Dev] Register a simulated FA. Usage: make dev-sim-fa FA=user
 	  echo "  api_key: $$KEY" && \
 	  echo "  run as: make dev-as FA=$(FA)" && exit 0; \
 	done; \
-	echo "Error: hub-api not reachable. Run: make dev-hub-api"
+	echo "Error: hub-api not reachable. Run: make dev-start first"
 
 dev-as:         ## [Dev] Run backend as a simulated FA. Usage: make dev-as FA=user@min.io
 	@if [ -z "$(FA)" ]; then echo "Usage: make dev-as FA=user@min.io"; exit 1; fi
@@ -78,6 +86,21 @@ dev-as:         ## [Dev] Run backend as a simulated FA. Usage: make dev-as FA=us
 	echo "Starting backend as $(FA)  (run 'make dev-fe' in another terminal)"; \
 	trap 'rm -f .env.sim; echo "Removed .env.sim"' EXIT INT TERM; \
 	./demoforge.sh dev:be
+
+dev-connector-pull: ## [Dev] Build hub-connector from source and restart (no GCR dependency)
+	@echo "Building hub-connector from hub-connector/..."
+	@docker build -t demoforge-hub-connector:local ./hub-connector
+	@docker rm -f hub-connector 2>/dev/null || true
+	@HUB_URL=$$(grep DEMOFORGE_HUB_URL .env.hub 2>/dev/null | cut -d= -f2); \
+	[ -z "$$HUB_URL" ] && HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"; \
+	API_KEY=$$(grep DEMOFORGE_API_KEY .env.hub 2>/dev/null | cut -d= -f2); \
+	[ -z "$$API_KEY" ] && API_KEY=$$(grep DEMOFORGE_API_KEY .env.local 2>/dev/null | cut -d= -f2); \
+	if [ -z "$$API_KEY" ]; then echo "Error: DEMOFORGE_API_KEY not found in .env.hub or .env.local"; exit 1; fi; \
+	docker run -d --name hub-connector --restart=always \
+	  -p 9000:9000 -p 5000:5000 -p 9001:9001 -p 8080:8080 \
+	  -e "HUB_URL=$$HUB_URL" -e "API_KEY=$$API_KEY" \
+	  demoforge-hub-connector:local
+	@echo "hub-connector restarted with locally-built image"
 
 dev-purge-fa:   ## [Dev] Purge an FA (hard delete, can re-register). Usage: make dev-purge-fa FA=user@min.io
 	@if [ -z "$(FA)" ]; then echo "Usage: make dev-purge-fa FA=user@min.io"; exit 1; fi
@@ -92,13 +115,23 @@ dev-purge-fa:   ## [Dev] Purge an FA (hard delete, can re-register). Usage: make
 	echo "Error: hub-api not reachable. Run: make dev-hub-api"
 
 ## Dev mode (DEMOFORGE_MODE=dev injected automatically)
-dev-start:      ## Start DemoForge in dev mode
+dev-start:      ## Start DemoForge in dev mode (local hub-api on :8000)
+	DEMOFORGE_HUB_LOCAL=1 ./demoforge-dev.sh start
+
+dev-start-gcp:  ## Start DemoForge in dev mode connected to GCP hub via connector
+	@if ! curl -sf http://localhost:8080/health >/dev/null 2>&1 && \
+	    ! curl -sf http://host.docker.internal:8080/health >/dev/null 2>&1; then \
+	  echo "Warning: hub-connector not detected on :8080 — run 'make fa-setup' first"; \
+	fi
 	./demoforge-dev.sh start
 
 dev-stop:       ## Stop DemoForge (dev mode)
 	./demoforge-dev.sh stop
 
-dev-restart:    ## Restart DemoForge in dev mode
+dev-restart:    ## Restart DemoForge in dev mode (local hub-api)
+	DEMOFORGE_HUB_LOCAL=1 ./demoforge-dev.sh restart
+
+dev-restart-gcp: ## Restart DemoForge in dev mode (GCP hub)
 	./demoforge-dev.sh restart
 
 dev-status:     ## Show running services (dev mode)
@@ -154,6 +187,9 @@ hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licens
 
 hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images
 	@scripts/hub-update.sh --$*
+
+hub-update-hub-api: ## [Dev] Rebuild + redeploy only the hub-api on GCP VM (fast, no gateway rebuild)
+	@scripts/minio-gcp.sh --hub-api-only
 
 ## Gateway
 gateway:          ## Deploy Cloud Run gateway + VPC (run after fresh GCP deploy)

@@ -20,7 +20,7 @@ ALLOWED_EVENT_TYPES = {
 class FARegistrationRequest(BaseModel):
     fa_id: str
     fa_name: str
-    api_key: str
+    api_key: str | None = None
 
 
 class FAProfile(BaseModel):
@@ -30,6 +30,19 @@ class FAProfile(BaseModel):
     registered_at: str
     last_seen_at: str | None
     is_active: bool
+
+
+class FAKeyResponse(BaseModel):
+    fa_id: str
+    api_key: str  # full plaintext, admin-only
+
+
+class FAKeyUpdateRequest(BaseModel):
+    api_key: str | None = None  # None → server generates a fresh one
+
+
+class FAProfileWithKey(FAProfile):
+    api_key: str
 
 
 class FAPermissions(BaseModel):

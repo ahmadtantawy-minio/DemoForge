@@ -85,3 +85,41 @@ export const purgeFA = (faId: string) =>
   apiFetch<{ detail: string }>(`/api/fa-admin/fas/${encodeURIComponent(faId)}`, {
     method: "DELETE",
   });
+
+// FA creation + key management
+export interface FACreateRequest {
+  fa_id: string;
+  fa_name: string;
+  api_key?: string; // omit to auto-generate
+}
+
+export interface FAKeyResponse {
+  fa_id: string;
+  api_key: string;
+}
+
+export interface FAProfileWithKey {
+  fa_id: string;
+  fa_name: string;
+  api_key: string;
+  is_active: boolean;
+  registered_at: string;
+  last_seen_at: string | null;
+  permissions: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
+export const createFA = (req: FACreateRequest) =>
+  apiFetch<FAProfileWithKey>("/api/fa-admin/fas", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+
+export const getFAKey = (faId: string) =>
+  apiFetch<FAKeyResponse>(`/api/fa-admin/fas/${encodeURIComponent(faId)}/key`);
+
+export const updateFAKey = (faId: string, apiKey?: string) =>
+  apiFetch<FAKeyResponse>(`/api/fa-admin/fas/${encodeURIComponent(faId)}/key`, {
+    method: "PUT",
+    body: JSON.stringify(apiKey ? { api_key: apiKey } : {}),
+  });

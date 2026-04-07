@@ -2,6 +2,21 @@
 # Applied automatically by demoforge-dev.sh when DEMOFORGE_MODE=dev.
 # Layered on top of docker-compose.yml via: docker compose -f docker-compose.yml -f docker-compose.dev.yml
 services:
+  hub-api:
+    profiles: ["local-hub"]   # only started when DEMOFORGE_HUB_LOCAL=1 (make dev-start)
+    build:
+      context: ./hub-api
+      dockerfile: Dockerfile
+    command: ["uvicorn", "hub_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "info"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./hub-api:/app
+      - ./data/hub-api:/data/hub-api
+    environment:
+      - HUB_API_ADMIN_API_KEY=${DEMOFORGE_HUB_API_ADMIN_KEY:-}
+      - HUB_API_DATABASE_PATH=/data/hub-api/demoforge-hub.db
+
   backend:
     # Enable uvicorn --reload: watches /app/app (already volume-mounted from ./backend/app)
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9210", "--reload"]

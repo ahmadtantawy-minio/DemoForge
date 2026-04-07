@@ -30,6 +30,11 @@ DC_FLAGS=(-f "docker-compose.yml")
 if [[ "${DEMOFORGE_MODE:-standard}" == "dev" && -f "$SCRIPT_DIR/docker-compose.dev.yml" ]]; then
     DC_FLAGS+=(-f "docker-compose.dev.yml")
 fi
+# Include local hub-api (profile "local-hub") when DEMOFORGE_HUB_LOCAL=1 (make dev-start)
+# Skip it for dev-start-gcp, which routes hub API calls through the connector instead
+if [[ "${DEMOFORGE_HUB_LOCAL:-}" == "1" ]]; then
+    DC_FLAGS+=("--profile" "local-hub")
+fi
 FRONTEND_PORT=3000
 
 # Colors
@@ -105,7 +110,49 @@ ensure_dirs() {
     mkdir -p demos data components
 }
 
+load_env() {
+    # Load hub config first, then per-user local overrides (local wins for most keys)
+    [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
+    [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+    # In GCP mode (DEMOFORGE_HUB_LOCAL not set), the .env.hub admin key is the GCP hub-api key.
+    # Re-apply it after .env.local so the local dev key never wins in GCP mode.
+    # If .env.hub has no admin key (old deployment), unset entirely — wrong local key is worse than none.
+    if [[ "${DEMOFORGE_HUB_LOCAL:-}" != "1" && -f "$SCRIPT_DIR/.env.hub" ]]; then
+        _hub_admin=$(grep "^DEMOFORGE_HUB_API_ADMIN_KEY=" "$SCRIPT_DIR/.env.hub" 2>/dev/null \
+            | cut -d= -f2- || true)
+        if [[ -n "$_hub_admin" ]]; then
+            export DEMOFORGE_HUB_API_ADMIN_KEY="$_hub_admin"
+        else
+            unset DEMOFORGE_HUB_API_ADMIN_KEY 2>/dev/null || true
+        fi
+        unset _hub_admin
+    fi
+}
+
 build_component_images() {
+    # In FA mode (standard), images are pre-built and pulled via `make fa-setup`.
+    # Building from source is dev-only — skip entirely for FAs.
+    if [[ "${DEMOFORGE_MODE:-standard}" != "dev" ]]; then
+        local missing=()
+        for manifest in components/*/manifest.yaml; do
+            [ -f "$manifest" ] || continue
+            local build_ctx image
+            build_ctx=$(grep -E '^build_context:' "$manifest" 2>/dev/null | sed 's/build_context:[[:space:]]*//' | tr -d '"' || true)
+            [ -z "$build_ctx" ] && continue
+            image=$(grep -E '^image:' "$manifest" 2>/dev/null | sed 's/image:[[:space:]]*//' | tr -d '"' || true)
+            [ -z "$image" ] && continue
+            if ! docker image inspect "$image" &>/dev/null; then
+                missing+=("$image")
+            fi
+        done
+        if [ ${#missing[@]} -gt 0 ]; then
+            warn "Some component images are missing — run 'make fa-setup' to pull them:"
+            for img in "${missing[@]}"; do warn "  $img"; done
+        fi
+        return
+    fi
+
+    # Dev mode: build from source
     log "Checking for component images to build..."
     local count=0
     for manifest in components/*/manifest.yaml; do
@@ -163,9 +210,7 @@ cmd_start() {
     check_deps
     log "Starting DemoForge..."
 
-    # Source hub/sync config if available (env vars used by docker-compose.yml)
-    [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
-    [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+    load_env
 
     # FA identity check (non-dev mode only)
     if [[ "${DEMOFORGE_MODE:-standard}" != "dev" ]]; then
@@ -341,9 +386,7 @@ cmd_dev_be() {
     echo -e "${YELLOW}Tip: Install deps first: cd backend && pip install -r requirements.txt${NC}"
     echo ""
 
-    # Source hub/sync config if available
-    [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
-    [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+    load_env
     # Optional sim FA override — written by `make dev-as FA=...`, removed on exit
     if [[ -f "$SCRIPT_DIR/.env.sim" ]]; then
         set -a && source "$SCRIPT_DIR/.env.sim" && set +a

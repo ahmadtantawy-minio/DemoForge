@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -11,9 +12,12 @@ from ..auth import require_admin
 from ..database import get_db
 from ..models import (
     ActivityStats,
+    FAKeyResponse,
+    FAKeyUpdateRequest,
     FAListItem,
     FAPermissions,
     FAProfile,
+    FAProfileWithKey,
     FARegistrationRequest,
     StatusUpdate,
 )
@@ -162,7 +166,7 @@ async def update_status(
     )
 
 
-@router.post("/fas", response_model=FAProfile, status_code=201)
+@router.post("/fas", response_model=FAProfileWithKey, status_code=201)
 async def pre_register_fa(
     req: FARegistrationRequest, db: aiosqlite.Connection = Depends(get_db)
 ):
@@ -170,24 +174,61 @@ async def pre_register_fa(
 
     now = datetime.utcnow().isoformat() + "Z"
     permissions = json.dumps(settings.default_permissions)
+    api_key = req.api_key or secrets.token_urlsafe(32)
     try:
         await db.execute(
             """INSERT INTO field_architects (fa_id, fa_name, api_key, permissions, registered_at)
                VALUES (?, ?, ?, ?, ?)""",
-            (req.fa_id, req.fa_name, req.api_key, permissions, now),
+            (req.fa_id, req.fa_name, api_key, permissions, now),
         )
         await db.commit()
     except Exception:
         raise HTTPException(status_code=409, detail="FA already exists")
 
-    return FAProfile(
+    return FAProfileWithKey(
         fa_id=req.fa_id,
         fa_name=req.fa_name,
         permissions=settings.default_permissions,
         registered_at=now,
         last_seen_at=None,
         is_active=True,
+        api_key=api_key,
     )
+
+
+@router.get("/fas/{fa_id}/key", response_model=FAKeyResponse)
+async def get_fa_key(fa_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    cursor = await db.execute(
+        "SELECT fa_id, api_key FROM field_architects WHERE fa_id = ?", (fa_id,)
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="FA not found")
+    return FAKeyResponse(fa_id=row["fa_id"], api_key=row["api_key"])
+
+
+@router.put("/fas/{fa_id}/key", response_model=FAKeyResponse)
+async def update_fa_key(
+    fa_id: str,
+    body: FAKeyUpdateRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    cursor = await db.execute(
+        "SELECT fa_id FROM field_architects WHERE fa_id = ?", (fa_id,)
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="FA not found")
+
+    new_key = body.api_key or secrets.token_urlsafe(32)
+    try:
+        await db.execute(
+            "UPDATE field_architects SET api_key = ? WHERE fa_id = ?", (new_key, fa_id)
+        )
+        await db.commit()
+    except Exception:
+        raise HTTPException(status_code=409, detail="Key already in use by another FA")
+    return FAKeyResponse(fa_id=fa_id, api_key=new_key)
 
 
 @router.delete("/fas/{fa_id}")

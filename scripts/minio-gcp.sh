@@ -14,6 +14,8 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ─────────────────────────── Configuration ───────────────────────────
 PROJECT_ID="minio-demoforge"
 REGION="me-central1"            # Doha — closest to Dubai
@@ -43,6 +45,7 @@ GATEWAY_IMAGE="gcr.io/${PROJECT_ID}/demoforge-gateway:latest"
 FIREWALL_RULE_INTERNAL="allow-internal-to-minio"
 FIREWALL_RULE_MYIP="allow-myip-to-minio"
 CONNECTOR_IMAGE="gcr.io/${PROJECT_ID}/demoforge-hub-connector:latest"
+HUB_API_IMAGE="gcr.io/${PROJECT_ID}/demoforge-hub-api:latest"
 
 # API key for gateway auth (generated on first deploy, stored in metadata)
 GATEWAY_API_KEY=""
@@ -100,12 +103,13 @@ usage() {
 # ─────────────────────────── Parse Mode ──────────────────────────────
 MODE="deploy"
 case "${1:-}" in
-  --update)   MODE="update" ;;
-  --activate) MODE="activate" ;;
-  --gateway)  MODE="gateway" ;;
-  --help|-h)  usage ;;
-  "")         MODE="deploy" ;;
-  *)          echo "Unknown flag: $1"; usage ;;
+  --update)        MODE="update" ;;
+  --activate)      MODE="activate" ;;
+  --gateway)       MODE="gateway" ;;
+  --hub-api-only)  MODE="hub-api-only" ;;
+  --help|-h)       usage ;;
+  "")              MODE="deploy" ;;
+  *)               echo "Unknown flag: $1"; usage ;;
 esac
 
 # ─────────────────────────── Pre-flight (all modes) ──────────────────
@@ -373,24 +377,39 @@ if [[ "$MODE" == "gateway" ]]; then
     ok "Using existing Hub API admin key from VM metadata."
   fi
 
-  # ── Step 7b: Start Hub API service on VM ──
-  step "7b" "Start Hub API service on VM"
+  # ── Step 7b: Build & deploy Hub API to GCR, then start on VM ──
+  step "7b" "Build and deploy Hub API service"
 
+  HUB_API_DIR="$(dirname "$SCRIPT_DIR")/hub-api"
+  if [[ ! -f "${HUB_API_DIR}/Dockerfile" ]]; then
+    err "hub-api/Dockerfile not found at ${HUB_API_DIR}"; exit 1
+  fi
+
+  ok "Building hub-api image via Cloud Build..."
+  gcloud builds submit "${HUB_API_DIR}" \
+    --project="${PROJECT_ID}" \
+    --tag="${HUB_API_IMAGE}" \
+    --quiet
+
+  ok "Configuring VM to trust GCR and starting hub-api..."
   run_on_vm "
-    # Pull latest hub-api image
-    docker pull demoforge/hub-api:latest 2>/dev/null || true
+    # Authenticate Docker with GCR
+    gcloud auth configure-docker --quiet 2>/dev/null || true
+
+    # Pull latest hub-api image from GCR
+    sudo docker pull ${HUB_API_IMAGE}
 
     # Stop existing hub-api container if running
-    docker rm -f demoforge-hub-api 2>/dev/null || true
+    sudo docker rm -f demoforge-hub-api 2>/dev/null || true
 
     # Start Hub API service
-    docker run -d \
+    sudo docker run -d \
       --name demoforge-hub-api \
       --restart unless-stopped \
       -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
       -v /data/hub-api:/data/hub-api \
       -p 8000:8000 \
-      demoforge/hub-api:latest
+      ${HUB_API_IMAGE}
   "
 
   # Verify hub-api is running
@@ -553,73 +572,12 @@ GWDOCKERFILE
   # ── Step 10: Build hub-connector image ──
   step 10 "Build hub-connector image"
 
-  CONNECTOR_DIR=$(mktemp -d /tmp/demoforge-connector-XXXXXX)
-
-  cat > "${CONNECTOR_DIR}/Caddyfile" <<'CONNCADDY'
-{
-  auto_https off
-  admin off
-}
-
-# S3 API proxy — route via X-Service header (preserves S3 signatures)
-:9000 {
-  reverse_proxy {$HUB_URL} {
-    header_up X-Api-Key {$API_KEY}
-    header_up X-Service s3
-  }
-}
-
-# Docker Registry proxy — /v2 path-based routing on gateway
-:5000 {
-  reverse_proxy {$HUB_URL} {
-    header_up X-Api-Key {$API_KEY}
-  }
-}
-
-# MinIO Console proxy — route via X-Service header
-:9001 {
-  reverse_proxy {$HUB_URL} {
-    header_up X-Api-Key {$API_KEY}
-    header_up X-Service console
-  }
-}
-
-# Health + Licenses + Hub API endpoint
-:8080 {
-  handle /health {
-    rewrite * /health
-    reverse_proxy {$HUB_URL}
-  }
-  handle /api/hub/* {
-    reverse_proxy {$HUB_URL} {
-      header_up X-Api-Key {$API_KEY}
-      header_up X-Service hub-api
-    }
-  }
-  handle /licenses/* {
-    reverse_proxy {$HUB_URL} {
-      header_up X-Api-Key {$API_KEY}
-    }
-  }
-  handle /templates/* {
-    reverse_proxy {$HUB_URL} {
-      header_up X-Api-Key {$API_KEY}
-    }
-  }
-  handle / {
-    respond "hub-connector running" 200
-  }
-}
-CONNCADDY
-
-  cat > "${CONNECTOR_DIR}/Dockerfile" <<'CONNDOCKERFILE'
-FROM caddy:2-alpine
-COPY Caddyfile /etc/caddy/Caddyfile
-EXPOSE 9000 5000 9001 8080
-ENV HUB_URL=https://demoforge-gateway-xxx.run.app
-ENV API_KEY=change-me
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
-CONNDOCKERFILE
+  # Use the canonical hub-connector source from the repo
+  CONNECTOR_DIR="$(dirname "$SCRIPT_DIR")/hub-connector"
+  if [[ ! -f "${CONNECTOR_DIR}/Caddyfile" || ! -f "${CONNECTOR_DIR}/Dockerfile" ]]; then
+    err "hub-connector/Caddyfile or Dockerfile not found at ${CONNECTOR_DIR}"
+    exit 1
+  fi
 
   # Build connector image
   gcloud builds submit "${CONNECTOR_DIR}" \
@@ -714,6 +672,54 @@ ENV_EOF
   echo -e "${YELLOW}Update your IP if it changes:${NC}"
   echo "  gcloud compute firewall-rules update ${FIREWALL_RULE_MYIP} --source-ranges=\$(curl -sf ifconfig.me)/32 --project=${PROJECT_ID}"
   echo ""
+  exit 0
+fi
+
+# ═════════════════════════════════════════════════════════════════════
+# MODE: --hub-api-only
+# Rebuild hub-api image via Cloud Build and restart on VM (fast path)
+# ═════════════════════════════════════════════════════════════════════
+if [[ "$MODE" == "hub-api-only" ]]; then
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║  DemoForge — Rebuild & Redeploy Hub API                 ║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+
+  # Fetch admin key from VM metadata
+  HUB_API_ADMIN_KEY=$(get_vm_metadata "hub-api-admin-key")
+  if [[ -z "$HUB_API_ADMIN_KEY" ]]; then
+    fail "hub-api-admin-key not found in VM metadata. Run: make hub-update-gateway first."
+  fi
+
+  step 1 "Build hub-api image via Cloud Build"
+  HUB_API_DIR="$(dirname "$SCRIPT_DIR")/hub-api"
+  [[ -f "${HUB_API_DIR}/Dockerfile" ]] || fail "hub-api/Dockerfile not found at ${HUB_API_DIR}"
+  gcloud builds submit "${HUB_API_DIR}" \
+    --project="${PROJECT_ID}" \
+    --tag="${HUB_API_IMAGE}" \
+    --quiet
+  ok "Image pushed: ${HUB_API_IMAGE}"
+
+  step 2 "Restart hub-api on VM"
+  run_on_vm "
+    gcloud auth configure-docker --quiet 2>/dev/null || true
+    sudo docker pull ${HUB_API_IMAGE}
+    sudo docker rm -f demoforge-hub-api 2>/dev/null || true
+    sudo docker run -d \
+      --name demoforge-hub-api \
+      --restart unless-stopped \
+      -e HUB_API_ADMIN_API_KEY='${HUB_API_ADMIN_KEY}' \
+      -v /data/hub-api:/data/hub-api \
+      -p 8000:8000 \
+      ${HUB_API_IMAGE}
+  "
+  sleep 2
+  if run_on_vm "curl -sf http://localhost:8000/api/hub/health" &>/dev/null; then
+    ok "Hub API is healthy."
+  else
+    warn "Hub API may still be starting — check with: gcloud compute ssh minio-node --tunnel-through-iap --command='curl -s http://localhost:8000/api/hub/health'"
+  fi
+  echo ""
+  ok "Hub API redeployed. Run 'make dev-restart-gcp' to pick up changes."
   exit 0
 fi
 

@@ -7,6 +7,9 @@ import {
   updateFAPermissions,
   updateFAStatus,
   purgeFA,
+  createFA,
+  getFAKey,
+  updateFAKey,
   type AdminStats,
   type FAListItem,
   type FAProfile,
@@ -27,6 +30,12 @@ import {
   Shield,
   XCircle,
   Trash2,
+  Key,
+  Eye,
+  RotateCw,
+  Copy,
+  X,
+  UserPlus,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -114,8 +123,71 @@ function FADetailPanel({
   const [activityLoading, setActivityLoading] = useState(false);
   const [eventTypeFilter, setEventTypeFilter] = useState("all");
   const [activityOffset, setActivityOffset] = useState(0);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [hideIn, setHideIn] = useState(30);
+  const [keyLoading, setKeyLoading] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+  const [customKey, setCustomKey] = useState("");
+  const [savingCustomKey, setSavingCustomKey] = useState(false);
 
   const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    if (!revealedKey) return;
+    setHideIn(30);
+    const interval = setInterval(() => {
+      setHideIn((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setRevealedKey(null);
+          return 30;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [revealedKey]);
+
+  const handleRevealKey = async () => {
+    setKeyLoading(true);
+    try {
+      const r = await getFAKey(fa.fa_id);
+      setRevealedKey(r.api_key);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to retrieve key");
+    } finally {
+      setKeyLoading(false);
+    }
+  };
+
+  const handleRotateKey = async () => {
+    setRotating(true);
+    setRotatedKey(null);
+    try {
+      const r = await updateFAKey(fa.fa_id);
+      setRotatedKey(r.api_key);
+      toast.success("Key rotated");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to rotate key");
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  const handleSetCustomKey = async () => {
+    if (!customKey.trim()) return;
+    setSavingCustomKey(true);
+    try {
+      await updateFAKey(fa.fa_id, customKey.trim());
+      toast.success("Key updated");
+      setCustomKey("");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update key");
+    } finally {
+      setSavingCustomKey(false);
+    }
+  };
 
   const loadActivity = useCallback(
     async (offset = 0, filter = eventTypeFilter) => {
@@ -264,6 +336,10 @@ function FADetailPanel({
               <Activity className="w-3.5 h-3.5 mr-1.5" />
               Activity
             </TabsTrigger>
+            <TabsTrigger value="credentials">
+              <Key className="w-3.5 h-3.5 mr-1.5" />
+              Credentials
+            </TabsTrigger>
           </TabsList>
 
           {/* Permissions tab */}
@@ -391,6 +467,99 @@ function FADetailPanel({
               </>
             )}
           </TabsContent>
+
+          {/* Credentials tab */}
+          <TabsContent value="credentials">
+            <div className="space-y-4">
+              {/* Current Key Section */}
+              <div className="bg-muted/30 border border-border rounded-lg p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-3">API Key</p>
+                {revealedKey ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 font-mono text-xs bg-zinc-900 border border-zinc-700 rounded px-3 py-2">
+                      <span className="flex-1 text-zinc-200 break-all">{revealedKey}</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(revealedKey);
+                          toast.success("Copied!");
+                        }}
+                        className="flex-shrink-0 text-zinc-400 hover:text-zinc-200 transition-colors"
+                        title="Copy"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-600">Hidden in {hideIn}s</p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleRevealKey}
+                    disabled={keyLoading}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    {keyLoading ? "Loading..." : "Reveal Key"}
+                  </button>
+                )}
+              </div>
+
+              {/* Rotate Key */}
+              <div className="bg-muted/30 border border-border rounded-lg p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Rotate Key</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Generate a new API key. The old key stops working immediately.
+                </p>
+                <button
+                  onClick={handleRotateKey}
+                  disabled={rotating}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+                >
+                  <RotateCw className={cn("w-3.5 h-3.5", rotating && "animate-spin")} />
+                  {rotating ? "Rotating..." : "Generate New Key"}
+                </button>
+                {rotatedKey && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs text-green-400">New key generated:</p>
+                    <div className="flex items-center gap-2 font-mono text-xs bg-zinc-900 border border-zinc-700 rounded px-3 py-2">
+                      <span className="flex-1 text-zinc-200 break-all">{rotatedKey}</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(rotatedKey);
+                          toast.success("Copied!");
+                        }}
+                        className="flex-shrink-0 text-zinc-400 hover:text-zinc-200 transition-colors"
+                        title="Copy"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Set Custom Key */}
+              <div className="bg-muted/30 border border-border rounded-lg p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Set Custom Key</p>
+                <p className="text-xs text-muted-foreground mb-3">Replace with a specific key value.</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Enter new key..."
+                    value={customKey}
+                    onChange={(e) => setCustomKey(e.target.value)}
+                    className="flex-1 px-3 py-1.5 text-sm bg-background border border-input rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-ring font-mono"
+                  />
+                  <button
+                    onClick={handleSetCustomKey}
+                    disabled={!customKey.trim() || savingCustomKey}
+                    className="px-3 py-1.5 text-sm bg-muted border border-border rounded-md text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+                  >
+                    {savingCustomKey ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
         </Tabs>
       </div>
     </div>
@@ -405,6 +574,11 @@ export function FAManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createdKey, setCreatedKey] = useState<{ fa_id: string; api_key: string } | null>(null);
+  const [newFaId, setNewFaId] = useState("");
+  const [newFaName, setNewFaName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -450,6 +624,26 @@ export function FAManagementPage() {
         f.fa_id === updated.fa_id ? { ...f, is_active: updated.is_active } : f
       )
     );
+  };
+
+  const handleCreateFA = async () => {
+    if (!newFaId.trim()) return;
+    setCreating(true);
+    try {
+      const result = await createFA({
+        fa_id: newFaId.trim(),
+        fa_name: newFaName.trim() || newFaId.trim(),
+      });
+      setCreatedKey({ fa_id: result.fa_id, api_key: result.api_key });
+      setShowCreateForm(false);
+      setNewFaId("");
+      setNewFaName("");
+      load();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to register FA");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleProfilePurged = (faId: string) => {
@@ -524,13 +718,94 @@ export function FAManagementPage() {
             <Users className="w-6 h-6 text-muted-foreground" />
             <h1 className="text-2xl font-bold text-card-foreground">FA Management</h1>
           </div>
-          <button
-            onClick={load}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-muted border text-foreground hover:bg-accent transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCreateForm((v) => !v)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-muted border text-foreground hover:bg-accent transition-colors"
+            >
+              <UserPlus className="w-4 h-4" /> Register FA
+            </button>
+            <button
+              onClick={load}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-muted border text-foreground hover:bg-accent transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" /> Refresh
+            </button>
+          </div>
         </div>
+
+        {/* Create FA form */}
+        {showCreateForm && (
+          <div className="mb-4 bg-card border border-zinc-700 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-foreground mb-3">Register New FA</h3>
+            <div className="space-y-2">
+              <input
+                type="email"
+                placeholder="FA ID (email)"
+                value={newFaId}
+                onChange={(e) => setNewFaId(e.target.value)}
+                className="w-full px-3 py-1.5 text-sm bg-background border border-input rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-ring"
+              />
+              <input
+                type="text"
+                placeholder="Display name"
+                value={newFaName}
+                onChange={(e) => setNewFaName(e.target.value)}
+                className="w-full px-3 py-1.5 text-sm bg-background border border-input rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-ring"
+              />
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={handleCreateFA}
+                  disabled={!newFaId.trim() || creating}
+                  className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {creating ? "Registering..." : "Register"}
+                </button>
+                <button
+                  onClick={() => setShowCreateForm(false)}
+                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* New key reveal banner */}
+        {createdKey && (
+          <div className="mb-4 bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-green-300 mb-1">
+                  FA registered: {createdKey.fa_id}
+                </p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Save this API key — it won't be shown again unless you reveal it from the FA details.
+                </p>
+                <div className="flex items-center gap-2 font-mono text-xs bg-zinc-900 border border-zinc-700 rounded px-3 py-2">
+                  <span className="flex-1 text-zinc-200 break-all">{createdKey.api_key}</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(createdKey.api_key);
+                      toast.success("Copied!");
+                    }}
+                    className="flex-shrink-0 text-zinc-400 hover:text-zinc-200 transition-colors"
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => setCreatedKey(null)}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Stats cards */}
         {stats && (

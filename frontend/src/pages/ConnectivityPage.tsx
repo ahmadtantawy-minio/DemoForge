@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Badge } from "../components/ui/badge";
+import { ConnectivityDiagram } from "../components/connectivity/ConnectivityDiagram";
 
 interface Step {
   name: string;
@@ -198,11 +199,17 @@ export function ConnectivityPage() {
             }
             <div className="flex-1 min-w-0">
               <p className={cn("text-sm font-medium", allOk ? "text-green-300" : "text-amber-300")}>
-                {allOk ? "All required checks passed" : "Some checks need attention"}
+                {allOk ? "All checks passed" : "Some checks need attention"}
               </p>
-              <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                mode={result.mode} · fa={result.fa_id || "—"} · hub={result.hub_url}
-              </p>
+              {result.mode === "dev" ? (
+                <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                  mode=dev · fa={result.fa_id || "—"} · hub={result.hub_url}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {result.fa_id ? <>Signed in as <span className="font-mono">{result.fa_id}</span></> : "FA identity not configured"}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
               <Badge variant="outline" className={cn("text-[10px]",
@@ -218,6 +225,14 @@ export function ConnectivityPage() {
                 </Badge>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Connection path diagram */}
+        {result && (
+          <div className="mb-6 bg-card border border-zinc-800 rounded-lg p-4 overflow-x-auto">
+            <p className="text-xs text-muted-foreground mb-3 font-medium">Connection path</p>
+            <ConnectivityDiagram result={result} />
           </div>
         )}
 
@@ -240,15 +255,25 @@ export function ConnectivityPage() {
         {/* Quick setup */}
         {result && !allOk && (() => {
           const cmds: { cmd: string; comment: string }[] = [];
-          if (result.mode === "dev" && !result.admin_key_configured)
-            cmds.push({ cmd: "make dev-init", comment: "generate local admin key, then restart backend" });
           const checks = result.checks;
-          if (checks.local_hub_api && !checks.local_hub_api.ok && !checks.local_hub_api.skipped)
-            cmds.push({ cmd: "cd hub-api && uvicorn hub_api.main:app --port 8000 --reload", comment: "start hub-api locally" });
-          if (checks.hub_connector && !checks.hub_connector.ok && result.mode !== "dev")
-            cmds.push({ cmd: "make fa-setup", comment: "start hub connector + register FA" });
-          if (!result.api_key_configured && result.mode !== "dev")
-            cmds.push({ cmd: "make fa-setup", comment: "configure FA API key" });
+          const isDev = result.mode === "dev";
+
+          if (isDev) {
+            // Dev mode: local hub-api + admin key guidance
+            if (!result.admin_key_configured)
+              cmds.push({ cmd: "make dev-init", comment: "generate local admin key, then restart backend" });
+            if (checks.local_hub_api && !checks.local_hub_api.ok && !checks.local_hub_api.skipped)
+              cmds.push({ cmd: "make dev-start", comment: "start local hub-api + all services" });
+            if (checks.hub_connector && !checks.hub_connector.ok && !checks.hub_connector.skipped)
+              cmds.push({ cmd: "make dev-connector-pull", comment: "rebuild + restart hub-connector from source" });
+          } else {
+            // FA mode: connector + identity guidance
+            if (!result.api_key_configured || (checks.hub_connector && !checks.hub_connector.ok))
+              cmds.push({ cmd: "make fa-setup", comment: "connect to hub, register your identity" });
+            if (cmds.length > 0)
+              cmds.push({ cmd: "make start", comment: "launch DemoForge" });
+          }
+
           if (cmds.length === 0) return null;
           return (
             <div className="mt-6 bg-card border border-zinc-800 rounded-lg p-4">

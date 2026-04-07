@@ -3,6 +3,7 @@ from __future__ import annotations
 """FA Admin proxy — dev-mode only routes that forward to hub-api admin endpoints."""
 import os
 import logging
+from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 import httpx
@@ -88,6 +89,21 @@ async def _proxy_put(path: str, body: dict) -> JSONResponse:
             raise HTTPException(502, f"Hub API error: {e}")
 
 
+async def _proxy_post(path: str, body: dict) -> JSONResponse:
+    hub_url = await _resolve_hub_url()
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            r = await client.post(f"{hub_url}{path}", headers=_admin_headers(), json=body)
+            return _parse_response(r)
+        except HTTPException:
+            raise
+        except httpx.ConnectError:
+            raise HTTPException(503, f"Hub API is unreachable at {hub_url}. Is hub-api running?")
+        except Exception as e:
+            logger.warning(f"Hub API request failed: {e}")
+            raise HTTPException(502, f"Hub API error: {e}")
+
+
 async def _proxy_delete(path: str) -> JSONResponse:
     hub_url = await _resolve_hub_url()
     async with httpx.AsyncClient(timeout=10) as client:
@@ -147,4 +163,24 @@ async def update_fa_status(fa_id: str, request: Request):
 @router.delete("/api/fa-admin/fas/{fa_id}")
 async def purge_fa(fa_id: str):
     _dev_guard()
-    return await _proxy_delete(f"/api/hub/admin/fas/{fa_id}")
+    return await _proxy_delete(f"/api/hub/admin/fas/{quote(fa_id, safe='')}")
+
+
+@router.post("/api/fa-admin/fas")
+async def create_fa(request: Request):
+    _dev_guard()
+    body = await request.json()
+    return await _proxy_post("/api/hub/admin/fas", body)
+
+
+@router.get("/api/fa-admin/fas/{fa_id}/key")
+async def get_fa_key(fa_id: str):
+    _dev_guard()
+    return await _proxy_get(f"/api/hub/admin/fas/{quote(fa_id, safe='')}/key")
+
+
+@router.put("/api/fa-admin/fas/{fa_id}/key")
+async def update_fa_key(fa_id: str, request: Request):
+    _dev_guard()
+    body = await request.json()
+    return await _proxy_put(f"/api/hub/admin/fas/{quote(fa_id, safe='')}/key", body)

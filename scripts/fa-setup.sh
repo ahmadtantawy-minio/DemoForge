@@ -141,20 +141,31 @@ else
     echo -e "  ${YELLOW}⚠${NC}  Skipping registration (FA_ID or API_KEY not set)"
 fi
 
-# ── Write .env.local ──
-cat > "$PROJECT_ROOT/.env.local" <<EOF
-DEMOFORGE_FA_ID=${FA_ID}
-DEMOFORGE_API_KEY=${API_KEY}
-DEMOFORGE_SYNC_ENABLED=true
-DEMOFORGE_SYNC_ENDPOINT=http://localhost:9000
-DEMOFORGE_SYNC_BUCKET=demoforge-templates
-DEMOFORGE_SYNC_PREFIX=templates/
-DEMOFORGE_SYNC_ACCESS_KEY=demoforge-sync
-DEMOFORGE_SYNC_SECRET_KEY=${DEMOFORGE_SYNC_SECRET_KEY:-change-me}
-DEMOFORGE_REGISTRY_HOST=localhost:5000
-EOF
+# ── Write .env.local (merge — never overwrite unrelated keys like DEMOFORGE_HUB_API_ADMIN_KEY) ──
+ENVFILE="$PROJECT_ROOT/.env.local"
+touch "$ENVFILE"
 
-echo -e "${GREEN}✓ Wrote .env.local${NC}"
+# Update key in-place if it exists, otherwise append — preserves unrelated keys
+_set_env() {
+    local key="$1" val="$2"
+    if grep -q "^${key}=" "$ENVFILE" 2>/dev/null; then
+        sed -i.bak "s|^${key}=.*|${key}=${val}|" "$ENVFILE" && rm -f "${ENVFILE}.bak"
+    else
+        printf '%s=%s\n' "$key" "$val" >> "$ENVFILE"
+    fi
+}
+
+_set_env "DEMOFORGE_FA_ID"           "${FA_ID}"
+_set_env "DEMOFORGE_API_KEY"         "${API_KEY}"
+_set_env "DEMOFORGE_SYNC_ENABLED"    "true"
+_set_env "DEMOFORGE_SYNC_ENDPOINT"   "http://localhost:9000"
+_set_env "DEMOFORGE_SYNC_BUCKET"     "demoforge-templates"
+_set_env "DEMOFORGE_SYNC_PREFIX"     "templates/"
+_set_env "DEMOFORGE_SYNC_ACCESS_KEY" "demoforge-sync"
+_set_env "DEMOFORGE_SYNC_SECRET_KEY" "${DEMOFORGE_SYNC_SECRET_KEY:-change-me}"
+_set_env "DEMOFORGE_REGISTRY_HOST"   "localhost:5000"
+
+echo -e "${GREEN}✓ Updated .env.local${NC}"
 
 # ── Pull custom images ──
 echo -e "\n${CYAN}Pulling custom DemoForge images...${NC}"
