@@ -52,9 +52,9 @@ async def lifespan(app: FastAPI):
     _startup_sync_result = None
     try:
         _startup_sync_result = sync_templates()
-            logger.info(f"Template sync on startup: {_startup_sync_result}")
-        except Exception as e:
-            logger.warning(f"Template sync failed on startup (continuing with local): {e}")
+        logger.info(f"Template sync on startup: {_startup_sync_result}")
+    except Exception as e:
+        logger.warning(f"Template sync failed on startup (continuing with local): {e}")
 
     # Telemetry init (fire-and-forget, FA mode only)
     from .telemetry import init_telemetry, shutdown_telemetry, emit_event
