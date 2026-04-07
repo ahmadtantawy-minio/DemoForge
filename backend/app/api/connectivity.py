@@ -298,18 +298,10 @@ async def _find_local_hub_api() -> tuple[str | None, float]:
 
 
 async def _check_template_sync() -> dict:
-    """FA mode: verify hub-api templates endpoint is reachable."""
-    from ..engine.template_sync import SYNC_ENABLED, HUB_URL, FA_API_KEY, TEMPLATES_URL
+    """FA mode: verify hub-api templates endpoint is reachable and returns templates."""
+    from ..engine.template_sync import HUB_URL, FA_API_KEY, TEMPLATES_URL
     steps = []
 
-    if not SYNC_ENABLED:
-        steps.append(_step("Template sync enabled", False,
-            "DEMOFORGE_SYNC_ENABLED is not set to true."))
-        return {"ok": False, "steps": steps}
-
-    steps.append(_step("Template sync enabled", True, f"Hub: {HUB_URL}"))
-
-    # Verify hub templates endpoint responds (FA auth validated separately)
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(
@@ -317,19 +309,22 @@ async def _check_template_sync() -> dict:
                 headers={"X-Api-Key": FA_API_KEY},
             )
             if resp.status_code == 503:
-                steps.append(_step("Templates endpoint", False,
+                steps.append(_step("Template sync", False,
                     "Hub template sync not configured — contact your admin."))
                 return {"ok": False, "steps": steps}
-            if resp.status_code in (200, 401, 403):
-                # 401/403 means endpoint is there but FA auth issue — handled by FA auth check
-                count = len(resp.json().get("templates", [])) if resp.status_code == 200 else 0
-                steps.append(_step("Templates endpoint", True,
-                    f"{count} template(s) available" if resp.status_code == 200 else "Endpoint reachable"))
+            if resp.status_code == 200:
+                count = len(resp.json().get("templates", []))
+                steps.append(_step("Template sync", True,
+                    f"{count} template(s) available from hub ({HUB_URL})"))
+                return {"ok": True, "template_count": count, "steps": steps}
+            if resp.status_code in (401, 403):
+                # Auth handled by FA auth check — treat as ok here
+                steps.append(_step("Template sync", True, "Endpoint reachable (auth via FA key)"))
                 return {"ok": True, "steps": steps}
-            steps.append(_step("Templates endpoint", False, f"Unexpected status {resp.status_code}"))
+            steps.append(_step("Template sync", False, f"Unexpected status {resp.status_code}"))
             return {"ok": False, "steps": steps}
     except Exception as e:
-        steps.append(_step("Templates endpoint", False, f"Unreachable: {str(e)[:80]}"))
+        steps.append(_step("Template sync", False, f"Unreachable: {str(e)[:80]}"))
         return {"ok": False, "steps": steps}
 
 

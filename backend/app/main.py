@@ -48,11 +48,10 @@ async def lifespan(app: FastAPI):
     init_fa_identity()
 
     # Sync templates from remote (non-blocking, best-effort)
-    from .engine.template_sync import sync_templates, SYNC_ENABLED
+    from .engine.template_sync import sync_templates
     _startup_sync_result = None
-    if SYNC_ENABLED:
-        try:
-            _startup_sync_result = sync_templates()
+    try:
+        _startup_sync_result = sync_templates()
             logger.info(f"Template sync on startup: {_startup_sync_result}")
         except Exception as e:
             logger.warning(f"Template sync failed on startup (continuing with local): {e}")

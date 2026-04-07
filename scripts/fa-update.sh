@@ -42,13 +42,6 @@ else
     CONNECTOR_KEY=$(echo "$BOOTSTRAP_RESP" | python3 -c \
       "import sys,json; print(json.load(sys.stdin).get('connector_key',''))" 2>/dev/null || echo "")
 
-    # Ensure sync is enabled (may have been disabled by an older fa-update version)
-    if grep -q "^DEMOFORGE_SYNC_ENABLED=" "$PROJECT_ROOT/.env.local" 2>/dev/null; then
-      sed -i.bak "s|^DEMOFORGE_SYNC_ENABLED=.*|DEMOFORGE_SYNC_ENABLED=true|" "$PROJECT_ROOT/.env.local" && rm -f "${ENVFILE}.bak"
-    else
-      echo "DEMOFORGE_SYNC_ENABLED=true" >> "$PROJECT_ROOT/.env.local"
-    fi
-
     if [[ -z "$CONNECTOR_KEY" ]]; then
       fail "Hub returned no connector key. Run 'make fa-setup' to re-register."
     else

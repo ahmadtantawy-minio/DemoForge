@@ -1,8 +1,10 @@
 """
 Template sync — pulls templates from hub-api (authenticated with FA API key).
 
+No on/off flag — sync attempts whenever called. If hub is unreachable or
+FA key is missing, sync returns an error status; no separate enable flag needed.
+
 Environment variables:
-  DEMOFORGE_SYNC_ENABLED=true|false
   DEMOFORGE_HUB_URL=http://host.docker.internal:8080
   DEMOFORGE_API_KEY=<fa-api-key>
   DEMOFORGE_SYNCED_TEMPLATES_DIR=./synced-templates
@@ -17,7 +19,6 @@ import httpx
 
 logger = logging.getLogger("demoforge.template_sync")
 
-SYNC_ENABLED = os.environ.get("DEMOFORGE_SYNC_ENABLED", "false").lower() == "true"
 HUB_URL = os.environ.get("DEMOFORGE_HUB_URL", "http://host.docker.internal:8080").rstrip("/")
 FA_API_KEY = os.environ.get("DEMOFORGE_API_KEY", "")
 SYNCED_DIR = os.environ.get("DEMOFORGE_SYNCED_TEMPLATES_DIR", "./synced-templates")
@@ -40,9 +41,6 @@ def _save_manifest(manifest: dict):
 
 def sync_templates() -> dict:
     """Pull templates from hub-api. Returns summary of changes."""
-    if not SYNC_ENABLED:
-        return {"status": "disabled", "message": "Template sync is not enabled."}
-
     if not FA_API_KEY:
         return {"status": "error", "message": "DEMOFORGE_API_KEY not set."}
 
@@ -112,7 +110,6 @@ def sync_templates() -> dict:
 def get_sync_status() -> dict:
     manifest = _load_manifest() if os.path.exists(SYNC_MANIFEST_PATH) else {}
     return {
-        "enabled": SYNC_ENABLED,
         "hub_url": HUB_URL,
         "synced_count": len(manifest),
         "last_sync": max(

@@ -174,7 +174,6 @@ _set_env() {
 
 _set_env "DEMOFORGE_FA_ID"           "${FA_ID}"
 _set_env "DEMOFORGE_API_KEY"         "${FA_KEY}"
-_set_env "DEMOFORGE_SYNC_ENABLED"    "true"
 _set_env "DEMOFORGE_REGISTRY_HOST"   "localhost:5050"
 
 echo -e "${GREEN}✓ Updated .env.local${NC}"

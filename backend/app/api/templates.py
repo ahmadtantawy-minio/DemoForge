@@ -225,8 +225,8 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
         templates = fa_filtered
 
     # Get sync status for frontend indicator
-    from ..engine.template_sync import get_sync_status, SYNC_ENABLED
-    sync_info = get_sync_status() if SYNC_ENABLED else {"enabled": False}
+    from ..engine.template_sync import get_sync_status
+    sync_info = get_sync_status()
 
     return {
         "templates": templates,
