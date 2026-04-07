@@ -68,7 +68,19 @@ else
         curl -sf "http://localhost:8080/health" &>/dev/null && CONNECTOR_OK=1 && break
         sleep 1
       done
-      [[ "$CONNECTOR_OK" -eq 1 ]] || fail "hub-connector failed to start. Check: docker logs hub-connector"
+      if [[ "$CONNECTOR_OK" -ne 1 ]]; then
+        echo ""
+        echo -e "${YELLOW}── hub-connector status ──${NC}"
+        docker inspect hub-connector --format='State: {{.State.Status}}  RestartCount: {{.RestartCount}}' 2>/dev/null || echo "(container not found)"
+        echo -e "${YELLOW}── hub-connector logs ──${NC}"
+        docker logs --tail 50 hub-connector 2>&1 || true
+        echo -e "${YELLOW}── verbose health probe ──${NC}"
+        curl -v "http://localhost:8080/health" 2>&1 || true
+        fail "hub-connector failed to start. See logs above."
+      fi
+      echo -e "${YELLOW}── connector health response ──${NC}"
+      curl -sv "http://localhost:8080/health" 2>&1 | tail -20
+      echo ""
       ok "hub-connector running"
     fi
   fi

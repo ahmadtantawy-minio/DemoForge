@@ -230,8 +230,15 @@ cmd_start() {
             err "hub-connector is not running. Run: make fa-setup"
             exit 1
         fi
-        if ! curl -sf --connect-timeout 5 "http://localhost:8080/health" &>/dev/null; then
-            err "Hub gateway unreachable through connector. Run: make fa-update"
+        _HEALTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" "http://localhost:8080/health" 2>/dev/null || echo "000")
+        if [[ "$_HEALTH_HTTP" != "200" ]]; then
+            err "Hub gateway unreachable through connector (HTTP $_HEALTH_HTTP). Run: make fa-update"
+            echo ""
+            echo -e "  ${YELLOW}── hub-connector status ──${NC}"
+            docker inspect hub-connector --format='  State: {{.State.Status}}  RestartCount: {{.RestartCount}}' 2>/dev/null || echo "  (container not found)"
+            echo -e "  ${YELLOW}── hub-connector logs (last 30 lines) ──${NC}"
+            docker logs --tail 30 hub-connector 2>&1 | sed 's/^/  /' || true
+            echo ""
             exit 1
         fi
         ok "Hub connectivity verified"
