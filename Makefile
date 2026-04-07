@@ -202,9 +202,7 @@ fa-setup:         ## Field Architect first-time setup (starts hub-connector, pul
 	@scripts/fa-setup.sh
 
 fa-update:        ## Pull latest scripts + images and restart (FA day-to-day update workflow)
-	git pull
-	@scripts/hub-pull.sh
-	./demoforge.sh restart
+	@scripts/fa-update.sh
 
 fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .env.local, stops hub-connector)
 	@echo "Stopping hub-connector..."
