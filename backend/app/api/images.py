@@ -212,14 +212,12 @@ async def _do_pull(pull_id: str, image_ref: str):
         )
 
 
+GCR_HOST = "gcr.io/minio-demoforge"
+
 def _resolve_pull_ref(image_ref: str) -> str:
-    """Resolve the actual pull reference — custom images pull from private registry.
-    Uses REGISTRY_PULL_HOST (localhost:5000) since Docker pulls go through the host daemon."""
-    if not REGISTRY_PULL_HOST:
-        return image_ref
-    # Check if this is a custom/platform image (demoforge/ prefix)
+    """Resolve pull reference — demoforge/ images pull from GCR."""
     if image_ref.startswith("demoforge/"):
-        return f"{REGISTRY_PULL_HOST}/{image_ref}"
+        return f"{GCR_HOST}/{image_ref}"
     return image_ref
 
 

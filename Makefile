@@ -206,8 +206,8 @@ gateway-test:     ## Test hub connectivity locally (simulates Field Architect)
 fa-setup:         ## Field Architect first-time setup (starts hub-connector, pulls images)
 	@scripts/fa-setup.sh
 
-fa-update:        ## Pull latest scripts + images and restart (FA day-to-day update workflow)
-	@scripts/fa-update.sh
+fa-update:        ## Pull latest scripts, core images, and restart (FA day-to-day update workflow)
+	@scripts/demoforge-update.sh
 
 fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .env.local, stops hub-connector)
 	@echo "Stopping hub-connector..."

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
 
 COMPOSE_TIMEOUT = 180  # seconds — max wait for compose up/down
+GCR_PREFIX = "gcr.io/minio-demoforge"
 
 # Per-demo locks to prevent concurrent deploy/stop race conditions
 _demo_locks: dict[str, asyncio.Lock] = {}
@@ -144,6 +145,34 @@ async def _build_custom_images(demo: DemoDefinition, components_dir: str, progre
     return len(built)
 
 
+async def _pull_missing_images(demo: DemoDefinition, progress) -> int:
+    """Pull any missing component images from GCR before compose up."""
+    pulled: set[str] = set()
+    for node in demo.nodes:
+        manifest = get_component(node.component)
+        if not manifest or not manifest.image or manifest.image in pulled:
+            continue
+        image_ref = manifest.image
+        try:
+            docker_client.images.get(image_ref)
+            continue  # already cached
+        except Exception:
+            pass
+        gcr_ref = f"{GCR_PREFIX}/{image_ref}" if image_ref.startswith("demoforge/") else image_ref
+        await progress("images", "running", f"Pulling {image_ref}...")
+        logger.info(f"Pulling missing image from GCR: {gcr_ref}")
+        try:
+            await asyncio.to_thread(docker_client.images.pull, gcr_ref)
+            img = docker_client.images.get(gcr_ref)
+            img.tag(image_ref)
+            pulled.add(image_ref)
+            logger.info(f"Pulled and tagged {image_ref}")
+        except Exception as e:
+            logger.error(f"Failed to pull {image_ref}: {e}")
+            raise RuntimeError(f"Failed to pull image {image_ref} from GCR: {e}")
+    return len(pulled)
+
+
 async def deploy_demo(demo: DemoDefinition, data_dir: str, components_dir: str = "./components", on_progress=None) -> RunningDemo:
     """Generate compose file, bring up containers, join networks.
 
@@ -183,6 +212,11 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         await progress("images", "done", f"Built {images_built} custom image(s)")
     else:
         await progress("images", "done", "No custom images needed")
+
+    # Pull any missing component images from GCR on-demand
+    images_pulled = await _pull_missing_images(demo, progress)
+    if images_pulled:
+        await progress("images", "done", f"Pulled {images_pulled} missing image(s) from GCR")
 
     # Clean up leftover containers (preserve volumes on redeploy)
     await progress("cleanup", "running", "Cleaning up previous containers...")

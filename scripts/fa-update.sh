@@ -15,25 +15,14 @@ cd "$PROJECT_ROOT"
 CONNECTOR_IMAGE="gcr.io/minio-demoforge/demoforge-hub-connector:latest"
 DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 
-# ── Step 1: Pull latest scripts / configs ──────────────────────────────────
-log "Pulling latest scripts and configs..."
-_GIT_BEFORE=$(git rev-parse HEAD)
-git pull
-_GIT_AFTER=$(git rev-parse HEAD)
-echo ""
-if [[ "$_GIT_BEFORE" != "$_GIT_AFTER" ]]; then
-  ok "Scripts updated — please re-run 'make fa-update' to use the latest version."
-  exit 0
-fi
-
-# ── Step 2: Migrate stale config values ───────────────────────────────────
+# ── Step 1: Migrate stale config values ───────────────────────────────────
 ENVFILE="$PROJECT_ROOT/.env.local"
 if grep -q "^DEMOFORGE_REGISTRY_HOST=localhost:5000$" "$ENVFILE" 2>/dev/null; then
   sed -i.bak "s|^DEMOFORGE_REGISTRY_HOST=localhost:5000$|DEMOFORGE_REGISTRY_HOST=localhost:5050|" "$ENVFILE" && rm -f "${ENVFILE}.bak"
   ok "Migrated DEMOFORGE_REGISTRY_HOST → localhost:5050 (port 5000 is reserved by macOS AirPlay)"
 fi
 
-# ── Step 3: Load FA key ────────────────────────────────────────────────────
+# ── Step 2: Load FA key ────────────────────────────────────────────────────
 FA_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
 HUB_URL=$(grep "^DEMOFORGE_HUB_URL=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "$DEFAULT_HUB_URL")
 [[ -z "$HUB_URL" ]] && HUB_URL="$DEFAULT_HUB_URL"
@@ -99,13 +88,9 @@ else
   fi
   echo ""
 
-  # ── Step 6: Pull latest custom images via connector ──────────────────────
-  log "Pulling latest images from registry..."
-  if curl -sf --connect-timeout 5 --max-time 8 "http://localhost:5050/v2/" &>/dev/null; then
-    "$SCRIPT_DIR/hub-pull.sh" || warn "Some images failed to pull (will use cached versions)"
-  else
-    warn "Registry still unreachable — skipping image pull."
-  fi
+  # ── Step 5: Pull core images from GCR ───────────────────────────────────
+  log "Pulling core images..."
+  "$SCRIPT_DIR/hub-pull.sh" || warn "Some core images failed to pull (will use cached versions)"
   echo ""
 fi
 
