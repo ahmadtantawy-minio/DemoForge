@@ -239,13 +239,11 @@ cmd_start() {
         log "Starting services..."
         docker compose "${DC_FLAGS[@]}" up -d
     else
-        # FA mode: use pre-built images pulled during fa-setup
+        # FA mode: use pre-built images only — never build locally
         log "Starting services (using pre-built images)..."
-        if ! docker compose "${DC_FLAGS[@]}" up -d --no-build 2>/dev/null; then
-            warn "Pre-built images not found — run 'make fa-setup' to pull them first, or 'make build' to build locally."
-            log "Falling back to building images locally..."
-            docker compose "${DC_FLAGS[@]}" build
-            docker compose "${DC_FLAGS[@]}" up -d
+        if ! docker compose "${DC_FLAGS[@]}" up -d --no-build 2>&1; then
+            err "Required images not found. Run 'make fa-update' to pull the latest images."
+            exit 1
         fi
     fi
 

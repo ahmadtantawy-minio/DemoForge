@@ -234,7 +234,7 @@ deploy_gateway_cloudrun() {
   # FA bootstrap — no gateway key required; hub-api validates the FA's unique key directly
   # Called by fa-setup.sh before the connector exists
   handle /api/hub/fa/bootstrap {
-    reverse_proxy {env.HUB_API_HOST} {
+    reverse_proxy {env.HUB_API_HOST}:443 {
       header_up Host {env.HUB_API_HOST}
       transport http {
         tls
@@ -287,7 +287,7 @@ deploy_gateway_cloudrun() {
   }
   handle @hub_api {
     request_header -X-Service
-    reverse_proxy {env.HUB_API_HOST} {
+    reverse_proxy {env.HUB_API_HOST}:443 {
       header_up Host {env.HUB_API_HOST}
       transport http {
         tls
