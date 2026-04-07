@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-update-hub-api
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-update-hub-api fa-setup fa-cleanup
 
 update:         ## Pull latest changes, rebuild, and restart DemoForge
 	git pull
@@ -200,6 +200,21 @@ gateway-test:     ## Test hub connectivity locally (simulates Field Architect)
 
 fa-setup:         ## Field Architect first-time setup (starts hub-connector, pulls images)
 	@scripts/fa-setup.sh
+
+fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .env.local, stops hub-connector)
+	@echo "Stopping hub-connector..."
+	@docker rm -f hub-connector 2>/dev/null && echo "  hub-connector stopped" || echo "  hub-connector not running"
+	@if [ -f .env.local ]; then \
+	  cp .env.local .env.local.bak; \
+	  echo "  Backed up .env.local → .env.local.bak"; \
+	  rm -f .env.local; \
+	  echo "  Removed .env.local"; \
+	else \
+	  echo "  .env.local not found (nothing to remove)"; \
+	fi
+	@rm -f .env.sim 2>/dev/null || true
+	@echo ""
+	@echo "FA environment reset. Run 'make fa-setup' to reconfigure."
 
 update-myip:      ## Update firewall with your current IP
 	@MY_IP=$$(curl -sf ifconfig.me) && \
