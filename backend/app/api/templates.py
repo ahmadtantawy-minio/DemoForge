@@ -39,23 +39,8 @@ else:
 
 
 def _load_validated() -> set[str]:
-    """Load the set of validated (FA-approved) template IDs from MinIO.
-
-    Returns empty set if the manifest doesn't exist yet (no templates validated).
-    Raises RuntimeError if MinIO is unreachable or returns an unexpected error.
-    """
-    from ..engine.template_sync import SYNC_BUCKET, SYNC_PREFIX, _get_s3_client
-    try:
-        s3 = _get_s3_client()
-        key = f"{SYNC_PREFIX}validated.json"
-        obj = s3.get_object(Bucket=SYNC_BUCKET, Key=key)
-        data = json.loads(obj["Body"].read())
-        return set(data.get("validated", []))
-    except Exception as e:
-        if hasattr(e, "response") and e.response.get("Error", {}).get("Code") == "NoSuchKey":
-            return set()
-        logger.error(f"Cannot load validated templates from MinIO: {e}")
-        raise RuntimeError(f"Cannot reach MinIO to load validated templates: {e}") from e
+    """Load validated template IDs. Templates are validated hub-side; FA sees all as available."""
+    return set()
 
 
 def _load_validated_safe() -> set[str]:
