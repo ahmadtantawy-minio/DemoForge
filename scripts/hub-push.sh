@@ -13,13 +13,41 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC
 REGISTRY_HOST="${DEMOFORGE_REGISTRY_HOST:-localhost:5000}"
 REGISTRY_PREFIX="demoforge"
 
-# --direct flag: bypass hub-connector and push directly to VM IP
+TUNNEL_PID=""
+
+# --direct flag: bypass Cloud Run gateway and push directly to VM registry
+# Auto-uses IAP tunnel when VM has no public IP (avoids Cloud Run 32MB body limit)
 if [[ "${1:-}" == "--direct" ]]; then
     shift
-    DIRECT_IP=$(grep DEMOFORGE_DIRECT_IP "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2 || echo "")
-    if [[ -n "$DIRECT_IP" ]]; then
+    DIRECT_IP=$(grep "^DEMOFORGE_DIRECT_IP=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2 || echo "")
+    VM_NAME=$(grep "^DEMOFORGE_VM_NAME=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2 || echo "")
+    ZONE=$(grep "^DEMOFORGE_ZONE=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2 || echo "")
+    PROJECT_ID=$(grep "^DEMOFORGE_PROJECT_ID=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2 || echo "")
+
+    # Check if IP is reachable directly (public IP case)
+    if [[ -n "$DIRECT_IP" ]] && curl -sf --connect-timeout 3 "http://${DIRECT_IP}:5000/v2/" &>/dev/null; then
         REGISTRY_HOST="${DIRECT_IP}:5000"
         echo -e "${YELLOW}[hub-push] Using direct access: ${REGISTRY_HOST}${NC}"
+    elif [[ -n "$VM_NAME" && -n "$ZONE" && -n "$PROJECT_ID" ]]; then
+        # VM has no public IP — use IAP tunnel
+        IAP_PORT=15000
+        echo -e "${YELLOW}[hub-push] VM has no public IP — setting up IAP tunnel on localhost:${IAP_PORT}...${NC}"
+        gcloud compute start-iap-tunnel "${VM_NAME}" 5000 \
+            --local-host-port="localhost:${IAP_PORT}" \
+            --zone="${ZONE}" --project="${PROJECT_ID}" &>/dev/null &
+        TUNNEL_PID=$!
+        trap 'kill "$TUNNEL_PID" 2>/dev/null; exit' EXIT INT TERM
+        # Wait for tunnel to be ready
+        for i in $(seq 1 15); do
+            curl -sf --connect-timeout 2 "http://localhost:${IAP_PORT}/v2/" &>/dev/null && break
+            sleep 1
+        done
+        REGISTRY_HOST="localhost:${IAP_PORT}"
+        echo -e "${YELLOW}[hub-push] IAP tunnel ready — pushing via localhost:${IAP_PORT}${NC}"
+    else
+        echo -e "${RED}[hub-push] --direct: DIRECT_IP unreachable and VM_NAME/ZONE/PROJECT_ID not set in .env.hub${NC}"
+        echo -e "${YELLOW}[hub-push] Run 'make hub-update-gateway' to regenerate .env.hub, then retry.${NC}"
+        exit 1
     fi
 fi
 log()  { echo -e "${GREEN}[hub-push]${NC} $*"; }
