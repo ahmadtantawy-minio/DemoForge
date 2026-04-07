@@ -1,4 +1,4 @@
-FROM jupyter/minimal-notebook:latest
+FROM quay.io/jupyter/base-notebook:python-3.11
 
 USER root
 RUN pip install --no-cache-dir \
