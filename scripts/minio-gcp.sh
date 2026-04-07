@@ -296,9 +296,12 @@ deploy_gateway_cloudrun() {
     }
   }
 
-  # Docker Registry v2 API (path-based — Docker client doesn't sign requests)
+  # Docker Registry v2 API — flush_interval -1 forces streaming so blobs
+  # larger than Cloud Run's 32 MB response buffer pass through intact.
   handle /v2/* {
-    reverse_proxy ${internal_ip}:5000
+    reverse_proxy ${internal_ip}:5000 {
+      flush_interval -1
+    }
   }
 
   # Root health
