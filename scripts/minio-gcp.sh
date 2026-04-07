@@ -136,11 +136,26 @@ deploy_hub_api_cloudrun() {
   local admin_key="${1:-}"
   local sync_key="${2:-}"
   local connector_key="${3:-}"
+  local sync_endpoint="${4:-}"
 
   # Fall back to VM metadata when called from --deploy-api
-  [[ -z "$admin_key" ]]     && admin_key=$(get_vm_metadata "hub-api-admin-key" 2>/dev/null || echo "")
-  [[ -z "$sync_key" ]]      && sync_key=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
-  [[ -z "$connector_key" ]] && connector_key=$(get_vm_metadata "gateway-api-key" 2>/dev/null || echo "")
+  [[ -z "$admin_key" ]]      && admin_key=$(get_vm_metadata "hub-api-admin-key" 2>/dev/null || echo "")
+  [[ -z "$sync_key" ]]       && sync_key=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
+  [[ -z "$connector_key" ]]  && connector_key=$(get_vm_metadata "gateway-api-key" 2>/dev/null || echo "")
+  [[ -z "$sync_endpoint" ]]  && sync_endpoint=$(get_vm_metadata "sync-endpoint" 2>/dev/null || echo "")
+
+  # Fall back to .env.hub if VM metadata doesn't have the sync key
+  # (happens when hub-setup.sh was run but sync key was never stored in metadata)
+  local env_hub_file
+  env_hub_file="$(dirname "$SCRIPT_DIR")/.env.hub"
+  if [[ -z "$sync_key" ]] && [[ -f "$env_hub_file" ]]; then
+    sync_key=$(grep "^DEMOFORGE_SYNC_SECRET_KEY=" "$env_hub_file" 2>/dev/null | cut -d= -f2 || echo "")
+    if [[ -n "$sync_key" ]]; then
+      gcloud compute instances add-metadata "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
+        --metadata="sync-secret-key=${sync_key}" 2>/dev/null || true
+      ok "Stored sync-secret-key in VM metadata from .env.hub"
+    fi
+  fi
 
   [[ -z "$admin_key" ]] && fail "hub-api-admin-key not available. Run 'make hub-update-gateway' first."
 
@@ -174,7 +189,7 @@ deploy_hub_api_cloudrun() {
     --no-cpu-throttling \
     --timeout=300 \
     --concurrency=80 \
-    --set-env-vars="LITESTREAM_BUCKET=${LITESTREAM_BUCKET},HUB_API_ADMIN_API_KEY=${admin_key},HUB_API_SYNC_SECRET_KEY=${sync_key},HUB_API_CONNECTOR_KEY=${connector_key},HUB_API_DATABASE_PATH=/data/hub-api/demoforge-hub.db" \
+    --set-env-vars="LITESTREAM_BUCKET=${LITESTREAM_BUCKET},HUB_API_ADMIN_API_KEY=${admin_key},HUB_API_SYNC_SECRET_KEY=${sync_key},HUB_API_CONNECTOR_KEY=${connector_key},HUB_API_DATABASE_PATH=/data/hub-api/demoforge-hub.db,HUB_API_SYNC_ENDPOINT=${sync_endpoint}" \
     --quiet
 
   HUB_API_URL=$(gcloud run services describe "${HUB_API_SERVICE}" \
@@ -651,7 +666,11 @@ if [[ "$MODE" == "deploy" ]]; then
   # ── Step 7b: Deploy Hub API to Cloud Run with Litestream ──
   step "7b" "Deploy Hub API to Cloud Run (Litestream → GCS)"
   HUB_API_SYNC_KEY=$(get_vm_metadata "sync-secret-key" 2>/dev/null || echo "")
-  deploy_hub_api_cloudrun "${HUB_API_ADMIN_KEY}" "${HUB_API_SYNC_KEY}" "${GATEWAY_API_KEY}"
+  SYNC_ENDPOINT="http://${INTERNAL_IP}:9000"
+  # Store sync endpoint in VM metadata for future --deploy-api redeploys
+  gcloud compute instances add-metadata "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
+    --metadata="sync-endpoint=${SYNC_ENDPOINT}" 2>/dev/null || true
+  deploy_hub_api_cloudrun "${HUB_API_ADMIN_KEY}" "${HUB_API_SYNC_KEY}" "${GATEWAY_API_KEY}" "${SYNC_ENDPOINT}"
 
   # Remove hub-api from VM — VM now runs MinIO only
   run_on_vm "sudo docker rm -f demoforge-hub-api 2>/dev/null || true" 2>/dev/null || true

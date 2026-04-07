@@ -63,13 +63,12 @@ async def get_my_profile(fa: dict = Depends(get_current_fa)):
 
 @router.get("/config")
 async def get_fa_config(fa: dict = Depends(get_current_fa)):
-    """Return sync configuration for this FA (read-only credentials, safe to share)."""
+    """Return configuration for this FA."""
     return {
-        "sync_enabled": bool(settings.sync_secret_key),
-        "sync_access_key": "demoforge-sync" if settings.sync_secret_key else "",
-        "sync_secret_key": settings.sync_secret_key,
-        "sync_bucket": "demoforge-templates",
-        "sync_prefix": "templates/",
+        "fa_id": fa["fa_id"],
+        "fa_name": fa["fa_name"],
+        "is_active": fa["is_active"],
+        "connector_key": settings.connector_key,
     }
 
 
@@ -83,9 +82,4 @@ async def fa_bootstrap(fa: dict = Depends(get_current_fa)):
         "fa_name": fa["fa_name"],
         "is_active": fa["is_active"],
         "connector_key": settings.connector_key,
-        "sync_enabled": bool(settings.sync_secret_key),
-        "sync_access_key": "demoforge-sync" if settings.sync_secret_key else "",
-        "sync_secret_key": settings.sync_secret_key,
-        "sync_bucket": "demoforge-templates",
-        "sync_prefix": "templates/",
     }

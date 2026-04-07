@@ -298,65 +298,38 @@ async def _find_local_hub_api() -> tuple[str | None, float]:
 
 
 async def _check_template_sync() -> dict:
-    """FA mode: can we reach the sync endpoint and list the templates bucket?"""
-    from ..engine.template_sync import (
-        SYNC_ENABLED, SYNC_ACCESS_KEY, SYNC_SECRET_KEY,
-        SYNC_ENDPOINT, SYNC_BUCKET, SYNC_PREFIX,
-    )
+    """FA mode: verify hub-api templates endpoint is reachable."""
+    from ..engine.template_sync import SYNC_ENABLED, HUB_URL, FA_API_KEY, TEMPLATES_URL
     steps = []
 
     if not SYNC_ENABLED:
         steps.append(_step("Template sync enabled", False,
-            "DEMOFORGE_SYNC_ENABLED is not set. Run 'make fa-setup' to configure template sync."))
+            "DEMOFORGE_SYNC_ENABLED is not set to true."))
         return {"ok": False, "steps": steps}
 
-    steps.append(_step("Template sync enabled", True, f"Endpoint: {SYNC_ENDPOINT}, bucket: {SYNC_BUCKET}"))
+    steps.append(_step("Template sync enabled", True, f"Hub: {HUB_URL}"))
 
-    if not SYNC_SECRET_KEY or SYNC_SECRET_KEY == "change-me":
-        steps.append(_step("Sync credentials configured", False,
-            "DEMOFORGE_SYNC_SECRET_KEY is not set or is the default placeholder. "
-            "Run 'make fa-setup' to fetch credentials from the hub."))
-        return {"ok": False, "steps": steps}
-
-    steps.append(_step("Sync credentials configured", True,
-        f"Access key: {SYNC_ACCESS_KEY}"))
-
-    # Try a quick S3 list to verify connectivity + credentials
+    # Verify hub templates endpoint responds (FA auth validated separately)
     try:
-        import boto3
-        from botocore.config import Config as BotoConfig
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=SYNC_ENDPOINT,
-            aws_access_key_id=SYNC_ACCESS_KEY,
-            aws_secret_access_key=SYNC_SECRET_KEY,
-            region_name="us-east-1",
-            config=BotoConfig(
-                signature_version="s3v4",
-                connect_timeout=5,
-                read_timeout=5,
-                retries={"max_attempts": 1},
-            ),
-        )
-        import functools
-        resp = await asyncio.get_event_loop().run_in_executor(
-            None,
-            functools.partial(s3.list_objects_v2, Bucket=SYNC_BUCKET, Prefix=SYNC_PREFIX, MaxKeys=5)
-        )
-        count = resp.get("KeyCount", 0)
-        steps.append(_step("Templates bucket reachable", True,
-            f"Listed {count} template file(s) from {SYNC_BUCKET}/{SYNC_PREFIX}"))
-        return {"ok": True, "template_count": count, "steps": steps}
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"{TEMPLATES_URL}/",
+                headers={"X-Api-Key": FA_API_KEY},
+            )
+            if resp.status_code == 503:
+                steps.append(_step("Templates endpoint", False,
+                    "Hub template sync not configured — contact your admin."))
+                return {"ok": False, "steps": steps}
+            if resp.status_code in (200, 401, 403):
+                # 401/403 means endpoint is there but FA auth issue — handled by FA auth check
+                count = len(resp.json().get("templates", [])) if resp.status_code == 200 else 0
+                steps.append(_step("Templates endpoint", True,
+                    f"{count} template(s) available" if resp.status_code == 200 else "Endpoint reachable"))
+                return {"ok": True, "steps": steps}
+            steps.append(_step("Templates endpoint", False, f"Unexpected status {resp.status_code}"))
+            return {"ok": False, "steps": steps}
     except Exception as e:
-        err_str = str(e)[:120]
-        if "AccessDenied" in err_str or "403" in err_str:
-            steps.append(_step("Templates bucket reachable", False,
-                f"Access denied — sync credentials rejected. Run 'make fa-setup' to refresh. Detail: {err_str}"))
-        elif "EndpointResolutionError" in err_str or "ConnectionError" in err_str or "connect" in err_str.lower():
-            steps.append(_step("Templates bucket reachable", False,
-                f"Cannot reach sync endpoint {SYNC_ENDPOINT}. Is the hub-connector running? Run 'make fa-setup'. Detail: {err_str}"))
-        else:
-            steps.append(_step("Templates bucket reachable", False, err_str))
+        steps.append(_step("Templates endpoint", False, f"Unreachable: {str(e)[:80]}"))
         return {"ok": False, "steps": steps}
 
 
