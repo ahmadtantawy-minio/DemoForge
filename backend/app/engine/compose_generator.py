@@ -304,6 +304,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             cluster_credentials[node_id] = {
                 "MINIO_ROOT_USER": cred_user,
                 "MINIO_ROOT_PASSWORD": cred_pass,
+                "MINIO_STORAGE_CLASS_STANDARD": f"EC:{cluster.ec_parity}",
+                "MINIO_STORAGE_CLASS_RRS": "EC:1",
+                "MINIO_STORAGE_CLASS_OPTIMIZE": cluster.ec_parity_upgrade_policy,
             }
             cluster_drives[node_id] = drives
 
@@ -959,8 +962,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             else:
                 endpoint = hc.endpoint
             health_url = f"http://localhost:{hc.port}{endpoint}"
+            # For cluster nodes using /minio/health/cluster, omit the TCP fallback so that
+            # a failed HTTP check correctly marks the container unhealthy.
+            if node.id in cluster_health_override:
+                hc_test = f"curl -sf {health_url} || wget -qO- {health_url}"
+            else:
+                hc_test = f"curl -sf {health_url} || wget -qO- {health_url} || bash -c 'echo > /dev/tcp/localhost/{hc.port}'"
             service["healthcheck"] = {
-                "test": ["CMD-SHELL", f"curl -sf {health_url} || wget -qO- {health_url} || bash -c 'echo > /dev/tcp/localhost/{hc.port}'"],
+                "test": ["CMD-SHELL", hc_test],
                 "interval": hc.interval,
                 "timeout": hc.timeout,
                 "retries": 3,

@@ -10,6 +10,7 @@ import sys
 import pyarrow as pa
 import pyarrow.parquet as pq
 import boto3
+import requests
 from botocore.exceptions import ClientError, EndpointResolutionError, NoCredentialsError
 
 # --- Config from environment ---
@@ -185,6 +186,32 @@ def build_s3_key(now, ext):
 # ---------------------------------------------------------------------------
 # Scenario-driven main loop
 # ---------------------------------------------------------------------------
+
+def detect_bi_tool() -> str | None:
+    """Check which BI tool is available on the network.
+
+    Returns 'superset', 'metabase', or None.
+    Superset takes priority when both respond.
+    """
+    superset_url = os.environ.get("SUPERSET_URL", "http://superset:8088")
+    metabase_url = os.environ.get("METABASE_URL", "http://metabase:3000")
+
+    try:
+        resp = requests.get(f"{superset_url}/health", timeout=5)
+        if resp.status_code == 200:
+            return "superset"
+    except Exception:
+        pass
+
+    try:
+        resp = requests.get(f"{metabase_url}/api/health", timeout=5)
+        if resp.status_code == 200:
+            return "metabase"
+    except Exception:
+        pass
+
+    return None
+
 
 def _check_stop_file():
     """Return True if /tmp/gen.stop exists (graceful shutdown signal)."""
@@ -381,6 +408,25 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
                 print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
             except Exception as exc:
                 print(f"[scenario] Table setup skipped: {exc}")
+
+            # BI tool setup — detect and provision dashboards in background thread
+            bi_tool = detect_bi_tool()
+            if bi_tool == "superset":
+                import threading
+                def _run_superset_setup():
+                    try:
+                        import sys as _sys
+                        _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                        from src.superset_setup import setup_superset
+                        setup_superset()
+                    except Exception as _exc:
+                        print(f"[scenario] Superset setup failed (non-fatal): {_exc}")
+                threading.Thread(target=_run_superset_setup, daemon=True).start()
+                print(f"[scenario] Superset detected — dashboard setup running in background")
+            elif bi_tool == "metabase":
+                print(f"[scenario] Metabase detected — dashboard setup handled by scenario YAML")
+            else:
+                print(f"[scenario] No BI tool detected — skipping dashboard setup")
 
             # Try PyIceberg first (decoupled from Trino)
             iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)

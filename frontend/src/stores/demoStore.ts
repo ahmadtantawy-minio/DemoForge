@@ -19,6 +19,7 @@ interface DemoState {
   demos: DemoSummary[];
   activeDemoId: string | null;
   instances: ContainerInstance[];
+  clusterHealth: Record<string, string>;
   activeView: ViewType;
   currentPage: PageKey;
   cockpitEnabled: boolean;
@@ -31,6 +32,7 @@ interface DemoState {
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
+  setClusterHealth: (health: Record<string, string>) => void;
   setActiveView: (view: ViewType) => void;
   setCurrentPage: (page: PageKey) => void;
   toggleCockpit: () => void;
@@ -79,6 +81,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   demos: [],
   activeDemoId: initial.demoId,
   instances: [],
+  clusterHealth: {},
   activeView: initial.view,
   currentPage: initial.page,
   cockpitEnabled: false,
@@ -98,6 +101,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   setInstances: (instances) => set({ instances }),
+
+  setClusterHealth: (health) => set({ clusterHealth: health }),
 
   setActiveView: (view) => {
     set({ activeView: view });

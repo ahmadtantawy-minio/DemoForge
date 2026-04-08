@@ -65,6 +65,8 @@ components:
     fa_ready: false
   metabase:
     fa_ready: false
+  superset:
+    fa_ready: true
   ml-trainer:
     fa_ready: false
     notes: test toggle

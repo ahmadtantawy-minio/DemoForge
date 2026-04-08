@@ -1,5 +1,6 @@
 """Docker operations: compose up/down, container inspection."""
 import asyncio
+import json
 import logging
 import os
 import docker
@@ -13,6 +14,100 @@ from ..registry.loader import get_component
 
 logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
+
+
+def _get_cluster_configs_path(data_dir: str, project_name: str) -> str:
+    return os.path.join(data_dir, project_name, ".cluster-configs.json")
+
+
+def _load_cluster_configs(data_dir: str, project_name: str) -> dict:
+    """Load previously deployed cluster topology from disk."""
+    path = _get_cluster_configs_path(data_dir, project_name)
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_cluster_configs(data_dir: str, project_name: str, clusters) -> None:
+    """Persist current cluster topology to disk for next deploy comparison."""
+    path = _get_cluster_configs_path(data_dir, project_name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    configs = {
+        cluster.id: {
+            "node_count": cluster.node_count,
+            "drives_per_node": cluster.drives_per_node,
+            "component": cluster.component,
+        }
+        for cluster in clusters
+    }
+    with open(path, "w") as f:
+        json.dump(configs, f, indent=2)
+
+
+def _detect_changed_clusters(demo, prev_configs: dict) -> list[str]:
+    """Return IDs of clusters whose topology changed since last deploy."""
+    changed = []
+    for cluster in demo.clusters:
+        prev = prev_configs.get(cluster.id)
+        if prev is None:
+            continue  # New cluster — no stale volumes to clear
+        if (
+            prev["node_count"] != cluster.node_count
+            or prev["drives_per_node"] != cluster.drives_per_node
+            or prev.get("component", "minio") != cluster.component
+        ):
+            changed.append(cluster.id)
+    return changed
+
+
+async def _remove_cluster_volumes(
+    project_name: str,
+    cluster_id: str,
+    old_node_count: int,
+    old_drives: int,
+    new_node_count: int,
+    new_drives: int,
+) -> list[str]:
+    """Remove Docker volumes for a cluster whose topology changed.
+
+    Removes volumes for both old and new node range because a MinIO erasure
+    set cannot be extended or shrunk — all nodes must reformat.
+    """
+    max_nodes = max(old_node_count, new_node_count)
+    max_drives = max(old_drives, new_drives)
+
+    candidates = []
+    for i in range(1, max_nodes + 1):
+        node_id = f"{cluster_id}-node-{i}"
+        candidates.append(f"{project_name}-{node_id}-data")
+        for d in range(1, max_drives + 1):
+            candidates.append(f"{project_name}-{node_id}-data{d}")
+
+    def _remove():
+        import docker as _docker
+        client = _docker.from_env()
+        removed = []
+        for vol_name in candidates:
+            try:
+                vol = client.volumes.get(vol_name)
+                vol.remove()
+                removed.append(vol_name)
+            except Exception:
+                pass
+        client.close()
+        return removed
+
+    removed = await asyncio.to_thread(_remove)
+    if removed:
+        logger.info(
+            f"Removed {len(removed)} stale volume(s) for reconfigured cluster "
+            f"'{cluster_id}' ({old_node_count}n×{old_drives}d → {new_node_count}n×{new_drives}d): {removed}"
+        )
+    return removed
 
 COMPOSE_TIMEOUT = 180  # seconds — max wait for compose up/down
 GCR_PREFIX = "gcr.io/minio-demoforge"
@@ -192,6 +287,12 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
     project_name = f"demoforge-{demo.id}"
     network_names = [f"{project_name}-{net.name}" for net in demo.networks]
 
+    # Load previous cluster topology to detect changes requiring volume reset
+    prev_cluster_configs = _load_cluster_configs(data_dir, project_name)
+    changed_clusters = _detect_changed_clusters(demo, prev_cluster_configs)
+    if changed_clusters:
+        logger.info(f"Demo {demo.id}: cluster topology changed for: {changed_clusters}")
+
     await progress("compose", "running", "Generating docker-compose file...")
     compose_path, demo = generate_compose(demo, data_dir, components_dir)
     await progress("compose", "done", f"Generated {compose_path}")
@@ -218,9 +319,26 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
     if images_pulled:
         await progress("images", "done", f"Pulled {images_pulled} missing image(s) from GCR")
 
-    # Clean up leftover containers (preserve volumes on redeploy)
+    # Clean up leftover containers (preserve volumes unless cluster topology changed)
     await progress("cleanup", "running", "Cleaning up previous containers...")
     await _cleanup_demo(demo.id, compose_path, project_name, network_names, remove_volumes=False)
+
+    # Remove volumes for clusters whose topology changed — MinIO erasure sets cannot be resized
+    if changed_clusters:
+        await progress("cleanup", "running", f"Resetting {len(changed_clusters)} reconfigured cluster(s)...")
+        for cluster_id in changed_clusters:
+            cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
+            prev = prev_cluster_configs[cluster_id]
+            if cluster:
+                await _remove_cluster_volumes(
+                    project_name,
+                    cluster_id,
+                    prev["node_count"],
+                    prev["drives_per_node"],
+                    cluster.node_count,
+                    cluster.drives_per_node,
+                )
+
     await progress("cleanup", "done", "Cleanup complete")
 
     # Run docker compose up with timeout
@@ -349,6 +467,9 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         running.status = "running"
         state.set_demo(running)
         await progress("complete", "done", "Demo is running")
+
+        # Persist cluster topology so next deploy can detect changes
+        _save_cluster_configs(data_dir, project_name, demo.clusters)
         return running
 
     except Exception as e:
@@ -378,7 +499,7 @@ async def stop_demo(demo_id: str):
             running.compose_file_path or None,
             running.compose_project,
             running.networks,
-            remove_volumes=True,
+            remove_volumes=False,
         )
         state.remove_demo(demo_id)
 

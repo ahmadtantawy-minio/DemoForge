@@ -151,6 +151,9 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 height=rf_node.get("style", {}).get("height", rf_node.get("height", 200)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 200),
                 mcp_enabled=c_data.get("mcpEnabled", True),
                 aistor_tables_enabled=c_data.get("aistorTablesEnabled", False),
+                ec_parity=c_data.get("ecParity", 4),
+                ec_parity_upgrade_policy=c_data.get("ecParityUpgradePolicy", "upgrade"),
+                disk_size_tb=c_data.get("diskSizeTb", 8),
             ))
             continue
 

@@ -114,6 +114,8 @@ load_env() {
     # Load hub config first, then per-user local overrides (local wins for most keys)
     [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
     [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+    # Bake git version so the backend container can report it (no .git mount in Docker)
+    export DEMOFORGE_VERSION="${DEMOFORGE_VERSION:-$(git -C "$SCRIPT_DIR" describe --tags --always 2>/dev/null || echo 'dev')}"
     # In GCP mode (DEMOFORGE_HUB_LOCAL not set), the .env.hub admin key is the GCP hub-api key.
     # Re-apply it after .env.local so the local dev key never wins in GCP mode.
     # If .env.hub has no admin key (old deployment), unset entirely — wrong local key is worse than none.
@@ -253,12 +255,14 @@ cmd_start() {
     build_component_images
 
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
-        # Dev mode: build from source
-        log "Building images..."
-        docker compose "${DC_FLAGS[@]}" build
-        docker image prune -f --filter "until=1h" &>/dev/null || true
+        # Dev mode: use cached images if available; only rebuild on first run or after nuke
         log "Starting services..."
-        docker compose "${DC_FLAGS[@]}" up -d
+        if ! docker compose "${DC_FLAGS[@]}" up -d --no-build 2>/dev/null; then
+            log "Images not found — building for first time..."
+            docker compose "${DC_FLAGS[@]}" build
+            docker image prune -f --filter "until=1h" &>/dev/null || true
+            docker compose "${DC_FLAGS[@]}" up -d
+        fi
     else
         # FA mode: use pre-built images only — never build locally
         log "Starting services (using pre-built images)..."

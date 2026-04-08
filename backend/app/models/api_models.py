@@ -94,6 +94,7 @@ class InstancesResponse(BaseModel):
     instances: list[ContainerInstance]
     init_results: list[dict] = []
     edge_configs: list[EdgeConfigStatus] = []
+    cluster_health: dict[str, str] = {}  # cluster_id → "healthy" | "degraded" | "unreachable"
 
 # --- Errors ---
 class ErrorDetail(BaseModel):

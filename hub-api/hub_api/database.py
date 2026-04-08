@@ -36,6 +36,11 @@ async def _create_tables(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
         CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_fa_api_key ON field_architects(api_key);
+        CREATE TABLE IF NOT EXISTS app_config (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
     """)
     await db.commit()
 

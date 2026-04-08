@@ -38,7 +38,7 @@ open http://localhost:3000
 3. Starts the **hub-connector** container (Caddy reverse proxy, auto-restarts on reboot)
 4. Verifies Hub gateway connectivity
 5. Detects your FA identity (git email → GitHub CLI → prompt)
-6. Writes `.env.local` with sync credentials and FA identity
+6. Writes `.env.local` with credentials and FA identity
 7. Pulls all custom component images from the registry (pre-built — no local build needed)
 
 After setup, DemoForge automatically syncs templates from the Hub on every start.
@@ -46,26 +46,10 @@ After setup, DemoForge automatically syncs templates from the Hub on every start
 ### Keeping Up to Date
 
 ```bash
-make update
+make fa-update
 ```
 
-This single command pulls the latest changes from git, re-runs setup (silent — no prompts), and restarts DemoForge. Run this whenever your team lead says there's an update.
-
-<details>
-<summary>Manual steps (if <code>make update</code> isn't available)</summary>
-
-```bash
-# 1. Pull latest code
-git pull
-
-# 2. Re-run setup (pulls new images, refreshes hub-connector)
-make fa-setup
-
-# 3. Restart DemoForge
-make restart
-```
-
-</details>
+Runs `git pull --ff-only`, refreshes the hub-connector, and restarts DemoForge. Run this whenever your team lead announces an update.
 
 ### Day-to-Day Commands
 
@@ -84,7 +68,7 @@ make logs     # Tail logs
 2. **Templates** — Browse 27+ templates, filter by category/tier, create demos
 3. **Designer** — Visual canvas to wire components, configure connections, deploy
 4. **Images** — Manage Docker image cache (pull, re-pull, cleanup)
-5. **Network** (sidebar bottom) — Connectivity health check, hub-connector status
+5. **Healthcheck** (sidebar bottom) — Connectivity health check, hub-connector status, current vs latest DemoForge version with update available notice
 
 **Workflow:** Templates → Pick a template → Create Demo → Deploy → Double-click nodes to open web UIs
 
@@ -92,7 +76,7 @@ make logs     # Tail logs
 
 ## Dev Mode
 
-Dev mode adds FA management, local hub-api, connectivity diagnostics, and hub update tools.
+Dev mode adds FA management, local hub-api, connectivity diagnostics, and hub release tools.
 
 ### Prerequisites
 
@@ -109,29 +93,26 @@ Everything in FA mode, plus:
 git clone <repo-url> && cd DemoForge
 npm install
 
-# 2. Set your FA identity and sync config in .env.local
-cat > .env.local <<EOF
-DEMOFORGE_FA_ID=you@min.io
-DEMOFORGE_SYNC_ENABLED=true
-DEMOFORGE_SYNC_ENDPOINT=http://<vm-ip>:9000
-DEMOFORGE_SYNC_BUCKET=demoforge-templates
-DEMOFORGE_SYNC_PREFIX=templates/
-DEMOFORGE_SYNC_ACCESS_KEY=demoforge-sync
-DEMOFORGE_SYNC_SECRET_KEY=<from-hub-setup>
-DEMOFORGE_REGISTRY_HOST=host.docker.internal:5000
-EOF
-
-# 3. Generate a local admin key (writes DEMOFORGE_HUB_API_ADMIN_KEY to .env.local)
+# 2. Generate a local admin key (writes DEMOFORGE_HUB_API_ADMIN_KEY to .env.local)
 make dev-init
 
-# 4. Start the local hub-api on :8000 (in a separate terminal)
+# 3. Start the local hub-api on :8000 (in a separate terminal)
 make dev-hub-api
 
-# 5. Start DemoForge in dev mode
+# 4. Start DemoForge in dev mode
 make dev-start
 ```
 
 > `DEMOFORGE_MODE=dev` is injected automatically by `demoforge-dev.sh` — do not add it to `.env.local`.
+
+### `dev-start` vs `dev-start-gcp`
+
+| Command | Hub routing | When to use |
+|---------|-------------|-------------|
+| `make dev-start` | Sets `DEMOFORGE_HUB_LOCAL=1` — backend connects directly to local hub-api on `:8000` | Default dev workflow |
+| `make dev-start-gcp` | No `DEMOFORGE_HUB_LOCAL=1` — routes through GCP hub-connector on `:8080` | Testing against the real hub |
+
+Both run with `DEMOFORGE_MODE=dev` active.
 
 ### What the local hub-api does
 
@@ -142,16 +123,18 @@ make dev-hub-api    # Start hub-api with hot-reload on :8000
 make dev-init       # Generate DEMOFORGE_HUB_API_ADMIN_KEY → .env.local (idempotent)
 ```
 
-On first start, the **Connectivity check** (`Network` nav item) auto-registers your FA identity in the local hub-api. All 4 checks should be green before working in dev mode.
+On first start, the **Healthcheck** page auto-registers your FA identity in the local hub-api. All checks should be green before working in dev mode.
 
-### Connectivity Check
+### Healthcheck
 
-The **Network** page (accessible in all modes) runs a full chain trace for every component:
+The **Healthcheck** page (accessible in all modes, sidebar bottom) runs a full chain trace for every component:
 
 - **Local Hub API** — direct health + DB/admin access (dev mode)
 - **Admin Key** — validates admin key against hub-api
 - **Hub Connector** — connector → gateway → hub-api route (skipped if local hub-api is healthy)
 - **FA Authentication** — FA API key validated against hub-api
+
+It also shows the current DemoForge version, the hub-latest version, and a banner when an update is available.
 
 In dev mode, all checks route directly to `localhost:8000` bypassing the connector.
 
@@ -193,6 +176,20 @@ make dev-purge-fa FA=testuser@min.io
 make dev-fe         # Vite dev server on :3000 (hot-reload)
 make dev-be         # FastAPI with live reload on :9210
 make dev-hub-api    # hub-api with live reload on :8000
+```
+
+### Hub Release Workflow
+
+`make hub-release` is the full release command. It commits staged changes, tags the version, pushes images and templates, redeploys the hub-api Cloud Run service, and notifies all connected FAs. FAs will see an update available banner on their Healthcheck tab.
+
+```bash
+make hub-release                    # Full release: commit, tag, push images+templates, deploy, notify FAs
+make hub-release VERSION=v1.0.0     # Explicit version
+make hub-release-patch              # Bump patch version (default)
+make hub-release-minor              # Bump minor version
+make hub-release-major              # Bump major version
+make hub-release NO_IMAGES=1        # Skip image push (code-only release)
+make hub-release NO_DEPLOY=1        # Skip Cloud Run redeploy
 ```
 
 ---
@@ -292,6 +289,7 @@ make update-myip                 # Update firewall with your current IP
 | Command | Description |
 |---------|-------------|
 | `make fa-setup` | First-time setup: connector + Hub connectivity + pull images |
+| `make fa-update` | Pull latest code, refresh hub-connector, restart |
 | `make start` | Start DemoForge (FA mode) |
 | `make stop` | Stop DemoForge |
 | `make restart` | Restart DemoForge |
@@ -311,7 +309,8 @@ make update-myip                 # Update firewall with your current IP
 |---------|-------------|
 | `make dev-init` | Generate `DEMOFORGE_HUB_API_ADMIN_KEY` → `.env.local` (idempotent) |
 | `make dev-hub-api` | Start hub-api locally on `:8000` with hot-reload |
-| `make dev-start` | Start DemoForge in dev mode |
+| `make dev-start` | Start DemoForge in dev mode (local hub-api on `:8000`) |
+| `make dev-start-gcp` | Start DemoForge in dev mode (GCP hub via connector) |
 | `make dev-stop` | Stop DemoForge (dev mode) |
 | `make dev-restart` | Restart DemoForge (dev mode) |
 | `make dev-status` | Show running services |
@@ -320,6 +319,10 @@ make update-myip                 # Update firewall with your current IP
 | `make dev-be` | Backend dev server with hot-reload |
 | `make dev-sim-fa FA=user@min.io` | Register a simulated FA in local hub-api |
 | `make dev-purge-fa FA=user@min.io` | Hard-delete an FA (can re-register immediately) |
+| `make hub-release` | Full release: commit, tag, push images+templates, deploy, notify FAs |
+| `make hub-release-patch` | Release with patch version bump |
+| `make hub-release-minor` | Release with minor version bump |
+| `make hub-release-major` | Release with major version bump |
 | `make hub-deploy` | Full GCP deploy: VPC + gateway + hub-api Cloud Run + Litestream |
 | `make hub-deploy-gateway` | Rebuild/deploy gateway Cloud Run only (~1 min) |
 | `make hub-deploy-api` | Rebuild/deploy hub-api Cloud Run only (~2 min) |

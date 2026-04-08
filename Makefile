@@ -1,10 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing pull-all hub-setup hub-seed hub-status hub-push hub-pull hub-trust seed-licenses update hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
-
-update:         ## Pull latest changes, rebuild, and restart DemoForge
-	git pull
-	@scripts/fa-setup.sh
-	./demoforge.sh build
-	./demoforge.sh restart
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-setup hub-seed hub-status hub-push hub-pull hub-trust hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -123,7 +117,7 @@ dev-start-gcp:  ## Start DemoForge in dev mode connected to GCP hub via connecto
 	    ! curl -sf http://host.docker.internal:8080/health >/dev/null 2>&1; then \
 	  echo "Warning: hub-connector not detected on :8080 — run 'make fa-setup' first"; \
 	fi
-	./demoforge-dev.sh start
+	DEMOFORGE_HUB_LOCAL= ./demoforge-dev.sh start
 
 dev-stop:       ## Stop DemoForge (dev mode)
 	./demoforge-dev.sh stop
@@ -132,7 +126,7 @@ dev-restart:    ## Restart DemoForge in dev mode (local hub-api)
 	DEMOFORGE_HUB_LOCAL=1 ./demoforge-dev.sh restart
 
 dev-restart-gcp: ## Restart DemoForge in dev mode (GCP hub)
-	./demoforge-dev.sh restart
+	DEMOFORGE_HUB_LOCAL= ./demoforge-dev.sh restart
 
 dev-status:     ## Show running services (dev mode)
 	./demoforge-dev.sh status
@@ -152,10 +146,6 @@ check-images:
 
 pull-missing:
 	@python3 check_images.py --mode fa --pull-missing
-
-pull-all:
-	@python3 check_images.py --mode fa --pull-missing
-	@echo "Custom/platform images: run './demoforge.sh build' to build locally."
 
 ## Hub management
 hub-setup:        ## First-time hub setup: bucket + IAM + registry + seed templates
@@ -181,6 +171,18 @@ hub-trust:        ## [One-time] Configure Docker to trust the private registry
 
 seed-licenses:    ## Seed license keys to MinIO bucket
 	@scripts/seed-licenses.sh
+
+hub-release:      ## [Dev] Full release: commit, tag, push images+templates, deploy hub-api, notify FAs
+	@scripts/hub-release.sh $(if $(VERSION),--version $(VERSION),) $(if $(filter major,$(BUMP)),--major,) $(if $(filter minor,$(BUMP)),--minor,) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
+
+hub-release-patch: ## [Dev] Release with patch bump (default)
+	@scripts/hub-release.sh --patch
+
+hub-release-minor: ## [Dev] Release with minor bump
+	@scripts/hub-release.sh --minor
+
+hub-release-major: ## [Dev] Release with major bump
+	@scripts/hub-release.sh --major
 
 hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licenses
 	@scripts/hub-update.sh

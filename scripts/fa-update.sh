@@ -12,6 +12,14 @@ fail() { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
 
 cd "$PROJECT_ROOT"
 
+# ── Step 2b: Pull latest DemoForge code ────────────────────────────────────
+log "Pulling latest DemoForge code..."
+if git -C "$PROJECT_ROOT" pull --ff-only 2>/dev/null; then
+  ok "DemoForge code updated"
+else
+  warn "git pull failed or not a clean repo — skipping code update (will use current version)"
+fi
+
 CONNECTOR_IMAGE="gcr.io/minio-demoforge/demoforge-hub-connector:latest"
 DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 

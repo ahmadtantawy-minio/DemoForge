@@ -250,7 +250,7 @@ async def _check_admin_key(hub_url: str, admin_key: str, dev_mode: bool = False)
 
     async with httpx.AsyncClient() as client:
         code, data, text, ms = await _get(client, target_url + "/api/hub/admin/stats",
-                                           {"X-Api-Key": admin_key})
+                                           {"X-Hub-Admin-Key": admin_key})
         if code == -1:
             steps.append(_step("Admin endpoint reachable", False,
                 f"Connection refused at {target_url}. Is hub-api running?"))
@@ -328,6 +328,67 @@ async def _check_template_sync() -> dict:
         return {"ok": False, "steps": steps}
 
 
+def _read_local_version() -> str:
+    """Get local DemoForge version via git describe."""
+    try:
+        import subprocess
+        from pathlib import Path
+        root = Path(__file__).parent.parent.parent.parent
+        r = subprocess.run(
+            ["git", "describe", "--tags", "--always"],
+            capture_output=True, text=True, timeout=3, cwd=str(root),
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return os.getenv("DEMOFORGE_VERSION", "dev")
+
+
+async def _check_version(hub_url: str, api_key: str, dev_mode: bool = False) -> dict:
+    """Compare local DemoForge version against hub latest. Always ok/optional — informational only."""
+    steps = []
+    local_ver = _read_local_version()
+    steps.append(_step("Local version", True, f"DemoForge {local_ver}"))
+
+    target = hub_url
+    if dev_mode:
+        local_hub, _ = await _find_local_hub_api()
+        if local_hub:
+            target = local_hub
+
+    headers = {}
+    if api_key:
+        headers["X-Api-Key"] = api_key
+
+    async with httpx.AsyncClient() as client:
+        code, data, text, ms = await _get(client, target + "/api/hub/version/latest", headers, timeout=5.0)
+
+    if code == 200 and data and "demoforge" in data:
+        hub_ver = data["demoforge"].get("version", "")
+        if hub_ver:
+            up_to_date = local_ver == hub_ver or local_ver.lstrip("v") == hub_ver.lstrip("v")
+            if up_to_date:
+                steps.append(_step("Up to date", True, f"Hub latest: {hub_ver}"))
+            else:
+                steps.append(_step("Update available", False,
+                    f"Hub latest: {hub_ver} — run `make fa-update` to upgrade",
+                    warn=True))
+            return {
+                "ok": True,
+                "local_version": local_ver,
+                "hub_version": hub_ver,
+                "up_to_date": up_to_date,
+                "steps": steps,
+            }
+
+    # Hub endpoint not available yet or error — skip gracefully
+    steps.append(_step("Hub version check", True,
+        "Hub version endpoint not available yet" if code == 404 else f"Skipped (HTTP {code})",
+        warn=False))
+    return {"ok": True, "skipped": True, "local_version": local_ver, "steps": steps}
+
+
 async def _check_components() -> dict:
     """FA mode: check component availability via readiness system."""
     steps = []
@@ -359,7 +420,33 @@ async def _check_components() -> dict:
             "total_count": total,
             "blocked_count": len(blocked),
         }))
-        return {"ok": True, "fa_ready_count": len(fa_ready), "total_count": total, "steps": steps}
+
+        # Gather per-component version info from readiness + registry
+        component_versions = []
+        try:
+            from ..registry.loader import get_registry
+            reg = get_registry()
+            for cid, cdata in readiness._components.items():
+                manifest = reg.get(cid) if reg else None
+                local_tag = manifest.image if manifest else None
+                hub_tag = cdata.get("image_tag")
+                component_versions.append({
+                    "id": cid,
+                    "name": cdata.get("name", cid),
+                    "fa_ready": cdata.get("fa_ready", False),
+                    "local_tag": local_tag,
+                    "hub_tag": hub_tag,
+                })
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "fa_ready_count": len(fa_ready),
+            "total_count": total,
+            "component_versions": component_versions,
+            "steps": steps,
+        }
     except Exception as e:
         steps.append(_step("Component readiness loaded", False, str(e)[:120]))
         return {"ok": False, "steps": steps}
@@ -419,61 +506,112 @@ async def check_connectivity():
     fa_id = get_fa_id()
 
     if mode == "dev":
-        results = await asyncio.gather(
-            _check_hub_connector(hub_url),
-            _check_fa_auth(hub_url, api_key, dev_mode=True),
-            _check_admin_key(hub_url, admin_key, dev_mode=True),
-            _check_local_hub_api(),
-            return_exceptions=True,
-        )
-        connector, fa_auth, admin, local = [
-            r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
-            for r in results
-        ]
-        # If local hub-api is healthy, connector is N/A in dev mode
-        if local.get("ok"):
-            connector = {
-                "ok": False,
-                "skipped": True,
-                "steps": [_step("Connector check skipped", True,
-                    "Local hub-api is healthy — connector not needed in dev mode. "
-                    "Run `make hub-setup` to configure it for production use.")],
+        # dev-start sets DEMOFORGE_HUB_LOCAL=1 (local hub-api on :8000)
+        # dev-start-gcp does not set it (routes through GCP connector at :8080)
+        hub_local = os.getenv("DEMOFORGE_HUB_LOCAL", "") == "1"
+
+        if hub_local:
+            # dev-start (local): local hub-api + admin key required; connector optional
+            results = await asyncio.gather(
+                _check_hub_connector(hub_url),
+                _check_fa_auth(hub_url, api_key, dev_mode=True),
+                _check_admin_key(hub_url, admin_key, dev_mode=True),
+                _check_local_hub_api(),
+                _check_version(hub_url, api_key, dev_mode=True),
+                return_exceptions=True,
+            )
+            connector, fa_auth, admin, local, version_result = [
+                r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
+                for r in results
+            ]
+            # Connector is N/A when local hub is healthy
+            if local.get("ok"):
+                connector = {
+                    "ok": False,
+                    "skipped": True,
+                    "steps": [_step("Connector check skipped", True,
+                        "Local hub-api is healthy — connector not needed in dev mode.")],
+                }
+            # If local hub-api is not running, admin key can't be validated — skip it
+            # to avoid a confusing 403 from the GCP hub rejecting the local dev key
+            if not local.get("ok"):
+                admin = {
+                    "ok": True,
+                    "skipped": True,
+                    "steps": [_step("Admin key check skipped", True,
+                        "Local hub-api is not running — start it with `make dev-hub-api` to validate the admin key.")],
+                }
+            checks = {
+                "local_hub_api": {
+                    "label": "Local Hub API",
+                    "description": "hub-api directly on localhost:8000 — preferred in dev mode",
+                    **local,
+                },
+                "admin_key": {
+                    "label": "Admin Key",
+                    "description": "Admin access to hub-api (required for FA Management page)",
+                    **admin,
+                },
+                "hub_connector": {
+                    "label": "Hub Connector",
+                    "description": f"Remote connector at {hub_url} (optional — alternative to local hub-api)",
+                    "optional": True,
+                    **connector,
+                },
+                "fa_auth": {
+                    "label": "FA Authentication",
+                    "description": "FA API key validated via hub-api (optional in dev — admin key takes precedence)",
+                    "optional": True,
+                    **fa_auth,
+                },
+                "version": {
+                    "label": "DemoForge Version",
+                    "description": "Current build vs latest release on hub",
+                    "optional": True,
+                    **version_result,
+                },
             }
-        checks = {
-            "local_hub_api": {
-                "label": "Local Hub API",
-                "description": "hub-api directly on localhost:8000 — preferred in dev mode",
-                **local,
-            },
-            "admin_key": {
-                "label": "Admin Key",
-                "description": "Admin access to hub-api (required for FA Management page)",
-                **admin,
-            },
-            "hub_connector": {
-                "label": "Hub Connector",
-                "description": f"Remote connector at {hub_url} (optional — alternative to local hub-api)",
-                "optional": True,
-                **connector,
-            },
-            "fa_auth": {
-                "label": "FA Authentication",
-                "description": "FA API key validated via hub-api (optional in dev — admin key takes precedence)",
-                # In dev mode, FA auth failure is non-blocking: admin key grants full access.
-                # Mark optional so the overall status stays green when admin key is valid.
-                "optional": True,
-                **fa_auth,
-            },
-        }
+        else:
+            # dev-start-gcp: routes through real GCP connector
+            # admin_key and local_hub_api are not relevant — omit them entirely
+            results = await asyncio.gather(
+                _check_hub_connector(hub_url),
+                _check_fa_auth(hub_url, api_key, dev_mode=False),
+                _check_version(hub_url, api_key, dev_mode=True),
+                return_exceptions=True,
+            )
+            connector, fa_auth, version_result = [
+                r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
+                for r in results
+            ]
+            checks = {
+                "hub_connector": {
+                    "label": "Hub Connector",
+                    "description": f"Remote connector at {hub_url}",
+                    **connector,
+                },
+                "fa_auth": {
+                    "label": "FA Authentication",
+                    "description": "FA API key validated against hub-api",
+                    **fa_auth,
+                },
+                "version": {
+                    "label": "DemoForge Version",
+                    "description": "Current build vs latest release on hub",
+                    "optional": True,
+                    **version_result,
+                },
+            }
     else:
         results = await asyncio.gather(
             _check_hub_connector(hub_url),
             _check_fa_auth(hub_url, api_key),
             _check_template_sync(),
             _check_components(),
+            _check_version(hub_url, api_key),
             return_exceptions=True,
         )
-        connector, fa_auth, template_sync, components = [
+        connector, fa_auth, template_sync, components, version_result = [
             r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
             for r in results
         ]
@@ -497,6 +635,12 @@ async def check_connectivity():
                 "label": "Component Availability",
                 "description": "FA-ready components available for demo creation",
                 **components,
+            },
+            "version": {
+                "label": "DemoForge Version",
+                "description": "Current build vs latest release on hub",
+                "optional": True,
+                **version_result,
             },
         }
 

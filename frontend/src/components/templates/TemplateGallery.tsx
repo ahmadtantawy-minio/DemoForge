@@ -618,7 +618,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
             <p className="text-sm font-medium text-amber-300">Hub connectivity degraded</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Templates or components could not be loaded from the hub. Demo creation is disabled until connectivity is restored.
-              Check the <button className="underline text-amber-400" onClick={() => useDemoStore.getState().setCurrentPage('connectivity')}>Network tab</button> for details.
+              Check the <button className="underline text-amber-400" onClick={() => useDemoStore.getState().setCurrentPage('connectivity')}>Healthcheck tab</button> for details.
             </p>
           </div>
         </div>

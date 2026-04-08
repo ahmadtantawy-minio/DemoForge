@@ -36,6 +36,8 @@ services:
       # The backend auto-detects the correct paths from docker.sock if these are wrong.
       - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components
       - DEMOFORGE_HOST_DATA_DIR=${PWD}/data
+      - DEMOFORGE_VERSION=${DEMOFORGE_VERSION:-dev}
+      - DEMOFORGE_HUB_LOCAL=${DEMOFORGE_HUB_LOCAL:-}
     labels:
       - "demoforge.role=backend"                     # So we can find ourselves
 

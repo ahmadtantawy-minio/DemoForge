@@ -507,8 +507,32 @@ const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
   ],
 };
 
+function computeErasureSetSize(totalDrives: number): number {
+  // Find the largest divisor of totalDrives where 2 <= divisor <= 16
+  for (let d = 16; d >= 2; d--) {
+    if (totalDrives % d === 0) return d;
+  }
+  return totalDrives;
+}
+
+function computeECOptions(erasureSetSize: number): { value: number; label: string; isDefault: boolean }[] {
+  const maxParity = Math.floor(erasureSetSize / 2);
+  const defaultParity = erasureSetSize <= 5 ? 2 : erasureSetSize <= 7 ? 3 : 4;
+  const opts = [];
+  for (let p = 2; p <= maxParity; p++) {
+    opts.push({
+      value: p,
+      label: p === defaultParity ? `EC:${p} (recommended)` : `EC:${p}`,
+      isDefault: p === defaultParity,
+    });
+  }
+  return opts;
+}
+
 export default function PropertiesPanel() {
-  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes, setEdges, componentManifests } = useDiagramStore();
+  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes: _setNodes, setEdges, componentManifests, setDirty } = useDiagramStore();
+  // Wrap setNodes so every property-panel mutation marks the diagram dirty (enables the Save button)
+  const setNodes = (ns: typeof nodes) => { _setNodes(ns); setDirty(true); };
   const { instances, activeDemoId, demos } = useDemoStore();
   const [components, setComponents] = useState<ComponentSummary[]>([]);
   const [sqlEditorOpen, setSqlEditorOpen] = useState(false);
@@ -855,21 +879,45 @@ export default function PropertiesPanel() {
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Node Count</label>
-          <Select value={String(cNodeCount)} onValueChange={(v) => updateCluster({ nodeCount: parseInt(v) })}>
+          <Select value={String(cNodeCount)} onValueChange={(v) => {
+            const newNodeCount = parseInt(v);
+            const totalDrives = newNodeCount * cDrivesPerNode;
+            const setSize = computeErasureSetSize(totalDrives);
+            const maxParity = Math.floor(setSize / 2);
+            const defaultParity = setSize <= 5 ? 2 : setSize <= 7 ? 3 : 4;
+            const currentParity = cData.ecParity ?? 4;
+            if (currentParity > maxParity) {
+              updateCluster({ nodeCount: newNodeCount, ecParity: defaultParity });
+            } else {
+              updateCluster({ nodeCount: newNodeCount });
+            }
+          }}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="2">2 nodes</SelectItem>
               <SelectItem value="4">4 nodes</SelectItem>
               <SelectItem value="6">6 nodes</SelectItem>
               <SelectItem value="8">8 nodes</SelectItem>
+              <SelectItem value="16">16 nodes</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Drives per Node</label>
-          <Select value={String(cDrivesPerNode)} onValueChange={(v) => updateCluster({ drivesPerNode: parseInt(v) })}>
+          <Select value={String(cDrivesPerNode)} onValueChange={(v) => {
+            const newDrivesPerNode = parseInt(v);
+            const totalDrives = cNodeCount * newDrivesPerNode;
+            const setSize = computeErasureSetSize(totalDrives);
+            const maxParity = Math.floor(setSize / 2);
+            const defaultParity = setSize <= 5 ? 2 : setSize <= 7 ? 3 : 4;
+            const currentParity = cData.ecParity ?? 4;
+            if (currentParity > maxParity) {
+              updateCluster({ drivesPerNode: newDrivesPerNode, ecParity: defaultParity });
+            } else {
+              updateCluster({ drivesPerNode: newDrivesPerNode });
+            }
+          }}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -877,8 +925,76 @@ export default function PropertiesPanel() {
               <SelectItem value="1">1 drive</SelectItem>
               <SelectItem value="2">2 drives</SelectItem>
               <SelectItem value="4">4 drives</SelectItem>
+              <SelectItem value="6">6 drives</SelectItem>
+              <SelectItem value="8">8 drives</SelectItem>
+              <SelectItem value="12">12 drives</SelectItem>
+              <SelectItem value="16">16 drives</SelectItem>
             </SelectContent>
           </Select>
+          {(() => {
+            const setSize = computeErasureSetSize(cNodeCount * cDrivesPerNode);
+            const numSets = (cNodeCount * cDrivesPerNode) / setSize;
+            return (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {cNodeCount * cDrivesPerNode} total drives → <span className="font-medium text-foreground">{numSets} × {setSize}-drive erasure set{numSets > 1 ? "s" : ""}</span>
+              </p>
+            );
+          })()}
+        </div>
+        {/* EC Parity */}
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">EC parity</label>
+          <Select
+            value={String(cData.ecParity ?? 4)}
+            onValueChange={v => updateCluster({ ecParity: parseInt(v) })}
+          >
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(() => {
+                const totalDrives = cNodeCount * cDrivesPerNode;
+                const setSize = computeErasureSetSize(totalDrives);
+                return computeECOptions(setSize).map(opt => (
+                  <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                ));
+              })()}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Number of parity shards per erasure set. Higher = more fault tolerance, less usable capacity.</p>
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Parity upgrade policy</label>
+          <Select
+            value={cData.ecParityUpgradePolicy ?? "upgrade"}
+            onValueChange={v => updateCluster({ ecParityUpgradePolicy: v })}
+          >
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="upgrade">upgrade</SelectItem>
+              <SelectItem value="ignore">ignore</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-0.5">upgrade: auto-increase parity when drives are offline. ignore: keep configured parity.</p>
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Disk size per node</label>
+          <Select
+            value={String(cData.diskSizeTb ?? 8)}
+            onValueChange={v => updateCluster({ diskSizeTb: parseInt(v) })}
+          >
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[1, 2, 4, 8, 16, 32].map(n => (
+                <SelectItem key={n} value={String(n)}>{n} TB</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Simulated disk capacity for planning display only. Does not affect containers.</p>
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Root User</label>
@@ -946,11 +1062,59 @@ export default function PropertiesPanel() {
             Allows direct connection to Trino via AIStor Tables
           </p>
         </div>
-        <div className="mt-3 pt-3 border-t border-border">
-          <div className="text-xs text-muted-foreground">
-            Total drives: {totalDrives} &bull; Parity: 50%
-          </div>
-        </div>
+        {/* Capacity & resilience info card */}
+        {(() => {
+          const parity = cData.ecParity ?? 4;
+          const diskTb = cData.diskSizeTb ?? 8;
+          const totalDrives = cNodeCount * cDrivesPerNode;
+          const setSize = computeErasureSetSize(totalDrives);
+          const numSets = totalDrives / setSize;
+          const dataShards = setSize - parity;
+          const usableRatio = dataShards / setSize;
+          const rawTb = totalDrives * diskTb;
+          const usableTb = Math.round(rawTb * usableRatio);
+          const writeQuorum = dataShards === parity ? dataShards + 1 : dataShards;
+          return (
+            <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Capacity &amp; resilience</p>
+              {[
+                ["Erasure sets", `${numSets} × ${setSize} drives`],
+                ["Usable ratio", `${Math.round(usableRatio * 100)}% (${dataShards} data + ${parity} parity)`],
+                ["Raw capacity", `${rawTb} TB`],
+                ["Usable capacity", `${usableTb} TB`],
+                ["Drive tolerance", `${parity} per erasure set`],
+                ["Read quorum", `${dataShards} drives`],
+                ["Write quorum", `${writeQuorum} drives`],
+              ].map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-2">
+                  <span className="text-[11px] text-muted-foreground">{label}</span>
+                  <span className="text-[11px] text-foreground font-mono">{value}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+        {/* Console links — find the first running cluster node instance */}
+        {(() => {
+          const clusterNodeInstance = instances.find((i) => i.node_id === `${selectedNodeId}-node-1`);
+          if (!clusterNodeInstance || clusterNodeInstance.web_uis.length === 0) return null;
+          return (
+            <div className="mt-3 pt-3 border-t border-border">
+              <div className="text-xs text-muted-foreground mb-1">Web UIs</div>
+              {clusterNodeInstance.web_uis.map((ui) => (
+                <a
+                  key={ui.name}
+                  href={proxyUrl(ui.proxy_url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-xs text-primary hover:underline mb-1"
+                >
+                  {ui.name}
+                </a>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     );
   }

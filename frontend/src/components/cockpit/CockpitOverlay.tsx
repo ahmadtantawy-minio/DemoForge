@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { GripHorizontal, X } from "lucide-react";
+import ClusterHealthPanel from "./ClusterHealthPanel";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
 
@@ -51,12 +52,31 @@ function formatRate(bytesPerSec: number): string {
 }
 
 export default function CockpitOverlay() {
-  const { activeDemoId, demos, cockpitEnabled: enabled } = useDemoStore();
+  const { activeDemoId, demos, cockpitEnabled: enabled, clusterHealth } = useDemoStore();
   const [data, setData] = useState<CockpitData | null>(null);
   const prevThroughput = useRef<Record<string, { rx: number; tx: number; ts: number }>>({});
+  const [clusters, setClusters] = useState<{ id: string; drivesPerNode: number }[]>([]);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
+
+  // Fetch full demo definition once when active demo changes to get cluster IDs
+  useEffect(() => {
+    if (!activeDemoId) {
+      setClusters([]);
+      return;
+    }
+    fetch(`${API_BASE}/api/demos/${activeDemoId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((demo) => {
+        if (demo?.clusters) {
+          setClusters(demo.clusters.map((c: any) => ({ id: c.id, drivesPerNode: c.drives_per_node ?? 4 })));
+        } else {
+          setClusters([]);
+        }
+      })
+      .catch(() => setClusters([]));
+  }, [activeDemoId]);
 
   useEffect(() => {
     if (!enabled || !activeDemoId || !isRunning) {
@@ -149,7 +169,7 @@ export default function CockpitOverlay() {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-      <div className="overflow-y-auto p-3">
+      <div className="overflow-y-auto p-3" style={{ maxHeight: "calc(60vh - 32px)" }}>
         {data?.host_stats && (
           <div className="mb-3 pb-3 border-b border-border">
             <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
@@ -216,6 +236,38 @@ export default function CockpitOverlay() {
               </div>
             );
           })
+        )}
+
+        {/* Cluster health panels — one per EC cluster */}
+        {activeDemoId && isRunning && clusters.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-border">
+            {clusters.map((cluster) => {
+              const status = clusterHealth[cluster.id];
+              return (
+                <div key={cluster.id}>
+                  {status && (
+                    <div className={`flex items-center gap-1.5 mb-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      status === "healthy"
+                        ? "bg-green-500/10 text-green-400"
+                        : status === "degraded"
+                        ? "bg-orange-500/10 text-orange-400"
+                        : "bg-red-500/10 text-red-400"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        status === "healthy" ? "bg-green-400" : status === "degraded" ? "bg-orange-400" : "bg-red-400"
+                      }`} />
+                      {cluster.id}: {status === "healthy" ? "quorum OK" : status === "degraded" ? "degraded — quorum lost" : "unreachable"}
+                    </div>
+                  )}
+                  <ClusterHealthPanel
+                    demoId={activeDemoId}
+                    clusterId={cluster.id}
+                    drivesPerNode={cluster.drivesPerNode}
+                  />
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

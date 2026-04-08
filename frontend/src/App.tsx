@@ -26,7 +26,7 @@ import { FAManagementPage } from "./pages/FAManagementPage";
 import { ConnectivityPage } from "./pages/ConnectivityPage";
 
 export default function App() {
-  const { setDemos, setInstances, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage } = useDemoStore();
+  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
@@ -60,6 +60,7 @@ export default function App() {
     const syncInstances = () =>
       fetchInstances(activeDemoId).then((res) => {
         setInstances(res.instances);
+        if (res.cluster_health) setClusterHealth(res.cluster_health);
         // Push health updates to diagram nodes
         const { updateNodeHealth } = useDiagramStore.getState();
         for (const inst of res.instances) {
@@ -200,8 +201,10 @@ export default function App() {
 
   const isExperience = demos.find((d) => d.id === activeDemoId)?.mode === "experience";
   const isDemoRunning = activeDemo?.status === "running";
+  // Palette only editable when definitively stopped — hide during deploying, running, stopping
+  const isDemoEditable = !activeDemo?.status || activeDemo?.status === "stopped" || activeDemo?.status === "error";
   const showSidebars = activeDemoId && activeView === "diagram";
-  const showLeftSidebar = showSidebars && !isExperience && !isDemoRunning;
+  const showLeftSidebar = showSidebars && !isExperience && isDemoEditable;
   const showRightSidebar = showSidebars && !isExperience;
   const showWelcome = !activeDemoId;
 
@@ -235,9 +238,9 @@ export default function App() {
 
           {/* Main area */}
           <div className="flex flex-1 min-h-0">
-            {/* Left sidebar - Component Palette (hidden in experience mode) */}
-            {showLeftSidebar && (
-              <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth }}>
+            {/* Left sidebar - Component Palette (hidden when running or in experience mode, but kept mounted to avoid re-fetching) */}
+            {showSidebars && !isExperience && (
+              <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth, display: isDemoEditable ? undefined : "none" }}>
                 <ComponentPalette />
               </div>
             )}

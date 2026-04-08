@@ -10,7 +10,7 @@ const baseTopItems: { key: PageKey; icon: typeof Home; label: string }[] = [
 ];
 
 const bottomItems: { key: PageKey; icon: typeof Settings; label: string }[] = [
-  { key: "connectivity", icon: Wifi, label: "Network" },
+  { key: "connectivity", icon: Wifi, label: "Healthcheck" },
   { key: "settings", icon: Settings, label: "Settings" },
 ];
 
@@ -28,7 +28,7 @@ export default function AppNav() {
     : baseTopItems;
 
   return (
-    <nav className="flex flex-col items-center w-[52px] flex-shrink-0 bg-zinc-950 border-r border-zinc-800 py-2">
+    <nav className="flex flex-col items-center w-[80px] flex-shrink-0 bg-zinc-950 border-r border-zinc-800 py-2">
       {/* Logo */}
       <div className="w-7 h-7 rounded-md bg-[#C72C48] flex items-center justify-center mb-1">
         <span className="text-white font-bold text-xs">DF</span>
@@ -48,7 +48,7 @@ export default function AppNav() {
               key={key}
               data-testid={`nav-item-${key}`}
               onClick={() => setCurrentPage(key)}
-              className={`flex flex-col items-center justify-center w-10 h-10 rounded-md transition-colors ${
+              className={`flex flex-col items-center justify-center w-[70px] h-10 rounded-md transition-colors ${
                 active
                   ? "bg-zinc-800 border border-zinc-700"
                   : "hover:bg-zinc-800/50 border border-transparent"
@@ -90,7 +90,7 @@ export default function AppNav() {
               key={key}
               data-testid={`nav-item-${key}`}
               onClick={() => setCurrentPage(key)}
-              className={`flex flex-col items-center justify-center w-10 h-10 rounded-md transition-colors ${
+              className={`flex flex-col items-center justify-center w-[70px] h-10 rounded-md transition-colors ${
                 active
                   ? "bg-zinc-800 border border-zinc-700"
                   : "hover:bg-zinc-800/50 border border-transparent"

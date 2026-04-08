@@ -53,14 +53,17 @@ class DemoCluster(BaseModel):
     component: str = "minio"          # "minio" (CE or AIStor edition via config)
     label: str = "MinIO Cluster"
     position: NodePosition
-    node_count: int = 4
-    drives_per_node: int = 1
+    node_count: int = 4               # Valid values: 4, 6, 8, 16
+    drives_per_node: int = 1          # Valid values: 4, 6, 8, 12, 16
     credentials: dict[str, str] = {}  # root_user, root_password
     config: dict[str, str] = {}
     width: float = 280
     height: float = 200
     mcp_enabled: bool = True          # Deploy MCP sidecar for AI tool access
     aistor_tables_enabled: bool = False  # Enable AIStor Tables (direct Trino connection)
+    ec_parity: int = 4                         # EC parity shards (EC:N)
+    ec_parity_upgrade_policy: str = "upgrade"  # "upgrade" or "ignore"
+    disk_size_tb: int = 8                      # Planning display only, not used in containers
 
 class DemoStickyNote(BaseModel):
     id: str

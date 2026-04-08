@@ -20,15 +20,33 @@ interface ClusterNodeData {
   health?: string;
   mcpEnabled?: boolean;
   aistorTablesEnabled?: boolean;
+  ecParity?: number;
+  diskSizeTb?: number;
+}
+
+function erasureSetSize(totalDrives: number): number {
+  for (let d = 16; d >= 2; d--) {
+    if (totalDrives % d === 0) return d;
+  }
+  return totalDrives;
 }
 
 export default function ClusterNode({ id, data, selected }: NodeProps) {
   const nodeData = data as unknown as ClusterNodeData;
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
-  const { instances, activeDemoId, demos, setActiveView } = useDemoStore();
+  const { instances, clusterHealth, activeDemoId, demos, setActiveView } = useDemoStore();
   const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
+  const clusterStatus = isRunning ? (clusterHealth[id] ?? null) : null;
   const nodeCount = nodeData.nodeCount || 4;
   const drivesPerNode = nodeData.drivesPerNode || 1;
+  const ecParity = nodeData.ecParity ?? 4;
+  const diskSizeTb = nodeData.diskSizeTb ?? 8;
+  const totalDrives = nodeCount * drivesPerNode;
+  const setSize = erasureSetSize(totalDrives);
+  const dataShards = Math.max(0, setSize - ecParity);
+  const usableTb = totalDrives >= 4 && dataShards > 0
+    ? Math.round(totalDrives * diskSizeTb * (dataShards / setSize))
+    : null;
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
   const [clusterMenu, setClusterMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -154,21 +172,37 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
               {nodeData.label || "MinIO Cluster"}
             </div>
             <div className="text-[10px] text-muted-foreground">
-              {nodeCount} nodes × {drivesPerNode} drive
-              {drivesPerNode > 1 ? "s" : ""} • {nodeCount * drivesPerNode >= 4 ? "erasure coded" : "replicated"}
+              {nodeCount} nodes × {drivesPerNode} drive{drivesPerNode > 1 ? "s" : ""} • {totalDrives >= 4 ? "erasure coded" : "replicated"}
+              {usableTb !== null && <> · <span className="text-foreground font-medium">{usableTb} TB</span> usable</>}
             </div>
           </div>
-          {clusterInstances.length > 0 && (
-            <div className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-              healthyCount === clusterInstances.length
-                ? "bg-green-500/15 text-green-400"
-                : healthyCount > 0
-                ? "bg-yellow-500/15 text-yellow-400"
-                : "bg-red-500/15 text-red-400"
-            }`}>
-              {healthyCount}/{clusterInstances.length}
-            </div>
-          )}
+          <div className="flex flex-col items-end gap-0.5">
+            {clusterInstances.length > 0 && (
+              <div className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                healthyCount === clusterInstances.length
+                  ? "bg-green-500/15 text-green-400"
+                  : healthyCount > 0
+                  ? "bg-yellow-500/15 text-yellow-400"
+                  : "bg-red-500/15 text-red-400"
+              }`}>
+                {healthyCount}/{clusterInstances.length}
+              </div>
+            )}
+            {clusterStatus && (
+              <div className={`text-[9px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                clusterStatus === "healthy"
+                  ? "bg-green-500/15 text-green-400"
+                  : clusterStatus === "degraded"
+                  ? "bg-orange-500/15 text-orange-400"
+                  : "bg-red-500/15 text-red-400"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full inline-block ${
+                  clusterStatus === "healthy" ? "bg-green-400" : clusterStatus === "degraded" ? "bg-orange-400" : "bg-red-400"
+                }`} />
+                {clusterStatus === "healthy" ? "quorum ok" : clusterStatus === "degraded" ? "degraded" : "no quorum"}
+              </div>
+            )}
+          </div>
         </div>
         {/* Embedded NGINX LB */}
         {(() => {

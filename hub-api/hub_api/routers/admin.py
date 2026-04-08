@@ -7,6 +7,7 @@ from typing import List, Optional
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from ..auth import require_admin
 from ..database import get_db
@@ -229,6 +230,28 @@ async def update_fa_key(
     except Exception:
         raise HTTPException(status_code=409, detail="Key already in use by another FA")
     return FAKeyResponse(fa_id=fa_id, api_key=new_key)
+
+
+class VersionSetRequest(BaseModel):
+    demoforge: str
+    released_at: str | None = None
+
+
+@router.post("/set-latest-version")
+async def set_latest_version(
+    req: VersionSetRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Set the latest released DemoForge version. Called by hub-release.sh after tagging."""
+    now = req.released_at or (datetime.utcnow().isoformat() + "Z")
+    await db.execute(
+        """INSERT INTO app_config (key, value, updated_at)
+           VALUES ('latest_demoforge_version', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
+        (req.demoforge, now),
+    )
+    await db.commit()
+    return {"ok": True, "version": req.demoforge, "released_at": now}
 
 
 @router.delete("/fas/{fa_id}")

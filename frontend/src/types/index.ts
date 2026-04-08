@@ -110,7 +110,7 @@ export interface DemoSummary {
   name: string;
   description: string;
   node_count: number;
-  status: "stopped" | "deploying" | "running" | "error";
+  status: "stopped" | "deploying" | "running" | "stopping" | "error";
   mode?: "standard" | "experience";
 }
 

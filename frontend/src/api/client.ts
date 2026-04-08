@@ -148,6 +148,7 @@ export const fetchInstances = (demoId: string) =>
     status: string;
     instances: import("../types").ContainerInstance[];
     edge_configs?: { edge_id: string; connection_type: string; status: string; description: string; error: string }[];
+    cluster_health?: Record<string, string>;
   }>(`/api/demos/${demoId}/instances`);
 
 export const activateEdgeConfig = (demoId: string, edgeId: string) =>

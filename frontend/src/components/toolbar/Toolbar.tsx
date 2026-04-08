@@ -100,6 +100,7 @@ export default function Toolbar() {
   const handleStop = async () => {
     if (!activeDemoId) return;
     setLoading("stop");
+    updateDemoStatus(activeDemoId, "stopping");
     debugStore.addEntry("info", "Deploy", `Stopping demo ${activeDemoId}...`);
     try {
       await stopDemo(activeDemoId);
@@ -107,6 +108,7 @@ export default function Toolbar() {
       debugStore.addEntry("info", "Deploy", `Demo stopped`);
       toast.success("Demo stopped");
     } catch (err: any) {
+      updateDemoStatus(activeDemoId, "running");
       debugStore.addEntry("error", "Deploy", `Stop failed`, err.message);
       toast.error("Failed to stop demo", { description: err.message });
     } finally {
@@ -114,12 +116,7 @@ export default function Toolbar() {
     }
   };
 
-  const statusColor: Record<string, string> = {
-    running: "text-green-400",
-    deploying: "text-yellow-400",
-    error: "text-red-400",
-    stopped: "text-muted-foreground",
-  };
+  const isTransitioning = activeDemo?.status === "deploying" || activeDemo?.status === "stopping";
 
   // Tooltip text for disabled deploy/stop buttons
   const deployTooltip = !activeDemoId
@@ -128,6 +125,8 @@ export default function Toolbar() {
     ? "Demo is already running"
     : activeDemo?.status === "deploying"
     ? "Deployment in progress"
+    : activeDemo?.status === "stopping"
+    ? "Demo is stopping"
     : null;
 
   const stopTooltip = !activeDemoId
@@ -136,12 +135,14 @@ export default function Toolbar() {
     ? "Demo is already stopped"
     : activeDemo?.status === "deploying"
     ? "Deployment in progress"
+    : activeDemo?.status === "stopping"
+    ? "Already stopping"
     : !activeDemo?.status || activeDemo?.status === "error"
     ? "Demo is not running"
     : null;
 
-  const deployDisabled = !activeDemoId || loading !== null || activeDemo?.status === "running" || activeDemo?.status === "deploying";
-  const stopDisabled = !activeDemoId || loading !== null || activeDemo?.status === "stopped" || !activeDemo?.status || activeDemo?.status === "error";
+  const deployDisabled = !activeDemoId || loading !== null || activeDemo?.status === "running" || activeDemo?.status === "deploying" || activeDemo?.status === "stopping";
+  const stopDisabled = !activeDemoId || loading !== null || activeDemo?.status === "stopped" || activeDemo?.status === "stopping" || !activeDemo?.status || activeDemo?.status === "error";
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -181,8 +182,27 @@ export default function Toolbar() {
                 {activeDemo.name}
               </span>
             )}
-            <span className={`text-xs ${statusColor[activeDemo.status] ?? "text-muted-foreground"}`}>
-              {activeDemo.status}
+            <span className={`inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded ${
+              activeDemo.status === "running"
+                ? "bg-green-500/15 text-green-400"
+                : activeDemo.status === "deploying"
+                ? "bg-yellow-500/15 text-yellow-400"
+                : activeDemo.status === "stopping"
+                ? "bg-orange-500/15 text-orange-400"
+                : activeDemo.status === "error"
+                ? "bg-red-500/15 text-red-400"
+                : "bg-muted text-muted-foreground"
+            }`}>
+              {isTransitioning ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+              ) : (
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  activeDemo.status === "running" ? "bg-green-400"
+                  : activeDemo.status === "error" ? "bg-red-400"
+                  : "bg-muted-foreground"
+                }`} />
+              )}
+              {activeDemo.status === "stopping" ? "stopping…" : activeDemo.status}
             </span>
             <Button
               variant="secondary"

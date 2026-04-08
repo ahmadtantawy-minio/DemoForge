@@ -2,11 +2,13 @@ import asyncio
 import logging
 import os
 import shlex
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..state.store import state, EdgeConfigResult
 from ..registry.loader import get_component
 from ..engine.docker_manager import get_container_health, restart_container, exec_in_container, docker_client
+from ..engine.proxy_gateway import get_http_client
 from ..engine.edge_automation import (
     generate_edge_scripts, _get_credential, _safe, _find_cluster,
     _get_cluster_credentials, _resolve_cluster_endpoint,
@@ -243,9 +245,28 @@ async def list_instances(demo_id: str):
             error=error,
         ))
 
+    # Poll cluster health via LB's /minio/health/cluster endpoint
+    cluster_health: dict[str, str] = {}
+    if demo and demo.clusters:
+        project_name = f"demoforge-{demo_id}"
+        async_client = get_http_client()
+        async def _check_cluster(cluster_id: str) -> tuple[str, str]:
+            lb_host = f"{project_name}-{cluster_id}-lb"
+            try:
+                resp = await async_client.get(
+                    f"http://{lb_host}:80/minio/health/cluster",
+                    timeout=httpx.Timeout(3.0),
+                )
+                return cluster_id, "healthy" if resp.status_code == 200 else "degraded"
+            except Exception:
+                return cluster_id, "unreachable"
+        results = await asyncio.gather(*[_check_cluster(c.id) for c in demo.clusters])
+        cluster_health = dict(results)
+
     return InstancesResponse(
         demo_id=demo_id, status=running.status, instances=instances,
         init_results=running.init_results, edge_configs=edge_configs,
+        cluster_health=cluster_health,
     )
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/restart")

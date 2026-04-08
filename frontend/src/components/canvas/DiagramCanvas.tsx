@@ -144,6 +144,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           config: c.config || {},
           mcpEnabled: c.mcp_enabled !== false,
           aistorTablesEnabled: c.aistor_tables_enabled === true,
+          ecParity: c.ec_parity ?? 4,
+          ecParityUpgradePolicy: c.ec_parity_upgrade_policy ?? "upgrade",
+          diskSizeTb: c.disk_size_tb ?? 8,
         },
       }));
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
@@ -450,12 +453,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           data: {
             label: "MinIO Cluster",
             componentId: "minio",
-            nodeCount: 2,
-            drivesPerNode: 1,
+            nodeCount: 4,
+            drivesPerNode: 4,
             credentials: { root_user: "minioadmin", root_password: "minioadmin" },
             config: {},
             mcpEnabled: true,
             aistorTablesEnabled: false,
+            ecParity: 4,
+            ecParityUpgradePolicy: "upgrade",
+            diskSizeTb: 8,
           },
         };
         addNode(newCluster);
@@ -877,7 +883,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         const isCluster = ctxNode?.type === "cluster";
         let instance = instances.find((i) => i.node_id === contextMenu.nodeId);
         if (!instance && isCluster) {
-          instance = instances.find((i) => i.node_id === `${contextMenu.nodeId}-lb`);
+          instance = instances.find((i) => i.node_id === `${contextMenu.nodeId}-node-1`);
         }
         const terminalNodeId = isCluster ? `${contextMenu.nodeId}-node-1` : contextMenu.nodeId;
         return (

@@ -14,6 +14,14 @@ interface Step {
   detail?: string;
 }
 
+interface ComponentVersion {
+  id: string;
+  name: string;
+  fa_ready: boolean;
+  local_tag: string | null;
+  hub_tag: string | null;
+}
+
 interface CheckResult {
   label: string;
   description: string;
@@ -27,6 +35,10 @@ interface CheckResult {
   total_fas?: number;
   note?: string;
   steps?: Step[];
+  local_version?: string;
+  hub_version?: string;
+  up_to_date?: boolean;
+  component_versions?: ComponentVersion[];
 }
 
 interface ConnectivityResult {
@@ -171,7 +183,7 @@ export function ConnectivityPage() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <Wifi className="w-6 h-6 text-muted-foreground" />
-            <h1 className="text-2xl font-bold text-card-foreground">Connectivity</h1>
+            <h1 className="text-2xl font-bold text-card-foreground">Healthcheck</h1>
           </div>
           <div className="flex items-center gap-3">
             {lastChecked && (
@@ -236,6 +248,45 @@ export function ConnectivityPage() {
           </div>
         )}
 
+        {/* Version banner — always show when local version is known */}
+        {result && (() => {
+          const vc = result.checks?.version;
+          if (!vc?.local_version) return null;
+          const isOutdated = vc.up_to_date === false;
+          const hasHubVersion = !!vc.hub_version;
+          const borderCls = isOutdated
+            ? "border-amber-500/30 bg-amber-500/10"
+            : hasHubVersion
+              ? "border-green-500/20 bg-green-500/5"
+              : "border-zinc-700 bg-zinc-800/20";
+          return (
+            <div className={cn("rounded-lg border px-4 py-3 flex items-center gap-3 mb-4", borderCls)}>
+              {isOutdated
+                ? <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                : hasHubVersion
+                  ? <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                  : <AlertCircle className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+              }
+              <div className="flex-1 min-w-0">
+                <p className={cn("text-sm font-medium",
+                  isOutdated ? "text-amber-300" : hasHubVersion ? "text-green-300" : "text-zinc-400"
+                )}>
+                  {isOutdated
+                    ? `Update available: ${vc.hub_version}`
+                    : hasHubVersion
+                      ? "Up to date"
+                      : "No release published yet"}
+                </p>
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                  Running {vc.local_version}
+                  {isOutdated && ` → ${vc.hub_version} available — run make fa-update`}
+                  {!hasHubVersion && " — run make hub-release to publish the first release"}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Skeleton */}
         {loading && !result && (
           <div className="space-y-3">
@@ -251,6 +302,43 @@ export function ConnectivityPage() {
             ))}
           </div>
         )}
+
+        {/* Component versions — FA mode only */}
+        {result && (() => {
+          const cc = result.checks?.components;
+          const versions = cc?.component_versions;
+          if (!versions || versions.length === 0) return null;
+          const withHubTag = versions.filter(v => v.hub_tag);
+          if (withHubTag.length === 0) return null;
+          return (
+            <div className="mt-4 bg-card border border-zinc-800 rounded-lg overflow-hidden">
+              <div className="px-4 py-3 border-b border-zinc-800">
+                <p className="text-xs font-medium text-muted-foreground">Component Versions</p>
+              </div>
+              <div className="divide-y divide-zinc-800">
+                {withHubTag.map(v => {
+                  const isLatest = v.local_tag === "latest" || !v.local_tag;
+                  const mismatch = v.hub_tag && v.local_tag && !isLatest && v.local_tag !== v.hub_tag;
+                  return (
+                    <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
+                      <span className="text-xs font-medium text-foreground w-28 flex-shrink-0">{v.name || v.id}</span>
+                      <span className="text-xs font-mono text-muted-foreground flex-1 truncate">{v.local_tag || "—"}</span>
+                      <span className="text-xs text-zinc-600 flex-shrink-0">→</span>
+                      <span className={cn("text-xs font-mono flex-1 truncate", mismatch ? "text-amber-400" : "text-zinc-500")}>
+                        {v.hub_tag}
+                      </span>
+                      <span className={cn("text-[10px] flex-shrink-0",
+                        mismatch ? "text-amber-400" : "text-zinc-600"
+                      )}>
+                        {isLatest ? "floating" : mismatch ? "update" : "ok"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Quick setup */}
         {result && !allOk && (() => {

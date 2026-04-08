@@ -22,7 +22,12 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9210", "--reload"]
 
   frontend:
-    # Mount source files so Vite HMR picks up changes without rebuilding the image
+    # Use the dev stage: Vite HMR instead of nginx
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    # Source files mounted for HMR; node_modules stays from the image layer
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
