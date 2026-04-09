@@ -246,7 +246,7 @@ export default function App() {
   const isExperience = demos.find((d) => d.id === activeDemoId)?.mode === "experience";
   const isDemoRunning = activeDemo?.status === "running";
   // Palette only editable when definitively stopped — hide during deploying, running, stopping
-  const isDemoEditable = !activeDemo?.status || activeDemo?.status === "stopped" || activeDemo?.status === "error";
+  const isDemoEditable = !activeDemo?.status || activeDemo?.status === "not_deployed" || activeDemo?.status === "stopped" || activeDemo?.status === "error";
   const showSidebars = activeDemoId && activeView === "diagram";
   const showLeftSidebar = showSidebars && !isExperience && isDemoEditable;
   const showRightSidebar = showSidebars && !isExperience;

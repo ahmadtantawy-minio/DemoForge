@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Copy } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import type { ContainerInstance } from "../../../types";
 import { proxyUrl, restartInstance, execCommand, startGenerator, stopGenerator } from "../../../api/client";
@@ -21,11 +22,12 @@ interface Props {
   onOpenMcpTools?: () => void;
   onOpenAiChat?: () => void;
   onOpenSqlEditor?: () => void;
+  onCopyNode?: () => void;
   onClose: () => void;
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onClose,
 }: Props) {
 
   const clampedX = Math.min(x, window.innerWidth - 200);
@@ -203,6 +205,18 @@ export default function NodeContextMenu({
         <div className="px-3 py-1.5 text-xs text-muted-foreground">
           Not deployed yet
         </div>
+      )}
+      {!isRunning && onCopyNode && (
+        <>
+          <div className="border-t border-border mt-1 pt-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
+            onClick={() => { onCopyNode(); onClose(); }}
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Copy Component
+          </button>
+        </>
       )}
       {!isRunning && (
         <div className="border-t border-border mt-1 pt-1">

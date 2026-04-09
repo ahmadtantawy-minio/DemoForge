@@ -155,10 +155,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
             ids_for_pool = []
             for i in range(1, pool.node_count + 1):
-                if is_multi_pool:
-                    node_id = f"{cluster.id}-pool{p_idx}-node-{i}"
-                else:
-                    node_id = f"{cluster.id}-node-{i}"
+                node_id = f"{cluster.id}-pool{p_idx}-node-{i}"
                 ids_for_pool.append(node_id)
                 generated_ids.append(node_id)
             pool_node_ids.append(ids_for_pool)
@@ -170,10 +167,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         for p_idx, pool in enumerate(pools, start=1):
             n = pool.node_count
             drives = pool.drives_per_node
-            if is_multi_pool:
-                pool_alias = f"{alias_prefix}pool{p_idx}"
-            else:
-                pool_alias = alias_prefix
+            pool_alias = f"{alias_prefix}pool{p_idx}"
             if drives > 1:
                 url = f"http://{pool_alias}{{1...{n}}}:9000/data{{1...{drives}}}"
             else:
@@ -185,10 +179,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         # Create synthetic DemoNode entries
         for p_idx, (pool, ids_for_pool) in enumerate(zip(pools, pool_node_ids), start=1):
             for i, node_id in enumerate(ids_for_pool):
-                if is_multi_pool:
-                    node_alias = f"{alias_prefix}pool{p_idx}{i + 1}"
-                else:
-                    node_alias = f"{alias_prefix}{i + 1}"
+                node_alias = f"{alias_prefix}pool{p_idx}{i + 1}"
                 synthetic_node = DemoNode(
                     id=node_id,
                     component=cluster.component,
@@ -1181,6 +1172,60 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 warehouse = snode.config.get("ICEBERG_WAREHOUSE", "analytics")
                 lines.append(f"# Setup AIStor Tables warehouse for standalone {alias_name}")
                 lines.append(f"mc table warehouse create '{alias_name}' {warehouse} --ignore-existing 2>/dev/null || echo 'Warehouse setup skipped (mc table not available)'")
+
+        # Comprehensive bucket auto-creation for all S3-connected edges
+        _s3_edge_types = {"s3", "structured-data", "file-push", "aistor-tables"}
+        _bucket_cfg_keys = [
+            "target_bucket", "bucket", "sink_bucket", "documents_bucket", "audit_bucket",
+            "snapshot_bucket", "artifact_bucket", "training_bucket", "source_bucket",
+            "output_bucket", "milvus_bucket", "dag_bucket", "log_bucket",
+        ]
+
+        def _cluster_alias_for_node(node_id: str) -> str | None:
+            """Return the mc alias name for a cluster LB or standalone MinIO node, or None."""
+            if node_id.endswith("-lb"):
+                cid = node_id[:-3]
+                c = next((x for x in demo.clusters if x.id == cid), None)
+                if c:
+                    return re.sub(r"[^a-zA-Z0-9_]", "_", c.label)
+            n = next((x for x in standalone_minio if x.id == node_id), None)
+            if n:
+                return re.sub(r"[^a-zA-Z0-9_]", "_", n.display_name) if n.display_name else n.id
+            return None
+
+        seen_mc_buckets: set[tuple[str, str]] = set()
+        for edge in demo.edges:
+            if edge.connection_type not in _s3_edge_types:
+                continue
+            cfg = edge.connection_config or {}
+
+            # Resolve MinIO alias(es) for this edge
+            minio_aliases: list[str] = []
+            for node_id in (edge.target, edge.source):
+                a = _cluster_alias_for_node(node_id)
+                if a:
+                    minio_aliases.append(a)
+            # For user-placed nginx intermediaries: follow their load-balance edges
+            target_node = next((n for n in demo.nodes if n.id == edge.target), None)
+            if target_node and target_node.component == "nginx":
+                for e2 in demo.edges:
+                    if e2.source == edge.target and e2.connection_type == "load-balance":
+                        a = _cluster_alias_for_node(e2.target)
+                        if a:
+                            minio_aliases.append(a)
+
+            # Collect bucket names from edge config
+            edge_buckets: list[str] = [cfg[k] for k in _bucket_cfg_keys if cfg.get(k)]
+            # Default bucket for file-push with no explicit config
+            if edge.connection_type == "file-push" and not edge_buckets:
+                edge_buckets.append("demo-bucket")
+
+            for alias in minio_aliases:
+                for bucket in edge_buckets:
+                    key = (alias, bucket)
+                    if key not in seen_mc_buckets:
+                        seen_mc_buckets.add(key)
+                        lines.append(f"mc mb '{alias}/{bucket}' --ignore-existing 2>/dev/null || true")
 
         lines.append("echo 'mc aliases configured.'")
 

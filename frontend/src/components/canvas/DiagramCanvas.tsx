@@ -32,7 +32,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MousePointerClick, Group, Save, Check, X, Loader2, Copy } from "lucide-react";
+import { MousePointerClick, Group, Save, Check, X, Loader2, Copy, Clipboard } from "lucide-react";
 
 const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
@@ -53,7 +53,7 @@ interface DiagramCanvasProps {
 }
 
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests, setDirty } = useDiagramStore();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests, setDirty, clipboard, setClipboard } = useDiagramStore();
   const { activeDemoId, instances, demos } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
@@ -94,6 +94,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string; confirm: boolean } | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
+  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
   const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: string } | null>(null);
@@ -147,6 +148,19 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           ecParity: c.ec_parity ?? 4,
           ecParityUpgradePolicy: c.ec_parity_upgrade_policy ?? "upgrade",
           diskSizeTb: c.disk_size_tb ?? 8,
+          // Map server_pools (backend snake_case) → serverPools (frontend camelCase)
+          // Without this, migrateClusterData recreates a default single pool on every load,
+          // discarding any multi-pool or customised pool configuration.
+          serverPools: (c.server_pools || []).map((p: any) => ({
+            id: p.id,
+            nodeCount: p.node_count,
+            drivesPerNode: p.drives_per_node,
+            diskSizeTb: p.disk_size_tb ?? 8,
+            diskType: p.disk_type ?? "ssd",
+            ecParity: p.ec_parity ?? 4,
+            ecParityUpgradePolicy: p.ec_parity_upgrade_policy ?? "upgrade",
+            volumePath: p.volume_path ?? "/data",
+          })),
         },
       }));
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
@@ -691,6 +705,32 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     setPendingDelete({ type: "node", ids: [nodeId] });
   }, []);
 
+  const handleCopyNode = useCallback((nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (node) setClipboard(node);
+  }, [nodes, setClipboard]);
+
+  const handlePaste = useCallback(() => {
+    if (!clipboard) return;
+    nodeCounter += 1;
+    const base = (clipboard.data as any)?.componentId || clipboard.id.replace(/-\d+$/, "");
+    const newId = `${base}-${nodeCounter}`;
+    const offset = 40;
+    const newNode: Node = {
+      ...clipboard,
+      id: newId,
+      position: { x: clipboard.position.x + offset, y: clipboard.position.y + offset },
+      selected: false,
+      data: { ...((clipboard.data as any) || {}), componentId: base },
+    };
+    addNode(newNode);
+    setPaneMenu(null);
+    if (activeDemoId) {
+      const state = useDiagramStore.getState();
+      saveDiagram(activeDemoId, [...state.nodes, newNode], state.edges).then(() => setDirty(false)).catch(() => {});
+    }
+  }, [clipboard, addNode, activeDemoId, setDirty]);
+
   // Confirm deletion
   const confirmDelete = useCallback(() => {
     if (!pendingDelete) return;
@@ -746,10 +786,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       setContextMenu(null);
       setEdgeContextMenu(null);
       setSelectionMenu(null);
+      setPaneMenu(null);
     };
-    if (contextMenu || selectionMenu) window.addEventListener("click", handler);
+    if (contextMenu || selectionMenu || paneMenu) window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
-  }, [contextMenu, selectionMenu]);
+  }, [contextMenu, selectionMenu, paneMenu]);
 
   // Filter nodes/edges by visibility toggles in experience mode
   const visibleNodes = isExperience
@@ -829,6 +870,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         onSelectionContextMenu={isExperience ? undefined : onSelectionContextMenu}
         onSelectionChange={onSelectionChange}
         onNodeDragStop={isExperience ? undefined : onNodeDragStop}
+        onPaneContextMenu={(e) => {
+          e.preventDefault();
+          setPaneMenu({ x: e.clientX, y: e.clientY });
+        }}
         colorMode={isDark ? "dark" : "light"}
         deleteKeyCode={null}
         nodesDraggable={true}
@@ -890,9 +935,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         const isCluster = ctxNode?.type === "cluster";
         let instance = instances.find((i) => i.node_id === contextMenu.nodeId);
         if (!instance && isCluster) {
-          instance = instances.find((i) => i.node_id === `${contextMenu.nodeId}-node-1`);
+          instance = instances.find((i) => i.node_id === `${contextMenu.nodeId}-pool1-node-1`);
         }
-        const terminalNodeId = isCluster ? `${contextMenu.nodeId}-node-1` : contextMenu.nodeId;
+        const terminalNodeId = isCluster ? `${contextMenu.nodeId}-pool1-node-1` : contextMenu.nodeId;
         return (
           <NodeContextMenu
             x={contextMenu.x}
@@ -912,6 +957,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             isRunning={isRunning}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
+            onCopyNode={() => handleCopyNode(contextMenu.nodeId)}
             onClose={() => setContextMenu(null)}
           />
         );
@@ -1062,6 +1108,26 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           >
             <Group className="w-4 h-4" />
             Create Group
+          </button>
+        </div>
+      )}
+
+      {paneMenu && (
+        <div
+          className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
+          style={{
+            top: Math.min(paneMenu.y, window.innerHeight - 100),
+            left: Math.min(paneMenu.x, window.innerWidth - 200),
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${clipboard ? "hover:bg-accent hover:text-accent-foreground" : "text-muted-foreground cursor-not-allowed"} transition-colors`}
+            onClick={clipboard ? handlePaste : undefined}
+            disabled={!clipboard}
+          >
+            <Clipboard className="w-3.5 h-3.5" />
+            Paste
           </button>
         </div>
       )}

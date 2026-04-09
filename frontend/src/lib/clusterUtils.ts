@@ -8,10 +8,8 @@ export function getClusterInstances(instances: ContainerInstance[], clusterId: s
   );
 }
 
-export function getPoolInstances(instances: ContainerInstance[], clusterId: string, poolIndex: number, totalPools: number): ContainerInstance[] {
-  if (totalPools === 1) {
-    return instances.filter(i => i.node_id.startsWith(`${clusterId}-node-`));
-  }
+export function getPoolInstances(instances: ContainerInstance[], clusterId: string, poolIndex: number, _totalPools: number): ContainerInstance[] {
+  // compose_generator always uses pool{n} naming regardless of pool count
   return instances.filter(i => i.node_id.startsWith(`${clusterId}-pool${poolIndex}-node-`));
 }
 
@@ -29,7 +27,7 @@ export function computeClusterAggregates(pools: MinioServerPool[]) {
   };
 }
 
-export function nodeContainerName(clusterId: string, poolIndex: number, nodeIndex: number, totalPools: number): string {
-  if (totalPools === 1) return `${clusterId}-node-${nodeIndex}`;
+export function nodeContainerName(clusterId: string, poolIndex: number, nodeIndex: number, _totalPools: number): string {
+  // compose_generator always uses pool{n} naming regardless of pool count
   return `${clusterId}-pool${poolIndex}-node-${nodeIndex}`;
 }

@@ -158,19 +158,24 @@ async def list_instances(demo_id: str):
                 return cluster_id, "unreachable"
         results = await asyncio.gather(*[_check_cluster_early(c.id) for c in demo.clusters])
         cluster_health = dict(results)
+        # Override cluster health with stopped_drives as authoritative source.
+        # MinIO may not immediately report chmod'd drives as offline, so if we
+        # have recorded stopped drives for any node in the cluster, force "degraded".
+        for cluster in demo.clusters:
+            stopped_count = sum(
+                len(drives)
+                for node_id, drives in running.stopped_drives.items()
+                if node_id.startswith(f"{cluster.id}-")
+            )
+            if stopped_count > 0:
+                cluster_health[cluster.id] = "degraded"
         # If cluster is healthy, all its nodes are healthy regardless of Docker healthcheck status.
         # This prevents false "error" badges when MinIO is up but Docker healthcheck is slow/transient.
         for cluster in demo.clusters:
             if cluster_health.get(cluster.id) == "healthy":
-                pools = cluster.get_pools()
-                is_multi_pool = len(pools) > 1
-                for p_idx, pool in enumerate(pools, start=1):
+                for p_idx, pool in enumerate(cluster.get_pools(), start=1):
                     for i in range(1, pool.node_count + 1):
-                        if is_multi_pool:
-                            node_id = f"{cluster.id}-pool{p_idx}-node-{i}"
-                        else:
-                            node_id = f"{cluster.id}-node-{i}"
-                        cluster_node_health_override[node_id] = "healthy"
+                        cluster_node_health_override[f"{cluster.id}-pool{p_idx}-node-{i}"] = "healthy"
 
     instances = []
     for node_id, container in running.containers.items():
@@ -259,6 +264,31 @@ async def list_instances(demo_id: str):
             init_status="completed",
             stopped_drives=running.stopped_drives.get(node_id, []),
         ))
+
+    # Poll file-generator containers for per-edge status
+    if demo:
+        fg_node_ids = {n.id for n in demo.nodes if n.component == "file-generator"}
+        for fg_id in fg_node_ids:
+            if fg_id not in running.containers:
+                continue
+            container_name = running.containers[fg_id].container_name
+            try:
+                import json as _json
+                exit_code, stdout, _stderr = await exec_in_container(
+                    container_name, "cat /tmp/gen_status.json 2>/dev/null"
+                )
+                if exit_code == 0 and stdout.strip():
+                    status_map = _json.loads(stdout.strip())
+                    for edge_id, status in status_map.items():
+                        running.edge_configs[edge_id] = EdgeConfigResult(
+                            edge_id=edge_id,
+                            connection_type="file-push",
+                            status=status,
+                            description=f"File generator write: {status}",
+                            error="Write failed" if status == "failed" else "",
+                        )
+            except Exception:
+                pass
 
     # Build edge configs with live verification for site-replication
     edge_configs = []

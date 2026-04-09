@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Handle, Position, type NodeProps, NodeResizer, useReactFlow } from "@xyflow/react";
+import { Handle, Position, type NodeProps, useReactFlow } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
 import { stopInstance, startInstance, resetCluster, stopDrive, startDrive } from "../../../api/client";
@@ -16,13 +16,13 @@ import ClusterContextMenu from "./cluster/ClusterContextMenu";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
 import McpPanel from "../../minio/McpPanel";
 
-export default function ClusterNode({ id, data, selected }: NodeProps) {
+export default function ClusterNode({ id, data }: NodeProps) {
   const nodeRef = useRef<HTMLDivElement>(null);
-  const [minSize, setMinSize] = useState<{ width: number; height: number }>({ width: 380, height: 160 });
+  const lastReportedSize = useRef({ width: 0, height: 0 });
   const { updateNode } = useReactFlow();
   const nodeData = migrateClusterData(data);
   const pools = nodeData.serverPools || [];
-  const { setSelectedNode, setSelectedClusterElement, selectedClusterElement, nodes, setNodes } = useDiagramStore();
+  const { setSelectedNode, setSelectedClusterElement, selectedClusterElement, nodes, setNodes, setClipboard } = useDiagramStore();
   const { instances, clusterHealth, activeDemoId, demos, setActiveView } = useDemoStore();
   const demoStatus = demos.find((d) => d.id === activeDemoId)?.status;
   const isRunning = demoStatus === "running";
@@ -61,12 +61,15 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
     const el = nodeRef.current;
     if (!el) return;
     const measure = () => {
-      // offsetHeight/offsetWidth include border+padding and reflect the actual rendered size
-      const h = el.offsetHeight;
-      const w = el.offsetWidth;
-      if (h > 0) {
-        updateNode(id, { height: h, width: Math.max(w, 380) });
-        setMinSize({ width: Math.max(w, 380), height: h });
+      // scrollWidth captures the full content width even when the container is constrained by
+      // React Flow's node width (w-full), so overflow (e.g. 6-node pools) is correctly detected.
+      const h = el.scrollHeight;
+      const w = Math.max(el.scrollWidth, 380);
+      // Guard: skip updateNode when size hasn't changed to prevent ResizeObserver feedback loop
+      // (updateNode → wrapper grows → w-full div expands → scrollWidth grows → repeat).
+      if (h > 0 && (w !== lastReportedSize.current.width || h !== lastReportedSize.current.height)) {
+        lastReportedSize.current = { width: w, height: h };
+        updateNode(id, { height: h, width: w });
       }
     };
     const rafId = requestAnimationFrame(measure);
@@ -79,7 +82,8 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
       clearTimeout(timerId);
       observer.disconnect();
     };
-  }, [id, updateNode]);
+  // Re-run when runtime data changes so sizing stays correct after health/instance updates
+  }, [id, updateNode, instances, clusterHealth]);
 
   const handleAddPool = useCallback(() => {
     if (pools.length === 0) return;
@@ -182,7 +186,6 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
 
   return (
     <>
-      <NodeResizer isVisible={selected} minWidth={minSize.width} minHeight={minSize.height} />
       <div
         ref={nodeRef}
         className="w-full rounded-xl p-3.5 cursor-pointer bg-zinc-100 dark:bg-zinc-900"
@@ -200,36 +203,10 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         }}
       >
         <Handle type="target" position={Position.Left} id="data-in" />
-        <Handle
-          type="target"
-          position={Position.Top}
-          id="data-in-top"
-          className="!left-1/3 !w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0"
-        />
-        <Handle
-          type="source"
-          position={Position.Top}
-          id="cluster-out"
-          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10 }}
-        />
-        <Handle
-          type="target"
-          position={Position.Top}
-          id="cluster-in-top"
-          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10, opacity: 0 }}
-        />
-        <Handle
-          type="target"
-          position={Position.Bottom}
-          id="cluster-in"
-          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10 }}
-        />
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          id="cluster-out-bottom"
-          style={{ width: 12, height: 12, background: "#3b82f6", border: "2px solid #60a5fa", zIndex: 10, opacity: 0 }}
-        />
+        <Handle type="target" position={Position.Top} id="cluster-in-top" />
+        <Handle type="source" position={Position.Top} id="cluster-out" className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0" style={{ position: "absolute", top: 0, left: "50%" }} />
+        <Handle type="source" position={Position.Bottom} id="cluster-out-bottom" />
+        <Handle type="target" position={Position.Bottom} id="cluster-in" className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0" style={{ position: "absolute", bottom: 0, left: "50%" }} />
 
         <ClusterHeader
           label={nodeData.label || "MinIO Cluster"}
@@ -268,10 +245,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
               }}
             >
               {Array.from({ length: pool.nodeCount }, (_, ni) => {
-                const nodeId =
-                  pools.length === 1
-                    ? `${id}-node-${ni + 1}`
-                    : `${id}-pool${idx + 1}-node-${ni + 1}`;
+                const nodeId = `${id}-pool${idx + 1}-node-${ni + 1}`;
                 const inst = poolInstances.find((i) => i.node_id === nodeId);
                 const flatIdx = flatOffset + ni;
                 return (
@@ -354,6 +328,10 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
           onStopDrive={handleStopDrive}
           onStartDrive={handleStartDrive}
           onResetCluster={handleResetCluster}
+          onCopy={() => {
+            const self = nodes.find((n) => n.id === id);
+            if (self) setClipboard(self);
+          }}
           onDeleteCluster={() => {
             setNodes(nodes.filter((n) => n.id !== id));
             setContextMenu(null);

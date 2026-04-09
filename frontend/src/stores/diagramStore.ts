@@ -45,6 +45,8 @@ interface DiagramState {
   completePendingConnection: (connectionType: string, direction?: "forward" | "reverse") => void;
   isDirty: boolean;
   setDirty: (dirty: boolean) => void;
+  clipboard: Node | null;
+  setClipboard: (node: Node | null) => void;
 }
 
 export const useDiagramStore = create<DiagramState>((set, get) => ({
@@ -217,6 +219,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
   isDirty: false,
   setDirty: (dirty) => set({ isDirty: dirty }),
+
+  clipboard: null,
+  setClipboard: (node) => set({ clipboard: node }),
 
   setPendingConnection: (pending) => set({ pendingConnection: pending }),
 

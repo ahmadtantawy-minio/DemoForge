@@ -15,8 +15,6 @@ interface ClusterStats {
   alias: string;
   buckets: BucketStat[];
   throughput: {
-    rx_bytes_total?: number;
-    tx_bytes_total?: number;
     rx_bytes_per_sec?: number;
     tx_bytes_per_sec?: number;
   };
@@ -107,7 +105,6 @@ export default function CockpitOverlay() {
   const [data, setData] = useState<CockpitData | null>(null);
   const [healthData, setHealthData] = useState<CockpitHealthData | null>(null);
   const [activeTab, setActiveTab] = useState<"health" | "stats">("health");
-  const prevThroughput = useRef<Record<string, { rx: number; tx: number; ts: number }>>({});
   const [clusters, setClusters] = useState<{ id: string; drivesPerNode: number }[]>([]);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
@@ -147,25 +144,7 @@ export default function CockpitOverlay() {
           return;
         }
         const json: CockpitData = await res.json();
-
-        // Compute throughput rates from deltas
-        const now = Date.now();
-        for (const cluster of json.clusters) {
-          const prev = prevThroughput.current[cluster.alias];
-          const rxTotal = cluster.throughput.rx_bytes_total || 0;
-          const txTotal = cluster.throughput.tx_bytes_total || 0;
-
-          if (prev) {
-            const dt = (now - prev.ts) / 1000; // seconds
-            if (dt > 0) {
-              cluster.throughput.rx_bytes_per_sec = Math.max(0, (rxTotal - prev.rx) / dt);
-              cluster.throughput.tx_bytes_per_sec = Math.max(0, (txTotal - prev.tx) / dt);
-            }
-          }
-
-          prevThroughput.current[cluster.alias] = { rx: rxTotal, tx: txTotal, ts: now };
-        }
-
+        // Backend provides rx_bytes_per_sec / tx_bytes_per_sec directly from mc admin bandwidth
         setData(json);
       } catch {
         // Silently fail — cockpit is non-critical
@@ -206,9 +185,10 @@ export default function CockpitOverlay() {
   const [pos, setPos] = useState({ x: window.innerWidth - 420, y: 60 });
   const dragRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
 
-  // Resizable width
+  // Resizable width and height
   const [cockpitWidth, setCockpitWidth] = useState(BASE_WIDTH);
-  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [cockpitHeight, setCockpitHeight] = useState(() => Math.min(window.innerHeight * 0.6, 600));
+  const resizeRef = useRef<{ startX: number; startWidth: number; startY: number; startHeight: number } | null>(null);
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -232,11 +212,13 @@ export default function CockpitOverlay() {
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    resizeRef.current = { startX: e.clientX, startWidth: cockpitWidth };
+    resizeRef.current = { startX: e.clientX, startWidth: cockpitWidth, startY: e.clientY, startHeight: cockpitHeight };
     const onMove = (ev: MouseEvent) => {
       if (!resizeRef.current) return;
-      const newWidth = Math.max(280, Math.min(700, resizeRef.current.startWidth + (resizeRef.current.startX - ev.clientX)));
+      const newWidth = Math.max(280, Math.min(700, resizeRef.current.startWidth + (ev.clientX - resizeRef.current.startX)));
+      const newHeight = Math.max(200, Math.min(window.innerHeight - 100, resizeRef.current.startHeight + (ev.clientY - resizeRef.current.startY)));
       setCockpitWidth(newWidth);
+      setCockpitHeight(newHeight);
     };
     const onUp = () => {
       resizeRef.current = null;
@@ -245,7 +227,7 @@ export default function CockpitOverlay() {
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [cockpitWidth]);
+  }, [cockpitWidth, cockpitHeight]);
 
   const scale = cockpitWidth / BASE_WIDTH;
 
@@ -254,11 +236,6 @@ export default function CockpitOverlay() {
       className="fixed z-50 bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden flex flex-col"
       style={{ left: pos.x, top: pos.y, width: cockpitWidth }}
     >
-      {/* Left resize handle */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors z-10"
-        onMouseDown={onResizeStart}
-      />
 
       {/* Draggable header */}
       <div
@@ -297,15 +274,17 @@ export default function CockpitOverlay() {
         ))}
       </div>
 
-      {/* Scaled content wrapper */}
-      <div className="overflow-hidden" style={{ maxHeight: `calc(${scale} * 60vh)` }}>
+      {/* Scaled content wrapper — outer scrolls at cockpitHeight, inner scales content */}
+      <div
+        className="overflow-y-auto"
+        style={{ height: cockpitHeight }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div
           style={{
             transform: `scale(${scale})`,
             transformOrigin: "top left",
             width: BASE_WIDTH,
-            maxHeight: "60vh",
-            overflowY: "auto",
           }}
           className="p-3"
         >
@@ -326,6 +305,17 @@ export default function CockpitOverlay() {
             />
           )}
         </div>
+      </div>
+
+      {/* Bottom-right corner resize handle */}
+      <div
+        className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize z-10 flex items-end justify-end pb-0.5 pr-0.5"
+        onMouseDown={onResizeStart}
+      >
+        <svg width="8" height="8" viewBox="0 0 8 8" className="text-muted-foreground/50">
+          <line x1="2" y1="8" x2="8" y2="2" stroke="currentColor" strokeWidth="1" />
+          <line x1="5" y1="8" x2="8" y2="5" stroke="currentColor" strokeWidth="1" />
+        </svg>
       </div>
     </div>
   );
@@ -405,7 +395,11 @@ function ClusterAdminInfo({ cluster }: { cluster: ClusterHealthResult }) {
     );
   }
 
-  const servers = info.servers ?? [];
+  const servers = [...(info.servers ?? [])].sort((a, b) => {
+    const ha = (a.endpoint ?? "").replace(/^https?:\/\//, "").replace(/:\d+$/, "");
+    const hb = (b.endpoint ?? "").replace(/^https?:\/\//, "").replace(/:\d+$/, "");
+    return ha.localeCompare(hb, undefined, { numeric: true, sensitivity: "base" });
+  });
   const backend = info.backend ?? {};
   const usage = info.usage ?? {};
   const onlineDisks = backend.onlineDisks ?? 0;

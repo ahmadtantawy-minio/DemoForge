@@ -83,7 +83,7 @@ server {
 {% if edge.connection_config and edge.connection_config.algorithm %}
 {% set ns.algo = edge.connection_config.algorithm %}
 {% endif %}
-{% set port = edge.connection_config.backend_port|default('9000') if edge.connection_config else '9000' %}
+{% set port = (80 if target_node.id.endswith('-lb') else (edge.connection_config.backend_port|default('9000') if edge.connection_config else '9000')) %}
 {% set _ = upstreams.append({'node': target_node, 'port': port}) %}
 {% endif %}
 {% endif %}

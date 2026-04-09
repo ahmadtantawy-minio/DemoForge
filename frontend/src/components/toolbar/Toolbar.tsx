@@ -1,12 +1,11 @@
 import { useState, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
-import { deployDemo, stopDemo, fetchDemos, updateDemo, saveDiagram, fetchInstances } from "../../api/client";
+import { deployDemo, stopDemo, startDemo, destroyDemo, fetchDemos, updateDemo, saveDiagram, fetchInstances, fetchTaskStatus } from "../../api/client";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { toast } from "../../lib/toast";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
-import LicenseSettings from "../admin/LicenseSettings";
 import SettingsDialog from "../settings/SettingsDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,8 +31,8 @@ export default function Toolbar() {
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
+  const [deployTaskId, setDeployTaskId] = useState<string | undefined>(undefined);
   const [selectorOpen, setSelectorOpen] = useState(false);
-  const [licensesOpen, setLicensesOpen] = useState(false);
   const [configViewerOpen, setConfigViewerOpen] = useState(false);
   const [scriptPanelOpen, setScriptPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -103,13 +102,20 @@ export default function Toolbar() {
     await saveDiagram(activeDemoId, [...componentNodes, ...groups], edges).catch(() => {});
     useDiagramStore.getState().setDirty(false);
     updateDemoStatus(activeDemoId, "deploying");
-    setDeploying(true);
-    toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
-    deployDemo(activeDemoId).catch(() => {});
+    try {
+      const res = await deployDemo(activeDemoId);
+      setDeployTaskId(res.task_id);
+      setDeploying(true);
+      toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
+    } catch (err: any) {
+      updateDemoStatus(activeDemoId, "error");
+      toast.error("Failed to start deployment", { description: err.message });
+    }
   };
 
   const handleDeployDone = (success: boolean) => {
     setDeploying(false);
+    setDeployTaskId(undefined);
     if (activeDemoId) {
       updateDemoStatus(activeDemoId, success ? "running" : "error");
     }
@@ -121,21 +127,116 @@ export default function Toolbar() {
     fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
   };
 
+  // Poll a background task until it finishes, then call onDone.
+  const pollTask = useCallback((demoId: string, taskId: string, onDone: (success: boolean, error?: string) => void) => {
+    const interval = setInterval(async () => {
+      try {
+        const task = await fetchTaskStatus(demoId, taskId);
+        if (task.finished || task.status === "done" || task.status === "error" || task.status === "timeout") {
+          clearInterval(interval);
+          onDone(task.status === "done", task.error || undefined);
+        }
+      } catch {
+        // network blip — keep polling
+      }
+    }, 1000);
+  }, []);
+
   const handleStop = async () => {
     if (!activeDemoId) return;
     setLoading("stop");
     updateDemoStatus(activeDemoId, "stopping");
     debugStore.addEntry("info", "Deploy", `Stopping demo ${activeDemoId}...`);
     try {
-      await stopDemo(activeDemoId);
-      updateDemoStatus(activeDemoId, "stopped");
-      debugStore.addEntry("info", "Deploy", `Demo stopped`);
-      toast.success("Demo stopped");
+      const res = await stopDemo(activeDemoId);
+      if (res.task_id) {
+        pollTask(activeDemoId, res.task_id, (success, error) => {
+          setLoading(null);
+          if (success) {
+            updateDemoStatus(activeDemoId, "stopped");
+            debugStore.addEntry("info", "Deploy", "Demo stopped");
+            toast.success("Demo stopped");
+          } else {
+            updateDemoStatus(activeDemoId, "running");
+            debugStore.addEntry("error", "Deploy", "Stop failed", error);
+            toast.error("Failed to stop demo", { description: error });
+          }
+          fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
+        });
+      } else {
+        updateDemoStatus(activeDemoId, "stopped");
+        toast.success("Demo stopped");
+        setLoading(null);
+      }
     } catch (err: any) {
       updateDemoStatus(activeDemoId, "running");
-      debugStore.addEntry("error", "Deploy", `Stop failed`, err.message);
+      debugStore.addEntry("error", "Deploy", "Stop failed", err.message);
       toast.error("Failed to stop demo", { description: err.message });
-    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleStart = async () => {
+    if (!activeDemoId) return;
+    // Auto-save so any edits made in stopped state are persisted before resuming
+    const { nodes, edges } = useDiagramStore.getState();
+    const groups = nodes.filter((n) => n.type === "group");
+    const componentNodes = nodes.filter((n) => n.type !== "group");
+    await saveDiagram(activeDemoId, [...componentNodes, ...groups], edges).catch(() => {});
+    useDiagramStore.getState().setDirty(false);
+    setLoading("deploy");
+    updateDemoStatus(activeDemoId, "deploying");
+    try {
+      const res = await startDemo(activeDemoId);
+      if (res.task_id) {
+        pollTask(activeDemoId, res.task_id, (success, error) => {
+          setLoading(null);
+          if (success) {
+            updateDemoStatus(activeDemoId, "running");
+            toast.success("Demo started");
+          } else {
+            updateDemoStatus(activeDemoId, "stopped");
+            toast.error("Failed to start demo", { description: error });
+          }
+          fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
+        });
+      } else {
+        updateDemoStatus(activeDemoId, "running");
+        toast.success("Demo started");
+        setLoading(null);
+      }
+    } catch (err: any) {
+      updateDemoStatus(activeDemoId, "stopped");
+      toast.error("Failed to start demo", { description: err.message });
+      setLoading(null);
+    }
+  };
+
+  const handleDestroy = async () => {
+    if (!activeDemoId) return;
+    setLoading("stop");
+    updateDemoStatus(activeDemoId, "stopping");
+    try {
+      const res = await destroyDemo(activeDemoId);
+      if (res.task_id) {
+        pollTask(activeDemoId, res.task_id, (success, error) => {
+          setLoading(null);
+          if (success) {
+            updateDemoStatus(activeDemoId, "not_deployed");
+            toast.success("Demo destroyed");
+          } else {
+            toast.error("Failed to destroy demo", { description: error });
+          }
+          fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
+        });
+      } else {
+        updateDemoStatus(activeDemoId, "not_deployed");
+        toast.success("Demo destroyed");
+        setLoading(null);
+        fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
+      }
+    } catch (err: any) {
+      toast.error("Failed to destroy demo", { description: err.message });
       setLoading(null);
     }
   };
@@ -161,12 +262,12 @@ export default function Toolbar() {
     ? "Deployment in progress"
     : activeDemo?.status === "stopping"
     ? "Already stopping"
-    : !activeDemo?.status || activeDemo?.status === "error"
+    : !activeDemo?.status || activeDemo?.status === "error" || activeDemo?.status === "not_deployed"
     ? "Demo is not running"
     : null;
 
   const deployDisabled = !activeDemoId || loading !== null || activeDemo?.status === "running" || activeDemo?.status === "deploying" || activeDemo?.status === "stopping";
-  const stopDisabled = !activeDemoId || loading !== null || activeDemo?.status === "stopped" || activeDemo?.status === "stopping" || !activeDemo?.status || activeDemo?.status === "error";
+  const stopDisabled = !activeDemoId || loading !== null || activeDemo?.status === "stopped" || activeDemo?.status === "stopping" || !activeDemo?.status || activeDemo?.status === "error" || activeDemo?.status === "not_deployed";
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -226,7 +327,7 @@ export default function Toolbar() {
                   : "bg-muted-foreground"
                 }`} />
               )}
-              {activeDemo.status === "stopping" ? "stopping…" : activeDemo.status}
+              {activeDemo.status === "stopping" ? "stopping…" : activeDemo.status === "not_deployed" ? "not deployed" : activeDemo.status}
             </span>
             <Button
               variant="secondary"
@@ -268,8 +369,8 @@ export default function Toolbar() {
           </div>
         )}
 
-        {/* Save - only when demo selected and not running */}
-        {activeDemoId && activeDemo?.status !== "running" && (
+        {/* Save - shown in design time and stopped state; hidden while running or transitioning */}
+        {activeDemoId && activeDemo?.status !== "running" && activeDemo?.status !== "deploying" && activeDemo?.status !== "stopping" && (
           <button
             onClick={handleSave}
             disabled={!isDirty}
@@ -285,50 +386,66 @@ export default function Toolbar() {
           </button>
         )}
 
-        {/* Deploy/Stop - only when demo selected */}
+        {/* Deploy/Stop/Start/Destroy — state-driven, only when demo selected */}
         {activeDemoId && (
           <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    onClick={handleDeploy}
-                    disabled={deployDisabled}
-                    size="sm"
-                    className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
-                  >
-                    {loading === "deploy" ? "Deploying..." : activeDemo?.status === "deploying" ? "Deploying..." : "Deploy"}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {deployTooltip && (
-                <TooltipContent>
-                  <p className="text-xs">{deployTooltip}</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
+            {/* Deploy — shown when not running, not stopped, not transitioning */}
+            {activeDemo?.status !== "running" && activeDemo?.status !== "stopped" && activeDemo?.status !== "stopping" && activeDemo?.status !== "deploying" && (
+              <Button
+                onClick={handleDeploy}
+                disabled={deployDisabled}
+                size="sm"
+                className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
+              >
+                Deploy
+              </Button>
+            )}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    onClick={handleStop}
-                    disabled={stopDisabled}
-                    variant="destructive"
-                    size="sm"
-                    className="h-7 text-xs px-3"
-                  >
-                    {loading === "stop" ? "Stopping..." : "Stop"}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {stopTooltip && (
-                <TooltipContent>
-                  <p className="text-xs">{stopTooltip}</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
+            {/* Start — shown when stopped */}
+            {activeDemo?.status === "stopped" && (
+              <Button
+                onClick={handleStart}
+                disabled={loading !== null}
+                size="sm"
+                className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
+              >
+                {loading === "deploy" ? "Starting..." : "▶ Start"}
+              </Button>
+            )}
 
+            {/* Stop — shown when running */}
+            {activeDemo?.status === "running" && (
+              <Button
+                onClick={handleStop}
+                disabled={loading !== null}
+                size="sm"
+                className="h-7 text-xs px-3 bg-amber-600 hover:bg-amber-500 text-white"
+              >
+                {loading === "stop" ? "Stopping..." : "⏸ Stop"}
+              </Button>
+            )}
+
+            {/* Destroy — shown when running or stopped */}
+            {(activeDemo?.status === "running" || activeDemo?.status === "stopped") && (
+              <Button
+                onClick={handleDestroy}
+                disabled={loading !== null}
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs px-3"
+              >
+                {loading === "stop" && activeDemo?.status !== "running" ? "Destroying..." : "Destroy"}
+              </Button>
+            )}
+
+            {/* Deploying/Stopping transitions — disabled indicator */}
+            {(activeDemo?.status === "deploying" || activeDemo?.status === "stopping") && (
+              <Button disabled size="sm" className="h-7 text-xs px-3 bg-yellow-600 text-white">
+                {activeDemo.status === "deploying" ? "Deploying..." : "Stopping..."}
+              </Button>
+            )}
+
+            {/* Sync — when running */}
             {activeDemo?.status === "running" && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -346,7 +463,8 @@ export default function Toolbar() {
               </Tooltip>
             )}
 
-            {activeDemo?.status !== "running" && (
+            {/* Save as Template — design time only (not during transitions) */}
+            {activeDemo?.status !== "running" && activeDemo?.status !== "stopped" && activeDemo?.status !== "deploying" && activeDemo?.status !== "stopping" && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -498,6 +616,7 @@ export default function Toolbar() {
             demoName={activeDemo.name}
             apiBase={import.meta.env.VITE_API_URL || "http://localhost:9210"}
             onDone={handleDeployDone}
+            taskId={deployTaskId}
           />
         )}
       </div>
@@ -534,15 +653,6 @@ export default function Toolbar() {
           }}
         />
       )}
-
-      <Dialog open={licensesOpen} onOpenChange={setLicensesOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base">Licenses</DialogTitle>
-          </DialogHeader>
-          <LicenseSettings />
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="max-w-md">

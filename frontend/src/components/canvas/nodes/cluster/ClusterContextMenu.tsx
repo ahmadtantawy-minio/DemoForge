@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { Copy } from "lucide-react";
 import type { ClusterNodeData, ContainerInstance } from "../../../../types";
 
 interface Props {
@@ -39,6 +40,7 @@ interface Props {
   onSetConfirmDelete: (v: boolean) => void;
   confirmRemovePool: boolean;
   onSetConfirmRemovePool: (v: boolean) => void;
+  onCopy?: () => void;
 }
 
 export default function ClusterContextMenu(props: Props) {
@@ -79,6 +81,7 @@ export default function ClusterContextMenu(props: Props) {
     onSetConfirmDelete,
     confirmRemovePool,
     onSetConfirmRemovePool,
+    onCopy,
   } = props;
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -115,10 +118,7 @@ export default function ClusterContextMenu(props: Props) {
     drivesPerNode = pool?.drivesPerNode ?? 1;
     nodePoolId = pool?.id ?? "";
     nodePoolNodeIndex = remaining + 1;
-    nodeId =
-      pools.length === 1
-        ? `${clusterId}-node-${remaining + 1}`
-        : `${clusterId}-pool${poolIdx + 1}-node-${remaining + 1}`;
+    nodeId = `${clusterId}-pool${poolIdx + 1}-node-${remaining + 1}`;
     nodeInstance = instances.find((i) => i.node_id === nodeId);
   }
 
@@ -485,6 +485,18 @@ export default function ClusterContextMenu(props: Props) {
           >
             Add server pool
           </button>
+          {onCopy && (
+            <>
+              <div className="border-t border-border my-1" />
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
+                onClick={() => { onCopy(); onClose(); }}
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Copy Cluster
+              </button>
+            </>
+          )}
           <div className="border-t border-border my-1" />
           {!confirmDelete ? (
             <button

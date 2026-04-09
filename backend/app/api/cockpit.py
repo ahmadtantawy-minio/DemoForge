@@ -168,30 +168,35 @@ async def get_cockpit_data(demo_id: str):
         except Exception as e:
             logger.warning(f"Failed to get bucket stats for {alias}: {e}")
 
-        # Get throughput from Prometheus metrics endpoint
+        # Get throughput via mc admin bandwidth --json (returns instantaneous rates)
         try:
             exit_code, stdout, _ = await exec_in_container(
                 mc_shell,
-                f"sh -c 'mc admin prometheus metrics {alias} --type node 2>/dev/null | grep -E \"minio_node_io_r_bytes_total|minio_node_io_w_bytes_total\" | head -4'"
+                f"mc admin bandwidth {alias} --json 2>/dev/null"
             )
-            # Parse simple prometheus text format for total bytes
-            # We just report the totals — the frontend can compute deltas
-            rx_total = 0
-            tx_total = 0
-            if exit_code == 0:
+            rx_sum = 0.0
+            tx_sum = 0.0
+            if exit_code == 0 and stdout.strip():
                 for line in stdout.strip().split("\n"):
-                    if line.startswith("minio_node_io_r_bytes_total"):
-                        try:
-                            rx_total = int(float(line.split()[-1]))
-                        except (ValueError, IndexError):
-                            pass
-                    elif line.startswith("minio_node_io_w_bytes_total"):
-                        try:
-                            tx_total = int(float(line.split()[-1]))
-                        except (ValueError, IndexError):
-                            pass
-            result["throughput"]["rx_bytes_total"] = rx_total
-            result["throughput"]["tx_bytes_total"] = tx_total
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        # Response may be {"bandwidth": [...]} or a direct object per server
+                        entries = obj.get("bandwidth") if isinstance(obj, dict) and "bandwidth" in obj else [obj]
+                        for entry in (entries or []):
+                            if isinstance(entry, dict):
+                                rx_sum += entry.get("rx", 0) or 0
+                                tx_sum += entry.get("tx", 0) or 0
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+            if rx_sum > 0 or tx_sum > 0:
+                # bandwidth returns bytes/sec rates directly — expose them as-is
+                result["throughput"]["rx_bytes_per_sec"] = rx_sum
+                result["throughput"]["tx_bytes_per_sec"] = tx_sum
+            else:
+                logger.debug(f"mc admin bandwidth returned no data for {alias} (exit={exit_code})")
         except Exception as e:
             logger.warning(f"Failed to get throughput for {alias}: {e}")
 
@@ -255,7 +260,10 @@ async def get_cockpit_health(demo_id: str):
             )
             if exit_code == 0 and stdout.strip():
                 try:
-                    info = json.loads(stdout.strip())
+                    raw = json.loads(stdout.strip())
+                    # mc admin info --json wraps data under an "info" key;
+                    # fall back to raw if the wrapper is absent.
+                    info = raw.get("info", raw)
                     backend = info.get("backend") or {}
                     online = backend.get("onlineDisks", 0) or 0
                     offline = backend.get("offlineDisks", 0) or 0
