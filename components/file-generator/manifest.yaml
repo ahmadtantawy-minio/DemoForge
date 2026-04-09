@@ -13,8 +13,8 @@ resources:
 ports: []
 
 environment:
-  FG_FILE_SIZE: "1MB"
-  FG_FILE_COUNT: "100"
+  FG_FILE_SIZE: "10KB"
+  FG_FILE_COUNT: "10"
   FG_FILE_FORMAT: "random"
   FG_RATE: "10"
   FG_TARGET_BUCKET: "demo-bucket"
@@ -59,11 +59,11 @@ connections:
           label: "File Size"
           type: select
           options: ["1KB", "10KB", "100KB", "1MB", "10MB", "100MB"]
-          default: "1MB"
+          default: "10KB"
         - key: file_count
           label: "File Count"
           type: number
-          default: "100"
+          default: "10"
         - key: file_format
           label: "File Format"
           type: select

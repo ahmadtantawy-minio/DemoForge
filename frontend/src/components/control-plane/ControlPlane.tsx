@@ -17,8 +17,10 @@ export default function ControlPlane({ onOpenTerminal }: Props) {
 
   const loadInstances = useCallback(() => {
     if (!activeDemoId) return;
-    // Don't poll when demo is stopped — the endpoint will 404
-    if (activeDemo?.status === "stopped") return;
+    // Only skip when not deployed — stopped demos still have containers in state
+    // and the /instances endpoint returns them with "stopped" health badges.
+    // Destroy (not_deployed) removes state from backend and would 404.
+    if (!activeDemo?.status || activeDemo?.status === "not_deployed") return;
     fetchInstances(activeDemoId)
       .then((res) => {
         setInstances(res.instances);
@@ -29,9 +31,10 @@ export default function ControlPlane({ onOpenTerminal }: Props) {
 
   useEffect(() => {
     loadInstances();
-    // Don't start polling interval if stopped
-    if (activeDemo?.status === "stopped") return;
-    const interval = setInterval(loadInstances, 5000);
+    // Poll at slower rate when stopped (containers won't change), fast when running
+    const rate = activeDemo?.status === "stopped" ? 10000 : 5000;
+    if (!activeDemo?.status || activeDemo?.status === "not_deployed") return;
+    const interval = setInterval(loadInstances, rate);
     return () => clearInterval(interval);
   }, [loadInstances, activeDemo?.status]);
 
@@ -44,11 +47,14 @@ export default function ControlPlane({ onOpenTerminal }: Props) {
   }
 
   if (instances.length === 0) {
+    const isStopped = activeDemo?.status === "stopped";
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
         <ServerOff className="w-10 h-10 text-muted-foreground/50" />
-        <div className="text-sm">No running instances</div>
-        <div className="text-xs">Deploy the demo to see instances here.</div>
+        <div className="text-sm">{isStopped ? "All containers are stopped" : "No running instances"}</div>
+        <div className="text-xs">
+          {isStopped ? "Click Start to resume the demo." : "Deploy the demo to see instances here."}
+        </div>
       </div>
     );
   }

@@ -212,3 +212,69 @@ async def get_cockpit_data(demo_id: str):
             clusters.append(r)
 
     return {"demo_id": demo_id, "clusters": clusters, "host_stats": host_stats}
+
+
+@router.get("/api/demos/{demo_id}/cockpit/health")
+async def get_cockpit_health(demo_id: str):
+    """Return mc admin info output for each cluster alias in the demo."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    if "mc-shell" not in running.containers:
+        return {"demo_id": demo_id, "clusters": [], "error": "mc-shell not available"}
+
+    mc_shell = f"demoforge-{demo_id}-mc-shell"
+
+    # List configured aliases
+    try:
+        exit_code, stdout, _ = await exec_in_container(mc_shell, "mc alias list --json")
+    except Exception:
+        return {"demo_id": demo_id, "clusters": [], "error": "mc-shell not reachable"}
+
+    aliases = []
+    if exit_code == 0:
+        for line in stdout.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                alias_name = obj.get("alias", "")
+                url = obj.get("URL", "")
+                skip_aliases = {"play", "local", "gcs", "s3"}
+                if alias_name and "demoforge" in url and alias_name not in skip_aliases:
+                    aliases.append(alias_name)
+            except json.JSONDecodeError:
+                continue
+
+    async def get_admin_info(alias: str) -> dict:
+        try:
+            exit_code, stdout, _ = await exec_in_container(
+                mc_shell, f"mc admin info {alias} --json"
+            )
+            if exit_code == 0 and stdout.strip():
+                try:
+                    info = json.loads(stdout.strip())
+                    backend = info.get("backend") or {}
+                    online = backend.get("onlineDisks", 0) or 0
+                    offline = backend.get("offlineDisks", 0) or 0
+                    total = online + offline
+                    if total == 0:
+                        status = "starting"
+                    elif offline == 0:
+                        status = "healthy"
+                    else:
+                        status = "degraded"
+                    return {"alias": alias, "info": info, "status": status}
+                except json.JSONDecodeError:
+                    return {"alias": alias, "raw": stdout.strip(), "info": None, "status": "unreachable"}
+            else:
+                return {"alias": alias, "info": None, "status": "unreachable", "error": f"mc exit {exit_code}"}
+        except Exception as e:
+            logger.warning(f"mc admin info failed for {alias}: {e}")
+        return {"alias": alias, "info": None, "status": "unreachable"}
+
+    results = await asyncio.gather(*[get_admin_info(a) for a in aliases], return_exceptions=True)
+    clusters = [r for r in results if isinstance(r, dict)]
+    return {"demo_id": demo_id, "clusters": clusters}

@@ -27,9 +27,10 @@ interface Props {
   demoName: string;
   apiBase: string;
   onDone: (success: boolean) => void;
+  taskId?: string;
 }
 
-export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Props) {
+export default function DeployProgress({ demoId, demoName, apiBase, onDone, taskId }: Props) {
   const [steps, setSteps] = useState<DeployStep[]>([]);
   const [finished, setFinished] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -44,7 +45,11 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await fetch(`${apiBase}/api/demos/${demoId}/deploy/progress`);
+        // Prefer task endpoint when taskId is available
+        const url = taskId
+          ? `${apiBase}/api/demos/${demoId}/task/${taskId}`
+          : `${apiBase}/api/demos/${demoId}/deploy/progress`;
+        const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
         if (data.steps && data.steps.length > 0) {
@@ -68,7 +73,7 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone }: Pr
     poll();
     intervalRef.current = setInterval(poll, 500);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [demoId, apiBase]);
+  }, [demoId, apiBase, taskId]);
 
   const statusIcon = (status: string) => {
     switch (status) {

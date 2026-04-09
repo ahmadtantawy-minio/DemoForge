@@ -10,6 +10,7 @@ import ComponentIcon from "../../shared/ComponentIcon";
 export default function ComponentNode({ id, data }: NodeProps) {
   const nodeData = data as unknown as ComponentNodeData;
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
+  const setEdges = useDiagramStore((s) => s.setEdges);
   const { instances, activeDemoId, demos, resilienceProbes } = useDemoStore();
 
   const isResilienceTester = nodeData.componentId === "resilience-tester";
@@ -36,6 +37,19 @@ export default function ComponentNode({ id, data }: NodeProps) {
     genTimerRef.current = setInterval(poll, 5000);
     return () => { if (genTimerRef.current) clearInterval(genTimerRef.current); };
   }, [activeDemoId, id, isGenerator, isRunning]);
+
+  // Animate outgoing edges while generation is active
+  useEffect(() => {
+    if (!isGenerator) return;
+    const currentEdges = useDiagramStore.getState().edges;
+    setEdges(
+      currentEdges.map((e) =>
+        e.source === id
+          ? { ...e, data: { ...e.data, status: genRunning ? "active" : "idle" } }
+          : e
+      )
+    );
+  }, [genRunning, isGenerator, id]);
 
   // Poll RAG app status
   const [ragStatus, setRagStatus] = useState<{ documents_ingested?: number; chunks_stored?: number } | null>(null);

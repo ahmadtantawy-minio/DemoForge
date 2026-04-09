@@ -130,15 +130,26 @@ export const fetchInventory = () =>
 
 // Deploy
 export const deployDemo = (id: string) =>
-  apiFetch<{ demo_id: string; status: string; message?: string }>(
+  apiFetch<{ demo_id: string; status: string; task_id?: string; message?: string }>(
     `/api/demos/${id}/deploy`,
     { method: "POST" }
   );
 
 export const stopDemo = (id: string) =>
-  apiFetch<{ demo_id: string; status: string }>(
+  apiFetch<{ demo_id: string; status: string; task_id?: string }>(
     `/api/demos/${id}/stop`,
     { method: "POST" }
+  );
+
+export const startDemo = (id: string) =>
+  apiFetch<{ demo_id: string; status: string; task_id?: string }>(`/api/demos/${id}/start`, { method: "POST" });
+
+export const destroyDemo = (id: string) =>
+  apiFetch<{ demo_id: string; status: string; task_id?: string }>(`/api/demos/${id}/destroy`, { method: "POST" });
+
+export const fetchTaskStatus = (demoId: string, taskId: string) =>
+  apiFetch<{ task_id: string; demo_id: string; operation: string; status: string; error: string; steps: any[]; finished: boolean }>(
+    `/api/demos/${demoId}/task/${taskId}`
   );
 
 // Instances

@@ -42,8 +42,18 @@ class SaveDiagramRequest(BaseModel):
 # --- Deploy ---
 class DeployResponse(BaseModel):
     demo_id: str
-    status: str                   # "deploying", "running", "error"
+    status: str                   # "deploying", "running", "error", "queued"
     message: str = ""
+    task_id: str = ""             # Non-empty when operation is backgrounded
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    demo_id: str
+    operation: str                # "deploy" | "stop" | "destroy" | "start"
+    status: str                   # "queued" | "running" | "done" | "error" | "timeout"
+    error: str = ""
+    steps: list[dict] = []
+    finished: bool = False
 
 # --- Instances (running containers) ---
 class ContainerHealthStatus(str, Enum):

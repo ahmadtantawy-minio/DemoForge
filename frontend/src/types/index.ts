@@ -110,7 +110,7 @@ export interface DemoSummary {
   name: string;
   description: string;
   node_count: number;
-  status: "stopped" | "deploying" | "running" | "stopping" | "error";
+  status: "not_deployed" | "stopped" | "deploying" | "running" | "stopping" | "error";
   mode?: "standard" | "experience";
 }
 
@@ -165,15 +165,35 @@ export interface ComponentNodeData {
   groupId?: string | null;
 }
 
+export type DiskType = "nvme" | "ssd" | "hdd";
+
+export interface MinioServerPool {
+  id: string;
+  nodeCount: number;
+  drivesPerNode: number;
+  diskSizeTb: number;
+  diskType: DiskType;
+  ecParity: number;
+  ecParityUpgradePolicy: string;
+  volumePath: string;
+}
+
 export interface ClusterNodeData {
   label: string;
   componentId: string;
-  nodeCount: number;
-  drivesPerNode: number;
   credentials: Record<string, string>;
   config: Record<string, string>;
   health?: HealthStatus;
+  loadBalancer?: boolean;
   mcpEnabled?: boolean;
+  aistorTablesEnabled?: boolean;
+  serverPools?: MinioServerPool[];
+  // DEPRECATED flat fields — present in old data, migrated on load
+  nodeCount?: number;
+  drivesPerNode?: number;
+  ecParity?: number;
+  ecParityUpgradePolicy?: string;
+  diskSizeTb?: number;
 }
 
 export interface DemoGroup {

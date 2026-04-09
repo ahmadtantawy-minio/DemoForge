@@ -17,11 +17,17 @@ export interface PendingConnection {
   targetPos: { x: number; y: number };
 }
 
+export type SelectedClusterElement =
+  | { type: "cluster" }
+  | { type: "pool"; poolId: string }
+  | { type: "node"; poolId: string; nodeIndex: number };
+
 interface DiagramState {
   nodes: Node[];
   edges: Edge[];
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
+  selectedClusterElement: SelectedClusterElement | null;
   componentManifests: Record<string, ConnectionsDef>;
   pendingConnection: PendingConnection | null;
   onNodesChange: OnNodesChange;
@@ -30,6 +36,7 @@ interface DiagramState {
   addNode: (node: Node) => void;
   setSelectedNode: (id: string | null) => void;
   setSelectedEdge: (id: string | null) => void;
+  setSelectedClusterElement: (el: SelectedClusterElement | null) => void;
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;
   updateNodeHealth: (nodeId: string, health: string) => void;
@@ -45,6 +52,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   edges: [],
   selectedNodeId: null,
   selectedEdgeId: null,
+  selectedClusterElement: null,
   componentManifests: {},
   pendingConnection: null,
 
@@ -133,9 +141,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       return;
     }
 
-    // Build combined list with direction info — use display name or node ID for clarity
-    type DirectedType = { type: string; direction: "forward" | "reverse"; label: string };
-    const allOptions: DirectedType[] = [];
+    const allOptions: DirectedOption[] = [];
 
     const srcName = (sourceNode.data as any)?.displayName || sourceNode.id;
     const tgtName = (targetNode.data as any)?.displayName || targetNode.id;
@@ -182,9 +188,20 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
   addNode: (node) => set({ nodes: [...get().nodes, node] }),
 
-  setSelectedNode: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
+  setSelectedNode: (id) => {
+    const state = get();
+    const node = id ? state.nodes.find((n) => n.id === id) : null;
+    const isCluster = node?.type === "cluster";
+    set({
+      selectedNodeId: id,
+      selectedEdgeId: null,
+      selectedClusterElement: isCluster ? { type: "cluster" } : null,
+    });
+  },
 
-  setSelectedEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null }),
+  setSelectedEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null, selectedClusterElement: null }),
+
+  setSelectedClusterElement: (el) => set({ selectedClusterElement: el }),
 
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),

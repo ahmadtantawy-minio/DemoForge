@@ -48,6 +48,17 @@ class DemoGroup(BaseModel):
     mode: str = "visual"           # "visual" | "cluster"
     cluster_config: dict[str, Any] = {}  # e.g. {"drives_per_node": 1}
 
+class DemoServerPool(BaseModel):
+    id: str = "pool-1"
+    node_count: int = 4
+    drives_per_node: int = 4
+    disk_size_tb: int = 8
+    disk_type: str = "ssd"              # "nvme" | "ssd" | "hdd" — display only
+    ec_parity: int = 4
+    ec_parity_upgrade_policy: str = "upgrade"
+    volume_path: str = "/data"
+
+
 class DemoCluster(BaseModel):
     id: str
     component: str = "minio"          # "minio" (CE or AIStor edition via config)
@@ -64,6 +75,22 @@ class DemoCluster(BaseModel):
     ec_parity: int = 4                         # EC parity shards (EC:N)
     ec_parity_upgrade_policy: str = "upgrade"  # "upgrade" or "ignore"
     disk_size_tb: int = 8                      # Planning display only, not used in containers
+    server_pools: list[DemoServerPool] = []
+
+    def get_pools(self) -> list["DemoServerPool"]:
+        """Return server_pools if set, otherwise wrap flat fields into a single pool (backward compat)."""
+        if self.server_pools:
+            return self.server_pools
+        return [DemoServerPool(
+            id="pool-1",
+            node_count=self.node_count,
+            drives_per_node=self.drives_per_node,
+            disk_size_tb=self.disk_size_tb,
+            disk_type="ssd",
+            ec_parity=self.ec_parity,
+            ec_parity_upgrade_policy=self.ec_parity_upgrade_policy,
+            volume_path="/data",
+        )]
 
 class DemoStickyNote(BaseModel):
     id: str

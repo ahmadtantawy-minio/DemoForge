@@ -36,15 +36,19 @@ def _save_cluster_configs(data_dir: str, project_name: str, clusters) -> None:
     """Persist current cluster topology to disk for next deploy comparison."""
     path = _get_cluster_configs_path(data_dir, project_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    configs = {
-        cluster.id: {
+    configs = {}
+    for cluster in clusters:
+        pools = cluster.get_pools() if hasattr(cluster, "get_pools") else []
+        configs[cluster.id] = {
             "node_count": cluster.node_count,
             "drives_per_node": cluster.drives_per_node,
             "component": cluster.component,
             "edition": cluster.config.get("MINIO_EDITION", "ce") if hasattr(cluster, "config") else "ce",
+            "pools": [
+                {"node_count": p.node_count, "drives_per_node": p.drives_per_node}
+                for p in pools
+            ],
         }
-        for cluster in clusters
-    }
     with open(path, "w") as f:
         json.dump(configs, f, indent=2)
 
@@ -57,9 +61,14 @@ def _detect_changed_clusters(demo, prev_configs: dict) -> list[str]:
         if prev is None:
             continue  # New cluster — no stale volumes to clear
         current_edition = cluster.config.get("MINIO_EDITION", "ce") if hasattr(cluster, "config") else "ce"
+        pools = cluster.get_pools() if hasattr(cluster, "get_pools") else []
+        current_pools = [{"node_count": p.node_count, "drives_per_node": p.drives_per_node} for p in pools]
+        prev_pools = prev.get("pools", [])
+        topology_changed = current_pools != prev_pools and (current_pools or prev_pools)
         if (
-            prev["node_count"] != cluster.node_count
-            or prev["drives_per_node"] != cluster.drives_per_node
+            (not topology_changed and prev["node_count"] != cluster.node_count)
+            or (not topology_changed and prev["drives_per_node"] != cluster.drives_per_node)
+            or topology_changed
             or prev.get("component", "minio") != cluster.component
             or prev.get("edition", "ce") != current_edition
         ):
@@ -70,33 +79,34 @@ def _detect_changed_clusters(demo, prev_configs: dict) -> list[str]:
 async def _remove_cluster_volumes(
     project_name: str,
     cluster_id: str,
-    old_node_count: int,
-    old_drives: int,
-    new_node_count: int,
-    new_drives: int,
+    old_pools: list[dict],
+    new_pools: list[dict],
 ) -> list[str]:
     """Remove Docker volumes for a cluster whose topology changed.
 
-    Removes volumes for both old and new node range because a MinIO erasure
-    set cannot be extended or shrunk — all nodes must reformat.
+    Handles both single-pool ({cluster_id}-node-{i}) and multi-pool
+    ({cluster_id}-pool{p}-node-{i}) naming. Removes volumes for both
+    old and new configurations so MinIO can reformat on next start.
     """
-    max_nodes = max(old_node_count, new_node_count)
-    max_drives = max(old_drives, new_drives)
-
-    # Docker Compose prefixes named volumes with "{project_name}_" when no explicit
-    # "name:" is set in the volumes section. The vol_name in compose is
-    # "{project_name}-{node_id}-data{d}", so Docker's actual name is
-    # "{project_name}_{project_name}-{node_id}-data{d}".
     candidates = []
-    for i in range(1, max_nodes + 1):
-        node_id = f"{cluster_id}-node-{i}"
-        vol_base = f"{project_name}-{node_id}-data"
-        # Both prefixed (real Docker name) and unprefixed (defensive fallback)
-        candidates.append(f"{project_name}_{vol_base}")
-        candidates.append(vol_base)
-        for d in range(1, max_drives + 1):
-            candidates.append(f"{project_name}_{vol_base}{d}")
-            candidates.append(f"{vol_base}{d}")
+
+    def _add_pool_vols(pools: list[dict]):
+        multi = len(pools) > 1
+        for p_idx, pool in enumerate(pools, start=1):
+            for i in range(1, pool["node_count"] + 1):
+                node_id = (
+                    f"{cluster_id}-pool{p_idx}-node-{i}" if multi
+                    else f"{cluster_id}-node-{i}"
+                )
+                vol_base = f"{project_name}-{node_id}-data"
+                candidates.append(f"{project_name}_{vol_base}")
+                candidates.append(vol_base)
+                for d in range(1, pool["drives_per_node"] + 1):
+                    candidates.append(f"{project_name}_{vol_base}{d}")
+                    candidates.append(f"{vol_base}{d}")
+
+    _add_pool_vols(old_pools)
+    _add_pool_vols(new_pools)
 
     def _remove():
         import docker as _docker
@@ -115,8 +125,7 @@ async def _remove_cluster_volumes(
     removed = await asyncio.to_thread(_remove)
     if removed:
         logger.info(
-            f"Removed {len(removed)} stale volume(s) for reconfigured cluster "
-            f"'{cluster_id}' ({old_node_count}n×{old_drives}d → {new_node_count}n×{new_drives}d): {removed}"
+            f"Removed {len(removed)} stale volume(s) for reconfigured cluster '{cluster_id}': {removed}"
         )
     return removed
 
@@ -341,14 +350,9 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
             cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
             prev = prev_cluster_configs[cluster_id]
             if cluster:
-                await _remove_cluster_volumes(
-                    project_name,
-                    cluster_id,
-                    prev["node_count"],
-                    prev["drives_per_node"],
-                    cluster.node_count,
-                    cluster.drives_per_node,
-                )
+                old_pools = prev.get("pools") or [{"node_count": prev["node_count"], "drives_per_node": prev["drives_per_node"]}]
+                new_pools = [{"node_count": p.node_count, "drives_per_node": p.drives_per_node} for p in cluster.get_pools()]
+                await _remove_cluster_volumes(project_name, cluster_id, old_pools, new_pools)
 
     await progress("cleanup", "done", "Cleanup complete")
 
@@ -516,6 +520,62 @@ async def stop_demo(demo_id: str):
 
     # Clean up the lock after releasing it (outside the async with block)
     _demo_locks.pop(demo_id, None)
+
+
+async def pause_demo(demo_id: str) -> None:
+    """Stop containers without removing them or their volumes (docker compose stop)."""
+    lock = _get_lock(demo_id)
+    async with lock:
+        running = state.get_demo(demo_id)
+        if not running or not running.compose_file_path:
+            return
+
+        compose_file = running.compose_file_path
+        if not os.path.exists(compose_file):
+            return
+
+        project_name = running.compose_project
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "compose", "-f", compose_file, "-p", project_name, "stop",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise TimeoutError(f"docker compose stop timed out after 60s for {demo_id}")
+        if proc.returncode != 0:
+            raise RuntimeError(f"docker compose stop failed: {stderr.decode()}")
+
+
+async def resume_demo(demo_id: str) -> None:
+    """Start previously stopped containers (docker compose start)."""
+    lock = _get_lock(demo_id)
+    async with lock:
+        running = state.get_demo(demo_id)
+        if not running or not running.compose_file_path:
+            raise RuntimeError(f"No compose file found for demo {demo_id}")
+
+        compose_file = running.compose_file_path
+        if not os.path.exists(compose_file):
+            raise RuntimeError(f"Compose file not found for demo {demo_id}: {compose_file}")
+
+        project_name = running.compose_project
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "compose", "-f", compose_file, "-p", project_name, "start",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise TimeoutError(f"docker compose start timed out after 60s for {demo_id}")
+        if proc.returncode != 0:
+            raise RuntimeError(f"docker compose start failed: {stderr.decode()}")
 
 
 async def get_container_health(container_name: str) -> ContainerHealthStatus:

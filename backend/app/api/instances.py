@@ -162,8 +162,15 @@ async def list_instances(demo_id: str):
         # This prevents false "error" badges when MinIO is up but Docker healthcheck is slow/transient.
         for cluster in demo.clusters:
             if cluster_health.get(cluster.id) == "healthy":
-                for i in range(1, cluster.node_count + 1):
-                    cluster_node_health_override[f"{cluster.id}-node-{i}"] = "healthy"
+                pools = cluster.get_pools()
+                is_multi_pool = len(pools) > 1
+                for p_idx, pool in enumerate(pools, start=1):
+                    for i in range(1, pool.node_count + 1):
+                        if is_multi_pool:
+                            node_id = f"{cluster.id}-pool{p_idx}-node-{i}"
+                        else:
+                            node_id = f"{cluster.id}-node-{i}"
+                        cluster_node_health_override[node_id] = "healthy"
 
     instances = []
     for node_id, container in running.containers.items():
@@ -332,7 +339,7 @@ async def stop_drive(demo_id: str, node_id: str, drive_num: int):
     if not running or node_id not in running.containers:
         raise HTTPException(404, "Instance not found")
     container_name = running.containers[node_id].container_name
-    await exec_in_container(container_name, f"sh -c 'test -d /data{drive_num} && mv /data{drive_num} /data{drive_num}.offline || true'")
+    await exec_in_container(container_name, f"chmod 000 /data{drive_num}")
     if node_id not in running.stopped_drives:
         running.stopped_drives[node_id] = []
     if drive_num not in running.stopped_drives[node_id]:
@@ -346,7 +353,7 @@ async def start_drive(demo_id: str, node_id: str, drive_num: int):
     if not running or node_id not in running.containers:
         raise HTTPException(404, "Instance not found")
     container_name = running.containers[node_id].container_name
-    await exec_in_container(container_name, f"sh -c 'test -d /data{drive_num}.offline && mv /data{drive_num}.offline /data{drive_num} || true'")
+    await exec_in_container(container_name, f"chmod 755 /data{drive_num}")
     if node_id in running.stopped_drives and drive_num in running.stopped_drives[node_id]:
         running.stopped_drives[node_id].remove(drive_num)
     return {"status": "started", "node_id": node_id, "drive_num": drive_num}

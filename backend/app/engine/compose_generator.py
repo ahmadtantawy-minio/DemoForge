@@ -128,53 +128,82 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     cluster_edge_expansion: dict[str, list[str]] = {}
     for cluster in demo.clusters:
         generated_ids = []
-        drives = cluster.drives_per_node
-        total_drives = cluster.node_count * drives
-        if total_drives < 4:
-            # Auto-adjust drives_per_node to meet minimum 4-drive EC requirement
-            drives = max(drives, 4 // cluster.node_count)
-            total_drives = cluster.node_count * drives
-            if total_drives < 4:
-                raise ValueError(
-                    f"Cluster '{cluster.id}' needs at least 2 nodes for erasure coding."
-                )
-            logger.info(f"Cluster '{cluster.id}': auto-adjusted to {drives} drive(s) per node for EC minimum")
+        pools = cluster.get_pools()
+        primary_pool = pools[0]
+        is_multi_pool = len(pools) > 1
+
         cred_user = cluster.credentials.get("root_user", "minioadmin")
         cred_pass = cluster.credentials.get("root_password", "minioadmin")
-
-        # Build node IDs and network alias prefix for expansion notation
         alias_prefix = f"minio-{cluster.id.replace('-', '')}"
-        for i in range(1, cluster.node_count + 1):
-            node_id = f"{cluster.id}-node-{i}"
-            generated_ids.append(node_id)
+
+        # Validate minimum drives per pool and collect node IDs
+        pool_node_ids: list[list[str]] = []  # pool_node_ids[pool_idx] = [node_id, ...]
+        for p_idx, pool in enumerate(pools, start=1):
+            drives = pool.drives_per_node
+            total_drives = pool.node_count * drives
+            if total_drives < 4:
+                drives = max(drives, 4 // pool.node_count)
+                total_drives = pool.node_count * drives
+                if total_drives < 4:
+                    raise ValueError(
+                        f"Cluster '{cluster.id}' pool {p_idx} needs at least 2 nodes for erasure coding."
+                    )
+                logger.info(f"Cluster '{cluster.id}' pool {p_idx}: auto-adjusted to {drives} drives/node for EC minimum")
+                # Update the pool drives reference for later use
+                pool = pool.model_copy(update={"drives_per_node": drives})
+                pools[p_idx - 1] = pool
+
+            ids_for_pool = []
+            for i in range(1, pool.node_count + 1):
+                if is_multi_pool:
+                    node_id = f"{cluster.id}-pool{p_idx}-node-{i}"
+                else:
+                    node_id = f"{cluster.id}-node-{i}"
+                ids_for_pool.append(node_id)
+                generated_ids.append(node_id)
+            pool_node_ids.append(ids_for_pool)
 
         cluster_edge_expansion[cluster.id] = generated_ids
 
-        # Single expansion URL for one erasure-coded pool
-        n = cluster.node_count
-        if drives > 1:
-            expansion_url = f"http://{alias_prefix}{{1...{n}}}:9000/data{{1...{drives}}}"
-        else:
-            expansion_url = f"http://{alias_prefix}{{1...{n}}}:9000/data"
+        # Build expansion URLs per pool
+        expansion_urls = []
+        for p_idx, pool in enumerate(pools, start=1):
+            n = pool.node_count
+            drives = pool.drives_per_node
+            if is_multi_pool:
+                pool_alias = f"{alias_prefix}pool{p_idx}"
+            else:
+                pool_alias = alias_prefix
+            if drives > 1:
+                url = f"http://{pool_alias}{{1...{n}}}:9000/data{{1...{drives}}}"
+            else:
+                url = f"http://{pool_alias}{{1...{n}}}:9000/data"
+            expansion_urls.append(url)
 
-        # Create synthetic DemoNode entries with network aliases
-        for i, node_id in enumerate(generated_ids):
-            synthetic_node = DemoNode(
-                id=node_id,
-                component=cluster.component,
-                variant="cluster",
-                position=NodePosition(x=cluster.position.x + (i % 2) * 200,
-                                      y=cluster.position.y + (i // 2) * 150),
-                config={
-                    "MINIO_ROOT_USER": cred_user,
-                    "MINIO_ROOT_PASSWORD": cred_pass,
-                    **cluster.config,
-                },
-                display_name=f"Node {i + 1}",
-            )
-            # Store network alias for compose generation
-            synthetic_node.labels = {"_cluster_alias": f"{alias_prefix}{i + 1}"}
-            demo.nodes.append(synthetic_node)
+        server_cmd = ["server"] + expansion_urls + ["--console-address", ":9001"]
+
+        # Create synthetic DemoNode entries
+        for p_idx, (pool, ids_for_pool) in enumerate(zip(pools, pool_node_ids), start=1):
+            for i, node_id in enumerate(ids_for_pool):
+                if is_multi_pool:
+                    node_alias = f"{alias_prefix}pool{p_idx}{i + 1}"
+                else:
+                    node_alias = f"{alias_prefix}{i + 1}"
+                synthetic_node = DemoNode(
+                    id=node_id,
+                    component=cluster.component,
+                    variant="cluster",
+                    position=NodePosition(x=cluster.position.x + (i % 2) * 200,
+                                          y=cluster.position.y + (i // 2) * 150),
+                    config={
+                        "MINIO_ROOT_USER": cred_user,
+                        "MINIO_ROOT_PASSWORD": cred_pass,
+                        **cluster.config,
+                    },
+                    display_name=f"Node {i + 1}" if not is_multi_pool else f"P{p_idx} Node {i + 1}",
+                )
+                synthetic_node.labels = {"_cluster_alias": node_alias}
+                demo.nodes.append(synthetic_node)
 
         # --- Embedded NGINX load balancer for the cluster ---
         lb_node_id = f"{cluster.id}-lb"
@@ -296,19 +325,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     ))
         demo.edges = [e for e in demo.edges if e.id not in edges_to_remove] + new_edges
 
-        # Register cluster commands — single expansion URL = single erasure-coded pool
-        server_cmd = ["server", expansion_url, "--console-address", ":9001"]
-        for node_id in generated_ids:
-            cluster_commands[node_id] = server_cmd
-            cluster_health_override[node_id] = "/minio/health/cluster"
-            cluster_credentials[node_id] = {
-                "MINIO_ROOT_USER": cred_user,
-                "MINIO_ROOT_PASSWORD": cred_pass,
-                "MINIO_STORAGE_CLASS_STANDARD": f"EC:{cluster.ec_parity}",
-                "MINIO_STORAGE_CLASS_RRS": "EC:1",
-                "MINIO_STORAGE_CLASS_OPTIMIZE": cluster.ec_parity_upgrade_policy,
-            }
-            cluster_drives[node_id] = drives
+        # Register cluster commands
+        for p_idx, (pool, ids_for_pool) in enumerate(zip(pools, pool_node_ids), start=1):
+            for node_id in ids_for_pool:
+                cluster_commands[node_id] = server_cmd
+                cluster_health_override[node_id] = "/minio/health/cluster"
+                cluster_credentials[node_id] = {
+                    "MINIO_ROOT_USER": cred_user,
+                    "MINIO_ROOT_PASSWORD": cred_pass,
+                    "MINIO_STORAGE_CLASS_STANDARD": f"EC:{primary_pool.ec_parity}",
+                    "MINIO_STORAGE_CLASS_RRS": "EC:1",
+                    "MINIO_STORAGE_CLASS_OPTIMIZE": primary_pool.ec_parity_upgrade_policy,
+                }
+                cluster_drives[node_id] = pool.drives_per_node
 
     # Cluster coordination: build coordinated commands for cluster group members
     for group in demo.groups:

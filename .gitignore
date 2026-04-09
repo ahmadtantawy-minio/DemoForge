@@ -19,6 +19,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Local scratch / screenshots
+untracked/
+
 # OMC state
 .omc/
 

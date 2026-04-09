@@ -41,17 +41,17 @@ async def lifespan(app: FastAPI):
     # Startup
     components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
     load_registry(components_dir)
-    state.recover_from_docker()
+    await asyncio.to_thread(state.recover_from_docker)
     await _rejoin_recovered_networks()
 
     from .fa_identity import init_fa_identity
-    init_fa_identity()
+    await asyncio.to_thread(init_fa_identity)
 
     # Sync templates from remote (non-blocking, best-effort)
     from .engine.template_sync import sync_templates
     _startup_sync_result = None
     try:
-        _startup_sync_result = sync_templates()
+        _startup_sync_result = await asyncio.to_thread(sync_templates)
         logger.info(f"Template sync on startup: {_startup_sync_result}")
     except Exception as e:
         logger.warning(f"Template sync failed on startup (continuing with local): {e}")

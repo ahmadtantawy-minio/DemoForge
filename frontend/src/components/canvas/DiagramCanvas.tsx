@@ -449,19 +449,26 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           id: `minio-cluster-${nodeCounter}`,
           type: "cluster",
           position: { x, y },
-          style: { width: 280, height: 200 },
+          style: { width: 380, height: 200 },
           data: {
             label: "MinIO Cluster",
             componentId: "minio",
-            nodeCount: 4,
-            drivesPerNode: 4,
             credentials: { root_user: "minioadmin", root_password: "minioadmin" },
             config: {},
             mcpEnabled: true,
             aistorTablesEnabled: false,
-            ecParity: 4,
-            ecParityUpgradePolicy: "upgrade",
-            diskSizeTb: 8,
+            serverPools: [
+              {
+                id: "pool-1",
+                nodeCount: 2,
+                drivesPerNode: 4,
+                diskSizeTb: 4,
+                diskType: "nvme",
+                ecParity: 2,
+                ecParityUpgradePolicy: "upgrade",
+                volumePath: "/data",
+              },
+            ],
           },
         };
         addNode(newCluster);

@@ -3,7 +3,7 @@ import uuid
 import yaml
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
-from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, NodePosition
+from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, NodePosition
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
@@ -39,7 +39,7 @@ async def list_demos():
                         name=d.name,
                         description=d.description,
                         node_count=len(d.nodes),
-                        status=running.status if running else "stopped",
+                        status=running.status if running else "not_deployed",
                         mode=d.mode,
                     ))
     return DemoListResponse(demos=demos)
@@ -54,7 +54,7 @@ async def create_demo(req: CreateDemoRequest):
         networks=[DemoNetwork(name="default")],
     )
     _save_demo(demo)
-    return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="stopped", mode=demo.mode)
+    return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="not_deployed", mode=demo.mode)
 
 @router.get("/api/demos/{demo_id}")
 async def get_demo(demo_id: str):
@@ -77,7 +77,7 @@ async def update_demo(demo_id: str, req: dict):
         demo.resources = DemoResourceSettings(**req["resources"])
     _save_demo(demo)
     running = state.get_demo(demo_id)
-    status = running.status if running else "stopped"
+    status = running.status if running else "not_deployed"
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description,
                        node_count=len(demo.nodes), status=status, mode=demo.mode)
 
@@ -137,6 +137,20 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
         # Cluster nodes are stored separately
         if rf_node.get("type") == "cluster":
             c_data = rf_node.get("data", {})
+            raw_pools = c_data.get("serverPools", [])
+            server_pools = [
+                DemoServerPool(
+                    id=p.get("id", f"pool-{i+1}"),
+                    node_count=p.get("nodeCount", 4),
+                    drives_per_node=p.get("drivesPerNode", 4),
+                    disk_size_tb=p.get("diskSizeTb", 8),
+                    disk_type=p.get("diskType", "ssd"),
+                    ec_parity=p.get("ecParity", 4),
+                    ec_parity_upgrade_policy=p.get("ecParityUpgradePolicy", "upgrade"),
+                    volume_path=p.get("volumePath", "/data"),
+                )
+                for i, p in enumerate(raw_pools)
+            ]
             demo.clusters.append(DemoCluster(
                 id=rf_node["id"],
                 component=c_data.get("componentId", "minio"),
@@ -154,6 +168,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 ec_parity=c_data.get("ecParity", 4),
                 ec_parity_upgrade_policy=c_data.get("ecParityUpgradePolicy", "upgrade"),
                 disk_size_tb=c_data.get("diskSizeTb", 8),
+                server_pools=server_pools,
             ))
             continue
 
@@ -310,7 +325,7 @@ async def import_demo(file: UploadFile):
         raise HTTPException(400, f"Invalid demo format: {e}")
 
     _save_demo(demo)
-    return {"id": new_id, "name": demo.name, "status": "stopped"}
+    return {"id": new_id, "name": demo.name, "status": "not_deployed"}
 
 
 @router.delete("/api/demos/{demo_id}")

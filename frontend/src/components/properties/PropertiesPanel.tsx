@@ -3,7 +3,10 @@ import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import HealthBadge from "../control-plane/HealthBadge";
 import { proxyUrl, fetchComponents, getGeneratorStatus, startGenerator, stopGenerator, execCommand } from "../../api/client";
-import type { ComponentNodeData, ComponentSummary, ComponentEdgeData, ConnectionType, ConnectionConfigField } from "../../types";
+import type { ComponentNodeData, ComponentSummary, ComponentEdgeData, ConnectionType, ConnectionConfigField, MinioServerPool } from "../../types";
+import ClusterPropertiesPanel from "./cluster/ClusterPropertiesPanel";
+import PoolPropertiesPanel from "./cluster/PoolPropertiesPanel";
+import NodePropertiesPanel from "./cluster/NodePropertiesPanel";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -17,6 +20,7 @@ import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
 import { Eye, EyeOff } from "lucide-react";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
 import SqlPlaybookPanel from "./SqlPlaybookPanel";
+import { migrateClusterData } from "../../lib/clusterMigration";
 
 // --- Data Generator scenario metadata ---
 const DG_SCENARIOS = [
@@ -507,30 +511,8 @@ const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
   ],
 };
 
-function computeErasureSetSize(totalDrives: number): number {
-  // Find the largest divisor of totalDrives where 2 <= divisor <= 16
-  for (let d = 16; d >= 2; d--) {
-    if (totalDrives % d === 0) return d;
-  }
-  return totalDrives;
-}
-
-function computeECOptions(erasureSetSize: number): { value: number; label: string; isDefault: boolean }[] {
-  const maxParity = Math.floor(erasureSetSize / 2);
-  const defaultParity = erasureSetSize <= 5 ? 2 : erasureSetSize <= 7 ? 3 : 4;
-  const opts = [];
-  for (let p = 2; p <= maxParity; p++) {
-    opts.push({
-      value: p,
-      label: p === defaultParity ? `EC:${p} (recommended)` : `EC:${p}`,
-      isDefault: p === defaultParity,
-    });
-  }
-  return opts;
-}
-
 export default function PropertiesPanel() {
-  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes: _setNodes, setEdges, componentManifests, setDirty } = useDiagramStore();
+  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes: _setNodes, setEdges, componentManifests, setDirty, selectedClusterElement } = useDiagramStore();
   // Wrap setNodes so every property-panel mutation marks the diagram dirty (enables the Save button)
   const setNodes = (ns: typeof nodes) => { _setNodes(ns); setDirty(true); };
   const { instances, activeDemoId, demos } = useDemoStore();
@@ -848,361 +830,89 @@ export default function PropertiesPanel() {
 
   // --- Cluster properties ---
   if (selectedNode.type === "cluster") {
-    const cData = selectedNode.data as any;
+    const cData = migrateClusterData(selectedNode.data as any);
+    const pools = cData.serverPools || [];
+    const isRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
     const updateCluster = (patch: Record<string, any>) => {
       setNodes(nodes.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
     };
-    const cNodeCount = cData.nodeCount || 4;
-    const cDrivesPerNode = cData.drivesPerNode || 1;
-    const totalDrives = cNodeCount * cDrivesPerNode;
-    return (
-      <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Cluster</div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Label</label>
-          <Input type="text" value={cData.label ?? ""} onChange={(e) => updateCluster({ label: e.target.value })} className="h-8 text-sm" />
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Edition</label>
-          <Select value={cData.config?.MINIO_EDITION || "ce"} onValueChange={(v) => {
-            const patch: Record<string, any> = { config: { ...cData.config, MINIO_EDITION: v } };
-            if (v === "ce") { patch.mcpEnabled = false; patch.aistorTablesEnabled = false; }
-            updateCluster(patch);
-          }}>
-            <SelectTrigger className="w-full h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ce">Community (CE)</SelectItem>
-              <SelectItem value="aistor">AIStor (Enterprise)</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="text-xs text-muted-foreground mt-1 font-mono bg-muted px-1.5 py-0.5 rounded inline-block">
-            {(cData.config?.MINIO_EDITION || "ce") === "aistor" ? "quay.io/minio/aistor/minio:latest" : "minio/minio:latest"}
-          </div>
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Node Count</label>
-          <Select value={String(cNodeCount)} onValueChange={(v) => {
-            const newNodeCount = parseInt(v);
-            // 2-node clusters need at least 2 drives to meet the 4-drive minimum
-            const minDrives = newNodeCount === 2 ? 2 : 1;
-            const newDrivesPerNode = Math.max(cDrivesPerNode, minDrives);
-            const totalDrives = newNodeCount * newDrivesPerNode;
-            const setSize = computeErasureSetSize(totalDrives);
-            const maxParity = Math.floor(setSize / 2);
-            const defaultParity = setSize <= 5 ? 2 : setSize <= 7 ? 3 : 4;
-            const currentParity = cData.ecParity ?? 4;
-            const patch: Record<string, any> = { nodeCount: newNodeCount };
-            if (newDrivesPerNode !== cDrivesPerNode) patch.drivesPerNode = newDrivesPerNode;
-            if (currentParity > maxParity) patch.ecParity = defaultParity;
-            updateCluster(patch);
-          }}>
-            <SelectTrigger className="w-full h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="2">2 nodes</SelectItem>
-              <SelectItem value="4">4 nodes</SelectItem>
-              <SelectItem value="6">6 nodes</SelectItem>
-              <SelectItem value="8">8 nodes</SelectItem>
-              <SelectItem value="16">16 nodes</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Drives per Node</label>
-          <Select value={String(cDrivesPerNode)} onValueChange={(v) => {
-            const newDrivesPerNode = parseInt(v);
-            const totalDrives = cNodeCount * newDrivesPerNode;
-            const setSize = computeErasureSetSize(totalDrives);
-            const maxParity = Math.floor(setSize / 2);
-            const defaultParity = setSize <= 5 ? 2 : setSize <= 7 ? 3 : 4;
-            const currentParity = cData.ecParity ?? 4;
-            if (currentParity > maxParity) {
-              updateCluster({ drivesPerNode: newDrivesPerNode, ecParity: defaultParity });
-            } else {
-              updateCluster({ drivesPerNode: newDrivesPerNode });
-            }
-          }}>
-            <SelectTrigger className="w-full h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {/* 2-node clusters need ≥2 drives/node to meet the 4-drive EC minimum */}
-              {cNodeCount > 2 && <SelectItem value="1">1 drive</SelectItem>}
-              <SelectItem value="2">2 drives</SelectItem>
-              <SelectItem value="4">4 drives</SelectItem>
-              <SelectItem value="6">6 drives</SelectItem>
-              <SelectItem value="8">8 drives</SelectItem>
-              <SelectItem value="12">12 drives</SelectItem>
-              <SelectItem value="16">16 drives</SelectItem>
-            </SelectContent>
-          </Select>
-          {(() => {
-            const setSize = computeErasureSetSize(cNodeCount * cDrivesPerNode);
-            const numSets = (cNodeCount * cDrivesPerNode) / setSize;
-            return (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                {cNodeCount * cDrivesPerNode} total drives → <span className="font-medium text-foreground">{numSets} × {setSize}-drive erasure set{numSets > 1 ? "s" : ""}</span>
-              </p>
-            );
-          })()}
-        </div>
-        {/* EC Parity */}
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">EC parity</label>
-          <Select
-            value={String(cData.ecParity ?? 4)}
-            onValueChange={v => updateCluster({ ecParity: parseInt(v) })}
-          >
-            <SelectTrigger className="w-full h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(() => {
-                const totalDrives = cNodeCount * cDrivesPerNode;
-                const setSize = computeErasureSetSize(totalDrives);
-                return computeECOptions(setSize).map(opt => (
-                  <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-                ));
-              })()}
-            </SelectContent>
-          </Select>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Number of parity shards per erasure set. Higher = more fault tolerance, less usable capacity.</p>
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Parity upgrade policy</label>
-          <Select
-            value={cData.ecParityUpgradePolicy ?? "upgrade"}
-            onValueChange={v => updateCluster({ ecParityUpgradePolicy: v })}
-          >
-            <SelectTrigger className="w-full h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="upgrade">upgrade</SelectItem>
-              <SelectItem value="ignore">ignore</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-[10px] text-muted-foreground mt-0.5">upgrade: auto-increase parity when drives are offline. ignore: keep configured parity.</p>
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Disk size per node</label>
-          <Select
-            value={String(cData.diskSizeTb ?? 8)}
-            onValueChange={v => updateCluster({ diskSizeTb: parseInt(v) })}
-          >
-            <SelectTrigger className="w-full h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {[1, 2, 4, 8, 16, 32].map(n => (
-                <SelectItem key={n} value={String(n)}>{n} TB</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Simulated disk capacity for planning display only. Does not affect containers.</p>
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Root User</label>
-          <Input
-            type="text"
-            value={cData.credentials?.root_user ?? "minioadmin"}
-            onChange={(e) => updateCluster({ credentials: { ...(cData.credentials || {}), root_user: e.target.value } })}
-            className="h-8 text-sm"
-          />
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Root Password</label>
-          <PasswordInput
-            value={cData.credentials?.root_password ?? "minioadmin"}
-            onChange={(v) => updateCluster({ credentials: { ...(cData.credentials || {}), root_password: v } })}
-            className="h-8 text-sm"
-          />
-        </div>
-        {(cData.config?.MINIO_EDITION || "ce") === "aistor" && (
-        <div className="mb-3">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={cData.mcpEnabled !== false}
-              onChange={(e) => updateCluster({ mcpEnabled: e.target.checked })}
-              className="rounded"
-            />
-            <span className="text-xs text-muted-foreground">Enable MCP AI Tools</span>
-            {cData.mcpEnabled !== false && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">MCP</span>
-            )}
-          </label>
-        </div>
-        )}
-        {(cData.config?.MINIO_EDITION || "ce") === "aistor" && (
-        <div className="mb-3">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={cData.aistorTablesEnabled === true}
-              onChange={(e) => {
-                const enabled = e.target.checked;
-                updateCluster({ aistorTablesEnabled: enabled });
-                // Auto-update existing edges from this cluster to Trino nodes
-                const trinoNodeIds = nodes.filter((n) => (n.data as any)?.componentId === "trino").map((n) => n.id);
-                if (trinoNodeIds.length > 0) {
-                  const updatedEdges = edges.map((edge) => {
-                    if (edge.source === selectedNodeId && trinoNodeIds.includes(edge.target)) {
-                      const ed = edge.data as any;
-                      const newType = enabled ? "aistor-tables" : "s3";
-                      if (ed?.connectionType === "s3" || ed?.connectionType === "aistor-tables") {
-                        return { ...edge, data: { ...ed, connectionType: newType } };
-                      }
-                    }
-                    return edge;
-                  });
-                  if (updatedEdges.some((e, i) => e !== edges[i])) setEdges(updatedEdges);
-                }
-              }}
-              className="rounded"
-            />
-            <span className="text-xs text-muted-foreground">Enable AIStor Tables</span>
-            {cData.aistorTablesEnabled === true && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-700/15 text-blue-400 border border-blue-700/30">Tables</span>
-            )}
-          </label>
-          <p className="text-[10px] text-muted-foreground mt-0.5 ml-5">
-            Allows direct connection to Trino via AIStor Tables
-          </p>
-        </div>
-        )}
-        {/* Capacity & resilience info card */}
-        {(() => {
-          const parity = cData.ecParity ?? 4;
-          const diskTb = cData.diskSizeTb ?? 8;
-          const totalDrives = cNodeCount * cDrivesPerNode;
-          const setSize = computeErasureSetSize(totalDrives);
-          const numSets = totalDrives / setSize;
-          const dataShards = setSize - parity;
-          const usableRatio = dataShards / setSize;
-          const rawTb = totalDrives * diskTb;
-          const usableTb = Math.round(rawTb * usableRatio);
-          const writeQuorum = dataShards === parity ? dataShards + 1 : dataShards;
-          return (
-            <div className="mt-3 pt-3 border-t border-border space-y-1.5">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Capacity &amp; resilience</p>
-              {[
-                ["Erasure sets", `${numSets} × ${setSize} drives`],
-                ["Usable ratio", `${Math.round(usableRatio * 100)}% (${dataShards} data + ${parity} parity)`],
-                ["Raw capacity", `${rawTb} TB`],
-                ["Usable capacity", `${usableTb} TB`],
-                ["Drive tolerance", `${parity} per erasure set`],
-                ["Read quorum", `${dataShards} drives`],
-                ["Write quorum", `${writeQuorum} drives`],
-              ].map(([label, value]) => (
-                <div key={label} className="flex justify-between gap-2">
-                  <span className="text-[11px] text-muted-foreground">{label}</span>
-                  <span className="text-[11px] text-foreground font-mono">{value}</span>
-                </div>
-              ))}
-            </div>
-          );
-        })()}
-        {/* Console links — find the first running cluster node instance */}
-        {(() => {
-          const clusterNodeInstance = instances.find((i) => i.node_id === `${selectedNodeId}-node-1`);
-          if (!clusterNodeInstance || clusterNodeInstance.web_uis.length === 0) return null;
-          return (
-            <div className="mt-3 pt-3 border-t border-border">
-              <div className="text-xs text-muted-foreground mb-1">Web UIs</div>
-              {clusterNodeInstance.web_uis.map((ui) => (
-                <a
-                  key={ui.name}
-                  href={proxyUrl(ui.proxy_url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-xs text-primary hover:underline mb-1"
-                >
-                  {ui.name}
-                </a>
-              ))}
-            </div>
-          );
-        })()}
-      </div>
-    );
-  }
-
-  // --- Annotation properties ---
-  if (selectedNode.type === "annotation") {
-    const aData = selectedNode.data as any;
-    const updateAnnotation = (patch: Record<string, any>) => {
-      setNodes(nodes.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+    const updatePool = (poolId: string, patch: Partial<MinioServerPool>) => {
+      const newPools = pools.map((p) => p.id === poolId ? { ...p, ...patch } : p);
+      updateCluster({ serverPools: newPools });
     };
-    const styleOptions = [
-      { value: "info", label: "Info", color: "text-blue-500" },
-      { value: "callout", label: "Callout", color: "text-amber-500" },
-      { value: "warning", label: "Warning", color: "text-red-500" },
-      { value: "step", label: "Step", color: "text-foreground" },
-    ];
+
+    const element = selectedClusterElement;
+
+    if (!element || element.type === "cluster") {
+      return (
+        <ClusterPropertiesPanel
+          nodeId={selectedNodeId!}
+          data={cData}
+          nodes={nodes}
+          edges={edges}
+          instances={instances}
+          onUpdate={updateCluster}
+          setEdges={setEdges}
+        />
+      );
+    }
+
+    if (element.type === "pool") {
+      const poolIdx = pools.findIndex((p) => p.id === element.poolId);
+      const pool = pools[poolIdx];
+      if (!pool) {
+        return (
+          <ClusterPropertiesPanel
+            nodeId={selectedNodeId!}
+            data={cData}
+            nodes={nodes}
+            edges={edges}
+            instances={instances}
+            onUpdate={updateCluster}
+            setEdges={setEdges}
+          />
+        );
+      }
+      return (
+        <PoolPropertiesPanel
+          pool={pool}
+          poolIndex={poolIdx + 1}
+          totalPools={pools.length}
+          onUpdate={(patch) => updatePool(pool.id, patch)}
+        />
+      );
+    }
+
+    if (element.type === "node") {
+      const poolIdx = pools.findIndex((p) => p.id === element.poolId);
+      const pool = pools[poolIdx] || pools[0];
+      const containerName = pools.length === 1
+        ? `${selectedNodeId}-node-${element.nodeIndex}`
+        : `${selectedNodeId}-pool${poolIdx + 1}-node-${element.nodeIndex}`;
+      const inst = instances.find((i) => i.node_id === containerName);
+      return (
+        <NodePropertiesPanel
+          nodeId={containerName}
+          poolId={element.poolId}
+          nodeIndex={element.nodeIndex}
+          instance={inst}
+          drivesPerNode={pool?.drivesPerNode ?? 4}
+          isRunning={isRunning}
+        />
+      );
+    }
+
+    // Fallback — should never reach here, but satisfy TS
     return (
-      <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Annotation</div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Title</label>
-          <input
-            value={aData.title ?? ""}
-            onChange={(e) => updateAnnotation({ title: e.target.value })}
-            className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Annotation title"
-          />
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Body</label>
-          <textarea
-            value={aData.body ?? ""}
-            onChange={(e) => updateAnnotation({ body: e.target.value })}
-            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm min-h-[100px] resize-y focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Description — supports **bold** text"
-          />
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Style</label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {styleOptions.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => updateAnnotation({ style: s.value })}
-                className={`px-2 py-1.5 text-xs rounded border transition-colors ${aData.style === s.value ? "border-primary bg-primary/10 text-primary" : "border-input bg-background hover:border-primary/50"}`}
-              >
-                <span className={s.color}>{s.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        {aData.style === "step" && (
-          <div className="mb-3">
-            <label className="text-xs text-muted-foreground block mb-1">Step Number</label>
-            <input
-              type="number"
-              min={1}
-              value={aData.stepNumber ?? ""}
-              onChange={(e) => updateAnnotation({ stepNumber: e.target.value ? parseInt(e.target.value) : undefined })}
-              className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="1"
-            />
-          </div>
-        )}
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Width (px)</label>
-          <input
-            type="number"
-            min={120}
-            max={600}
-            value={aData.width ?? 260}
-            onChange={(e) => updateAnnotation({ width: parseInt(e.target.value) || 260 })}
-            className="w-full bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-      </div>
+      <ClusterPropertiesPanel
+        nodeId={selectedNodeId!}
+        data={cData}
+        nodes={nodes}
+        edges={edges}
+        instances={instances}
+        onUpdate={updateCluster}
+        setEdges={setEdges}
+      />
     );
   }
 
@@ -1255,7 +965,9 @@ export default function PropertiesPanel() {
   const instance = instances.find((i) => i.node_id === selectedNodeId);
   const componentDef = components.find((c) => c.id === data.componentId);
   const variants = componentDef?.variants ?? [];
-  const isExperience = demos.find((d) => d.id === activeDemoId)?.mode === "experience";
+  const activeDemo = demos.find((d) => d.id === activeDemoId);
+  const isExperience = activeDemo?.mode === "experience";
+  const isRunning = activeDemo?.status === "running";
 
   const updateData = (patch: Partial<ComponentNodeData>) => {
     setNodes(
@@ -1357,7 +1069,7 @@ export default function PropertiesPanel() {
         <DataGeneratorPanel
           nodeId={selectedNodeId!}
           demoId={activeDemoId}
-          isRunning={demos.find((d) => d.id === activeDemoId)?.status === "running"}
+          isRunning={isRunning}
           config={data.config}
           updateConfig={updateConfig}
           onOpenSqlEditor={(scenarioId) => {
@@ -1371,7 +1083,7 @@ export default function PropertiesPanel() {
         <RagAppPanel
           nodeId={selectedNodeId!}
           demoId={activeDemoId}
-          isRunning={demos.find((d) => d.id === activeDemoId)?.status === "running"}
+          isRunning={isRunning}
         />
       )}
 
@@ -1379,7 +1091,7 @@ export default function PropertiesPanel() {
         <OllamaPanel
           nodeId={selectedNodeId!}
           demoId={activeDemoId}
-          isRunning={demos.find((d) => d.id === activeDemoId)?.status === "running"}
+          isRunning={isRunning}
         />
       )}
 

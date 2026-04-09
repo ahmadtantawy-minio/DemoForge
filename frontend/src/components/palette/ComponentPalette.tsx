@@ -24,20 +24,26 @@ export default function ComponentPalette() {
   const [components, setComponents] = useState<ComponentSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [slowBackend, setSlowBackend] = useState(false);
   const [licenses, setLicenses] = useState<LicenseEntry[]>([]);
 
   useEffect(() => {
+    const slowTimer = setTimeout(() => setSlowBackend(true), 2500);
+
     fetchComponents()
       .then((res) => setComponents(res.components))
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        clearTimeout(slowTimer);
+        setSlowBackend(false);
+        setLoading(false);
+      });
 
     fetchLicenseStatus()
       .then((res) => setLicenses(res))
-      .catch(() => {
-        // Backend may not exist yet — silently ignore
-        setLicenses([]);
-      });
+      .catch(() => setLicenses([]));
+
+    return () => clearTimeout(slowTimer);
   }, []);
 
   const grouped = components.reduce<Record<string, ComponentSummary[]>>((acc, c) => {
@@ -90,15 +96,18 @@ export default function ComponentPalette() {
         </div>
         {error && <div className="text-xs text-destructive px-1">{error}</div>}
         {loading && (
-          <div className="flex items-center justify-center py-8">
+          <div className="flex flex-col items-center justify-center py-8 gap-2">
             <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground">
+              {slowBackend ? "Backend starting up…" : "Loading components…"}
+            </span>
           </div>
         )}
         {!loading && components.length === 0 && !error && (
           <div className="text-xs text-muted-foreground px-1 py-4 text-center">No components available</div>
         )}
         {/* Group layout item */}
-        <div className="mb-3">
+        {!loading && <div className="mb-3">
           <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">
             layout
           </div>
@@ -129,7 +138,7 @@ export default function ComponentPalette() {
             <MessageSquareDashed className="w-5 h-5 text-blue-400 shrink-0" />
             <span className="font-medium text-foreground truncate flex-1">Annotation</span>
           </div>
-        </div>
+        </div>}
         {Object.entries(grouped).map(([category, items]) => (
           <div key={category} className="mb-3">
             <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">
