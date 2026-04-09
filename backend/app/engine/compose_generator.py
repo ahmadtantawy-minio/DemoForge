@@ -968,18 +968,26 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 hc_test = f"curl -sf {health_url} || wget -qO- {health_url}"
             else:
                 hc_test = f"curl -sf {health_url} || wget -qO- {health_url} || bash -c 'echo > /dev/tcp/localhost/{hc.port}'"
+            # Cluster nodes need a longer start period — forming quorum across N nodes
+            # takes more time than a single node starting. 15s is not enough on dev machines.
+            is_cluster_node = node.id in cluster_health_override
+            start_period = "90s" if is_cluster_node else (hc.start_period if hasattr(hc, 'start_period') else "15s")
             service["healthcheck"] = {
                 "test": ["CMD-SHELL", hc_test],
                 "interval": hc.interval,
                 "timeout": hc.timeout,
-                "retries": 3,
-                "start_period": hc.start_period if hasattr(hc, 'start_period') else "15s",
+                "retries": 5,
+                "start_period": start_period,
             }
 
         # Named volumes
         service_volumes = []
         if manifest.volumes:
             for vol in manifest.volumes:
+                # Skip the default /data mount for cluster nodes with multiple drives:
+                # MINIO_VOLUMES uses /data1.../dataN — the bare /data would be an orphan.
+                if node.id in cluster_drives and cluster_drives[node.id] > 1 and vol.path == "/data":
+                    continue
                 vol_name = f"{project_name}-{node.id}-{vol.name}"
                 service_volumes.append(f"{vol_name}:{vol.path}")
 
@@ -1223,7 +1231,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
     # --- mcp-server: one MCP sidecar per MinIO cluster for AI tool access ---
     if demo.clusters:
-        for cluster in [c for c in demo.clusters if c.mcp_enabled]:
+        for cluster in [c for c in demo.clusters if c.mcp_enabled and c.config.get("MINIO_EDITION", "ce") == "aistor"]:
             mcp_svc_name = f"{cluster.id}-mcp"
             mcp_container_name = f"{project_name}-{cluster.id}-mcp"
             cred_user = cluster.credentials.get("root_user", "minioadmin")
@@ -1320,6 +1328,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         manifest = get_component(node.component)
         if manifest:
             for vol in manifest.volumes:
+                if node.id in cluster_drives and cluster_drives[node.id] > 1 and vol.path == "/data":
+                    continue
                 vol_name = f"{project_name}-{node.id}-{vol.name}"
                 volumes[vol_name] = {"driver": "local"}
     # Add cluster-specific extra volumes

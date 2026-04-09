@@ -149,6 +149,7 @@ export interface ContainerInstance {
   networks: NetworkMembership[];
   credentials: CredentialInfo[];
   init_status: "pending" | "running" | "completed" | "failed";
+  stopped_drives?: number[];
 }
 
 // --- React Flow node data ---

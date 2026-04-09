@@ -41,6 +41,7 @@ def _save_cluster_configs(data_dir: str, project_name: str, clusters) -> None:
             "node_count": cluster.node_count,
             "drives_per_node": cluster.drives_per_node,
             "component": cluster.component,
+            "edition": cluster.config.get("MINIO_EDITION", "ce") if hasattr(cluster, "config") else "ce",
         }
         for cluster in clusters
     }
@@ -55,10 +56,12 @@ def _detect_changed_clusters(demo, prev_configs: dict) -> list[str]:
         prev = prev_configs.get(cluster.id)
         if prev is None:
             continue  # New cluster — no stale volumes to clear
+        current_edition = cluster.config.get("MINIO_EDITION", "ce") if hasattr(cluster, "config") else "ce"
         if (
             prev["node_count"] != cluster.node_count
             or prev["drives_per_node"] != cluster.drives_per_node
             or prev.get("component", "minio") != cluster.component
+            or prev.get("edition", "ce") != current_edition
         ):
             changed.append(cluster.id)
     return changed
@@ -80,12 +83,20 @@ async def _remove_cluster_volumes(
     max_nodes = max(old_node_count, new_node_count)
     max_drives = max(old_drives, new_drives)
 
+    # Docker Compose prefixes named volumes with "{project_name}_" when no explicit
+    # "name:" is set in the volumes section. The vol_name in compose is
+    # "{project_name}-{node_id}-data{d}", so Docker's actual name is
+    # "{project_name}_{project_name}-{node_id}-data{d}".
     candidates = []
     for i in range(1, max_nodes + 1):
         node_id = f"{cluster_id}-node-{i}"
-        candidates.append(f"{project_name}-{node_id}-data")
+        vol_base = f"{project_name}-{node_id}-data"
+        # Both prefixed (real Docker name) and unprefixed (defensive fallback)
+        candidates.append(f"{project_name}_{vol_base}")
+        candidates.append(vol_base)
         for d in range(1, max_drives + 1):
-            candidates.append(f"{project_name}-{node_id}-data{d}")
+            candidates.append(f"{project_name}_{vol_base}{d}")
+            candidates.append(f"{vol_base}{d}")
 
     def _remove():
         import docker as _docker

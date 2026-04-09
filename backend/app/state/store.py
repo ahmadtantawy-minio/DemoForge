@@ -38,6 +38,7 @@ class RunningDemo:
     init_results: list[dict] = field(default_factory=list)  # Results from init script runner
     error_message: str = ""           # Error details if status == "error"
     edge_configs: dict[str, EdgeConfigResult] = field(default_factory=dict)  # edge_id → EdgeConfigResult
+    stopped_drives: dict[str, list[int]] = field(default_factory=dict)  # node_id → list of stopped drive numbers
 
 class DeployProgress:
     """Tracks deployment progress steps."""

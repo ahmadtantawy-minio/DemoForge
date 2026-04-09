@@ -138,10 +138,39 @@ async def list_instances(demo_id: str):
 
     demo = _load_demo(demo_id)
 
+    # Check cluster health FIRST so we can use it to override per-node Docker health.
+    # The /minio/health/cluster endpoint is authoritative: if it returns 200, the cluster
+    # is fully operational even if Docker's container healthcheck transiently reports unhealthy.
+    cluster_health: dict[str, str] = {}
+    cluster_node_health_override: dict[str, str] = {}
+    if demo and demo.clusters:
+        project_name = f"demoforge-{demo_id}"
+        async_client = get_http_client()
+        async def _check_cluster_early(cluster_id: str) -> tuple[str, str]:
+            lb_host = f"{project_name}-{cluster_id}-lb"
+            try:
+                resp = await async_client.get(
+                    f"http://{lb_host}:80/minio/health/cluster",
+                    timeout=httpx.Timeout(3.0),
+                )
+                return cluster_id, "healthy" if resp.status_code == 200 else "degraded"
+            except Exception:
+                return cluster_id, "unreachable"
+        results = await asyncio.gather(*[_check_cluster_early(c.id) for c in demo.clusters])
+        cluster_health = dict(results)
+        # If cluster is healthy, all its nodes are healthy regardless of Docker healthcheck status.
+        # This prevents false "error" badges when MinIO is up but Docker healthcheck is slow/transient.
+        for cluster in demo.clusters:
+            if cluster_health.get(cluster.id) == "healthy":
+                for i in range(1, cluster.node_count + 1):
+                    cluster_node_health_override[f"{cluster.id}-node-{i}"] = "healthy"
+
     instances = []
     for node_id, container in running.containers.items():
         manifest = get_component(container.component_id)
-        health = await get_container_health(container.container_name)
+        docker_health = await get_container_health(container.container_name)
+        # Use cluster-level health override if available (cluster health endpoint is authoritative)
+        health = cluster_node_health_override.get(node_id, docker_health)
         container.health = health  # Update cache
 
         web_uis = []
@@ -221,6 +250,7 @@ async def list_instances(demo_id: str):
             networks=network_memberships,
             credentials=credentials,
             init_status="completed",
+            stopped_drives=running.stopped_drives.get(node_id, []),
         ))
 
     # Build edge configs with live verification for site-replication
@@ -244,24 +274,6 @@ async def list_instances(demo_id: str):
             description=ec.description,
             error=error,
         ))
-
-    # Poll cluster health via LB's /minio/health/cluster endpoint
-    cluster_health: dict[str, str] = {}
-    if demo and demo.clusters:
-        project_name = f"demoforge-{demo_id}"
-        async_client = get_http_client()
-        async def _check_cluster(cluster_id: str) -> tuple[str, str]:
-            lb_host = f"{project_name}-{cluster_id}-lb"
-            try:
-                resp = await async_client.get(
-                    f"http://{lb_host}:80/minio/health/cluster",
-                    timeout=httpx.Timeout(3.0),
-                )
-                return cluster_id, "healthy" if resp.status_code == 200 else "degraded"
-            except Exception:
-                return cluster_id, "unreachable"
-        results = await asyncio.gather(*[_check_cluster(c.id) for c in demo.clusters])
-        cluster_health = dict(results)
 
     return InstancesResponse(
         demo_id=demo_id, status=running.status, instances=instances,
@@ -298,6 +310,46 @@ async def start_instance(demo_id: str, node_id: str):
     c = await asyncio.to_thread(docker_client.containers.get, container_name)
     await asyncio.to_thread(c.start)
     return {"status": "started", "node_id": node_id}
+
+@router.get("/api/demos/{demo_id}/instances/{node_id}/logs")
+async def get_instance_logs(demo_id: str, node_id: str, tail: int = 200):
+    """Fetch recent logs from a container."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    try:
+        c = await asyncio.to_thread(docker_client.containers.get, container_name)
+        raw = await asyncio.to_thread(c.logs, tail=tail, timestamps=True, stream=False)
+        return {"logs": raw.decode("utf-8", errors="replace")}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@router.post("/api/demos/{demo_id}/instances/{node_id}/drives/{drive_num}/stop")
+async def stop_drive(demo_id: str, node_id: str, drive_num: int):
+    """Make a single drive inaccessible to simulate a drive failure."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    await exec_in_container(container_name, f"sh -c 'test -d /data{drive_num} && mv /data{drive_num} /data{drive_num}.offline || true'")
+    if node_id not in running.stopped_drives:
+        running.stopped_drives[node_id] = []
+    if drive_num not in running.stopped_drives[node_id]:
+        running.stopped_drives[node_id].append(drive_num)
+    return {"status": "stopped", "node_id": node_id, "drive_num": drive_num}
+
+@router.post("/api/demos/{demo_id}/instances/{node_id}/drives/{drive_num}/start")
+async def start_drive(demo_id: str, node_id: str, drive_num: int):
+    """Restore a previously stopped drive."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    await exec_in_container(container_name, f"sh -c 'test -d /data{drive_num}.offline && mv /data{drive_num}.offline /data{drive_num} || true'")
+    if node_id in running.stopped_drives and drive_num in running.stopped_drives[node_id]:
+        running.stopped_drives[node_id].remove(drive_num)
+    return {"status": "started", "node_id": node_id, "drive_num": drive_num}
 
 def _expand_demo_for_edges(demo):
     """Lightweight cluster edge expansion — same logic as compose_generator but

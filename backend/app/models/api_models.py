@@ -80,6 +80,7 @@ class ContainerInstance(BaseModel):
     networks: list[NetworkMembership] = []
     credentials: list[CredentialInfo] = []
     init_status: str = "pending"
+    stopped_drives: list[int] = []
 
 class EdgeConfigStatus(BaseModel):
     edge_id: str

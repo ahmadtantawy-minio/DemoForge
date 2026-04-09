@@ -39,6 +39,7 @@ interface Props {
   demoId: string;
   clusterId: string;
   drivesPerNode?: number;
+  overrideStatus?: "healthy" | "degraded" | "unreachable";
 }
 
 // Pending confirmation state for a simulated action
@@ -89,7 +90,7 @@ function DriveIndicator({ state }: { state: string }) {
   );
 }
 
-export default function ClusterHealthPanel({ demoId, clusterId, drivesPerNode = 4 }: Props) {
+export default function ClusterHealthPanel({ demoId, clusterId, drivesPerNode = 4, overrideStatus }: Props) {
   const [health, setHealth] = useState<ClusterHealth | null>(null);
   const [healing, setHealing] = useState<HealingStatus | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -243,28 +244,34 @@ export default function ClusterHealthPanel({ demoId, clusterId, drivesPerNode = 
 
   if (!health) return null;
 
+  // Polling /minio/health/cluster is authoritative for quorum — override mc admin info when they disagree
+  const effectiveStatus: typeof health.status =
+    overrideStatus === "degraded" || overrideStatus === "unreachable"
+      ? "quorum_lost"
+      : health.status;
+
   const statusColor =
-    health.status === "healthy"
+    effectiveStatus === "healthy"
       ? "text-green-400"
-      : health.status === "degraded"
+      : effectiveStatus === "degraded"
       ? "text-amber-400"
-      : health.status === "quorum_lost"
+      : effectiveStatus === "quorum_lost"
       ? "text-red-400"
       : "text-zinc-400";
 
   const statusLabel =
-    health.status === "healthy"
+    effectiveStatus === "healthy"
       ? "Healthy"
-      : health.status === "degraded"
+      : effectiveStatus === "degraded"
       ? "Degraded"
-      : health.status === "quorum_lost"
+      : effectiveStatus === "quorum_lost"
       ? "Write quorum lost"
       : "Unknown";
 
   const driveCountColor =
-    health.drives_online === health.drives_total && health.drives_total > 0
+    health.drives_online === health.drives_total && health.drives_total > 0 && effectiveStatus === "healthy"
       ? "text-green-400"
-      : health.status === "quorum_lost"
+      : effectiveStatus === "quorum_lost"
       ? "text-red-400"
       : "text-amber-400";
 

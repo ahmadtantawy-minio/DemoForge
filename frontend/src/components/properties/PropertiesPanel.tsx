@@ -864,7 +864,11 @@ export default function PropertiesPanel() {
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Edition</label>
-          <Select value={cData.config?.MINIO_EDITION || "ce"} onValueChange={(v) => updateCluster({ config: { ...cData.config, MINIO_EDITION: v } })}>
+          <Select value={cData.config?.MINIO_EDITION || "ce"} onValueChange={(v) => {
+            const patch: Record<string, any> = { config: { ...cData.config, MINIO_EDITION: v } };
+            if (v === "ce") { patch.mcpEnabled = false; patch.aistorTablesEnabled = false; }
+            updateCluster(patch);
+          }}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -881,21 +885,24 @@ export default function PropertiesPanel() {
           <label className="text-xs text-muted-foreground block mb-1">Node Count</label>
           <Select value={String(cNodeCount)} onValueChange={(v) => {
             const newNodeCount = parseInt(v);
-            const totalDrives = newNodeCount * cDrivesPerNode;
+            // 2-node clusters need at least 2 drives to meet the 4-drive minimum
+            const minDrives = newNodeCount === 2 ? 2 : 1;
+            const newDrivesPerNode = Math.max(cDrivesPerNode, minDrives);
+            const totalDrives = newNodeCount * newDrivesPerNode;
             const setSize = computeErasureSetSize(totalDrives);
             const maxParity = Math.floor(setSize / 2);
             const defaultParity = setSize <= 5 ? 2 : setSize <= 7 ? 3 : 4;
             const currentParity = cData.ecParity ?? 4;
-            if (currentParity > maxParity) {
-              updateCluster({ nodeCount: newNodeCount, ecParity: defaultParity });
-            } else {
-              updateCluster({ nodeCount: newNodeCount });
-            }
+            const patch: Record<string, any> = { nodeCount: newNodeCount };
+            if (newDrivesPerNode !== cDrivesPerNode) patch.drivesPerNode = newDrivesPerNode;
+            if (currentParity > maxParity) patch.ecParity = defaultParity;
+            updateCluster(patch);
           }}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="2">2 nodes</SelectItem>
               <SelectItem value="4">4 nodes</SelectItem>
               <SelectItem value="6">6 nodes</SelectItem>
               <SelectItem value="8">8 nodes</SelectItem>
@@ -922,7 +929,8 @@ export default function PropertiesPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="1">1 drive</SelectItem>
+              {/* 2-node clusters need ≥2 drives/node to meet the 4-drive EC minimum */}
+              {cNodeCount > 2 && <SelectItem value="1">1 drive</SelectItem>}
               <SelectItem value="2">2 drives</SelectItem>
               <SelectItem value="4">4 drives</SelectItem>
               <SelectItem value="6">6 drives</SelectItem>
@@ -1013,6 +1021,7 @@ export default function PropertiesPanel() {
             className="h-8 text-sm"
           />
         </div>
+        {(cData.config?.MINIO_EDITION || "ce") === "aistor" && (
         <div className="mb-3">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -1027,6 +1036,8 @@ export default function PropertiesPanel() {
             )}
           </label>
         </div>
+        )}
+        {(cData.config?.MINIO_EDITION || "ce") === "aistor" && (
         <div className="mb-3">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -1062,6 +1073,7 @@ export default function PropertiesPanel() {
             Allows direct connection to Trino via AIStor Tables
           </p>
         </div>
+        )}
         {/* Capacity & resilience info card */}
         {(() => {
           const parity = cData.ecParity ?? 4;

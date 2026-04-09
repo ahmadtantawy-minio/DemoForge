@@ -26,11 +26,14 @@ import { FAManagementPage } from "./pages/FAManagementPage";
 import { ConnectivityPage } from "./pages/ConnectivityPage";
 
 export default function App() {
-  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage } = useDemoStore();
+  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
+  const addDebugEntry = useDebugStore((s) => s.addEntry);
+  const prevClusterHealth = useRef<Record<string, string>>({});
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(200);
+  const [bottomTab, setBottomTab] = useState<"terminal" | "logs">("terminal");
   const [leftPanelWidth, setLeftPanelWidth] = useState(192);
   const [rightPanelWidth, setRightPanelWidth] = useState(288);
   const isDragging = useRef(false);
@@ -60,11 +63,50 @@ export default function App() {
     const syncInstances = () =>
       fetchInstances(activeDemoId).then((res) => {
         setInstances(res.instances);
-        if (res.cluster_health) setClusterHealth(res.cluster_health);
+        if (res.cluster_health) {
+          setClusterHealth(res.cluster_health);
+          // Log cluster health changes with context
+          for (const [id, status] of Object.entries(res.cluster_health)) {
+            const prev = prevClusterHealth.current[id];
+            if (prev !== undefined && prev !== status) {
+              const level = status === "healthy" ? "info" : "warn";
+              const clusterNodes = res.instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
+              const healthyNodes = clusterNodes.filter((i) => i.health === "healthy").length;
+              const statusMeaning: Record<string, string> = {
+                healthy: "Write quorum maintained — cluster fully operational.",
+                degraded: "HTTP non-200 from /minio/health/cluster — write quorum may be lost. Check container logs or redeploy.",
+                unreachable: "Load balancer not responding — LB container may be down or starting up.",
+              };
+              const details = [
+                `Transition: ${prev} → ${status}`,
+                `Cluster: ${id} (demo: ${activeDemoId})`,
+                `Nodes up: ${healthyNodes}/${clusterNodes.length}`,
+                `Checked via: GET /minio/health/cluster through LB`,
+                `Meaning: ${statusMeaning[status] ?? status}`,
+              ].join("\n");
+              addDebugEntry(level, "ClusterHealth", `${id}: ${prev} → ${status}`, details);
+            }
+          }
+          prevClusterHealth.current = res.cluster_health;
+        }
         // Push health updates to diagram nodes
         const { updateNodeHealth } = useDiagramStore.getState();
         for (const inst of res.instances) {
           updateNodeHealth(inst.node_id, inst.health);
+        }
+        // Log errored containers
+        for (const inst of res.instances) {
+          if (inst.health === "error") {
+            const details = [
+              `Node: ${inst.node_id}`,
+              `Container: ${inst.container_name}`,
+              `Health: ${inst.health}`,
+              `Init status: ${inst.init_status}`,
+              `Demo: ${activeDemoId}`,
+              `Tip: Open Admin panel → Logs tab to see container output`,
+            ].join("\n");
+            addDebugEntry("error", "Container", `${inst.node_id} entered error state`, details);
+          }
         }
         // Update edge config status on diagram edges
         if (res.edge_configs && res.edge_configs.length > 0) {
@@ -122,7 +164,9 @@ export default function App() {
             setResilienceProbes(rsRes.probes);
           }
         }).catch(() => {});
-      }).catch(() => {});
+      }).catch((err: any) => {
+        addDebugEntry("error", "Poll", "fetchInstances failed", err?.message || String(err));
+      });
     syncInstances();
     const interval = setInterval(syncInstances, 5000);
     return () => clearInterval(interval);
@@ -291,17 +335,33 @@ export default function App() {
           {/* Floating Cockpit overlay */}
           {cockpitEnabled && activeDemoId && <CockpitOverlay />}
 
-          {/* Bottom - Terminal or Debug Panel (resizable) - only when demo selected */}
+          {/* Bottom - Terminal / Logs panel (resizable) - only when demo selected */}
           {activeDemoId && (
-            <div className="flex-shrink-0" style={{ height: terminalHeight }}>
+            <div className="flex-shrink-0 flex flex-col" style={{ height: terminalHeight }}>
               <div
-                className="h-2 bg-border hover:bg-primary/50 cursor-row-resize border-t border-border flex items-center justify-center"
+                className="h-2 bg-border hover:bg-primary/50 cursor-row-resize border-t border-border flex items-center justify-center flex-shrink-0"
                 onMouseDown={onResizeStart}
               >
                 <div className="w-8 h-0.5 rounded-full bg-zinc-500" />
               </div>
-              <div className="h-[calc(100%-8px)]">
-                {debugOpen ? <DebugPanel /> : <TerminalPanel extraTabs={terminalTabs} />}
+              {faMode === "dev" && (
+                <div className="flex items-center gap-0 px-2 bg-card border-b border-border flex-shrink-0">
+                  {(["terminal", "logs"] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setBottomTab(t)}
+                      className={`px-3 py-1 text-[11px] font-medium transition-colors border-b-2 ${bottomTab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {t === "terminal" ? "Terminal" : "Dev Logs"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex-1 min-h-0">
+                {faMode === "dev" && bottomTab === "logs"
+                  ? <DebugPanel />
+                  : (debugOpen ? <DebugPanel /> : <TerminalPanel extraTabs={terminalTabs} />)
+                }
               </div>
             </div>
           )}

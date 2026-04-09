@@ -187,6 +187,12 @@ export const startInstance = (demoId: string, nodeId: string) =>
     { method: "POST" }
   );
 
+export const stopDrive = (demoId: string, nodeId: string, driveNum: number) =>
+  apiFetch<{ status: string }>(`/api/demos/${demoId}/instances/${nodeId}/drives/${driveNum}/stop`, { method: "POST" });
+
+export const startDrive = (demoId: string, nodeId: string, driveNum: number) =>
+  apiFetch<{ status: string }>(`/api/demos/${demoId}/instances/${nodeId}/drives/${driveNum}/start`, { method: "POST" });
+
 export const resetCluster = (demoId: string, clusterId: string) =>
   apiFetch<{ status: string; cluster_id: string; buckets_removed: number }>(
     `/api/demos/${demoId}/clusters/${clusterId}/reset`,

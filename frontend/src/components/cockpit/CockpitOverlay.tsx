@@ -51,6 +51,8 @@ function formatRate(bytesPerSec: number): string {
   return `${(bytesPerSec / (k * k)).toFixed(1)} MB/s`;
 }
 
+const BASE_WIDTH = 380;
+
 export default function CockpitOverlay() {
   const { activeDemoId, demos, cockpitEnabled: enabled, clusterHealth } = useDemoStore();
   const [data, setData] = useState<CockpitData | null>(null);
@@ -126,8 +128,12 @@ export default function CockpitOverlay() {
   const toggleCockpit = useDemoStore((s) => s.toggleCockpit);
 
   // Draggable position
-  const [pos, setPos] = useState({ x: window.innerWidth - 320, y: 60 });
+  const [pos, setPos] = useState({ x: window.innerWidth - 420, y: 60 });
   const dragRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
+
+  // Resizable width
+  const [cockpitWidth, setCockpitWidth] = useState(BASE_WIDTH);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -135,7 +141,7 @@ export default function CockpitOverlay() {
     const onMove = (ev: MouseEvent) => {
       if (!dragRef.current) return;
       setPos({
-        x: Math.max(0, Math.min(window.innerWidth - 280, dragRef.current.posX + ev.clientX - dragRef.current.startX)),
+        x: Math.max(0, Math.min(window.innerWidth - cockpitWidth, dragRef.current.posX + ev.clientX - dragRef.current.startX)),
         y: Math.max(0, Math.min(window.innerHeight - 100, dragRef.current.posY + ev.clientY - dragRef.current.startY)),
       });
     };
@@ -146,21 +152,47 @@ export default function CockpitOverlay() {
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [pos]);
+  }, [pos, cockpitWidth]);
+
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { startX: e.clientX, startWidth: cockpitWidth };
+    const onMove = (ev: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const newWidth = Math.max(280, Math.min(700, resizeRef.current.startWidth + (resizeRef.current.startX - ev.clientX)));
+      setCockpitWidth(newWidth);
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [cockpitWidth]);
+
+  const scale = cockpitWidth / BASE_WIDTH;
 
   return (
     <div
-      className="fixed z-50 w-[280px] max-h-[60vh] bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden flex flex-col"
-      style={{ left: pos.x, top: pos.y }}
+      className="fixed z-50 bg-card/95 backdrop-blur border border-border rounded-lg shadow-xl overflow-hidden flex flex-col"
+      style={{ left: pos.x, top: pos.y, width: cockpitWidth }}
     >
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/30 transition-colors z-10"
+        onMouseDown={onResizeStart}
+      />
+
       {/* Draggable header */}
       <div
-        className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border cursor-move select-none"
+        className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b border-border cursor-move select-none"
         onMouseDown={onDragStart}
       >
         <div className="flex items-center gap-1.5">
           <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Cockpit</span>
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Cockpit</span>
         </div>
         <button
           className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-accent transition-colors"
@@ -169,106 +201,98 @@ export default function CockpitOverlay() {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
-      <div className="overflow-y-auto p-3" style={{ maxHeight: "calc(60vh - 32px)" }}>
-        {data?.host_stats && (
-          <div className="mb-3 pb-3 border-b border-border">
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-              Host Resources ({data.host_stats.container_count} containers)
-            </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-              <div className="flex justify-between col-span-2">
-                <span className="text-muted-foreground">CPU</span>
-                <span className="text-foreground font-mono">{data.host_stats.cpu_percent.toFixed(1)}%</span>
-              </div>
-              <div className="flex justify-between col-span-2">
-                <span className="text-muted-foreground">Memory</span>
-                <span className="text-foreground font-mono">
-                  {data.host_stats.memory_mb.toFixed(0)} MB
-                  {data.host_stats.memory_limit_mb > 0 && (
-                    <span className="text-muted-foreground"> / {data.host_stats.memory_limit_mb.toFixed(0)} MB</span>
-                  )}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-        {!data || data.clusters.length === 0 ? (
-          <div className="text-xs text-muted-foreground">
-            {!isRunning
-              ? "Deploy a demo to see cockpit data"
-              : (data as any)?.error
-              ? (data as any).error
-              : "Loading cluster data..."}
-          </div>
-        ) : (
-          data.clusters.map((cluster) => {
-            const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
-            const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
-            const txRate = cluster.throughput.tx_bytes_per_sec || 0;
 
-            return (
-              <div key={cluster.alias} className="mb-3 last:mb-0">
-                <div className="text-xs font-medium text-foreground mb-1">{cluster.alias}</div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                  {cluster.buckets.map((b) => (
-                    <div key={b.name} className="flex justify-between col-span-2">
-                      <span className="text-muted-foreground truncate">{b.name}</span>
-                      <span className="text-foreground font-mono">
-                        {b.objects.toLocaleString()} obj ({formatBytes(b.size)})
+      {/* Scaled content wrapper */}
+      <div className="overflow-hidden" style={{ maxHeight: `calc(${scale} * 60vh)` }}>
+        <div
+          style={{
+            transform: `scale(${scale})`,
+            transformOrigin: "top left",
+            width: BASE_WIDTH,
+            maxHeight: "60vh",
+            overflowY: "auto",
+          }}
+          className="p-3"
+        >
+          {!data || data.clusters.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              {!isRunning
+                ? "Deploy a demo to see cockpit data"
+                : (data as any)?.error
+                ? (data as any).error
+                : "Loading cluster data..."}
+            </div>
+          ) : (
+            data.clusters.map((cluster) => {
+              const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
+              const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
+              const txRate = cluster.throughput.tx_bytes_per_sec || 0;
+
+              return (
+                <div key={cluster.alias} className="mb-3 last:mb-0">
+                  <div className="text-sm font-medium text-foreground mb-1">{cluster.alias}</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                    {cluster.buckets.map((b) => (
+                      <div key={b.name} className="flex justify-between col-span-2">
+                        <span className="text-muted-foreground truncate">{b.name}</span>
+                        <span className="text-foreground font-mono">
+                          {b.objects.toLocaleString()} obj ({formatBytes(b.size)})
+                        </span>
+                      </div>
+                    ))}
+                    {cluster.buckets.length === 0 && (
+                      <div className="text-muted-foreground col-span-2">No buckets</div>
+                    )}
+                    <div className="col-span-2 flex gap-3 mt-1 pt-1 border-t border-border/50">
+                      <span className="text-green-400">
+                        ↑ {formatRate(txRate)}
+                      </span>
+                      <span className="text-blue-400">
+                        ↓ {formatRate(rxRate)}
+                      </span>
+                      <span className="text-muted-foreground ml-auto">
+                        {totalObjects.toLocaleString()} total
                       </span>
                     </div>
-                  ))}
-                  {cluster.buckets.length === 0 && (
-                    <div className="text-muted-foreground col-span-2">No buckets</div>
-                  )}
-                  <div className="col-span-2 flex gap-3 mt-1 pt-1 border-t border-border/50">
-                    <span className="text-green-400">
-                      ↑ {formatRate(txRate)}
-                    </span>
-                    <span className="text-blue-400">
-                      ↓ {formatRate(rxRate)}
-                    </span>
-                    <span className="text-muted-foreground ml-auto">
-                      {totalObjects.toLocaleString()} total
-                    </span>
                   </div>
                 </div>
-              </div>
-            );
-          })
-        )}
-
-        {/* Cluster health panels — one per EC cluster */}
-        {activeDemoId && isRunning && clusters.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-border">
-            {clusters.map((cluster) => {
-              const status = clusterHealth[cluster.id];
-              return (
-                <div key={cluster.id}>
-                  {status && (
-                    <div className={`flex items-center gap-1.5 mb-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      status === "healthy"
-                        ? "bg-green-500/10 text-green-400"
-                        : status === "degraded"
-                        ? "bg-orange-500/10 text-orange-400"
-                        : "bg-red-500/10 text-red-400"
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        status === "healthy" ? "bg-green-400" : status === "degraded" ? "bg-orange-400" : "bg-red-400"
-                      }`} />
-                      {cluster.id}: {status === "healthy" ? "quorum OK" : status === "degraded" ? "degraded — quorum lost" : "unreachable"}
-                    </div>
-                  )}
-                  <ClusterHealthPanel
-                    demoId={activeDemoId}
-                    clusterId={cluster.id}
-                    drivesPerNode={cluster.drivesPerNode}
-                  />
-                </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+
+          {/* Cluster health panels — one per EC cluster */}
+          {activeDemoId && isRunning && clusters.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-border">
+              {clusters.map((cluster) => {
+                const status = clusterHealth[cluster.id];
+                return (
+                  <div key={cluster.id}>
+                    {status && (
+                      <div className={`flex items-center gap-1.5 mb-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                        status === "healthy"
+                          ? "bg-green-500/10 text-green-400"
+                          : status === "degraded"
+                          ? "bg-orange-500/10 text-orange-400"
+                          : "bg-red-500/10 text-red-400"
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          status === "healthy" ? "bg-green-400" : status === "degraded" ? "bg-orange-400" : "bg-red-400"
+                        }`} />
+                        {cluster.id}: {status === "healthy" ? "quorum OK" : status === "degraded" ? "degraded — quorum lost" : "unreachable"}
+                      </div>
+                    )}
+                    <ClusterHealthPanel
+                      demoId={activeDemoId}
+                      clusterId={cluster.id}
+                      drivesPerNode={cluster.drivesPerNode}
+                      overrideStatus={status as "healthy" | "degraded" | "unreachable" | undefined}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

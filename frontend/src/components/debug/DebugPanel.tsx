@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useDebugStore, type DebugEntry } from "../../stores/debugStore";
 import { fetchSystemHealth } from "../../api/client";
 
@@ -99,15 +99,70 @@ function HealthPanel() {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="flex-shrink-0 px-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      title="Copy to clipboard"
+    >
+      {copied ? "✓" : "⎘"}
+    </button>
+  );
+}
+
+function LogEntry({ entry }: { entry: DebugEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const isExpandable = entry.level === "error" && !!entry.details;
+  const copyText = [entry.timestamp, `[${entry.level.toUpperCase()}]`, `[${entry.source}]`, entry.message, entry.details].filter(Boolean).join(" ");
+
+  return (
+    <div
+      className={`group px-2 py-0.5 ${levelBg[entry.level]} ${isExpandable ? "cursor-pointer hover:bg-red-950/50" : "hover:bg-muted/50"}`}
+      onClick={isExpandable ? () => setExpanded((v) => !v) : undefined}
+    >
+      <div className="flex gap-2 items-start">
+        <span className="text-muted-foreground flex-shrink-0">{entry.timestamp}</span>
+        <span className={`flex-shrink-0 w-12 ${levelColors[entry.level]}`}>
+          [{entry.level.toUpperCase()}]
+        </span>
+        <span className="text-muted-foreground flex-shrink-0">[{entry.source}]</span>
+        <span className="text-foreground flex-1 min-w-0">{entry.message}</span>
+        <span className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <CopyButton text={copyText} />
+          {isExpandable && (
+            <span className="text-muted-foreground text-[10px]">{expanded ? "▲" : "▼"}</span>
+          )}
+        </span>
+        {!isExpandable && entry.details && (
+          <span className="text-muted-foreground ml-1 truncate" title={entry.details}>
+            — {entry.details}
+          </span>
+        )}
+      </div>
+      {expanded && entry.details && (
+        <div className="mt-1 ml-28 text-red-300 whitespace-pre-wrap break-all bg-red-950/40 rounded px-2 py-1 text-[11px] relative">
+          <CopyButton text={entry.details} />
+          {entry.details}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DebugPanel() {
   const { entries, clear } = useDebugStore();
-  const bottomRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<Tab>("health");
 
-  useEffect(() => {
-    if (tab === "logs") bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [entries.length, tab]);
-
+  const sortedEntries = [...entries].reverse();
   const errorCount = entries.filter((e) => e.level === "error").length;
   const warnCount = entries.filter((e) => e.level === "warn").length;
 
@@ -148,31 +203,13 @@ export default function DebugPanel() {
           <HealthPanel />
         ) : (
           <div className="font-mono text-xs p-1">
-            {entries.length === 0 ? (
+            {sortedEntries.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-muted-foreground">
                 No debug entries yet. Deploy a demo to see logs here.
               </div>
             ) : (
-              entries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className={`flex gap-2 px-2 py-0.5 hover:bg-muted/50 ${levelBg[entry.level]}`}
-                >
-                  <span className="text-muted-foreground flex-shrink-0">{entry.timestamp}</span>
-                  <span className={`flex-shrink-0 w-12 ${levelColors[entry.level]}`}>
-                    [{entry.level.toUpperCase()}]
-                  </span>
-                  <span className="text-muted-foreground flex-shrink-0">[{entry.source}]</span>
-                  <span className="text-foreground">{entry.message}</span>
-                  {entry.details && (
-                    <span className="text-muted-foreground ml-1 truncate" title={entry.details}>
-                      — {entry.details}
-                    </span>
-                  )}
-                </div>
-              ))
+              sortedEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)
             )}
-            <div ref={bottomRef} />
           </div>
         )}
       </div>

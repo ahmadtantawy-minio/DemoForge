@@ -35,7 +35,12 @@ interface ClusterInfo {
   site_replication: string;
 }
 
-type TabType = "overview" | "buckets" | "users" | "mc" | "mcp-tools" | "ai-chat";
+type TabType = "overview" | "buckets" | "users" | "mc" | "logs" | "mcp-tools" | "ai-chat";
+
+interface ClusterNode {
+  id: string;
+  label: string;
+}
 
 interface Props {
   open: boolean;
@@ -44,9 +49,10 @@ interface Props {
   clusterLabel: string;
   defaultTab?: TabType;
   consoleUrl?: string;
+  nodes?: ClusterNode[];
 }
 
-export default function MinioAdminPanel({ open, onOpenChange, clusterId, clusterLabel, defaultTab = "overview", consoleUrl }: Props) {
+export default function MinioAdminPanel({ open, onOpenChange, clusterId, clusterLabel, defaultTab = "overview", consoleUrl, nodes = [] }: Props) {
   const { activeDemoId } = useDemoStore();
   const [info, setInfo] = useState<ClusterInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,6 +60,9 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   const [mcOutput, setMcOutput] = useState("");
   const [mcRunning, setMcRunning] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
+  const [logNodeId, setLogNodeId] = useState<string>("");
+  const [logOutput, setLogOutput] = useState("");
+  const [logLoading, setLogLoading] = useState(false);
 
   const fetchInfo = useCallback(async () => {
     if (!activeDemoId || !clusterId) return;
@@ -67,12 +76,30 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
     setLoading(false);
   }, [activeDemoId, clusterId]);
 
+  const fetchLogs = useCallback(async (nodeId: string) => {
+    if (!activeDemoId || !nodeId) return;
+    setLogLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/instances/${nodeId}/logs?tail=300`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogOutput(data.logs || "");
+      }
+    } catch { /* ignore */ }
+    setLogLoading(false);
+  }, [activeDemoId]);
+
   useEffect(() => {
     if (open) {
       fetchInfo();
       setActiveTab(defaultTab);
+      if (defaultTab === "logs" && nodes.length > 0) {
+        const first = nodes[0].id;
+        setLogNodeId(first);
+        fetchLogs(first);
+      }
     }
-  }, [open, fetchInfo, defaultTab]);
+  }, [open, fetchInfo, defaultTab, nodes, fetchLogs]);
 
   const runMcCommand = async () => {
     if (!activeDemoId || !clusterId || !mcCommand.trim()) return;
@@ -175,7 +202,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
 
         {/* Tab bar */}
         <div className="flex gap-1 border-b border-border pb-1">
-          {(["overview", "buckets", "users", "mc"] as const).map((tab) => (
+          {(["overview", "buckets", "users", "mc", "logs"] as const).map((tab) => (
             <button
               key={tab}
               className={`px-3 py-1 text-xs rounded-t ${activeTab === tab
@@ -319,7 +346,41 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
             </div>
           )}
 
-          {!info && !loading && activeTab !== "mc" && (
+          {/* Logs tab */}
+          {activeTab === "logs" && (
+            <div className="flex flex-col h-full gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Node:</span>
+                <Select
+                  value={logNodeId}
+                  onValueChange={(v) => { setLogNodeId(v); fetchLogs(v); }}
+                >
+                  <SelectTrigger className="h-7 text-xs w-52">
+                    <SelectValue placeholder="Select node…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {nodes.map((n) => (
+                      <SelectItem key={n.id} value={n.id}>{n.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2 ml-auto"
+                  onClick={() => fetchLogs(logNodeId)}
+                  disabled={logLoading || !logNodeId}
+                >
+                  {logLoading ? "Loading…" : "Refresh"}
+                </Button>
+              </div>
+              <pre className="text-xs font-mono whitespace-pre-wrap text-green-400 bg-zinc-950 rounded p-3 flex-1 min-h-[300px] max-h-[50vh] overflow-y-auto border border-border">
+                {logOutput || (logNodeId ? "# No logs yet — click Refresh" : "# Select a node to view logs")}
+              </pre>
+            </div>
+          )}
+
+          {!info && !loading && activeTab !== "mc" && activeTab !== "logs" && (
             <div className="text-xs text-muted-foreground p-3">No data available. Click Refresh.</div>
           )}
         </div>

@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance, resetCluster } from "../../../api/client";
+import { stopInstance, startInstance, resetCluster, stopDrive, startDrive } from "../../../api/client";
 import { toast } from "../../../lib/toast";
 import ComponentIcon from "../../shared/ComponentIcon";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
@@ -48,15 +48,17 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
     ? Math.round(totalDrives * diskSizeTb * (dataShards / setSize))
     : null;
   const [contextNode, setContextNode] = useState<{ idx: number; x: number; y: number } | null>(null);
+  const [driveSubmenu, setDriveSubmenu] = useState<number | null>(null);
   const [clusterMenu, setClusterMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
-  const [adminDefaultTab, setAdminDefaultTab] = useState<"overview">("overview");
+  const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "logs">("overview");
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
   const [mcpDefaultTab, setMcpDefaultTab] = useState<"mcp-tools" | "ai-chat">("mcp-tools");
-  const mcpEnabled = nodeData.mcpEnabled !== false;
-  const aistorTablesEnabled = nodeData.aistorTablesEnabled === true;
+  const isAIStor = (nodeData.config?.MINIO_EDITION || "ce") === "aistor";
+  const mcpEnabled = isAIStor && nodeData.mcpEnabled !== false;
+  const aistorTablesEnabled = isAIStor && nodeData.aistorTablesEnabled === true;
 
   // Find running instances matching this cluster's synthetic nodes
   const clusterInstances = instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
@@ -74,6 +76,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
     e.preventDefault();
     e.stopPropagation();
     setConfirmReset(false);
+    setDriveSubmenu(null);
     // Use nativeEvent to get correct viewport coordinates
     setContextNode({ idx, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY });
   };
@@ -100,6 +103,32 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
       toast.error(`Failed to start ${nodeId}`, { description: err.message });
     }
     setContextNode(null);
+  };
+
+  const handleStopDrive = async (nodeId: string, driveNum: number) => {
+    if (!activeDemoId) return;
+    toast.info(`Stopping drive ${driveNum} on ${nodeId}...`);
+    try {
+      await stopDrive(activeDemoId, nodeId, driveNum);
+      toast.success(`Drive ${driveNum} stopped`);
+    } catch (err: any) {
+      toast.error(`Failed to stop drive`, { description: err.message });
+    }
+    setContextNode(null);
+    setDriveSubmenu(null);
+  };
+
+  const handleStartDrive = async (nodeId: string, driveNum: number) => {
+    if (!activeDemoId) return;
+    toast.info(`Restoring drive ${driveNum} on ${nodeId}...`);
+    try {
+      await startDrive(activeDemoId, nodeId, driveNum);
+      toast.success(`Drive ${driveNum} restored`);
+    } catch (err: any) {
+      toast.error(`Failed to restore drive`, { description: err.message });
+    }
+    setContextNode(null);
+    setDriveSubmenu(null);
   };
 
   const handleResetCluster = async () => {
@@ -261,10 +290,11 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
             const inst = clusterInstances.find((c) => c.node_id === nodeId);
             const isHealthy = inst?.health === "healthy";
             const isStopped = inst?.health === "stopped";
+            const stoppedDriveCount = inst?.stopped_drives?.length ?? 0;
             return (
               <div
                 key={i}
-                className={`w-8 h-8 rounded border flex items-center justify-center transition-colors cursor-pointer hover:border-primary ${
+                className={`relative w-8 h-8 rounded border flex items-center justify-center transition-colors cursor-pointer hover:border-primary ${
                   inst
                     ? isHealthy
                       ? "bg-green-500/10 border-green-500/30"
@@ -283,6 +313,13 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
                   icon={nodeData.componentId || "minio"}
                   size={14}
                 />
+                {isRunning && drivesPerNode > 1 && inst && (
+                  <div className={`absolute bottom-0 right-0 text-[8px] font-mono leading-none px-0.5 rounded-sm ${
+                    stoppedDriveCount > 0 ? "bg-orange-500/20 text-orange-300" : "bg-green-500/20 text-green-300"
+                  }`}>
+                    {drivesPerNode - stoppedDriveCount}/{drivesPerNode}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -318,6 +355,39 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
               >
                 Start Node
               </button>
+            )}
+            {inst && !isStopped && drivesPerNode > 1 && (
+              <>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors flex items-center justify-between"
+                  onClick={() => setDriveSubmenu(driveSubmenu === contextNode.idx ? null : contextNode.idx)}
+                >
+                  <span>Drives ({drivesPerNode - (inst.stopped_drives?.length ?? 0)}/{drivesPerNode} online)</span>
+                  <span className="text-muted-foreground text-xs">{driveSubmenu === contextNode.idx ? "▲" : "▼"}</span>
+                </button>
+                {driveSubmenu === contextNode.idx && (
+                  <div className="px-2 py-1 grid grid-cols-4 gap-1">
+                    {Array.from({ length: drivesPerNode }).map((_, d) => {
+                      const driveNum = d + 1;
+                      const isDriveStopped = inst.stopped_drives?.includes(driveNum) ?? false;
+                      return (
+                        <button
+                          key={driveNum}
+                          title={isDriveStopped ? `Drive ${driveNum} offline — click to restore` : `Drive ${driveNum} online — click to stop`}
+                          className={`text-[10px] py-0.5 rounded border transition-colors ${
+                            isDriveStopped
+                              ? "border-orange-500/50 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20"
+                              : "border-green-500/30 bg-green-500/10 text-green-300 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-300"
+                          }`}
+                          onClick={() => isDriveStopped ? handleStartDrive(nodeId, driveNum) : handleStopDrive(nodeId, driveNum)}
+                        >
+                          d{driveNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
             {(() => {
               const lbId = `${id}-lb`;
@@ -528,6 +598,7 @@ export default function ClusterNode({ id, data, selected }: NodeProps) {
         clusterLabel={nodeData.label || "MinIO Cluster"}
         defaultTab={adminDefaultTab}
         consoleUrl={consoleUrl ?? undefined}
+        nodes={clusterInstances.map((inst) => ({ id: inst.node_id, label: inst.node_id.replace(`${id}-`, "") }))}
       />
 
       {mcpPanelOpen && activeDemoId && (

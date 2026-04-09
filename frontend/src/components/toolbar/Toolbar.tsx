@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
-import { deployDemo, stopDemo, fetchDemos, updateDemo, saveDiagram } from "../../api/client";
+import { deployDemo, stopDemo, fetchDemos, updateDemo, saveDiagram, fetchInstances } from "../../api/client";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { toast } from "../../lib/toast";
 import DeployProgress from "../deploy/DeployProgress";
@@ -21,14 +21,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough } = useDemoStore();
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -42,9 +42,27 @@ export default function Toolbar() {
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const isDirty = useDiagramStore((s) => s.isDirty);
   const faId = useDemoStore((s) => s.faId);
+
+  const handleForceSync = useCallback(async () => {
+    if (!activeDemoId) return;
+    setSyncing(true);
+    try {
+      const res = await fetchInstances(activeDemoId);
+      setInstances(res.instances);
+      if (res.cluster_health) setClusterHealth(res.cluster_health);
+      const { updateNodeHealth } = useDiagramStore.getState();
+      for (const inst of res.instances) updateNodeHealth(inst.node_id, inst.health);
+      toast.success("State synced", { duration: 1500 });
+    } catch {
+      toast.error("Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }, [activeDemoId, setInstances, setClusterHealth]);
 
   const handleSave = useCallback(() => {
     if (!activeDemoId) return;
@@ -78,6 +96,12 @@ export default function Toolbar() {
 
   const handleDeploy = async () => {
     if (!activeDemoId) return;
+    // Auto-save diagram before deploying so current UI state (ecParity, nodeCount, etc.) is always used
+    const { nodes, edges } = useDiagramStore.getState();
+    const groups = nodes.filter((n) => n.type === "group");
+    const componentNodes = nodes.filter((n) => n.type !== "group");
+    await saveDiagram(activeDemoId, [...componentNodes, ...groups], edges).catch(() => {});
+    useDiagramStore.getState().setDirty(false);
     updateDemoStatus(activeDemoId, "deploying");
     setDeploying(true);
     toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
@@ -304,6 +328,23 @@ export default function Toolbar() {
                 </TooltipContent>
               )}
             </Tooltip>
+
+            {activeDemo?.status === "running" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleForceSync}
+                    disabled={syncing}
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p className="text-xs">Force sync state</p></TooltipContent>
+              </Tooltip>
+            )}
 
             {activeDemo?.status !== "running" && (
               <Tooltip>
