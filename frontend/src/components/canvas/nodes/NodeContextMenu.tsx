@@ -23,11 +23,12 @@ interface Props {
   onOpenAiChat?: () => void;
   onOpenSqlEditor?: () => void;
   onCopyNode?: () => void;
+  onViewLogs?: () => void;
   onClose: () => void;
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onViewLogs, onClose,
 }: Props) {
 
   const clampedX = Math.min(x, window.innerWidth - 200);
@@ -97,7 +98,7 @@ export default function NodeContextMenu({
   return (
     <>
     <div
-      className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[160px] text-popover-foreground"
+      className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[180px] max-w-[220px] w-max text-popover-foreground"
       style={{ top: clampedY, left: clampedX }}
     >
       <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">
@@ -198,6 +199,17 @@ export default function NodeContextMenu({
             }}
           >
             Setup Dashboards
+          </button>
+        </>
+      )}
+      {isRunning && onViewLogs && (
+        <>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-sky-400 hover:bg-sky-500/10 transition-colors"
+            onClick={() => { onViewLogs(); onClose(); }}
+          >
+            View Logs
           </button>
         </>
       )}

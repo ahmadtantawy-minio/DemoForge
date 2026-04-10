@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Handle, Position, type NodeProps, useReactFlow } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance, resetCluster, stopDrive, startDrive } from "../../../api/client";
+import { stopInstance, startInstance, resetCluster, stopDrive, startDrive, startPoolDecommission, cancelPoolDecommission, getPoolDecommissionStatus } from "../../../api/client";
 import { toast } from "../../../lib/toast";
 import { migrateClusterData } from "../../../lib/clusterMigration";
 import { getClusterInstances, getPoolInstances, computeClusterAggregates } from "../../../lib/clusterUtils";
@@ -15,6 +15,7 @@ import AddPoolButton from "./cluster/AddPoolButton";
 import ClusterContextMenu from "./cluster/ClusterContextMenu";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
 import McpPanel from "../../minio/McpPanel";
+import LogViewer from "../../logs/LogViewer";
 
 export default function ClusterNode({ id, data }: NodeProps) {
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -56,6 +57,15 @@ export default function ClusterNode({ id, data }: NodeProps) {
   const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "logs">("overview");
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
   const [mcpDefaultTab, setMcpDefaultTab] = useState<"mcp-tools" | "ai-chat">("mcp-tools");
+  const [logViewerNodeId, setLogViewerNodeId] = useState<string | null>(null);
+  const [poolDecommissionStatus, setPoolDecommissionStatus] = useState<Record<string, "active" | "decommissioning" | "decommissioned">>({});
+
+  // Close context menu when canvas background is clicked
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    window.addEventListener("canvas:close-menus", handler);
+    return () => window.removeEventListener("canvas:close-menus", handler);
+  }, []);
 
   useEffect(() => {
     const el = nodeRef.current;
@@ -184,6 +194,43 @@ export default function ClusterNode({ id, data }: NodeProps) {
     }
   };
 
+  const handleDecommissionPool = async (poolId: string) => {
+    if (!activeDemoId) return;
+    try {
+      await startPoolDecommission(activeDemoId, id, poolId);
+      setPoolDecommissionStatus((prev) => ({ ...prev, [poolId]: "decommissioning" }));
+      toast.success(`Pool ${poolId} decommission started`);
+    } catch (e: any) {
+      toast.error(`Failed to start decommission: ${e.message}`);
+    }
+  };
+
+  const handleCancelDecommission = async (poolId: string) => {
+    if (!activeDemoId) return;
+    try {
+      await cancelPoolDecommission(activeDemoId, id, poolId);
+      setPoolDecommissionStatus((prev) => ({ ...prev, [poolId]: "active" }));
+      toast.success(`Pool ${poolId} decommission cancelled`);
+    } catch (e: any) {
+      toast.error(`Failed to cancel decommission: ${e.message}`);
+    }
+  };
+
+  // On startup (when demo becomes running), poll each pool once to restore ephemeral decommission state
+  useEffect(() => {
+    if (!isRunning || !activeDemoId || pools.length === 0) return;
+    pools.forEach(async (pool) => {
+      try {
+        const res = await getPoolDecommissionStatus(activeDemoId, id, pool.id);
+        if (res.status && res.status !== "active") {
+          setPoolDecommissionStatus(prev => ({ ...prev, [pool.id]: res.status }));
+        }
+      } catch {
+        // Pool may not have decommission in progress — ignore errors
+      }
+    });
+  }, [isRunning, activeDemoId, id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <>
       <div
@@ -232,6 +279,7 @@ export default function ClusterNode({ id, data }: NodeProps) {
               poolIndex={idx + 1}
               hidden={pools.length === 1}
               selected={selectedClusterElement?.type === "pool" && selectedClusterElement.poolId === pool.id}
+              decommissionStatus={poolDecommissionStatus[pool.id]}
               onPoolContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -368,6 +416,10 @@ export default function ClusterNode({ id, data }: NodeProps) {
             setSelectedClusterElement({ type: "node", poolId, nodeIndex });
             setContextMenu(null);
           }}
+          onViewLogs={(nodeId) => setLogViewerNodeId(nodeId)}
+          onDecommissionPool={handleDecommissionPool}
+          onCancelDecommission={handleCancelDecommission}
+          poolDecommissionStatus={poolDecommissionStatus}
           poolsCount={pools.length}
           confirmReset={confirmReset}
           onSetConfirmReset={setConfirmReset}
@@ -399,6 +451,15 @@ export default function ClusterNode({ id, data }: NodeProps) {
           clusterId={id}
           clusterLabel={nodeData.label || "MinIO Cluster"}
           defaultTab={mcpDefaultTab}
+        />
+      )}
+
+      {logViewerNodeId && activeDemoId && (
+        <LogViewer
+          demoId={activeDemoId}
+          nodeId={logViewerNodeId}
+          componentId="minio"
+          onClose={() => setLogViewerNodeId(null)}
         />
       )}
     </>

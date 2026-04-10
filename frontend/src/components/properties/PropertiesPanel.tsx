@@ -1022,7 +1022,20 @@ export default function PropertiesPanel() {
           </>
         ) : (
           <>
-            {data.componentId !== "minio" && variants.length > 0 && !isExperience && (
+            {data.componentId === "nginx" && !isExperience && (
+              <Select value={data.config?.mode || "round-robin"} onValueChange={(v) => updateConfig("mode", v)}>
+                <SelectTrigger className="w-full h-8 text-sm mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="round-robin">Round Robin</SelectItem>
+                  <SelectItem value="least-conn">Least Connections</SelectItem>
+                  <SelectItem value="ip-hash">IP Hash</SelectItem>
+                  <SelectItem value="failover">Failover (Active/Passive)</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            {data.componentId !== "minio" && data.componentId !== "nginx" && variants.length > 0 && !isExperience && (
               <Select value={data.variant} onValueChange={(v) => updateData({ variant: v })}>
                 <SelectTrigger className="w-full h-8 text-sm mt-1">
                   <SelectValue />
@@ -1044,10 +1057,10 @@ export default function PropertiesPanel() {
       </div>
 
 
-      {Object.keys(data.config).filter(k => k !== "MINIO_EDITION").length > 0 && (
+      {Object.keys(data.config).filter(k => k !== "MINIO_EDITION" && !(data.componentId === "nginx" && k === "mode")).length > 0 && (
         <div className="mb-3">
           <div className="text-xs text-muted-foreground mb-1">Environment{isExperience ? "" : " Overrides"}</div>
-          {Object.entries(data.config).filter(([key]) => key !== "MINIO_EDITION").map(([key, value]) => (
+          {Object.entries(data.config).filter(([key]) => key !== "MINIO_EDITION" && !(data.componentId === "nginx" && key === "mode")).map(([key, value]) => (
             <div key={key} className="flex gap-1 mb-1">
               <div className="text-xs text-muted-foreground w-1/2 truncate pt-1">{key}</div>
               {isExperience ? (

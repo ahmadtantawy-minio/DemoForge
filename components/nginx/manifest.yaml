@@ -62,26 +62,13 @@ terminal:
 
 connections:
   provides:
-    - type: load-balance
+    - type: nginx-backend
       port: 80
-      description: "Load-balanced endpoint"
-      config_schema:
-        - key: algorithm
-          label: "Load Balance Algorithm"
-          type: select
-          options: ["round-robin", "least-conn", "ip-hash"]
-          default: "round-robin"
-        - key: backend_port
-          label: "Backend Port"
-          type: number
-          default: "9000"
+      description: "Nginx backend connection (load-balance or failover, controlled by node mode)"
+      config_schema: []
     - type: http
       port: 80
       description: "HTTP endpoint"
-    - type: failover
-      port: 80
-      description: "Active-passive failover endpoint"
-      config_schema: []
   accepts:
     - type: s3
       config_schema: []
@@ -90,11 +77,19 @@ connections:
     - type: file-push
       config_schema: []
 
-variants:
-  load-balancer:
-    description: "Round-robin load balancer for upstream services"
-  failover-proxy:
-    description: "Active-passive failover proxy across two upstream sites with health-check-based routing"
+log_commands:
+  - name: "Access Log"
+    command: "tail -100 /var/log/nginx/access.log 2>/dev/null || echo 'No access log'"
+    description: "Last 100 lines of nginx access log"
+  - name: "Error Log"
+    command: "tail -100 /var/log/nginx/error.log 2>/dev/null || echo 'No error log'"
+    description: "Last 100 lines of nginx error log"
+  - name: "Config Test"
+    command: "nginx -t 2>&1"
+    description: "Validate nginx configuration"
+  - name: "Active Connections"
+    command: "curl -s http://localhost/nginx_status 2>/dev/null || echo 'Status endpoint unavailable'"
+    description: "Current nginx connection stats"
 
 template_mounts:
   - template: "nginx.conf.j2"

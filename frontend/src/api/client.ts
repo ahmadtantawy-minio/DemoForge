@@ -210,6 +210,23 @@ export const resetCluster = (demoId: string, clusterId: string) =>
     { method: "POST" }
   );
 
+export const startPoolDecommission = (demoId: string, clusterId: string, poolId: string) =>
+  apiFetch<{ status: string; pool_id: string; output: string }>(
+    `/api/demos/${demoId}/clusters/${clusterId}/pools/${poolId}/decommission`,
+    { method: "POST" }
+  );
+
+export const getPoolDecommissionStatus = (demoId: string, clusterId: string, poolId: string) =>
+  apiFetch<{ pool_id: string; raw: string; status: "active" | "decommissioning" | "decommissioned" }>(
+    `/api/demos/${demoId}/clusters/${clusterId}/pools/${poolId}/decommission/status`
+  );
+
+export const cancelPoolDecommission = (demoId: string, clusterId: string, poolId: string) =>
+  apiFetch<{ status: string; pool_id: string; output: string }>(
+    `/api/demos/${demoId}/clusters/${clusterId}/pools/${poolId}/decommission/cancel`,
+    { method: "POST" }
+  );
+
 export const fetchMinioCommands = (demoId: string) =>
   apiFetch<{
     demo_id: string;
@@ -225,6 +242,18 @@ export const getInstanceHealth = (demoId: string, nodeId: string) =>
 export const execCommand = (demoId: string, nodeId: string, command: string) =>
   apiFetch<{ exit_code: number; stdout: string; stderr: string }>(
     `/api/demos/${demoId}/instances/${nodeId}/exec`,
+    { method: "POST", body: JSON.stringify({ command }) }
+  );
+
+// Logs
+export const fetchContainerLogs = (demoId: string, nodeId: string, tail = 200, since = "60s") =>
+  apiFetch<{ lines: string[]; container: string; truncated: boolean }>(
+    `/api/demos/${demoId}/instances/${nodeId}/logs?tail=${tail}&since=${since}`
+  );
+
+export const execContainerLog = (demoId: string, nodeId: string, command: string) =>
+  apiFetch<{ lines: string[]; container: string; truncated: boolean }>(
+    `/api/demos/${demoId}/instances/${nodeId}/exec-log`,
     { method: "POST", body: JSON.stringify({ command }) }
   );
 

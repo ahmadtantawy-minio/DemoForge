@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import shlex
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -17,7 +18,7 @@ from ..engine.compose_generator import generate_compose
 from ..models.api_models import (
     InstancesResponse, ContainerInstance, WebUILink,
     ExecRequest, ExecResponse, NetworkMembership, CredentialInfo,
-    EdgeConfigStatus,
+    EdgeConfigStatus, ExecLogRequest, LogResponse,
 )
 from .demos import _load_demo
 
@@ -348,19 +349,6 @@ async def start_instance(demo_id: str, node_id: str):
     await asyncio.to_thread(c.start)
     return {"status": "started", "node_id": node_id}
 
-@router.get("/api/demos/{demo_id}/instances/{node_id}/logs")
-async def get_instance_logs(demo_id: str, node_id: str, tail: int = 200):
-    """Fetch recent logs from a container."""
-    running = state.get_demo(demo_id)
-    if not running or node_id not in running.containers:
-        raise HTTPException(404, "Instance not found")
-    container_name = running.containers[node_id].container_name
-    try:
-        c = await asyncio.to_thread(docker_client.containers.get, container_name)
-        raw = await asyncio.to_thread(c.logs, tail=tail, timestamps=True, stream=False)
-        return {"logs": raw.decode("utf-8", errors="replace")}
-    except Exception as e:
-        raise HTTPException(500, str(e))
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/drives/{drive_num}/stop")
 async def stop_drive(demo_id: str, node_id: str, drive_num: int):
@@ -405,7 +393,8 @@ def _expand_demo_for_edges(demo):
                 config={"MINIO_ROOT_USER": cluster.credentials.get("root_user", "minioadmin"),
                         "MINIO_ROOT_PASSWORD": cluster.credentials.get("root_password", "minioadmin")},
             ))
-        demo.nodes.append(DemoNode(id=lb_node_id, component="nginx", variant="load-balancer",
+        demo.nodes.append(DemoNode(id=lb_node_id, component="nginx", variant="",
+                                    config={"mode": "round-robin"},
                                     position=NodePosition(x=0, y=0)))
         # Expand edges referencing cluster ID
         original_edges = list(demo.edges)
@@ -675,7 +664,7 @@ async def reset_cluster(demo_id: str, cluster_id: str):
     if not cluster:
         raise HTTPException(404, f"Cluster '{cluster_id}' not found")
 
-    alias = _re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+    alias = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
     project_name = f"demoforge-{demo_id}"
     mc_shell = f"{project_name}-mc-shell"
 
@@ -799,6 +788,52 @@ async def exec_command(demo_id: str, node_id: str, req: ExecRequest):
         running.containers[node_id].container_name, req.command
     )
     return ExecResponse(exit_code=exit_code, stdout=stdout, stderr=stderr)
+
+
+@router.get("/api/demos/{demo_id}/instances/{node_id}/logs", response_model=LogResponse)
+async def get_container_logs(demo_id: str, node_id: str, tail: int = 200, since: str = ""):
+    """Fetch recent stdout/stderr from a container."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    try:
+        def _fetch():
+            c = docker_client().containers.get(container_name)
+            kwargs: dict = {"tail": tail, "timestamps": True, "stream": False}
+            if since:
+                # Accept "60s", "5m", or raw int seconds
+                if since.endswith("s"):
+                    kwargs["since"] = int(since[:-1])
+                elif since.endswith("m"):
+                    kwargs["since"] = int(since[:-1]) * 60
+                else:
+                    kwargs["since"] = int(since)
+            raw = c.logs(**kwargs)
+            return raw
+
+        raw = await asyncio.to_thread(_fetch)
+        text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+        lines = [l for l in text.split("\n") if l] if text.strip() else []
+        return LogResponse(lines=lines, container=node_id, truncated=len(lines) >= tail)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@router.post("/api/demos/{demo_id}/instances/{node_id}/exec-log", response_model=LogResponse)
+async def exec_container_log(demo_id: str, node_id: str, req: ExecLogRequest):
+    """Run a read-only command inside a container and return its output as log lines."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    container_name = running.containers[node_id].container_name
+    try:
+        exit_code, stdout, stderr = await exec_in_container(container_name, f"sh -c {shlex.quote(req.command)}")
+        combined = (stdout or "") + (stderr or "")
+        lines = [l for l in combined.split("\n") if l]
+        return LogResponse(lines=lines, container=node_id, truncated=False)
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @router.get("/api/demos/{demo_id}/minio-commands")
@@ -1856,3 +1891,124 @@ async def setup_superset_dashboards(demo_id: str):
             results.append({"scenario": scenario_id, "status": "error", "detail": str(exc)[:200]})
 
     return {"results": results}
+
+
+# ---------------------------------------------------------------------------
+# Pool decommission endpoints
+# ---------------------------------------------------------------------------
+
+def _get_mc_shell_and_alias(demo_id: str, cluster_id: str, running):
+    """Return (mc_shell_container_name, alias, cluster) for the given cluster.
+
+    Raises HTTPException if mc-shell is not available or cluster not found.
+    """
+    if "mc-shell" not in running.containers:
+        raise HTTPException(404, "mc-shell container not found — redeploy the demo to enable decommission")
+
+    mc_shell = f"demoforge-{demo_id}-mc-shell"
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, f"Demo {demo_id} not found on disk")
+
+    cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
+    if not cluster:
+        raise HTTPException(404, f"Cluster {cluster_id} not found in demo {demo_id}")
+
+    alias = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+    return mc_shell, alias, cluster
+
+
+def _build_pool_args(demo_id: str, cluster_id: str, pool_id: str, cluster) -> str:
+    """Construct the MinIO pool args string for the given pool.
+
+    Format: http://demoforge-{demo_id}-{cluster_id}-pool{N}-node-{1...nodeCount}:9000/mnt/data{1...drivesPerNode}
+    """
+    pools = cluster.get_pools()
+    pool_num = next((i + 1 for i, p in enumerate(pools) if p.id == pool_id), None)
+    if pool_num is None:
+        raise HTTPException(404, f"Pool {pool_id} not found in cluster {cluster_id}")
+
+    pool = pools[pool_num - 1]
+    node_count = pool.node_count
+    drives = pool.drives_per_node
+    prefix = f"demoforge-{demo_id}-{cluster_id}-pool{pool_num}-node-"
+
+    if node_count == 1:
+        node_part = f"http://{prefix}1:9000"
+    else:
+        node_part = f"http://{prefix}{{1...{node_count}}}:9000"
+
+    if drives == 1:
+        drive_part = "/mnt/data1"
+    else:
+        drive_part = f"/mnt/data{{1...{drives}}}"
+
+    return f"{node_part}{drive_part}"
+
+
+@router.post("/api/demos/{demo_id}/clusters/{cluster_id}/pools/{pool_id}/decommission")
+async def start_pool_decommission(demo_id: str, cluster_id: str, pool_id: str):
+    """Start decommissioning a server pool via mc admin decommission start."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    mc_shell, alias, cluster = _get_mc_shell_and_alias(demo_id, cluster_id, running)
+    pool_args = _build_pool_args(demo_id, cluster_id, pool_id, cluster)
+
+    exit_code, stdout, stderr = await exec_in_container(
+        mc_shell,
+        f"mc admin decommission start {alias} '{pool_args}'"
+    )
+    if exit_code != 0:
+        raise HTTPException(500, f"mc admin decommission start failed: {stderr.strip() or stdout.strip()}")
+
+    return {"status": "started", "pool_id": pool_id, "output": stdout.strip()}
+
+
+@router.get("/api/demos/{demo_id}/clusters/{cluster_id}/pools/{pool_id}/decommission/status")
+async def get_pool_decommission_status(demo_id: str, cluster_id: str, pool_id: str):
+    """Get the decommission status of a server pool."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    mc_shell, alias, cluster = _get_mc_shell_and_alias(demo_id, cluster_id, running)
+    pool_args = _build_pool_args(demo_id, cluster_id, pool_id, cluster)
+
+    exit_code, stdout, stderr = await exec_in_container(
+        mc_shell,
+        f"mc admin decommission status {alias} '{pool_args}'"
+    )
+
+    raw = stdout.strip()
+    lower = raw.lower()
+    if "complete" in lower or "decommissioned" in lower:
+        parsed_status = "decommissioned"
+    elif "decommission" in lower and exit_code == 0:
+        parsed_status = "decommissioning"
+    else:
+        parsed_status = "active"
+
+    return {"pool_id": pool_id, "raw": raw, "status": parsed_status}
+
+
+@router.post("/api/demos/{demo_id}/clusters/{cluster_id}/pools/{pool_id}/decommission/cancel")
+async def cancel_pool_decommission(demo_id: str, cluster_id: str, pool_id: str):
+    """Cancel an in-progress pool decommission via mc admin decommission cancel."""
+    running = state.get_demo(demo_id)
+    if not running:
+        raise HTTPException(404, "Demo not running")
+
+    mc_shell, alias, cluster = _get_mc_shell_and_alias(demo_id, cluster_id, running)
+    pool_args = _build_pool_args(demo_id, cluster_id, pool_id, cluster)
+
+    exit_code, stdout, stderr = await exec_in_container(
+        mc_shell,
+        f"mc admin decommission cancel {alias} '{pool_args}'"
+    )
+    if exit_code != 0:
+        raise HTTPException(500, f"mc admin decommission cancel failed: {stderr.strip() or stdout.strip()}")
+
+    return {"status": "cancelled", "pool_id": pool_id, "output": stdout.strip()}

@@ -17,6 +17,8 @@ interface ClusterStats {
   throughput: {
     rx_bytes_per_sec?: number;
     tx_bytes_per_sec?: number;
+    put_ops_per_sec?: number;
+    get_ops_per_sec?: number;
   };
 }
 
@@ -104,7 +106,7 @@ export default function CockpitOverlay() {
   const { activeDemoId, demos, cockpitEnabled: enabled, clusterHealth } = useDemoStore();
   const [data, setData] = useState<CockpitData | null>(null);
   const [healthData, setHealthData] = useState<CockpitHealthData | null>(null);
-  const [activeTab, setActiveTab] = useState<"health" | "stats">("health");
+  const [activeTab, setActiveTab] = useState<"health" | "stats" | "throughput">("health");
   const [clusters, setClusters] = useState<{ id: string; drivesPerNode: number }[]>([]);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
@@ -152,9 +154,9 @@ export default function CockpitOverlay() {
     };
 
     fetchCockpit();
-    const interval = setInterval(fetchCockpit, 4000);
+    const interval = setInterval(fetchCockpit, activeTab === "throughput" ? 1000 : 4000);
     return () => clearInterval(interval);
-  }, [enabled, activeDemoId, isRunning]);
+  }, [enabled, activeDemoId, isRunning, activeTab]);
 
   // Fetch health data (mc admin info) every 8 seconds
   useEffect(() => {
@@ -259,7 +261,7 @@ export default function CockpitOverlay() {
         className="flex border-b border-border bg-muted/30 select-none"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        {(["health", "stats"] as const).map((tab) => (
+        {(["health", "stats", "throughput"] as const).map((tab) => (
           <button
             key={tab}
             className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
@@ -295,13 +297,19 @@ export default function CockpitOverlay() {
               activeDemoId={activeDemoId}
               demoStatus={activeDemo?.status}
             />
-          ) : (
+          ) : activeTab === "stats" ? (
             <StatsTabContent
               data={data}
               isRunning={isRunning}
               activeDemoId={activeDemoId}
               clusters={clusters}
               clusterHealth={clusterHealth}
+            />
+          ) : (
+            <ThroughputTabContent
+              data={data}
+              healthData={healthData}
+              isRunning={isRunning}
             />
           )}
         </div>
@@ -517,6 +525,9 @@ function StatsTabContent({
           const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
           const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
           const txRate = cluster.throughput.tx_bytes_per_sec || 0;
+          const putOps = cluster.throughput.put_ops_per_sec ?? -1;
+          const getOps = cluster.throughput.get_ops_per_sec ?? -1;
+          const hasOpsStats = putOps >= 0 && getOps >= 0;
 
           return (
             <div key={cluster.alias} className="mb-3 last:mb-0">
@@ -533,16 +544,42 @@ function StatsTabContent({
                 {cluster.buckets.length === 0 && (
                   <div className="text-muted-foreground col-span-2">No buckets</div>
                 )}
-                <div className="col-span-2 flex gap-3 mt-1 pt-1 border-t border-border/50">
-                  <span className="text-green-400">
-                    ↑ {formatRate(txRate)}
-                  </span>
-                  <span className="text-blue-400">
-                    ↓ {formatRate(rxRate)}
-                  </span>
-                  <span className="text-muted-foreground ml-auto">
-                    {totalObjects.toLocaleString()} total
-                  </span>
+                <div className="col-span-2 mt-1 pt-1 border-t border-border/50">
+                  {hasOpsStats ? (
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-green-400">
+                          ↑ PUT: {putOps.toFixed(1)}/s
+                        </span>
+                        {txRate > 0 && (
+                          <span className="text-muted-foreground text-[10px]">({formatRate(txRate)})</span>
+                        )}
+                        <span className="text-muted-foreground ml-auto">
+                          {totalObjects.toLocaleString()} total
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-400">
+                          ↓ GET: {getOps.toFixed(1)}/s
+                        </span>
+                        {rxRate > 0 && (
+                          <span className="text-muted-foreground text-[10px]">({formatRate(rxRate)})</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-3">
+                      <span className="text-green-400">
+                        ↑ {formatRate(txRate)}
+                      </span>
+                      <span className="text-blue-400">
+                        ↓ {formatRate(rxRate)}
+                      </span>
+                      <span className="text-muted-foreground ml-auto">
+                        {totalObjects.toLocaleString()} total
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -583,6 +620,83 @@ function StatsTabContent({
         </div>
       )}
     </>
+  );
+}
+
+// ---- Throughput Tab ----
+
+function ThroughputTabContent({
+  data,
+  healthData,
+  isRunning,
+}: {
+  data: CockpitData | null;
+  healthData: CockpitHealthData | null;
+  isRunning: boolean;
+}) {
+  if (!isRunning) {
+    return <div className="text-xs text-muted-foreground">Start demo to see throughput</div>;
+  }
+
+  if (!data || data.clusters.length === 0) {
+    return <div className="text-xs text-muted-foreground">No clusters running</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {data.clusters.map((cluster) => {
+        const healthStatus =
+          healthData?.clusters.find((c) => c.alias === cluster.alias)?.status ?? "unreachable";
+        const putOps = cluster.throughput.put_ops_per_sec ?? 0;
+        const getOps = cluster.throughput.get_ops_per_sec ?? 0;
+        const txRate = cluster.throughput.tx_bytes_per_sec ?? 0;
+        const rxRate = cluster.throughput.rx_bytes_per_sec ?? 0;
+
+        const healthColors: Record<string, string> = {
+          healthy: "bg-green-500/10 text-green-400",
+          degraded: "bg-orange-500/10 text-orange-400",
+          starting: "bg-amber-500/10 text-amber-400",
+          unreachable: "bg-red-500/10 text-red-400",
+        };
+        const dotColors: Record<string, string> = {
+          healthy: "bg-green-400",
+          degraded: "bg-orange-400",
+          starting: "bg-amber-400",
+          unreachable: "bg-red-400",
+        };
+        const colorClass = healthColors[healthStatus] ?? healthColors.unreachable;
+        const dotClass = dotColors[healthStatus] ?? dotColors.unreachable;
+
+        return (
+          <div key={cluster.alias} className="mb-3 last:mb-0">
+            {/* Cluster header with health badge */}
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-sm font-medium text-foreground">{cluster.alias}</span>
+              <span className={`flex items-center gap-1 text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${colorClass}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+                {healthStatus}
+              </span>
+            </div>
+
+            {/* PUT / GET rows */}
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+              <div className="col-span-2 flex items-center gap-2">
+                <span className="text-green-400">↑ PUT: {putOps.toFixed(0)} ops/s</span>
+                {txRate > 0 && (
+                  <span className="text-muted-foreground text-[10px]">({formatRate(txRate)})</span>
+                )}
+              </div>
+              <div className="col-span-2 flex items-center gap-2">
+                <span className="text-blue-400">↓ GET: {getOps.toFixed(0)} ops/s</span>
+                {rxRate > 0 && (
+                  <span className="text-muted-foreground text-[10px]">({formatRate(rxRate)})</span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

@@ -90,6 +90,19 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       return;
     }
 
+    // nginx → cluster or cluster → nginx: always use nginx-backend
+    const isNginxSource = (sourceNode.data as any)?.componentId === "nginx";
+    const isNginxTarget = (targetNode.data as any)?.componentId === "nginx";
+    if (isNginxSource || isNginxTarget) {
+      set({
+        edges: addEdge(
+          { ...connection, type: "animated", data: { connectionType: "nginx-backend", network: "default", label: "", status: "idle" } },
+          state.edges
+        ),
+      });
+      return;
+    }
+
     // Cluster → Trino: require aistor_tables_enabled
     if (sourceNode.type === "cluster" && (targetNode.data as any)?.componentId === "trino") {
       const aistorEnabled = (sourceNode.data as any)?.aistorTablesEnabled === true;
@@ -188,7 +201,12 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     });
   },
 
-  addNode: (node) => set({ nodes: [...get().nodes, node] }),
+  addNode: (node) => {
+    const current = get().nodes;
+    // Group nodes must render below all other nodes — prepend so React Flow draws them first
+    const next = node.type === "group" ? [node, ...current] : [...current, node];
+    set({ nodes: next });
+  },
 
   setSelectedNode: (id) => {
     const state = get();
@@ -205,7 +223,11 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
   setSelectedClusterElement: (el) => set({ selectedClusterElement: el }),
 
-  setNodes: (nodes) => set({ nodes }),
+  setNodes: (nodes) => {
+    // Ensure group nodes stay first in the array so React Flow renders them below all others
+    const sorted = [...nodes.filter((n) => n.type === "group"), ...nodes.filter((n) => n.type !== "group")];
+    set({ nodes: sorted });
+  },
   setEdges: (edges) => set({ edges }),
 
   updateNodeHealth: (nodeId, health) =>

@@ -80,8 +80,6 @@ export default function AnimatedDataEdge({
     if (base && bucket) base += ` → ${bucket}`;
     formatLabel = base;
   }
-  const label = edgeData?.label || formatLabel || connectionLabels[connectionType] || "";
-
   const protocol = (edgeData as any)?.protocol as string | undefined;
   const edgeLatency = (edgeData as any)?.latency as string | undefined;
   const edgeBandwidth = (edgeData as any)?.bandwidth as string | undefined;
@@ -104,6 +102,29 @@ export default function AnimatedDataEdge({
   // For failover edges: active = solid + animated, standby = dashed + dimmed
   const isFailoverStandby = isFailover && failoverActive === false;
   const isFailoverActive = isFailover && failoverActive === true;
+
+  // nginx-backend: derive style from source node's config.mode; failover role from edge index
+  const isNginxBackend = connectionType === "nginx-backend";
+  const sourceNode = isNginxBackend ? getNode(source) : undefined;
+  const nginxMode = isNginxBackend ? ((sourceNode?.data as any)?.config?.mode as string | undefined) ?? "round-robin" : undefined;
+  const isNginxFailover = isNginxBackend && nginxMode === "failover";
+  const allRfEdges = useStoreApi().getState().edges;
+  const nginxEdgeIndex = isNginxFailover
+    ? allRfEdges.filter((e) => e.source === source && (e.data as any)?.connectionType === "nginx-backend").findIndex((e) => e.id === id)
+    : -1;
+  const isNginxFailoverActive = isNginxFailover && nginxEdgeIndex === 0;
+  const isNginxFailoverStandby = isNginxFailover && nginxEdgeIndex > 0;
+
+  // For nginx-backend, derive label from nginx node variant
+  let nginxLabel: string | null = null;
+  if (isNginxBackend) {
+    if (isNginxFailoverActive) nginxLabel = "Active";
+    else if (isNginxFailoverStandby) nginxLabel = "Standby";
+    else nginxLabel = "Load Balance";
+  }
+
+  const label = edgeData?.label || formatLabel || nginxLabel || connectionLabels[connectionType] || "";
+
   const markerId = `arrow-${id}`;
   const markerStartId = `arrow-start-${id}`;
 
@@ -155,10 +176,10 @@ export default function AnimatedDataEdge({
         id={id}
         path={edgePath}
         style={{
-          stroke: isFailoverActive ? "#22c55e" : isFailoverStandby ? "#6b7280" : configStatus === "failed" ? "#ef4444" : protoStyle.stroke || color,
-          strokeWidth: isFailoverActive ? 2.5 : protoStyle.strokeWidth || 2,
-          strokeOpacity: isFailoverStandby ? 0.3 : configStatus === "pending" || configStatus === "paused" ? 0.4 : configStatus === "failed" ? 0.5 : 0.8,
-          strokeDasharray: isFailoverStandby ? "4 4" : configStatus === "failed" ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : protoStyle.strokeDasharray || undefined,
+          stroke: isFailoverActive || isNginxFailoverActive ? "#22c55e" : isFailoverStandby || isNginxFailoverStandby ? "#6b7280" : configStatus === "failed" ? "#ef4444" : protoStyle.stroke || color,
+          strokeWidth: isFailoverActive || isNginxFailoverActive ? 2.5 : protoStyle.strokeWidth || 2,
+          strokeOpacity: isFailoverStandby || isNginxFailoverStandby ? 0.3 : configStatus === "pending" || configStatus === "paused" ? 0.4 : configStatus === "failed" ? 0.5 : 0.8,
+          strokeDasharray: isFailoverStandby || isNginxFailoverStandby ? "4 4" : configStatus === "failed" ? "4 4" : configStatus === "pending" || configStatus === "paused" ? "6 4" : protoStyle.strokeDasharray || undefined,
           markerEnd: `url(#${markerId})`,
           markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
         }}
@@ -187,7 +208,7 @@ export default function AnimatedDataEdge({
           </>
         );
       })()}
-      {isDemoRunning && (status === "active" || isFailoverActive) && (
+      {isDemoRunning && (status === "active" || isFailoverActive || isNginxFailoverActive) && (
         <>
           <circle r="3" fill={color} opacity={0.8}>
             <animateMotion
@@ -250,10 +271,10 @@ export default function AnimatedDataEdge({
                 <rect x="5" y="1" width="2" height="6" fill="#eab308" />
               </svg>
             )}
-            {isFailoverActive && (
+            {(isFailoverActive || isNginxFailoverActive) && (
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="Active — traffic routing here" />
             )}
-            {isFailoverStandby && (
+            {(isFailoverStandby || isNginxFailoverStandby) && (
               <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 shrink-0" title="Standby — ready for failover" />
             )}
             {label}

@@ -201,10 +201,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         lb_node = DemoNode(
             id=lb_node_id,
             component="nginx",
-            variant="load-balancer",
+            variant="",
             position=NodePosition(x=cluster.position.x - 200,
                                   y=cluster.position.y + 50),
-            config={},
+            config={"mode": "round-robin"},
             display_name=f"{cluster.label} LB",
         )
         demo.nodes.append(lb_node)
@@ -1209,7 +1209,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             target_node = next((n for n in demo.nodes if n.id == edge.target), None)
             if target_node and target_node.component == "nginx":
                 for e2 in demo.edges:
-                    if e2.source == edge.target and e2.connection_type == "load-balance":
+                    if e2.source == edge.target and e2.connection_type in ("load-balance", "nginx-backend"):
                         a = _cluster_alias_for_node(e2.target)
                         if a:
                             minio_aliases.append(a)

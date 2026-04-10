@@ -90,6 +90,11 @@ class InitScriptDef(BaseModel):
     order: int = 0
     description: str = ""
 
+class LogCommandDef(BaseModel):
+    name: str
+    command: str
+    description: str = ""
+
 class TemplateMountDef(BaseModel):
     template: str        # Filename in templates/ dir
     mount_path: str      # Container path
@@ -128,3 +133,4 @@ class ComponentManifest(BaseModel):
     shm_size: str | None = None          # e.g. "1g" for Solace shared memory
     resource_weight: str = "medium"      # "light" | "medium" | "heavy"
     depends_on_components: list[str] = [] # component names resolved to node IDs at deploy time
+    log_commands: list[LogCommandDef] = []

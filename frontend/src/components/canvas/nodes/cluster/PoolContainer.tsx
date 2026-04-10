@@ -6,6 +6,7 @@ interface Props {
   poolIndex: number;
   hidden: boolean;
   selected?: boolean;
+  decommissionStatus?: "active" | "decommissioning" | "decommissioned";
   onPoolContextMenu: (e: React.MouseEvent) => void;
   onPoolClick?: (e: React.MouseEvent) => void;
   children: React.ReactNode;
@@ -20,6 +21,7 @@ export default function PoolContainer({
   poolIndex,
   hidden,
   selected,
+  decommissionStatus,
   children,
   onPoolContextMenu,
   onPoolClick,
@@ -28,7 +30,7 @@ export default function PoolContainer({
 
   if (hidden) {
     return (
-      <div>
+      <div onContextMenu={onPoolContextMenu}>
         <div
           onClick={onPoolClick}
           style={{ cursor: "pointer", marginBottom: 6, display: "inline-block", opacity: 0.6 }}
@@ -74,7 +76,19 @@ export default function PoolContainer({
             — {pool.nodeCount} × {pool.drivesPerNode} {diskTypeLabel(pool.diskType)} drives
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground">{stats.usableTb} TB</span>
+        <div className="flex items-center gap-1.5">
+          {decommissionStatus === "decommissioning" && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-medium">
+              Decommissioning
+            </span>
+          )}
+          {decommissionStatus === "decommissioned" && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-medium">
+              Decommissioned
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">{stats.usableTb} TB</span>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{children}</div>
     </div>

@@ -499,8 +499,12 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         raise
 
 
-async def stop_demo(demo_id: str):
-    """Bring down containers, disconnect from network, clean up."""
+async def stop_demo(demo_id: str, remove_volumes: bool = False):
+    """Bring down containers, disconnect from network, clean up.
+
+    Args:
+        remove_volumes: If True, also delete Docker volumes (use for destroy, not stop).
+    """
     lock = _get_lock(demo_id)
     async with lock:
         running = state.get_demo(demo_id)
@@ -514,7 +518,7 @@ async def stop_demo(demo_id: str):
             running.compose_file_path or None,
             running.compose_project,
             running.networks,
-            remove_volumes=False,
+            remove_volumes=remove_volumes,
         )
         state.remove_demo(demo_id)
 

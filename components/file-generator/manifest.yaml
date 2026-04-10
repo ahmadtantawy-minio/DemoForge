@@ -87,6 +87,17 @@ variants:
     description: "Continuous generation at configured rate"
     command: ["sleep infinity"]
 
+log_commands:
+  - name: "Generator Logs"
+    command: "tail -100 /tmp/gen.log 2>/dev/null || echo 'No log file yet — start generating first'"
+    description: "Last 100 lines of generation activity"
+  - name: "Generator Status"
+    command: "cat /tmp/gen_status.json 2>/dev/null || echo 'No status file'"
+    description: "Current generation status JSON"
+  - name: "List Generated Files"
+    command: "mc ls target/ 2>/dev/null || echo 'No target configured or no files yet'"
+    description: "Files in target bucket"
+
 template_mounts:
   - template: "generate.sh.j2"
     mount_path: "/generate.sh"

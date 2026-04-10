@@ -14,6 +14,74 @@ router = APIRouter()
 _host_stats_cache: dict[str, tuple[float, dict]] = {}
 _HOST_STATS_TTL = 5.0  # seconds
 
+# In-memory cache for prometheus counter snapshots: {(demo_id, alias): (timestamp, counters_dict)}
+_prom_snapshot: dict[tuple[str, str], tuple[float, dict]] = {}
+
+
+async def _get_throughput_from_prometheus(mc_shell: str, alias: str, demo_id: str) -> dict:
+    """Try mc admin prometheus metrics for s3 request rates.
+
+    Parses Prometheus text-format counters and computes per-second rates by
+    diffing against the previous snapshot stored in _prom_snapshot.
+    """
+    try:
+        exit_code, stdout, _ = await exec_in_container(
+            mc_shell, f"mc admin prometheus metrics {alias} 2>/dev/null | head -200"
+        )
+        if exit_code != 0 or not stdout.strip():
+            return {}
+
+        put_total = 0.0
+        get_total = 0.0
+        sent_bytes = 0.0
+        recv_bytes = 0.0
+
+        for line in stdout.split("\n"):
+            line = line.strip()
+            if line.startswith("#") or not line:
+                continue
+            parts = line.rsplit(" ", 1)
+            if len(parts) != 2:
+                continue
+            metric_def = parts[0].lower()
+            try:
+                val = float(parts[1])
+            except ValueError:
+                continue
+
+            if "s3_requests_total" in metric_def:
+                if "putobject" in metric_def or '"put"' in metric_def:
+                    put_total += val
+                elif "getobject" in metric_def or '"get"' in metric_def:
+                    get_total += val
+            elif "s3_traffic_sent_bytes" in metric_def or "traffic_sent" in metric_def:
+                sent_bytes += val
+            elif "s3_traffic_received_bytes" in metric_def or "traffic_recv" in metric_def:
+                recv_bytes += val
+
+        now = time.monotonic()
+        key = (demo_id, alias)
+        prev = _prom_snapshot.get(key)
+        _prom_snapshot[key] = (now, {"put": put_total, "get": get_total, "sent": sent_bytes, "recv": recv_bytes})
+
+        if prev:
+            dt = now - prev[0]
+            if 0 < dt < 60:
+                prev_data = prev[1]
+                put_rate = max(0.0, (put_total - prev_data["put"]) / dt)
+                get_rate = max(0.0, (get_total - prev_data["get"]) / dt)
+                tx_rate = max(0.0, (sent_bytes - prev_data["sent"]) / dt)
+                rx_rate = max(0.0, (recv_bytes - prev_data["recv"]) / dt)
+                return {
+                    "put_ops_per_sec": round(put_rate, 2),
+                    "get_ops_per_sec": round(get_rate, 2),
+                    "rx_bytes_per_sec": rx_rate,
+                    "tx_bytes_per_sec": tx_rate,
+                }
+    except Exception as e:
+        logger.debug(f"Prometheus metrics failed for {alias}: {e}")
+    return {}
+
 
 async def _get_host_stats(demo_id: str) -> dict:
     """Return aggregated CPU% and memory usage for all demo containers.
@@ -200,6 +268,12 @@ async def get_cockpit_data(demo_id: str):
         except Exception as e:
             logger.warning(f"Failed to get throughput for {alias}: {e}")
 
+        # If bandwidth gave no data, try prometheus metrics for ops/s rates
+        if result["throughput"]["rx_bytes_per_sec"] == 0 and result["throughput"]["tx_bytes_per_sec"] == 0:
+            prom = await _get_throughput_from_prometheus(mc_shell, alias, demo_id)
+            if prom:
+                result["throughput"].update(prom)
+
         return result
 
     # Run all cluster stats and host stats in parallel
@@ -210,9 +284,10 @@ async def get_cockpit_data(demo_id: str):
     )
 
     clusters = []
-    for r in cluster_results:
+    for alias, r in zip(aliases, cluster_results):
         if isinstance(r, Exception):
-            logger.warning(f"Cockpit error: {r}")
+            logger.warning(f"Cockpit error for {alias}: {r}")
+            clusters.append({"alias": alias, "buckets": [], "throughput": {"rx_bytes_per_sec": 0, "tx_bytes_per_sec": 0}})
         elif isinstance(r, dict):
             clusters.append(r)
 
@@ -284,5 +359,11 @@ async def get_cockpit_health(demo_id: str):
         return {"alias": alias, "info": None, "status": "unreachable"}
 
     results = await asyncio.gather(*[get_admin_info(a) for a in aliases], return_exceptions=True)
-    clusters = [r for r in results if isinstance(r, dict)]
+    clusters = []
+    for alias, r in zip(aliases, results):
+        if isinstance(r, Exception):
+            logger.warning(f"Health fetch error for {alias}: {r}")
+            clusters.append({"alias": alias, "info": None, "status": "unreachable", "error": str(r)})
+        elif isinstance(r, dict):
+            clusters.append(r)
     return {"demo_id": demo_id, "clusters": clusters}

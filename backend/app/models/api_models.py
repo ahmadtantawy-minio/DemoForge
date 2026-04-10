@@ -122,6 +122,14 @@ class ExecResponse(BaseModel):
     stdout: str
     stderr: str
 
+class ExecLogRequest(BaseModel):
+    command: str
+
+class LogResponse(BaseModel):
+    lines: list[str]
+    container: str
+    truncated: bool
+
 # --- Images ---
 class ImageInfo(BaseModel):
     component_name: str

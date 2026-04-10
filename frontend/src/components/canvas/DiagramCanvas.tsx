@@ -24,6 +24,7 @@ import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import AnnotationPointerEdge from "./edges/AnnotationPointerEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
+import LogViewer from "../logs/LogViewer";
 import MinioAdminPanel from "../minio/MinioAdminPanel";
 import McpPanel from "../minio/McpPanel";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
@@ -100,6 +101,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: string } | null>(null);
   const [mcpPanel, setMcpPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: "mcp-tools" | "ai-chat" } | null>(null);
   const [sqlEditorPanel, setSqlEditorPanel] = useState<{ scenarioId: string } | null>(null);
+  const [logViewer, setLogViewer] = useState<{ nodeId: string; componentId?: string } | null>(null);
 
   // Track selected nodes for multi-select grouping
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
@@ -135,7 +137,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: c.id,
         type: "cluster",
         position: c.position || { x: 0, y: 0 },
-        style: { width: c.width || 280, height: c.height || 200 },
+        width: c.width || 380,
+        height: c.height || 200,
+        style: { width: c.width || 380, height: c.height || 200 },
         data: {
           label: c.label || "MinIO Cluster",
           componentId: c.component || "minio",
@@ -267,8 +271,36 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return isNaN(num) ? max : Math.max(max, num);
       }, 0);
       groupCounter = maxGroupId;
-      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfAnnotations, ...rfSchematics, ...rfNodes]);
-      setEdges([...rfEdges, ...rfAnnotationEdges]);
+      // Auto-migrate legacy nginx edge types (failover/load-balance) to unified nginx-backend
+      const allLoadedNodes = [...rfNodes, ...rfClusters, ...rfGroups, ...rfStickies, ...rfSchematics, ...rfAnnotations];
+      const migratedEdges = rfEdges.map((edge: any) => {
+        if (edge.data?.connectionType === "failover" || edge.data?.connectionType === "load-balance") {
+          const srcNode = allLoadedNodes.find((n: any) => n.id === edge.source);
+          const tgtNode = allLoadedNodes.find((n: any) => n.id === edge.target);
+          const srcIsNginx = (srcNode?.data as any)?.componentId === "nginx";
+          const tgtIsNginx = (tgtNode?.data as any)?.componentId === "nginx";
+          if (srcIsNginx || tgtIsNginx) {
+            return { ...edge, data: { ...edge.data, connectionType: "nginx-backend" } };
+          }
+        }
+        return edge;
+      });
+      // Auto-migrate nginx nodes: variant=failover-proxy → config.mode=failover; variant=load-balancer → config.mode=round-robin
+      const migratedNodes = rfNodes.map((node: any) => {
+        if ((node.data as any)?.componentId === "nginx") {
+          const variant = (node.data as any)?.variant;
+          const hasMode = !!(node.data as any)?.config?.mode;
+          if (!hasMode && variant === "failover-proxy") {
+            return { ...node, data: { ...node.data, config: { ...(node.data.config || {}), mode: "failover" }, variant: "" } };
+          }
+          if (!hasMode && variant === "load-balancer") {
+            return { ...node, data: { ...node.data, config: { ...(node.data.config || {}), mode: "round-robin" }, variant: "" } };
+          }
+        }
+        return node;
+      });
+      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfAnnotations, ...rfSchematics, ...migratedNodes]);
+      setEdges([...migratedEdges, ...rfAnnotationEdges]);
       setDirty(false);
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges, setDirty]);
@@ -776,10 +808,21 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return;
       }
       // Backspace/Delete disabled — use context menu instead (avoids conflict with text inputs)
+      // L: open log viewer for selected node (running only)
+      if (e.key === "l" || e.key === "L") {
+        if (isRunning && selectedNodeIds.length === 1) {
+          const selectedNode = useDiagramStore.getState().nodes.find((n: any) => n.id === selectedNodeIds[0]);
+          if (selectedNode && (selectedNode.type === "component" || selectedNode.type === "cluster")) {
+            e.preventDefault();
+            setLogViewer({ nodeId: selectedNodeIds[0], componentId: (selectedNode.data as any)?.componentId });
+          }
+        }
+        return;
+      }
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [isRunning]);
+  }, [isRunning, selectedNodeIds]);
 
   useEffect(() => {
     const handler = () => {
@@ -791,6 +834,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     if (contextMenu || selectionMenu || paneMenu) window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
   }, [contextMenu, selectionMenu, paneMenu]);
+
+  // Also close NodeContextMenu when canvas:close-menus fires (same event that closes ClusterNode menus)
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    window.addEventListener("canvas:close-menus", handler);
+    return () => window.removeEventListener("canvas:close-menus", handler);
+  }, []);
 
   // Filter nodes/edges by visibility toggles in experience mode
   const visibleNodes = isExperience
@@ -870,6 +920,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         onSelectionContextMenu={isExperience ? undefined : onSelectionContextMenu}
         onSelectionChange={onSelectionChange}
         onNodeDragStop={isExperience ? undefined : onNodeDragStop}
+        onPaneClick={() => {
+          window.dispatchEvent(new CustomEvent("canvas:close-menus"));
+        }}
         onPaneContextMenu={(e) => {
           e.preventDefault();
           setPaneMenu({ x: e.clientX, y: e.clientY });
@@ -958,6 +1011,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
             onCopyNode={() => handleCopyNode(contextMenu.nodeId)}
+            onViewLogs={() => setLogViewer({ nodeId: contextMenu.nodeId, componentId: (ctxNode?.data as any)?.componentId })}
             onClose={() => setContextMenu(null)}
           />
         );
@@ -1181,6 +1235,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           onOpenChange={(open) => { if (!open) setSqlEditorPanel(null); }}
           demoId={activeDemoId}
           scenarioId={sqlEditorPanel.scenarioId}
+        />
+      )}
+
+      {logViewer && activeDemoId && (
+        <LogViewer
+          demoId={activeDemoId}
+          nodeId={logViewer.nodeId}
+          componentId={logViewer.componentId}
+          onClose={() => setLogViewer(null)}
         />
       )}
     </div>

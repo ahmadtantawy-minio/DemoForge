@@ -33,6 +33,10 @@ interface Props {
   onDuplicatePool: (poolId: string) => void;
   onRemovePool: (poolId: string) => void;
   onViewNodeDetails: (poolId: string, nodeIndex: number) => void;
+  onViewLogs: (nodeId: string) => void;
+  onDecommissionPool?: (poolId: string) => void;
+  onCancelDecommission?: (poolId: string) => void;
+  poolDecommissionStatus?: Record<string, "active" | "decommissioning" | "decommissioned">;
   poolsCount: number;
   confirmReset: boolean;
   onSetConfirmReset: (v: boolean) => void;
@@ -74,6 +78,7 @@ export default function ClusterContextMenu(props: Props) {
     onDuplicatePool,
     onRemovePool,
     onViewNodeDetails,
+    onViewLogs,
     poolsCount,
     confirmReset,
     onSetConfirmReset,
@@ -81,6 +86,9 @@ export default function ClusterContextMenu(props: Props) {
     onSetConfirmDelete,
     confirmRemovePool,
     onSetConfirmRemovePool,
+    onDecommissionPool,
+    onCancelDecommission,
+    poolDecommissionStatus,
     onCopy,
   } = props;
 
@@ -257,6 +265,12 @@ export default function ClusterContextMenu(props: Props) {
           </button>
         )}
         <button
+          className="w-full text-left px-3 py-1.5 text-sm text-sky-400 hover:bg-sky-500/10 transition-colors"
+          onClick={() => { onViewLogs(nodeId); onClose(); }}
+        >
+          View Logs
+        </button>
+        <button
           className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
           onClick={onViewInstances}
         >
@@ -387,6 +401,52 @@ export default function ClusterContextMenu(props: Props) {
     return createPortal(menu, document.body);
   }
 
+  if (type === "pool" && isRunning) {
+    const activePool = pools.find((p) => p.id === poolId);
+    const decomStatus = poolId ? (poolDecommissionStatus?.[poolId] ?? "active") : "active";
+    const isDecommissioning = decomStatus === "decommissioning";
+    const isDecommissioned = decomStatus === "decommissioned";
+    const menu = (
+      <div
+        ref={menuRef}
+        className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[220px] text-popover-foreground"
+        style={style}
+      >
+        <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
+          {activePool?.id || "Pool"}
+        </div>
+        {isDecommissioned ? (
+          <div className="px-3 py-1.5 text-xs text-red-400">Pool is decommissioned</div>
+        ) : isDecommissioning ? (
+          <>
+            <div className="px-3 py-1.5 text-xs text-orange-400">Decommissioning in progress...</div>
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
+              onClick={() => { poolId && onCancelDecommission?.(poolId); onClose(); }}
+            >
+              Cancel Decommission
+            </button>
+          </>
+        ) : (
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
+            onClick={() => { poolId && onDecommissionPool?.(poolId); onClose(); }}
+          >
+            Decommission Pool
+          </button>
+        )}
+        <div className="border-t border-border my-1" />
+        <button
+          className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+    return createPortal(menu, document.body);
+  }
+
   const menu = (
     <div
       ref={menuRef}
@@ -414,6 +474,12 @@ export default function ClusterContextMenu(props: Props) {
             onClick={() => onOpenAdmin("overview")}
           >
             MinIO Admin
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-sky-400 hover:bg-sky-500/10 transition-colors"
+            onClick={() => { onViewLogs(`${clusterId}-pool1-node-1`); onClose(); }}
+          >
+            View Logs
           </button>
           {mcpEnabled && (
             <>

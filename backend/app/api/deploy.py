@@ -174,7 +174,7 @@ async def destroy(demo_id: str):
         running.status = "stopping"
 
     async def _do_destroy():
-        await stop_demo(demo_id)
+        await stop_demo(demo_id, remove_volumes=True)
         logger.info(f"Demo {demo_id} destroyed and cleaned up")
 
     task = await task_manager.submit_task(demo_id, "destroy", _do_destroy())
