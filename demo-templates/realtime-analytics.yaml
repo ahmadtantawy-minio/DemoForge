@@ -78,6 +78,7 @@ _template:
       command: mc admin prometheus metrics minio/
       context: Raw Prometheus metrics showing S3 API call rates as ClickHouse queries run.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-realtime-analytics
 name: Real-Time Analytics with ClickHouse
 description: ClickHouse reads data directly from MinIO via S3 table functions for real-time analytics dashboards

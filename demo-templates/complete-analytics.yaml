@@ -45,6 +45,7 @@ _template:
   - step: Monitor with Prometheus
     description: Open Prometheus UI → query minio_bucket_usage_object_total to see object counts across both storage buckets in real time.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-complete-analytics
 name: Complete Analytics Platform
 description: 'Full stack: batch + streaming ingestion → MinIO → Nessie versioned catalog → Dremio + Trino → Metabase + Prometheus monitoring'

@@ -120,6 +120,7 @@ _template:
       context: Total storage consumed — useful for showing the compact footprint of
         the 4-component stack.
   fa_ready: true
+  updated_at: "2026-04-01"
 id: template-bi-dashboard-aistor-tables
 name: BI Dashboard — AIStor Tables
 description: 'Simplest BI stack: MinIO AIStor (native Iceberg) → Trino → Metabase

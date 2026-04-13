@@ -85,6 +85,7 @@ _template:
       command: mc du minio/
       context: Shows total storage consumed across all buckets in the lakehouse.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-bi-dashboard-lakehouse
 name: BI Dashboard — Lakehouse
 description: 'Full BI stack: MinIO → Iceberg → Trino → Metabase dashboards'

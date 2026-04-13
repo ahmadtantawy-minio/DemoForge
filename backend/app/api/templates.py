@@ -227,19 +227,23 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
         "origin": meta.get("origin", source),
         "saved_by": meta.get("saved_by", ""),
         "validated": bool(meta.get("fa_ready", False)),
-        "updated_at": changelog.get(template_id, [{}])[0].get("date", "") if source in ("builtin", "synced") else "",
+        "archived": bool(meta.get("archived", False)),
+        "updated_at": meta.get("updated_at", "") or (changelog.get(template_id, [{}])[0].get("date", "") if source in ("builtin", "synced") else ""),
         "changelog": changelog.get(template_id, []) if source in ("builtin", "synced") else [],
     }
 
 
 @router.get("/api/templates")
-async def list_templates(mine: bool = False, fa_view: bool = False):
+async def list_templates(mine: bool = False, fa_view: bool = False, include_archived: bool = False):
     templates = []
     source_counts = {"builtin": 0, "synced": 0, "user": 0}
     for template_id, source, raw in _discover_all_templates():
         summary = _template_summary(f"{template_id}.yaml", raw, source=source)
         templates.append(summary)
         source_counts[source] = source_counts.get(source, 0) + 1
+
+    if not include_archived:
+        templates = [t for t in templates if not t.get("archived")]
 
     if mine:
         current_fa = get_fa_id()
@@ -251,12 +255,13 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
     if fa_view:
         templates = [t for t in templates if t.get("validated")]
 
-    # In FA mode: hide built-in (dev-only) templates and hide templates not marked fa_ready.
-    # User templates are always shown — the FA created them intentionally.
+    # In FA mode: show only fa_ready templates (any source) + user-created templates.
+    # Source doesn't matter — validated flag is the gate. Synced copies shadow builtins
+    # automatically via source priority when hub sync is working.
     if os.getenv("DEMOFORGE_MODE") == "fa":
         templates = [
             t for t in templates
-            if t.get("source") == "user" or (t.get("source") != "builtin" and t.get("validated"))
+            if t.get("source") == "user" or t.get("validated")
         ]
 
     # Apply custom display order from ORDER.yaml
@@ -344,6 +349,7 @@ async def update_template(template_id: str, req: dict):
     if "minio_value" in req:
         meta["minio_value"] = req["minio_value"]
 
+    meta["updated_at"] = datetime.utcnow().isoformat() + "Z"
     raw["_template"] = meta
     _save_template_raw(template_id, raw)
 
@@ -463,6 +469,7 @@ async def save_as_template(req: SaveAsTemplateRequest):
         "walkthrough": [],
         "saved_from_demo": req.demo_id,
         "saved_at": datetime.utcnow().isoformat() + "Z",
+        "updated_at": datetime.utcnow().isoformat() + "Z",
         "saved_by": get_fa_id(),
         "customized": True,
     }
@@ -686,6 +693,27 @@ async def set_template_validated(template_id: str, req: dict = Body(default={}))
 
     logger.info(f"Template '{template_id}' fa_ready={validated} by {get_fa_id()}")
     return {"template_id": template_id, "validated": validated}
+
+
+@router.post("/api/templates/{template_id}/archive")
+async def archive_template(template_id: str, req: dict = Body(default={})):
+    """Toggle archived state on a template. Dev mode only."""
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    if mode != "dev":
+        raise HTTPException(403, "Archive is only available in dev mode.")
+
+    raw, source, path = _load_template_raw(template_id)
+    if not raw:
+        raise HTTPException(404, "Template not found")
+
+    archived = bool(req.get("archived", True))
+    meta = raw.get("_template", {})
+    meta["archived"] = archived
+    raw["_template"] = meta
+    _save_template_raw(template_id, raw)
+
+    logger.info(f"Template '{template_id}' archived={archived} by {get_fa_id()}")
+    return {"template_id": template_id, "archived": archived}
 
 
 @router.post("/api/templates/{template_id}/promote")

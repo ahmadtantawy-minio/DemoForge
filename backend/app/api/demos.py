@@ -100,8 +100,8 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     if not demo:
         raise HTTPException(404, "Demo not found")
 
-    # Experience mode demos are read-only — skip saving
-    if demo.mode == "experience":
+    # Experience mode demos are read-only — skip saving, unless running in dev mode
+    if demo.mode == "experience" and os.getenv("DEMOFORGE_MODE") != "dev":
         return {"status": "saved"}
 
     # Convert React Flow nodes → DemoNodes (skip group/sticky/annotation-type nodes)
@@ -164,6 +164,19 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 )
                 for i, p in enumerate(raw_pools)
             ]
+            # Old pre-pool configs have no serverPools — synthesise canonical defaults
+            # (4 nodes × 2 drives × 1 TB, EC:3) rather than inheriting stale legacy fields.
+            if not server_pools:
+                server_pools = [DemoServerPool(
+                    id="pool-1",
+                    node_count=4,
+                    drives_per_node=2,
+                    disk_size_tb=1,
+                    disk_type="ssd",
+                    ec_parity=3,
+                    ec_parity_upgrade_policy="upgrade",
+                    volume_path="/data",
+                )]
             demo.clusters.append(DemoCluster(
                 id=rf_node["id"],
                 component=c_data.get("componentId", "minio"),

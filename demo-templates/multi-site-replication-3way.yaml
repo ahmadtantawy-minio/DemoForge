@@ -9,10 +9,15 @@ _template:
   - bidirectional
   - n-way
   - replication
-  description: Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically.
-  objective: Demonstrate N-way site replication across 3 MinIO clusters with independent data ingestion per site
-  minio_value: MinIO site replication supports N-way topologies — all sites stay in sync regardless of which site receives writes. This demo runs three independent data generators, each writing to its own
-    site, while all data converges on every site through replication.
+  description: Three MinIO sites with bidirectional replication. Each site has its
+    own data generator pushing to a dedicated bucket. All data replicates across all
+    sites automatically.
+  objective: Demonstrate N-way site replication across 3 MinIO clusters with independent
+    data ingestion per site
+  minio_value: MinIO site replication supports N-way topologies — all sites stay in
+    sync regardless of which site receives writes. This demo runs three independent
+    data generators, each writing to its own site, while all data converges on every
+    site through replication.
   estimated_resources:
     memory: 4GB
     cpu: 4
@@ -20,203 +25,356 @@ _template:
   external_dependencies: []
   walkthrough:
   - step: Deploy the demo
-    description: Click Deploy to start all three MinIO sites, data generators, and monitoring. Site replication activates automatically during deployment.
+    description: Click Deploy to start all three MinIO sites, data generators, and
+      monitoring. Site replication activates automatically during deployment.
   - step: Verify replication is active
-    description: Right-click any Site Replication edge — it should show 'applied' status. All three sites are linked in an N-way replication group.
+    description: Right-click any Site Replication edge — it should show 'applied'
+      status. All three sites are linked in an N-way replication group.
   - step: Start data generators
-    description: Right-click each Data Generator and select Start Generating. Generator A pushes to site-a-bucket, Generator B to site-b-bucket, Generator C to site-c-bucket.
+    description: Right-click each Data Generator and select Start Generating. Generator
+      A pushes to site-a-bucket, Generator B to site-b-bucket, Generator C to site-c-bucket.
   - step: Watch cross-site convergence
-    description: Open the Cockpit panel — all three sites should show all three buckets (site-a-bucket, site-b-bucket, site-c-bucket) with matching object counts.
+    description: Open the Cockpit panel — all three sites should show all three buckets
+      (site-a-bucket, site-b-bucket, site-c-bucket) with matching object counts.
   - step: Verify via MinIO Console
-    description: Open MinIO Console for any site. You will see buckets from all other sites with replicated objects, demonstrating full N-way consistency.
+    description: Open MinIO Console for any site. You will see buckets from all other
+      sites with replicated objects, demonstrating full N-way consistency.
   - step: Test resync
-    description: Right-click a Site Replication edge and select 'Resync All Sites' to force a full resync between two sites.
+    description: Right-click a Site Replication edge and select 'Resync All Sites'
+      to force a full resync between two sites.
   fa_ready: true
 id: template-multi-site-replication-3way
 name: Multi-Site Replication (3-Way)
-description: Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically.
+description: Three MinIO sites with bidirectional replication. Each site has its own
+  data generator pushing to a dedicated bucket. All data replicates across all sites
+  automatically.
+mode: standard
 networks:
 - name: default
   subnet: 172.21.0.0/16
+  dns_suffix: demo.local
   driver: bridge
 nodes:
 - id: data-gen-site-a
   component: file-generator
   variant: steady
   position:
-    x: -235
-    y: 257
-  display_name: Data Generator A
+    x: 28.491916828272537
+    y: 109.0362452805679
   config: {}
+  networks: {}
+  display_name: Data Generator A
+  labels: {}
+  group_id: group-2
 - id: data-gen-site-b
   component: file-generator
   variant: steady
   position:
-    x: 33
-    y: -104
-  display_name: Data Generator B
+    x: 24.575945257950778
+    y: 157.9426561885786
   config: {}
+  networks: {}
+  display_name: Data Generator B
+  labels: {}
+  group_id: group-1
 - id: data-gen-site-c
   component: file-generator
   variant: steady
   position:
-    x: 791
-    y: -149
-  display_name: Data Generator C
+    x: 990.4036875986676
+    y: -111.9922228688723
   config: {}
+  networks: {}
+  display_name: Data Generator C
+  labels: {}
+  group_id: null
 - id: prometheus
   component: prometheus
   variant: default
   position:
-    x: 1016
-    y: 465
-  display_name: Prometheus
+    x: 1016.0
+    y: 465.0
   config: {}
+  networks: {}
+  display_name: Prometheus
+  labels: {}
+  group_id: null
 - id: grafana
   component: grafana
   variant: default
   position:
-    x: 1449
-    y: 523
+    x: 1449.0
+    y: 523.0
+  config: {}
+  networks: {}
   display_name: Grafana
-  config: {}
-clusters:
-- id: minio-site-a
-  component: minio
-  label: MinIO Site A
-  position:
-    x: 226
-    y: 327
-  node_count: 2
-  drives_per_node: 1
-  credentials:
-    root_user: minioadmin
-    root_password: minioadmin
-  config: {}
-  width: 280.0
-  height: 200.0
-  mcp_enabled: false
-- id: minio-site-b
-  component: minio
-  label: MinIO Site B
-  position:
-    x: 429
-    y: -119
-  node_count: 2
-  drives_per_node: 1
-  credentials:
-    root_user: minioadmin
-    root_password: minioadmin
-  config: {}
-  width: 280.0
-  height: 200.0
-  mcp_enabled: false
-- id: minio-site-c
-  component: minio
-  label: MinIO Site C
-  position:
-    x: 1137
-    y: 103
-  node_count: 2
-  drives_per_node: 1
-  credentials:
-    root_user: minioadmin
-    root_password: minioadmin
-  config: {}
-  width: 280.0
-  height: 200.0
-  mcp_enabled: false
+  labels: {}
+  group_id: null
 edges:
 - id: e-datagen-a-site-a
   source: data-gen-site-a
   target: minio-site-a
   connection_type: file-push
   network: default
-  auto_configure: true
-  label: Push to site-a-bucket
   connection_config:
     target_bucket: site-a-bucket
     file_size: 10KB
     file_count: '1'
+  auto_configure: true
+  label: Push to site-a-bucket
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
   target_handle: data-in
 - id: e-datagen-b-site-b
   source: data-gen-site-b
   target: minio-site-b
   connection_type: file-push
   network: default
-  auto_configure: true
-  label: Push to site-b-bucket
   connection_config:
     target_bucket: site-b-bucket
     file_size: 10KB
     file_count: '1'
+  auto_configure: true
+  label: Push to site-b-bucket
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
   target_handle: data-in
 - id: e-datagen-c-site-c
   source: data-gen-site-c
   target: minio-site-c
   connection_type: file-push
   network: default
-  auto_configure: true
-  label: Push to site-c-bucket
   connection_config:
     target_bucket: site-c-bucket
     file_size: 10KB
     file_count: '1'
+  auto_configure: true
+  label: Push to site-c-bucket
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
   target_handle: data-in
 - id: e-site-replication-ab
   source: minio-site-a
   target: minio-site-b
   connection_type: cluster-site-replication
   network: default
+  connection_config: {}
   auto_configure: true
   label: Site Replication A↔B
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: null
 - id: e-site-replication-ac
   source: minio-site-a
   target: minio-site-c
   connection_type: cluster-site-replication
   network: default
+  connection_config: {}
   auto_configure: true
   label: Site Replication A↔C
-- id: e-site-replication-bc
-  source: minio-site-b
-  target: minio-site-c
-  connection_type: cluster-site-replication
-  network: default
-  auto_configure: true
-  label: Site Replication B↔C
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: null
 - id: e-site-a-metrics
   source: minio-site-a
   target: prometheus
   connection_type: metrics
   network: default
+  connection_config: {}
   auto_configure: true
   label: Metrics
+  protocol: ''
+  latency: ''
+  bandwidth: ''
   source_handle: data-out
-- id: e-site-b-metrics
-  source: minio-site-b
-  target: prometheus
-  connection_type: metrics
-  network: default
-  auto_configure: true
-  label: Metrics
-  source_handle: data-out
+  target_handle: null
 - id: e-site-c-metrics
   source: minio-site-c
   target: prometheus
   connection_type: metrics
   network: default
+  connection_config: {}
   auto_configure: true
   label: Metrics
+  protocol: ''
+  latency: ''
+  bandwidth: ''
   source_handle: cluster-out-bottom
+  target_handle: null
 - id: e-prom-grafana
   source: prometheus
   target: grafana
   connection_type: metrics-query
   network: default
+  connection_config: {}
   auto_configure: true
   label: PromQL
-groups: []
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: null
+- id: e-minio-site-b-minio-site-c-cluster-site-replication-1776090227024
+  source: minio-site-b
+  target: minio-site-c
+  connection_type: cluster-site-replication
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: Site Replication B <-> C
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: data-out
+  target_handle: data-in
+- id: xy-edge__minio-site-bdata-out-prometheus
+  source: minio-site-b
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: data-out
+  target_handle: null
+groups:
+- id: group-3
+  label: Site C
+  description: ''
+  color: '#3b82f6'
+  style: solid
+  position:
+    x: 959.8704693399287
+    y: -168.08096499222904
+  width: 400.0
+  height: 300.0
+  mode: visual
+  cluster_config: {}
+- id: group-2
+  label: Site A
+  description: ''
+  color: '#3b82f6'
+  style: solid
+  position:
+    x: -102.92907447632751
+    y: 216.7764014416943
+  width: 400.0
+  height: 300.0
+  mode: visual
+  cluster_config: {}
+- id: group-1
+  label: Site B
+  description: ''
+  color: '#3b82f6'
+  style: solid
+  position:
+    x: -69.4872883533601
+    y: -305.27757521979174
+  width: 400.0
+  height: 300.0
+  mode: visual
+  cluster_config: {}
 sticky_notes: []
+annotations: []
+schematics: []
+clusters:
+- id: minio-site-a
+  component: minio
+  label: MinIO Site A
+  position:
+    x: 310.90671462049704
+    y: 69.2636897950544
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+  aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 1
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 2
+    disk_size_tb: 1
+    disk_type: nvme
+    ec_parity: 2
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
+- id: minio-site-b
+  component: minio
+  label: MinIO Site B
+  position:
+    x: 307.8862223612811
+    y: 66.23715903205633
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+  aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 1
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 2
+    disk_size_tb: 1
+    disk_type: ssd
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
+- id: minio-site-c
+  component: minio
+  label: MinIO Site C
+  position:
+    x: 1229.7372231722106
+    y: -45.64300416447167
+  node_count: 2
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 280.0
+  height: 200.0
+  mcp_enabled: false
+  aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 1
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 2
+    disk_size_tb: 1
+    disk_type: ssd
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
 resources:
   default_memory: 256m
   default_cpu: 0.25
@@ -224,3 +382,6 @@ resources:
   max_cpu: 1.0
   total_memory: 6g
   total_cpu: 6.0
+deploy_timeout_seconds: null
+created_at: null
+updated_at: '2026-04-13T14:29:56.259693+00:00'

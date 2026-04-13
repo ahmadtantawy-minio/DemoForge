@@ -42,6 +42,7 @@ _template:
       appearing.
   external_dependencies: []
   fa_ready: true
+  updated_at: "2026-04-07"
 id: experience-stx-inference
 name: 'NVIDIA STX: The G3.5 Tier'
 description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO

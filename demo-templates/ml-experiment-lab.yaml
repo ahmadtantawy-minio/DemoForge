@@ -84,6 +84,7 @@ _template:
       command: mc ls minio/raw-data
       context: Shows Parquet files from the data generator — the source data for all training runs.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-ml-experiment-lab
 name: ML Experiment Lab
 description: Train models on MinIO data, track in MLflow, explore in JupyterLab

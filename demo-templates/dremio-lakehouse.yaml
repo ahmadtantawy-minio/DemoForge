@@ -34,6 +34,7 @@ _template:
   - step: Build Metabase dashboard
     description: Open Metabase → connect to Dremio or Trino → build dashboards comparing query results from both engines on the same underlying data.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-dremio-lakehouse
 name: Dremio Lakehouse
 description: 'Dremio + MinIO lakehouse: Data Generator → MinIO → Iceberg REST → Dremio + Trino → Metabase'

@@ -31,6 +31,7 @@ _template:
   - step: Monitor the migration
     description: Open Grafana → MinIO Dashboard to see PUT operations spike during the migration.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-hadoop-migration
 name: Hadoop to MinIO Migration
 description: Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector

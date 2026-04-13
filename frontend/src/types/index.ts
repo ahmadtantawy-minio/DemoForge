@@ -52,6 +52,7 @@ export interface DemoTemplate {
   origin?: string;  // "builtin" | "synced" | "user"
   saved_by?: string;
   validated?: boolean;
+  archived?: boolean;
   updated_at?: string;  // ISO date of most recent changelog entry (builtin/synced only)
   changelog?: Array<{ date: string; summary: string; changed_by?: string }>;
 }

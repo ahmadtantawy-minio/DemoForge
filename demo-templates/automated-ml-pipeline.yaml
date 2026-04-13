@@ -28,6 +28,7 @@ _template:
   - step: Check results
     description: Open MLflow — trained model registered. Open MinIO — artifacts stored.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-automated-ml-pipeline
 name: Automated ML Pipeline
 description: 'Airflow-orchestrated ML pipeline: data → features → training → MLflow. All data in MinIO.'

@@ -87,6 +87,7 @@ _template:
       command: mc find minio/documents --name '*.json' | wc -l
       context: Shows how many chunked document segments were created during ingestion.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-rag-pipeline
 name: RAG Pipeline — Enterprise AI on MinIO
 description: Documents in MinIO, embeddings via Ollama, vectors in Qdrant, LLM answers with citations. Full audit trail.

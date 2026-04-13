@@ -125,6 +125,7 @@ _template:
       context: Example command for registering the cold cluster as a tiering target
         — already configured automatically on deploy.
   fa_ready: true
+  updated_at: "2026-04-01"
 id: template-smart-tiering
 name: ILM Tiered Storage (Hot → Cold)
 description: 'Two MinIO clusters with ILM tiering: hot tier (NVMe, 2-node, erasure-coded)

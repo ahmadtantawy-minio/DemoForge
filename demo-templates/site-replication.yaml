@@ -36,6 +36,7 @@ _template:
   - step: Monitor replication health
     description: Review Grafana dashboards for replication throughput and lag between both sites
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-site-replication-bidirectional
 name: Site replication (bidirectional)
 description: Two MinIO sites with full bidirectional site replication. Each site has its own NGINX load balancer. Changes on either site replicate to the other.

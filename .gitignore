@@ -22,6 +22,9 @@ Thumbs.db
 # Local scratch / screenshots
 untracked/
 
+# Dev build markers (track last successful component image build)
+.build-markers/
+
 # OMC state
 .omc/
 state/

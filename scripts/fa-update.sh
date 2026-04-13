@@ -92,6 +92,18 @@ else
   echo ""
 fi
 
+# ── Step 6: Ensure DEMOFORGE_MODE=fa is set ──────────────────────────────
+ENVFILE="$PROJECT_ROOT/.env.local"
+_set_env() {
+    local key="$1" val="$2"
+    if grep -q "^${key}=" "$ENVFILE" 2>/dev/null; then
+        sed -i.bak "s|^${key}=.*|${key}=${val}|" "$ENVFILE" && rm -f "${ENVFILE}.bak"
+    else
+        printf '%s=%s\n' "$key" "$val" >> "$ENVFILE"
+    fi
+}
+_set_env "DEMOFORGE_MODE" "fa"
+
 # ── Step 7: Restart DemoForge services ────────────────────────────────────
 log "Restarting DemoForge..."
 "$PROJECT_ROOT/demoforge.sh" restart

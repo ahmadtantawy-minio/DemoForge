@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate, apiFetch, setTemplateOrder as saveTemplateOrder } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate, apiFetch, setTemplateOrder as saveTemplateOrder } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "../../lib/toast";
@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff, AlertTriangle, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff, AlertTriangle, Clock, ChevronLeft, ChevronRight, Archive } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
@@ -84,7 +84,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const [activeTier, setActiveTier] = useState<string>("essentials");
   const [showMyTemplates, setShowMyTemplates] = useState(false);
   const [showFAReady, setShowFAReady] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ enabled: boolean; synced_count: number; last_sync: string | null } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pushing, setPushing] = useState(false);
   const faMode = useDemoStore((s) => s.faMode);
@@ -125,21 +125,20 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const loadAll = () => {
     setLoading(true);
     setLoadError(false);
-    fetchTemplates()
+    fetchTemplates({ includeArchived: showArchived })
       .then((res: any) => {
         setTemplates(res.templates);
         // Preserve display order from server response
         setTemplateOrder(res.templates.map((t: any) => t.id));
         if (res.sources || res.mode || res.sync) {
           setSourceMeta({ sources: res.sources || {}, mode: res.mode || "all", sync: res.sync || {} });
-          if (res.sync) setSyncStatus(res.sync);
         }
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [showArchived]);
   useEffect(() => { if (loadKey !== undefined && loadKey > 0) loadAll(); }, [loadKey]);
 
   useEffect(() => {
@@ -160,25 +159,20 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
 
   const faId = useDemoStore((s) => s.faId);
 
-  // Show all templates returned by backend (FA mode already filters by component readiness server-side)
-  const visibleTemplates = useMemo(
-    () => templates,
-    [templates]
-  );
-
-  // Derive unique tiers from visible templates
+  // Derive unique tiers from loaded templates
   const tiers = useMemo(() => {
     const seen = new Set<string>();
-    visibleTemplates.forEach((t) => seen.add(t.tier || "essentials"));
+    templates.forEach((t) => seen.add(t.tier || "essentials"));
     return ["essentials", "advanced", "experience"].filter((t) => seen.has(t));
-  }, [visibleTemplates]);
+  }, [templates]);
 
-  // Filter by tier first (or by saved_by when showMyTemplates, or by validated when showFAReady)
+  // Filter by tier first (or by saved_by when showMyTemplates, or by validated when showFAReady, or by archived when showArchived)
   const tierFiltered = useMemo(() => {
+    if (showArchived) return templates.filter((t) => t.archived);
     if (showFAReady) return templates.filter((t) => t.validated);
-    if (showMyTemplates) return visibleTemplates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId));
-    return visibleTemplates.filter((t) => (t.tier || "essentials") === activeTier);
-  }, [visibleTemplates, templates, activeTier, showMyTemplates, showFAReady, faId]);
+    if (showMyTemplates) return templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId));
+    return templates.filter((t) => (t.tier || "essentials") === activeTier);
+  }, [templates, activeTier, showMyTemplates, showFAReady, showArchived, faId]);
 
   // Derive unique categories within selected tier
   const categories = useMemo(() => {
@@ -300,6 +294,20 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
     }
   };
 
+  const handleArchive = async (templateId: string, archived: boolean) => {
+    try {
+      await apiFetch(`/api/templates/${templateId}/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+      toast.success(archived ? "Template archived" : "Template unarchived");
+      loadAll();
+    } catch (err: any) {
+      toast.error("Failed to archive template", { description: err.message });
+    }
+  };
+
   const handlePromote = async (templateId: string) => {
     try {
       const result = await promoteTemplate(templateId);
@@ -401,7 +409,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
     );
   }
 
-  if (faMode !== "dev" && visibleTemplates.length === 0) {
+  if (faMode !== "dev" && templates.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
         <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mb-1">
@@ -522,7 +530,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
               </Button>
             </>
           )}
-          {sourceMeta.sync?.enabled && (
+          {faMode === "dev" && sourceMeta.sync?.enabled && (
             <>
               <span className="text-border">|</span>
               {sourceMeta.sync?.last_sync && (
@@ -560,14 +568,14 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
       {tiers.length > 1 && (
         <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Template tiers">
           {tiers.map((tier) => {
-            const count = visibleTemplates.filter((t) => (t.tier || "essentials") === tier).length;
+            const count = templates.filter((t) => (t.tier || "essentials") === tier).length;
             return (
               <button
                 key={tier}
                 role="tab"
                 aria-selected={!showMyTemplates && activeTier === tier}
                 data-testid={`tier-tab-${tier === "experience" ? "experiences" : tier}`}
-                onClick={() => { setActiveTier(tier); setActiveCategory(null); setShowMyTemplates(false); setShowFAReady(false); }}
+                onClick={() => { setActiveTier(tier); setActiveCategory(null); setShowMyTemplates(false); setShowFAReady(false); setShowArchived(false); }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
                   ${!showMyTemplates && activeTier === tier
                     ? "bg-primary/15 text-primary border border-primary/30"
@@ -582,21 +590,21 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
             role="tab"
             aria-selected={showMyTemplates}
             data-testid="tier-tab-my-templates"
-            onClick={() => { setShowMyTemplates(true); setActiveTier(""); setActiveCategory(null); setShowFAReady(false); }}
+            onClick={() => { setShowMyTemplates(true); setActiveTier(""); setActiveCategory(null); setShowFAReady(false); setShowArchived(false); }}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
               ${showMyTemplates
                 ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
               }`}
           >
-            My Templates ({visibleTemplates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
+            My Templates ({templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
           </button>
           {faMode === "dev" && (
             <button
               role="tab"
               aria-selected={showFAReady}
               data-testid="tier-tab-fa-ready"
-              onClick={() => { setShowFAReady(true); setShowMyTemplates(false); setActiveTier(""); setActiveCategory(null); }}
+              onClick={() => { setShowFAReady(true); setShowMyTemplates(false); setActiveTier(""); setActiveCategory(null); setShowArchived(false); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
                 ${showFAReady
                   ? "bg-green-500/15 text-green-400 border border-green-500/30"
@@ -607,61 +615,20 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
               FA Ready ({templates.filter((t) => t.validated).length})
             </button>
           )}
-        </div>
-      )}
-
-      {/* ── Sync indicator ──────────────────────────────────────────── */}
-      {syncStatus?.enabled && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
-          <span>{syncStatus.synced_count} synced templates</span>
-          {syncStatus.last_sync && (
-            <span>· {new Date(syncStatus.last_sync).toLocaleString()}</span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs px-2 gap-1"
-            disabled={syncing}
-            onClick={async () => {
-              setSyncing(true);
-              try {
-                const result = await triggerTemplateSync();
-                toast.success(`Synced: ${result.downloaded} new, ${result.deleted} removed`);
-                const res = await fetchTemplates();
-                setTemplates(res.templates);
-                const status = await getTemplateSyncStatus();
-                setSyncStatus(status);
-              } catch (err: any) {
-                toast.error("Sync failed", { description: err.message });
-              } finally {
-                setSyncing(false);
-              }
-            }}
-          >
-            <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
-            Sync Now
-          </Button>
           {faMode === "dev" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs px-3 gap-1"
-              disabled={pushing}
-              onClick={async () => {
-                setPushing(true);
-                try {
-                  const result = await pushBuiltinTemplates();
-                  toast.success(`Pushed ${result.uploaded} templates to hub`);
-                } catch (err: any) {
-                  toast.error("Push failed", { description: err.message });
-                } finally {
-                  setPushing(false);
-                }
-              }}
+            <button
+              role="tab"
+              aria-selected={showArchived}
+              data-testid="tier-tab-archived"
+              onClick={() => { setShowArchived(true); setShowMyTemplates(false); setShowFAReady(false); setActiveTier(""); setActiveCategory(null); }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all select-none
+                ${showArchived
+                  ? "bg-zinc-500/15 text-zinc-400 border border-zinc-500/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
+                }`}
             >
-              <Upload className={`w-3 h-3 ${pushing ? "animate-spin" : ""}`} />
-              Push to Hub
-            </Button>
+              Archived ({templates.filter((t) => t.archived).length})
+            </button>
           )}
         </div>
       )}
@@ -885,6 +852,15 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                             </DropdownMenuItem>
                           </>
                         )}
+                        {faMode === "dev" && (
+                          <DropdownMenuItem
+                            onClick={(e) => { e.stopPropagation(); handleArchive(t.id, !t.archived); }}
+                            className="text-xs"
+                          >
+                            <Archive className="w-3 h-3 mr-2" />
+                            {t.archived ? "Unarchive" : "Archive"}
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1055,8 +1031,8 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                   </div>
                 </div>
 
-                {/* Last updated — visible to all modes for non-user templates */}
-                {selectedTemplate.source !== "user" && (selectedTemplate as any).updated_at && (
+                {/* Last updated — visible to all modes when updated_at is set */}
+                {(selectedTemplate as any).updated_at && (
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">

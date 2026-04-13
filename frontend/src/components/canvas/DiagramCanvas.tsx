@@ -14,6 +14,7 @@ import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "../../lib/toast";
 import { saveDiagram, saveLayout, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
+import { migrateClusterData } from "../../lib/clusterMigration";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
 import StickyNoteNode from "./nodes/StickyNoteNode";
@@ -55,10 +56,11 @@ interface DiagramCanvasProps {
 
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests, setDirty, clipboard, setClipboard } = useDiagramStore();
-  const { activeDemoId, instances, demos } = useDemoStore();
+  const { activeDemoId, instances, demos, faMode } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
-  const isExperience = activeDemo?.mode === "experience";
+  // In dev mode, experience templates are fully editable (no readonly restrictions)
+  const isExperience = activeDemo?.mode === "experience" && faMode !== "dev";
 
   // Track dark/light theme reactively
   const [isDark, setIsDark] = useState(document.documentElement.classList.contains("dark"));
@@ -133,13 +135,20 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         style: { width: g.width || 400, height: g.height || 300 },
         data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid", mode: g.mode || "visual", cluster_config: g.cluster_config || {} },
       }));
-      const rfClusters = (demo.clusters || []).map((c: any) => ({
-        id: c.id,
-        type: "cluster",
-        position: c.position || { x: 0, y: 0 },
-        width: c.width || 380,
-        style: { width: c.width || 380 },
-        data: {
+      const rfClusters = (demo.clusters || []).map((c: any) => {
+        // Map snake_case backend fields → camelCase, then run migration so the
+        // store always holds canonical data (correct pools) from the first load.
+        const rawPools = (c.server_pools || []).map((p: any) => ({
+          id: p.id,
+          nodeCount: p.node_count,
+          drivesPerNode: p.drives_per_node,
+          diskSizeTb: p.disk_size_tb ?? 1,
+          diskType: p.disk_type ?? "ssd",
+          ecParity: p.ec_parity ?? 3,
+          ecParityUpgradePolicy: p.ec_parity_upgrade_policy ?? "upgrade",
+          volumePath: p.volume_path ?? "/data",
+        }));
+        const rawData = {
           label: c.label || "MinIO Cluster",
           componentId: c.component || "minio",
           nodeCount: c.node_count || 4,
@@ -151,21 +160,17 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           ecParity: c.ec_parity ?? 3,
           ecParityUpgradePolicy: c.ec_parity_upgrade_policy ?? "upgrade",
           diskSizeTb: c.disk_size_tb ?? 1,
-          // Map server_pools (backend snake_case) → serverPools (frontend camelCase)
-          // Without this, migrateClusterData recreates a default single pool on every load,
-          // discarding any multi-pool or customised pool configuration.
-          serverPools: (c.server_pools || []).map((p: any) => ({
-            id: p.id,
-            nodeCount: p.node_count,
-            drivesPerNode: p.drives_per_node,
-            diskSizeTb: p.disk_size_tb ?? 1,
-            diskType: p.disk_type ?? "ssd",
-            ecParity: p.ec_parity ?? 3,
-            ecParityUpgradePolicy: p.ec_parity_upgrade_policy ?? "upgrade",
-            volumePath: p.volume_path ?? "/data",
-          })),
-        },
-      }));
+          serverPools: rawPools,
+        };
+        return {
+          id: c.id,
+          type: "cluster",
+          position: c.position || { x: 0, y: 0 },
+          width: c.width || 380,
+          style: { width: c.width || 380 },
+          data: migrateClusterData(rawData),
+        };
+      });
       const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
         id: s.id,
         type: "sticky",

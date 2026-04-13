@@ -34,6 +34,7 @@ _template:
   - step: Merge and visualize
     description: Open Metabase → connect to Dremio → build dashboards on the merged production data.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-versioned-data-lake
 name: Versioned Data Lake
 description: 'Git-like data versioning: Data Generator → MinIO → Nessie versioned catalog → Dremio → Metabase'

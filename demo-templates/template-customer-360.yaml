@@ -80,6 +80,7 @@ _template:
       command: mc du minio/
       context: Shows total storage consumed across all buckets in the Customer 360 stack.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-customer-360
 name: Customer 360 analytics
 description: 'Customer analytics: MinIO → Iceberg → Trino → Metabase dashboards'

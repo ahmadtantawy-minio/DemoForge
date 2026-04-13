@@ -137,6 +137,7 @@ _template:
       context: Confirms both sites have identical objects after resync completes —
         the definitive proof of zero data loss.
   fa_ready: true
+  updated_at: '2026-03-31'
 id: template-site-replication-failover
 name: Site Replication with Failover
 description: Active-passive failover across two MinIO sites with automatic switchover
@@ -150,11 +151,12 @@ networks:
 nodes:
 - id: failover-gw
   component: nginx
-  variant: failover-proxy
+  variant: ''
   position:
     x: 230.14157983198044
     y: -1.2580185604813465
-  config: {}
+  config:
+    mode: failover
   networks: {}
   display_name: Failover Gateway
   labels: {}
@@ -209,7 +211,7 @@ edges:
 - id: e-failover-site-b
   source: failover-gw
   target: minio-site-b
-  connection_type: failover
+  connection_type: nginx-backend
   network: default
   connection_config:
     role: backup
@@ -303,7 +305,7 @@ edges:
 - id: e-failover-gw-minio-site-a-failover-1774944069005
   source: failover-gw
   target: minio-site-a
-  connection_type: failover
+  connection_type: nginx-backend
   network: default
   connection_config: {}
   auto_configure: true
@@ -334,6 +336,18 @@ clusters:
   height: 200.0
   mcp_enabled: false
   aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 1
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 4
+    disk_size_tb: 1
+    disk_type: ssd
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
 - id: minio-site-b
   component: minio
   label: MinIO Site B (Backup)
@@ -350,6 +364,18 @@ clusters:
   height: 200.0
   mcp_enabled: false
   aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 1
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 4
+    disk_size_tb: 1
+    disk_type: nvme
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
 resources:
   default_memory: 256m
   default_cpu: 0.25
@@ -358,3 +384,5 @@ resources:
   total_memory: 6g
   total_cpu: 6.0
 deploy_timeout_seconds: null
+created_at: null
+updated_at: '2026-04-13T14:23:06.364104+00:00'

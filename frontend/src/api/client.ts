@@ -269,8 +269,8 @@ export const fetchSystemHealth = () =>
   apiFetch<{ status: string; checks: Record<string, any> }>("/api/health/system");
 
 // Templates
-export const fetchTemplates = () =>
-  apiFetch<{ templates: import("../types").DemoTemplate[] }>("/api/templates");
+export const fetchTemplates = ({ includeArchived = false }: { includeArchived?: boolean } = {}) =>
+  apiFetch<{ templates: import("../types").DemoTemplate[] }>(`/api/templates${includeArchived ? "?include_archived=true" : ""}`);
 
 export const fetchTemplate = (templateId: string) =>
   apiFetch<import("../types").DemoTemplateDetail>(`/api/templates/${templateId}`);

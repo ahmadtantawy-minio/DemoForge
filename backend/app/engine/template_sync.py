@@ -129,7 +129,34 @@ def publish_template(template_id: str) -> dict:
 
 
 def publish_single_builtin(template_id: str) -> dict:
-    return {"status": "skipped", "message": "Direct publish only available in dev mode with hub access."}
+    """Push a single builtin template file directly to GCS. Dev mode only."""
+    templates_dir = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
+    src = Path(templates_dir) / f"{template_id}.yaml"
+    if not src.exists():
+        return {"status": "error", "message": f"Template file not found: {src}"}
+
+    GCS_BUCKET = "gs://demoforge-hub-templates"
+    GCS_PREFIX = "templates"
+    dst = f"{GCS_BUCKET}/{GCS_PREFIX}/{template_id}.yaml"
+
+    try:
+        result = subprocess.run(
+            ["gcloud", "storage", "cp", str(src), dst],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(project_root),
+        )
+        if result.returncode != 0:
+            err_msg = (result.stderr or result.stdout or "gcloud storage cp failed").strip()
+            logger.error(f"publish_single_builtin failed for {template_id}: {err_msg}")
+            return {"status": "error", "message": err_msg}
+        logger.info(f"Pushed {template_id}.yaml → {dst}")
+        return {"status": "ok", "uploaded": 1}
+    except FileNotFoundError:
+        return {"status": "skipped", "message": "gcloud not available — run make hub-seed manually"}
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Upload timed out after 30s"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 def publish_builtin_templates() -> dict:

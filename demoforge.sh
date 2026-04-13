@@ -111,9 +111,28 @@ ensure_dirs() {
 }
 
 load_env() {
+    # Capture any mode explicitly set by the caller (e.g. DEMOFORGE_MODE=dev from demoforge-dev.sh)
+    # before sourcing .env files which might overwrite it.
+    local _caller_mode="${DEMOFORGE_MODE:-}"
+
     # Load hub config first, then per-user local overrides (local wins for most keys)
     [[ -f "$SCRIPT_DIR/.env.hub" ]] && set -a && source "$SCRIPT_DIR/.env.hub" && set +a
     [[ -f "$SCRIPT_DIR/.env.local" ]] && set -a && source "$SCRIPT_DIR/.env.local" && set +a
+
+    # Caller-specified mode always wins over .env.local (e.g. dev-start must stay dev).
+    if [[ -n "$_caller_mode" ]]; then
+        export DEMOFORGE_MODE="$_caller_mode"
+    # Auto-promote to FA mode when FA identity is configured but mode is unset/standard.
+    # This ensures 'make start' always runs in the right mode without manual .env.local edits.
+    elif [[ "${DEMOFORGE_MODE:-standard}" == "standard" && -n "${DEMOFORGE_FA_ID:-}" ]]; then
+        export DEMOFORGE_MODE="fa"
+        if grep -q "^DEMOFORGE_MODE=" "$SCRIPT_DIR/.env.local" 2>/dev/null; then
+            sed -i.bak "s|^DEMOFORGE_MODE=.*|DEMOFORGE_MODE=fa|" "$SCRIPT_DIR/.env.local" && rm -f "$SCRIPT_DIR/.env.local.bak"
+        else
+            echo "DEMOFORGE_MODE=fa" >> "$SCRIPT_DIR/.env.local"
+        fi
+    fi
+
     # Bake git version so the backend container can report it (no .git mount in Docker)
     export DEMOFORGE_VERSION="${DEMOFORGE_VERSION:-$(git -C "$SCRIPT_DIR" describe --tags --always 2>/dev/null || echo 'dev')}"
     # In GCP mode (DEMOFORGE_HUB_LOCAL not set), the .env.hub admin key is the GCP hub-api key.
@@ -154,7 +173,11 @@ build_component_images() {
         return
     fi
 
-    # Dev mode: build from source
+    # Dev mode: build from source only when source has changed since last build.
+    # Marker files in .build-markers/ track the last successful build per image.
+    local MARKER_DIR="$SCRIPT_DIR/.build-markers"
+    mkdir -p "$MARKER_DIR"
+
     log "Checking for component images to build..."
     local count=0
     for manifest in components/*/manifest.yaml; do
@@ -175,9 +198,23 @@ build_component_images() {
             continue
         fi
 
+        # Derive a safe marker filename from the image name (replace / and : with _).
+        local marker="$MARKER_DIR/$(echo "$image" | tr '/: ' '___').built"
+
+        # Skip if image exists AND no source file is newer than the last build marker.
+        if docker image inspect "$image" &>/dev/null && [[ -f "$marker" ]]; then
+            if ! find "$build_path" -newer "$marker" -type f | grep -q .; then
+                continue
+            fi
+        fi
+
         log "Building component image: $image from $build_path"
-        docker build -t "$image" "$build_path"
-        count=$((count + 1))
+        if docker build -t "$image" "$build_path"; then
+            touch "$marker"
+            count=$((count + 1))
+        else
+            warn "Build failed for $image"
+        fi
     done
 
     if [ $count -gt 0 ]; then

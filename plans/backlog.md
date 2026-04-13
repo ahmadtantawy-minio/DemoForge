@@ -57,7 +57,13 @@
 
 ## Template Gallery UX
 
-- [ ] **Enhancement: Archive templates in dev mode** — Dev mode only. Archived templates are hidden from the main gallery view unless the user explicitly navigates to an "Archived" section/tab. Archived templates remain on disk but are excluded from the default list. Useful for keeping the gallery clean without deleting templates. Archived state stored as a flag in the template YAML (e.g. `_template.archived: true`). FA mode never sees archived templates (they are effectively invisible outside dev mode).
+- [x] **BUG: FA mode shows all templates instead of only FA-Ready ones** — Root cause: `fa-setup.sh` and `fa-update.sh` were not writing `DEMOFORGE_MODE=fa` to `.env.local`. Fixed in both scripts. Also added auto-detection in `demoforge.sh` `load_env()`: if `DEMOFORGE_FA_ID` is set and mode is `standard`, automatically promotes to `fa` and persists to `.env.local`.
+
+- [ ] **BUG: Sync returns 401 Unauthorized from hub-connector** — `template_sync.py` sends `X-Api-Key: {DEMOFORGE_API_KEY}` (the FA key) to `http://host.docker.internal:8080/api/hub/templates/`. The hub-connector at :8080 was started with a separate `CONNECTOR_KEY` (from bootstrap) and rejects the FA key with 401. Root cause: the connector key and FA key are different credentials, but the backend only knows the FA key. Fix options: (a) write `DEMOFORGE_HUB_URL` (the direct gateway URL) to `.env.local` during `fa-setup` and update `template_sync.py` to hit the gateway directly with the FA key, or (b) update the hub-connector to accept the FA key for proxied template requests. The duplicate sync button was also fixed (both were calling the same broken endpoint — now only one button in FA mode).
+
+- [x] **BUG: Template last-updated date not visible / not tracked** — Baked `updated_at` into all 28 builtin template YAMLs from CHANGELOG. Backend `_template_summary()` now reads `meta.get("updated_at")` first (works on FA machines), then falls back to CHANGELOG. `save_as_template()` and `update_template()` both write `updated_at`. Frontend gate updated to show date for user templates too (was `source !== "user"`).
+
+- [x] **Enhancement: Archive templates in dev mode** — Backend: `_template_summary()` returns `archived` field; `list_templates()` excludes archived by default with `include_archived` query param; `POST /api/templates/{id}/archive` endpoint (dev mode only, handles both archive/unarchive via body). Frontend: "Archived" tab (dev mode only); archive/unarchive in 3-dot dropdown; `fetchTemplates` passes `include_archived=true` when Archived tab active.
 
 
 

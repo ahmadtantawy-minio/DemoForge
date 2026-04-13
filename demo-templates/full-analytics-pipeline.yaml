@@ -43,6 +43,7 @@ _template:
   - step: Enable Cockpit
     description: Toggle Cockpit to see live bucket stats, object counts, and host resource utilization.
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-full-analytics-pipeline
 name: Full Analytics Pipeline
 description: 'Comprehensive analytics pipeline: HDFS → Spark ETL → MinIO data lake → Iceberg + Trino SQL + ClickHouse OLAP'

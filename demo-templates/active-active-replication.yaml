@@ -117,6 +117,7 @@ _template:
       context: Raw metrics including replication latency and queue depth.
   saved_by: ahmad.tantawy@min.io
   fa_ready: true
+  updated_at: "2026-04-13"
 id: active-active-replication
 name: Active-Active Replication
 description: Two MinIO instances with bidirectional replication, load-balanced by

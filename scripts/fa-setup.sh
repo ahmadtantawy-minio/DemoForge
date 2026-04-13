@@ -22,7 +22,6 @@ DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 FA_KEY=""
 HUB_URL="${DEFAULT_HUB_URL}"
 
-# Check for existing key
 if [[ -f "$PROJECT_ROOT/.env.local" ]]; then
     _EXISTING_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
     if [[ -n "$_EXISTING_KEY" ]]; then
@@ -171,6 +170,7 @@ _set_env() {
 
 _set_env "DEMOFORGE_FA_ID"           "${FA_ID}"
 _set_env "DEMOFORGE_API_KEY"         "${FA_KEY}"
+_set_env "DEMOFORGE_MODE"            "fa"
 
 echo -e "${GREEN}✓ Updated .env.local${NC}"
 

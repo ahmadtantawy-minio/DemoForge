@@ -33,6 +33,7 @@ _template:
   - step: Review replication metrics
     description: Check Prometheus for replication lag metrics to understand your RPO in practice
   fa_ready: true
+  updated_at: "2026-03-31"
 id: template-multi-cluster-replication
 name: Multi-cluster replication
 description: Two MinIO clusters (NVMe + HDD) with NGINX load balancers and bucket replication between them. Prometheus + Grafana for monitoring.
