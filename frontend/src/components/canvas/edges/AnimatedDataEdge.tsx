@@ -1,38 +1,10 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, useStoreApi, type EdgeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 import type { ComponentEdgeData, ConnectionType } from "../../../types";
 import { connectionColors, connectionLabels } from "../../../lib/connectionMeta";
 import { useDemoStore } from "../../../stores/demoStore";
 
-// Parse "M x y C cx1 cy1 cx2 cy2 x2 y2" into 4 control points
-function parseCubicBezier(path: string): [{x:number;y:number},{x:number;y:number},{x:number;y:number},{x:number;y:number}] | null {
-  const m = path.match(/M\s*([-\d.e+]+)[,\s]+([-\d.e+]+)\s+C\s*([-\d.e+]+)[,\s]+([-\d.e+]+)[,\s]+([-\d.e+]+)[,\s]+([-\d.e+]+)[,\s]+([-\d.e+]+)[,\s]+([-\d.e+]+)/);
-  if (!m) return null;
-  return [
-    { x: +m[1], y: +m[2] },
-    { x: +m[3], y: +m[4] },
-    { x: +m[5], y: +m[6] },
-    { x: +m[7], y: +m[8] },
-  ];
-}
-
-function bezierPointAt(pts: [{x:number;y:number},{x:number;y:number},{x:number;y:number},{x:number;y:number}], t: number) {
-  const [p0, p1, p2, p3] = pts;
-  const mt = 1 - t;
-  return {
-    x: mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x,
-    y: mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y,
-  };
-}
-
-function bezierAngleDeg(pts: [{x:number;y:number},{x:number;y:number},{x:number;y:number},{x:number;y:number}], t: number) {
-  const [p0, p1, p2, p3] = pts;
-  const mt = 1 - t;
-  const dx = 3*mt*mt*(p1.x-p0.x) + 6*mt*t*(p2.x-p1.x) + 3*t*t*(p3.x-p2.x);
-  const dy = 3*mt*mt*(p1.y-p0.y) + 6*mt*t*(p2.y-p1.y) + 3*t*t*(p3.y-p2.y);
-  return Math.atan2(dy, dx) * 180 / Math.PI;
-}
 
 export default function AnimatedDataEdge({
   id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
@@ -131,7 +103,6 @@ export default function AnimatedDataEdge({
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition,
   });
-  const bezierPts = useMemo(() => parseCubicBezier(edgePath), [edgePath]);
 
   return (
     <>
@@ -139,26 +110,24 @@ export default function AnimatedDataEdge({
       <defs>
         <marker
           id={markerId}
-          markerWidth="8"
-          markerHeight="8"
-          refX="8"
-          refY="4"
+          markerWidth="6"
+          markerHeight="6"
+          refX="5"
+          refY="3"
           orient="auto"
-          markerUnits="userSpaceOnUse"
         >
-          <path d="M0,0 L8,4 L0,8" fill="none" stroke={color} strokeWidth="1.5" />
+          <path d="M0,0 L6,3 L0,6 Z" fill={color} />
         </marker>
         {isBidirectional && (
           <marker
             id={markerStartId}
-            markerWidth="8"
-            markerHeight="8"
-            refX="0"
-            refY="4"
+            markerWidth="6"
+            markerHeight="6"
+            refX="1"
+            refY="3"
             orient="auto-start-reverse"
-            markerUnits="userSpaceOnUse"
           >
-            <path d="M8,0 L0,4 L8,8" fill="none" stroke={color} strokeWidth="1.5" />
+            <path d="M6,0 L0,3 L6,6 Z" fill={color} />
           </marker>
         )}
       </defs>
@@ -184,30 +153,6 @@ export default function AnimatedDataEdge({
           markerStart: isBidirectional ? `url(#${markerStartId})` : undefined,
         }}
       />
-      {/* Bidirectional directional indicators — positioned at 25% (forward) and 75% (backward)
-          along the bezier path, computed from control points so they render reliably */}
-      {isBidirectional && bezierPts && (() => {
-        const fwd = bezierPointAt(bezierPts, 0.08);
-        const fwdAngle = bezierAngleDeg(bezierPts, 0.08);
-        const bwd = bezierPointAt(bezierPts, 0.92);
-        const bwdAngle = bezierAngleDeg(bezierPts, 0.92) + 180;
-        return (
-          <>
-            <polygon
-              points="-5,-3.5 0,0 -5,3.5"
-              fill={color}
-              opacity={0.75}
-              transform={`translate(${fwd.x},${fwd.y}) rotate(${fwdAngle})`}
-            />
-            <polygon
-              points="-5,-3.5 0,0 -5,3.5"
-              fill={color}
-              opacity={0.75}
-              transform={`translate(${bwd.x},${bwd.y}) rotate(${bwdAngle})`}
-            />
-          </>
-        );
-      })()}
       {isDemoRunning && (status === "active" || isFailoverActive || isNginxFailoverActive) && (
         <>
           <circle r="3" fill={color} opacity={0.8}>

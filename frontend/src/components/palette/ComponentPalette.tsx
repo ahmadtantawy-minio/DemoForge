@@ -51,6 +51,19 @@ export default function ComponentPalette() {
     return acc;
   }, {});
 
+  const categoryOrder = ["storage"];
+  const sortedCategories = Object.keys(grouped).sort((a, b) => {
+    const ai = categoryOrder.indexOf(a);
+    const bi = categoryOrder.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  const categoryLabel = (cat: string) =>
+    cat.toLowerCase() === "storage" ? "MINIO" : cat;
+
   // Returns the missing license label for a component, or null if all met
   const getMissingLicense = (componentId: string): LicenseEntry | null => {
     for (const entry of licenses) {
@@ -139,10 +152,10 @@ export default function ComponentPalette() {
             <span className="font-medium text-foreground truncate flex-1">Annotation</span>
           </div>
         </div>}
-        {Object.entries(grouped).map(([category, items]) => (
+        {sortedCategories.map((category) => { const items = grouped[category]; return (
           <div key={category} className="mb-3">
             <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">
-              {category}
+              {categoryLabel(category)}
             </div>
             {items.map((c) => {
               const missingLicense = getMissingLicense(c.id);
@@ -186,7 +199,7 @@ export default function ComponentPalette() {
               </div>
             )}
           </div>
-        ))}
+        ); })}
       </div>
     </TooltipProvider>
   );

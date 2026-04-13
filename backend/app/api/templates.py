@@ -190,8 +190,8 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
     if fa_view:
         templates = [t for t in templates if t.get("validated")]
 
-    # In FA mode, additionally filter out templates with non-ready components
-    if os.getenv("DEMOFORGE_MODE") == "fa":
+    # In dev and FA modes, additionally filter out templates with non-ready components
+    if os.getenv("DEMOFORGE_MODE") in ("fa", "dev"):
         from ..engine.readiness import readiness
         if not readiness._components:
             readiness.load()
@@ -288,8 +288,8 @@ async def create_from_template(template_id: str):
     if not raw:
         raise HTTPException(404, "Template not found")
 
-    # FA-mode readiness check
-    if os.getenv("DEMOFORGE_MODE") == "fa":
+    # Readiness check for dev and FA modes
+    if os.getenv("DEMOFORGE_MODE") in ("fa", "dev"):
         from ..engine.readiness import readiness
         readiness.load()
         component_ids = [n.get("component") for n in raw.get("nodes", []) if n.get("component")]

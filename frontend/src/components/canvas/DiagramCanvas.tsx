@@ -138,8 +138,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         type: "cluster",
         position: c.position || { x: 0, y: 0 },
         width: c.width || 380,
-        height: c.height || 200,
-        style: { width: c.width || 380, height: c.height || 200 },
+        style: { width: c.width || 380 },
         data: {
           label: c.label || "MinIO Cluster",
           componentId: c.component || "minio",

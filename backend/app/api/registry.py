@@ -11,8 +11,8 @@ async def list_components():
     registry = get_registry()
     manifests = {m.id: m for m in registry.values()}.values()
 
-    # In FA mode, filter to only FA-ready components
-    if os.getenv("DEMOFORGE_MODE") == "fa":
+    # In dev and FA modes, filter to only released (FA-ready) components
+    if os.getenv("DEMOFORGE_MODE") in ("fa", "dev"):
         if not readiness._components:
             readiness.load()
         ready_ids = readiness.get_ready_component_ids()

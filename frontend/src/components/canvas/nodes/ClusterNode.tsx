@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Handle, Position, type NodeProps, useReactFlow } from "@xyflow/react";
+import { Handle, Position, type NodeProps, useUpdateNodeInternals } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
 import { stopInstance, startInstance, resetCluster, stopDrive, startDrive, startPoolDecommission, cancelPoolDecommission, getPoolDecommissionStatus } from "../../../api/client";
@@ -19,8 +19,7 @@ import LogViewer from "../../logs/LogViewer";
 
 export default function ClusterNode({ id, data }: NodeProps) {
   const nodeRef = useRef<HTMLDivElement>(null);
-  const lastReportedSize = useRef({ width: 0, height: 0 });
-  const { updateNode } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const nodeData = migrateClusterData(data);
   const pools = nodeData.serverPools || [];
   const { setSelectedNode, setSelectedClusterElement, selectedClusterElement, nodes, setNodes, setClipboard } = useDiagramStore();
@@ -67,33 +66,19 @@ export default function ClusterNode({ id, data }: NodeProps) {
     return () => window.removeEventListener("canvas:close-menus", handler);
   }, []);
 
+  // Refresh handle positions whenever the node resizes (instances, health, pool edits).
+  // We use ResizeObserver only — no RAF. rAF fires before ResizeObserver in the browser
+  // event loop, meaning an rAF-triggered updateNodeInternals would run before ReactFlow's
+  // own ResizeObserver has measured the node height, causing handles to be placed at wrong
+  // positions. ReactFlow registers its ResizeObserver first (on mount), so its callback
+  // fires before ours, ensuring dimensions are correct when we call updateNodeInternals.
   useEffect(() => {
     const el = nodeRef.current;
     if (!el) return;
-    const measure = () => {
-      // scrollWidth captures the full content width even when the container is constrained by
-      // React Flow's node width (w-full), so overflow (e.g. 6-node pools) is correctly detected.
-      const h = el.scrollHeight;
-      const w = Math.max(el.scrollWidth, 380);
-      // Guard: skip updateNode when size hasn't changed to prevent ResizeObserver feedback loop
-      // (updateNode → wrapper grows → w-full div expands → scrollWidth grows → repeat).
-      if (h > 0 && (w !== lastReportedSize.current.width || h !== lastReportedSize.current.height)) {
-        lastReportedSize.current = { width: w, height: h };
-        updateNode(id, { height: h, width: w });
-      }
-    };
-    const rafId = requestAnimationFrame(measure);
-    // Re-measure after async data (instances, clusterHealth) may have loaded
-    const timerId = setTimeout(measure, 400);
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => updateNodeInternals(id));
     observer.observe(el);
-    return () => {
-      cancelAnimationFrame(rafId);
-      clearTimeout(timerId);
-      observer.disconnect();
-    };
-  // Re-run when runtime data changes so sizing stays correct after health/instance updates
-  }, [id, updateNode, instances, clusterHealth]);
+    return () => observer.disconnect();
+  }, [id, updateNodeInternals, instances, clusterHealth]);
 
   const handleAddPool = useCallback(() => {
     if (pools.length === 0) return;
