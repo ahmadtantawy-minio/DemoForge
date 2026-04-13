@@ -11,18 +11,22 @@ components:
     fa_ready: false
     updated_at: '2026-04-03T03:37:00.948673+00:00'
   clickhouse:
-    fa_ready: true
+    fa_ready: false
+    updated_at: '2026-04-13T06:01:03.190074+00:00'
   trino:
     fa_ready: true
+    updated_at: '2026-04-13T06:01:22.807227+00:00'
   spark:
-    fa_ready: true
+    fa_ready: false
+    updated_at: '2026-04-13T06:01:30.281097+00:00'
   hdfs:
     fa_ready: true
   nessie:
     fa_ready: false
     updated_at: '2026-04-03T03:36:39.110812+00:00'
   iceberg-rest:
-    fa_ready: true
+    fa_ready: false
+    updated_at: '2026-04-13T06:01:07.720444+00:00'
   jupyterlab:
     fa_ready: false
     updated_at: '2026-04-03T03:37:30.589064+00:00'
@@ -36,7 +40,8 @@ components:
     fa_ready: false
     updated_at: '2026-04-03T03:37:27.290620+00:00'
   milvus:
-    fa_ready: true
+    fa_ready: false
+    updated_at: '2026-04-13T06:01:29.305243+00:00'
   qdrant:
     fa_ready: false
     updated_at: '2026-04-03T03:37:12.946601+00:00'
@@ -64,7 +69,8 @@ components:
   dremio:
     fa_ready: false
   metabase:
-    fa_ready: false
+    fa_ready: true
+    updated_at: '2026-04-13T06:01:39.716100+00:00'
   superset:
     fa_ready: true
   ml-trainer:

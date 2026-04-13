@@ -131,56 +131,14 @@ networks:
   dns_suffix: backend.demo.local
   driver: bridge
 nodes:
-- id: minio-1
-  component: minio
-  variant: single
-  position:
-    x: 150.845274995884
-    y: -66.82047525387334
-  config:
-    MINIO_ROOT_USER: minioadmin
-    MINIO_ROOT_PASSWORD: minioadmin
-    MINIO_EDITION: ce
-  networks:
-    frontend:
-      ip: null
-      aliases:
-      - minio-1
-    backend:
-      ip: null
-      aliases:
-      - minio-1
-  display_name: minio-1
-  labels: {}
-  group_id: null
-- id: minio-2
-  component: minio
-  variant: single
-  position:
-    x: 174.00670940336855
-    y: 219.45868993056152
-  config:
-    MINIO_ROOT_USER: minioadmin
-    MINIO_ROOT_PASSWORD: minioadmin
-  networks:
-    frontend:
-      ip: null
-      aliases:
-      - minio-2
-    backend:
-      ip: null
-      aliases:
-      - minio-2
-  display_name: minio-2
-  labels: {}
-  group_id: null
 - id: nginx-lb
   component: nginx
-  variant: load-balancer
+  variant: ''
   position:
     x: -286.83528466052303
     y: 62.67453752620307
-  config: {}
+  config:
+    mode: round-robin
   networks:
     frontend:
       ip: null
@@ -223,8 +181,8 @@ nodes:
   component: file-generator
   variant: steady
   position:
-    x: -599.7512341301231
-    y: 86.9797427196922
+    x: -616.8210878816761
+    y: 67.06491334288023
   config: {}
   networks: {}
   display_name: ''
@@ -234,66 +192,14 @@ nodes:
   component: file-generator
   variant: steady
   position:
-    x: -599.7512341301231
-    y: 86.9797427196922
+    x: -616.8210878816761
+    y: 67.06491334288023
   config: {}
   networks: {}
   display_name: ''
   labels: {}
   group_id: null
 edges:
-- id: e-lb-minio1
-  source: nginx-lb
-  target: minio-1
-  connection_type: load-balance
-  network: frontend
-  connection_config: {}
-  auto_configure: true
-  label: LB -> MinIO-1
-  protocol: ''
-  latency: ''
-  bandwidth: ''
-  source_handle: null
-  target_handle: null
-- id: e-lb-minio2
-  source: nginx-lb
-  target: minio-2
-  connection_type: load-balance
-  network: frontend
-  connection_config: {}
-  auto_configure: true
-  label: LB -> MinIO-2
-  protocol: ''
-  latency: ''
-  bandwidth: ''
-  source_handle: null
-  target_handle: null
-- id: e-minio1-prom
-  source: minio-1
-  target: prometheus
-  connection_type: metrics
-  network: backend
-  connection_config: {}
-  auto_configure: true
-  label: Metrics
-  protocol: ''
-  latency: ''
-  bandwidth: ''
-  source_handle: null
-  target_handle: null
-- id: e-minio2-prom
-  source: minio-2
-  target: prometheus
-  connection_type: metrics
-  network: backend
-  connection_config: {}
-  auto_configure: true
-  label: Metrics
-  protocol: ''
-  latency: ''
-  bandwidth: ''
-  source_handle: null
-  target_handle: null
 - id: e-prom-grafana
   source: prometheus
   target: grafana
@@ -307,19 +213,6 @@ edges:
   bandwidth: ''
   source_handle: null
   target_handle: null
-- id: e-minio-1-minio-2-site-replication-1774927402692
-  source: minio-1
-  target: minio-2
-  connection_type: site-replication
-  network: default
-  connection_config: {}
-  auto_configure: true
-  label: ''
-  protocol: ''
-  latency: ''
-  bandwidth: ''
-  source_handle: bottom-out
-  target_handle: top
 - id: xy-edge__file-generator-3-nginx-lb
   source: file-generator-3
   target: nginx-lb
@@ -335,11 +228,132 @@ edges:
   bandwidth: ''
   source_handle: null
   target_handle: null
+- id: xy-edge__nginx-lb-minio-cluster-4data-in
+  source: nginx-lb
+  target: minio-cluster-4
+  connection_type: nginx-backend
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: data-in
+- id: xy-edge__minio-cluster-4data-out-prometheus
+  source: minio-cluster-4
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: data-out
+  target_handle: null
+- id: xy-edge__nginx-lb-minio-cluster-5data-in
+  source: nginx-lb
+  target: minio-cluster-5
+  connection_type: nginx-backend
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: data-in
+- id: xy-edge__minio-cluster-5data-out-prometheus
+  source: minio-cluster-5
+  target: prometheus
+  connection_type: metrics
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: data-out
+  target_handle: null
+- id: e-minio-cluster-4-minio-cluster-5-cluster-site-replication-1776061908402
+  source: minio-cluster-4
+  target: minio-cluster-5
+  connection_type: cluster-site-replication
+  network: default
+  connection_config: {}
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: cluster-out-bottom
+  target_handle: cluster-in-top
 groups: []
 sticky_notes: []
 annotations: []
 schematics: []
-clusters: []
+clusters:
+- id: minio-cluster-4
+  component: minio
+  label: Site 1
+  position:
+    x: 43.06463278985041
+    y: -227.05975784162098
+  node_count: 4
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 380.0
+  height: 200.0
+  mcp_enabled: true
+  aistor_tables_enabled: false
+  ec_parity: 4
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 8
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 4
+    disk_size_tb: 4
+    disk_type: nvme
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
+- id: minio-cluster-5
+  component: minio
+  label: Site 2
+  position:
+    x: 45.594338703924166
+    y: 232.73926716873316
+  node_count: 4
+  drives_per_node: 1
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config: {}
+  width: 380.0
+  height: 200.0
+  mcp_enabled: true
+  aistor_tables_enabled: false
+  ec_parity: 4
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 8
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 4
+    disk_size_tb: 4
+    disk_type: nvme
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
 resources:
   default_memory: ''
   default_cpu: 0.0
