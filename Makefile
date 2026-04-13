@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-seed hub-status hub-push hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-seed hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -154,8 +154,11 @@ hub-seed:         ## Re-seed templates to hub after local changes
 hub-status:       ## Show local vs remote template counts, sync config, registry health
 	@scripts/hub-status.sh
 
-hub-push:         ## [Dev] Build all custom images and push to GCR
+hub-push:         ## [Dev] Build and push core images (frontend, backend, data-generator) to GCR
 	@scripts/hub-push.sh
+
+hub-push-all:     ## [Dev] Build and push ALL custom images to GCR
+	@scripts/hub-push.sh --all
 
 hub-push-%:       ## [Dev] Build and push one image, e.g.: make hub-push-inference-sim
 	@scripts/hub-push.sh $*

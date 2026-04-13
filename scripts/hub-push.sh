@@ -26,16 +26,39 @@ done < <(find "$COMPONENTS_DIR" -name "Dockerfile" -type f | sort)
 
 [[ ${#COMPONENTS[@]} -eq 0 ]] && { echo "No Dockerfiles found."; exit 0; }
 
+# Parse flags
+PUSH_ALL=false
+for arg in "$@"; do
+  [[ "$arg" == "--all" ]] && PUSH_ALL=true
+done
+
+CORE_IMAGES=("demoforge-frontend" "demoforge-backend" "data-generator")
+
 echo -e "\n${CYAN}Found ${#COMPONENTS[@]} images to build:${NC}"
 for i in "${!COMPONENTS[@]}"; do echo "  ${COMPONENTS[$i]} ← ${DOCKERFILES[$i]#$PROJECT_ROOT/}"; done
 echo ""
 
+if [[ "$PUSH_ALL" == "false" ]]; then
+    echo -e "${YELLOW}Mode: core only (frontend, backend, data-generator). Use --all to push all images.${NC}"
+fi
+
 FILTER="${1:-}"
+# If the first positional arg is --all, don't treat it as a component filter
+[[ "$FILTER" == "--all" ]] && FILTER=""
+
 BUILT=0; FAILED=0
 
 TOTAL=0
 for i in "${!COMPONENTS[@]}"; do
-    [[ -n "$FILTER" && "${COMPONENTS[$i]}" != "$FILTER" ]] && continue
+    comp="${COMPONENTS[$i]}"
+    if [[ "$PUSH_ALL" == "false" ]]; then
+        is_core=false
+        for core in "${CORE_IMAGES[@]}"; do
+            [[ "$comp" == "$core" ]] && is_core=true && break
+        done
+        [[ "$is_core" == "false" ]] && continue
+    fi
+    [[ -n "$FILTER" && "$comp" != "$FILTER" ]] && continue
     ((TOTAL++))
 done
 CURRENT=0
@@ -44,7 +67,19 @@ GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "")
 
 for i in "${!COMPONENTS[@]}"; do
     comp="${COMPONENTS[$i]}"; dockerfile="${DOCKERFILES[$i]}"; context=$(dirname "$dockerfile")
+
+    # Skip non-core images unless --all is passed
+    if [[ "$PUSH_ALL" == "false" ]]; then
+        is_core=false
+        for core in "${CORE_IMAGES[@]}"; do
+            [[ "$comp" == "$core" ]] && is_core=true && break
+        done
+        [[ "$is_core" == "false" ]] && continue
+    fi
+
+    # Optional single-image filter (existing behaviour)
     [[ -n "$FILTER" && "$comp" != "$FILTER" ]] && continue
+
     ((CURRENT++))
 
     GCR_IMAGE="${GCR_HOST}/${REGISTRY_PREFIX}/${comp}:latest"
