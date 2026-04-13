@@ -185,7 +185,7 @@ def _save_template_raw(template_id: str, raw: dict, target_dir: str | None = Non
         yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_ids: set | None = None) -> dict:
+def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
     """Build a template summary from raw YAML data."""
     meta = raw.get("_template", {})
     template_id = fname.replace(".yaml", "")
@@ -226,7 +226,7 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_
         "customized": override_info is not None or meta.get("customized", False),
         "origin": meta.get("origin", source),
         "saved_by": meta.get("saved_by", ""),
-        "validated": template_id in (validated_ids or set()),
+        "validated": bool(meta.get("fa_ready", False)),
         "updated_at": changelog.get(template_id, [{}])[0].get("date", "") if source in ("builtin", "synced") else "",
         "changelog": changelog.get(template_id, []) if source in ("builtin", "synced") else [],
     }
@@ -234,11 +234,10 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_
 
 @router.get("/api/templates")
 async def list_templates(mine: bool = False, fa_view: bool = False):
-    validated_ids = _load_validated_safe()
     templates = []
     source_counts = {"builtin": 0, "synced": 0, "user": 0}
     for template_id, source, raw in _discover_all_templates():
-        summary = _template_summary(f"{template_id}.yaml", raw, source=source, validated_ids=validated_ids)
+        summary = _template_summary(f"{template_id}.yaml", raw, source=source)
         templates.append(summary)
         source_counts[source] = source_counts.get(source, 0) + 1
 
@@ -252,29 +251,13 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
     if fa_view:
         templates = [t for t in templates if t.get("validated")]
 
-    # In FA mode only, filter out templates with non-ready components.
-    # Dev mode shows all templates regardless of readiness — that's the point of dev mode.
-    # User templates (source="user") are always shown — the user created them intentionally.
+    # In FA mode: hide built-in (dev-only) templates and hide templates not marked fa_ready.
+    # User templates are always shown — the FA created them intentionally.
     if os.getenv("DEMOFORGE_MODE") == "fa":
-        from ..engine.readiness import readiness
-        if not readiness._components:
-            readiness.load()
-        fa_filtered = []
-        for t in templates:
-            if t.get("source") == "user":
-                fa_filtered.append(t)
-                continue
-            # Re-load raw template to extract component IDs
-            tid = t["id"]
-            raw_t, _, _ = _load_template_raw(tid)
-            if raw_t:
-                comp_ids = [n.get("component") for n in raw_t.get("nodes", []) if n.get("component")]
-                comp_ids += [c.get("component") for c in raw_t.get("clusters", []) if c.get("component")]
-                if readiness.is_template_fa_ready(comp_ids):
-                    fa_filtered.append(t)
-            else:
-                fa_filtered.append(t)
-        templates = fa_filtered
+        templates = [
+            t for t in templates
+            if t.get("source") == "user" or (t.get("source") != "builtin" and t.get("validated"))
+        ]
 
     # Apply custom display order from ORDER.yaml
     order = _load_order()
@@ -313,7 +296,7 @@ async def get_template(template_id: str):
     if not raw:
         raise HTTPException(404, "Template not found")
     fname = f"{template_id}.yaml"
-    summary = _template_summary(fname, raw, source=source, validated_ids=_load_validated_safe())
+    summary = _template_summary(fname, raw, source=source)
     # Include the full demo definition fields too
     summary["nodes"] = raw.get("nodes", [])
     summary["edges"] = raw.get("edges", [])
@@ -365,7 +348,7 @@ async def update_template(template_id: str, req: dict):
     _save_template_raw(template_id, raw)
 
     fname = f"{template_id}.yaml"
-    return _template_summary(fname, raw, source="user", validated_ids=_load_validated_safe())
+    return _template_summary(fname, raw, source="user")
 
 
 @router.post("/api/demos/from-template/{template_id}")
@@ -374,8 +357,8 @@ async def create_from_template(template_id: str):
     if not raw:
         raise HTTPException(404, "Template not found")
 
-    # Readiness check for dev and FA modes
-    if os.getenv("DEMOFORGE_MODE") in ("fa", "dev"):
+    # Readiness check for FA mode only — dev mode can create demos from any template
+    if os.getenv("DEMOFORGE_MODE") == "fa":
         from ..engine.readiness import readiness
         readiness.load()
         component_ids = [n.get("component") for n in raw.get("nodes", []) if n.get("component")]
@@ -696,17 +679,12 @@ async def set_template_validated(template_id: str, req: dict = Body(default={}))
         raise HTTPException(404, "Template not found")
 
     validated = bool(req.get("validated", True))
-    try:
-        ids = _load_validated()
-        if validated:
-            ids.add(template_id)
-        else:
-            ids.discard(template_id)
-        _save_validated(ids)
-    except RuntimeError as e:
-        raise HTTPException(503, str(e))
+    meta = raw.get("_template", {})
+    meta["fa_ready"] = validated
+    raw["_template"] = meta
+    _save_template_raw(template_id, raw)
 
-    logger.info(f"Template '{template_id}' validated={validated} by {get_fa_id()}")
+    logger.info(f"Template '{template_id}' fa_ready={validated} by {get_fa_id()}")
     return {"template_id": template_id, "validated": validated}
 
 

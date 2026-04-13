@@ -72,6 +72,7 @@ _template:
     - label: Verify IAM sync
       command: mc admin user list minio-site-b/
       context: Shows IAM users synced from Site A — demonstrates site replication covers more than just objects.
+  fa_ready: true
 id: template-multi-site-replication
 name: Multi-Site Replication
 description: Two MinIO clusters with bucket replication and a file generator. Data written to Site A automatically replicates to Site B.

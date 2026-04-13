@@ -27,6 +27,7 @@ _template:
     description: The DAG reads data from MinIO, trains models, logs to MLflow — all automated.
   - step: Check results
     description: Open MLflow — trained model registered. Open MinIO — artifacts stored.
+  fa_ready: true
 id: template-automated-ml-pipeline
 name: Automated ML Pipeline
 description: 'Airflow-orchestrated ML pipeline: data → features → training → MLflow. All data in MinIO.'

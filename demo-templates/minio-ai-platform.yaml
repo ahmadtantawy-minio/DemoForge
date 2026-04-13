@@ -34,6 +34,7 @@ _template:
     description: Chat UI → ask about your documents → grounded answers with citations.
   - step: View everything in MinIO
     description: 'Open MinIO Console → every bucket tells a story: raw-data, labeled-output, mlflow-artifacts, milvus-data, documents, rag-audit-log.'
+  fa_ready: true
 id: template-minio-ai-platform
 name: MinIO AI Platform
 description: 'Complete AI lifecycle on MinIO: label → train → track → embed → query → audit'

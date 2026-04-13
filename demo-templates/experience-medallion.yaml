@@ -34,6 +34,7 @@ _template:
       BY DATE(created_at) — business-ready aggregates.'
   - step: Visualise in Metabase
     description: Open Metabase → connect to Trino → query iceberg.gold.daily_revenue. Build a revenue trend chart from the Gold layer.
+  fa_ready: true
 id: experience-medallion
 name: Medallion Architecture
 description: Walk through Bronze → Silver → Gold data transformation on MinIO + Iceberg + Trino.

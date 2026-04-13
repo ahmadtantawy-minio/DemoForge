@@ -1055,15 +1055,15 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                   </div>
                 </div>
 
-                {/* Changelog — dev mode only, builtin/synced templates */}
-                {faMode === "dev" && selectedTemplate.source !== "user" && (selectedTemplate as any).updated_at && (
+                {/* Last updated — visible to all modes for non-user templates */}
+                {selectedTemplate.source !== "user" && (selectedTemplate as any).updated_at && (
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                         <Clock className="w-3 h-3" />
                         Last updated
                       </label>
-                      {(selectedTemplate as any).changelog?.length > 1 && (
+                      {faMode === "dev" && (selectedTemplate as any).changelog?.length > 1 && (
                         <button
                           type="button"
                           className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
@@ -1079,12 +1079,14 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                         <span className="text-muted-foreground shrink-0 tabular-nums">
                           {(selectedTemplate as any).updated_at}
                         </span>
-                        <span className="text-foreground">
-                          {(selectedTemplate as any).changelog?.[0]?.summary}
-                        </span>
+                        {faMode === "dev" && (
+                          <span className="text-foreground">
+                            {(selectedTemplate as any).changelog?.[0]?.summary}
+                          </span>
+                        )}
                       </div>
-                      {/* Older entries — collapsible */}
-                      {showChangelog && (selectedTemplate as any).changelog?.slice(1).map((entry: any, i: number) => (
+                      {/* Older entries — dev mode only, collapsible */}
+                      {faMode === "dev" && showChangelog && (selectedTemplate as any).changelog?.slice(1).map((entry: any, i: number) => (
                         <div key={i} className="flex items-start gap-2 text-muted-foreground border-t border-border/50 pt-1.5">
                           <span className="shrink-0 tabular-nums">{entry.date}</span>
                           <span>{entry.summary}</span>

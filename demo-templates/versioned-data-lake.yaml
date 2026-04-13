@@ -33,6 +33,7 @@ _template:
     description: 'In Dremio: USE REFERENCE dev IN nessie; INSERT INTO nessie.dev.events ... — changes are isolated to the dev branch, main is unaffected.'
   - step: Merge and visualize
     description: Open Metabase → connect to Dremio → build dashboards on the merged production data.
+  fa_ready: true
 id: template-versioned-data-lake
 name: Versioned Data Lake
 description: 'Git-like data versioning: Data Generator → MinIO → Nessie versioned catalog → Dremio → Metabase'

@@ -41,6 +41,7 @@ _template:
     description: Open MinIO Console for the G3.5 instance. See real KV cache objects
       appearing.
   external_dependencies: []
+  fa_ready: true
 id: experience-stx-inference
 name: 'NVIDIA STX: The G3.5 Tier'
 description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO

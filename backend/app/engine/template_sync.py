@@ -13,7 +13,9 @@ Environment variables:
 import os
 import json
 import logging
+import subprocess
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 
@@ -131,4 +133,35 @@ def publish_single_builtin(template_id: str) -> dict:
 
 
 def publish_builtin_templates() -> dict:
-    return {"status": "skipped", "message": "Direct publish only available in dev mode with hub access."}
+    """Run hub-seed.sh to rsync demo-templates/ to GCS. Dev mode only."""
+    project_root = Path(__file__).parent.parent.parent.parent  # backend/app/engine -> project root
+    script = project_root / "scripts" / "hub-seed.sh"
+    templates_dir = project_root / "demo-templates"
+
+    if not script.exists():
+        return {"status": "error", "message": f"hub-seed.sh not found at {script}"}
+
+    # Count actual template files (exclude non-template YAMLs like CHANGELOG, ORDER)
+    _NON_TEMPLATES = {"CHANGELOG.yaml", "ORDER.yaml"}
+    uploaded = sum(
+        1 for f in templates_dir.glob("*.yaml") if f.name not in _NON_TEMPLATES
+    )
+
+    try:
+        result = subprocess.run(
+            ["bash", str(script)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(project_root),
+        )
+        if result.returncode != 0:
+            err_msg = (result.stderr or result.stdout or "hub-seed.sh failed").strip()
+            logger.error(f"hub-seed.sh failed: {err_msg}")
+            return {"status": "error", "message": err_msg}
+        logger.info(f"hub-seed.sh succeeded: {result.stdout.strip()}")
+        return {"status": "ok", "uploaded": uploaded, "errors": 0}
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Push timed out after 120s"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

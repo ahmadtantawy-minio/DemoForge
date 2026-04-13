@@ -119,6 +119,7 @@ _template:
       command: mc du aistor/
       context: Total storage consumed — useful for showing the compact footprint of
         the 4-component stack.
+  fa_ready: true
 id: template-bi-dashboard-aistor-tables
 name: BI Dashboard — AIStor Tables
 description: 'Simplest BI stack: MinIO AIStor (native Iceberg) → Trino → Metabase

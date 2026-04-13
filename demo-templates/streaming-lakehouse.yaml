@@ -32,6 +32,7 @@ _template:
     description: Open Trino terminal → SELECT count(*) FROM minio.streaming_data.clickstream; to query the streamed objects directly.
   - step: Build Metabase dashboard
     description: Open Metabase → New Question → Trino database → select the clickstream table and visualize event trends in real time.
+  fa_ready: true
 id: template-streaming-lakehouse
 name: Real-time Streaming Lakehouse
 description: 'Real-time streaming pipeline: Data Generator → Redpanda → Kafka Connect S3 Sink → MinIO → Trino → Metabase'

@@ -33,6 +33,7 @@ _template:
     description: Open Trino terminal → SELECT * FROM iceberg.raw.events LIMIT 100; — Trino reads the same Iceberg tables from MinIO.
   - step: Build Metabase dashboard
     description: Open Metabase → connect to Dremio or Trino → build dashboards comparing query results from both engines on the same underlying data.
+  fa_ready: true
 id: template-dremio-lakehouse
 name: Dremio Lakehouse
 description: 'Dremio + MinIO lakehouse: Data Generator → MinIO → Iceberg REST → Dremio + Trino → Metabase'

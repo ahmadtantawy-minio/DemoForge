@@ -28,6 +28,7 @@ _template:
     description: Ask questions in the RAG chat UI — Milvus handles the vector search, backed by MinIO.
   - step: Inspect storage
     description: Open MinIO Console → browse the milvus-data bucket → see segment files, index files, and WAL logs.
+  fa_ready: true
 id: template-enterprise-vector-search
 name: Enterprise Vector Search (Milvus)
 description: Milvus vector database with MinIO as primary storage backend

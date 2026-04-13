@@ -57,6 +57,10 @@
 
 ## Template Gallery UX
 
+- [ ] **Enhancement: Archive templates in dev mode** — Dev mode only. Archived templates are hidden from the main gallery view unless the user explicitly navigates to an "Archived" section/tab. Archived templates remain on disk but are excluded from the default list. Useful for keeping the gallery clean without deleting templates. Archived state stored as a flag in the template YAML (e.g. `_template.archived: true`). FA mode never sees archived templates (they are effectively invisible outside dev mode).
+
+
+
 - [x] **Enhancement: Push to Hub button always visible in dev mode** — Button added to the source/sync status banner, always visible in dev mode regardless of sync configuration. Calls existing POST /api/templates/push-all-builtin.
 
 - [x] **Enhancement: Sync from Hub button in FA mode** — "Sync from Hub" button added to the source/sync status banner, always visible in FA/standard mode regardless of sync configuration. Calls existing POST /api/templates/sync.

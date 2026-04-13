@@ -32,6 +32,7 @@ _template:
     description: Stop both NVMe nodes to simulate a site failure and verify data is fully accessible from the HDD DR cluster
   - step: Review replication metrics
     description: Check Prometheus for replication lag metrics to understand your RPO in practice
+  fa_ready: true
 id: template-multi-cluster-replication
 name: Multi-cluster replication
 description: Two MinIO clusters (NVMe + HDD) with NGINX load balancers and bucket replication between them. Prometheus + Grafana for monitoring.

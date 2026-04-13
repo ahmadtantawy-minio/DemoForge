@@ -116,6 +116,7 @@ _template:
       command: mc admin prometheus metrics minio-1/
       context: Raw metrics including replication latency and queue depth.
   saved_by: ahmad.tantawy@min.io
+  fa_ready: true
 id: active-active-replication
 name: Active-Active Replication
 description: Two MinIO instances with bidirectional replication, load-balanced by

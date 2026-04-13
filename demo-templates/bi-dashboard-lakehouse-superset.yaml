@@ -84,6 +84,7 @@ _template:
     - label: View storage usage
       command: mc du minio/
       context: Shows total storage consumed across all buckets in the lakehouse.
+  fa_ready: true
 id: template-bi-dashboard-lakehouse-superset
 name: BI Dashboard — Lakehouse (Superset)
 description: 'Full BI stack: MinIO → Iceberg → Trino → Apache Superset dashboards'

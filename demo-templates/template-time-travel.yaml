@@ -31,6 +31,7 @@ _template:
     description: Use CALL iceberg.system.rollback_to_snapshot('audit', 'orders', <snapshot_id>) to restore the table to any prior state.
   - step: Monitor with Grafana
     description: Open Grafana to see MinIO storage growth as new snapshots accumulate, and observe that old snapshots remain accessible.
+  fa_ready: true
 id: template-time-travel
 name: Time Travel — Iceberg Snapshots
 description: Query historical Iceberg table versions, audit data changes, and roll back to any snapshot — all stored on MinIO.

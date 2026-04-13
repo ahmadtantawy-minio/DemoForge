@@ -31,6 +31,7 @@ _template:
     description: Open MinIO Console for any site. You will see buckets from all other sites with replicated objects, demonstrating full N-way consistency.
   - step: Test resync
     description: Right-click a Site Replication edge and select 'Resync All Sites' to force a full resync between two sites.
+  fa_ready: true
 id: template-multi-site-replication-3way
 name: Multi-Site Replication (3-Way)
 description: Three MinIO sites with bidirectional replication. Each site has its own data generator pushing to a dedicated bucket. All data replicates across all sites automatically.

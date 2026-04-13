@@ -42,6 +42,7 @@ _template:
     description: Open Grafana to see MinIO throughput, ClickHouse queries, and Spark metrics in real-time dashboards.
   - step: Enable Cockpit
     description: Toggle Cockpit to see live bucket stats, object counts, and host resource utilization.
+  fa_ready: true
 id: template-full-analytics-pipeline
 name: Full Analytics Pipeline
 description: 'Comprehensive analytics pipeline: HDFS → Spark ETL → MinIO data lake → Iceberg + Trino SQL + ClickHouse OLAP'

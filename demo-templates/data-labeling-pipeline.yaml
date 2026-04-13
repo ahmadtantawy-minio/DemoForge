@@ -28,6 +28,7 @@ _template:
     description: Export labeled data back to the output bucket in MinIO.
   - step: Verify in MinIO
     description: Open MinIO Console — see raw data in source bucket, annotations in output bucket.
+  fa_ready: true
 id: template-data-labeling-pipeline
 name: AI Data Labeling Pipeline
 description: Generate → Label in Label Studio → Export to MinIO → all data stays on your infrastructure

@@ -44,6 +44,7 @@ _template:
     description: Open Metabase → create questions connecting to both Dremio (batch orders) and Trino (streaming clicks) → combine into a single analytics dashboard.
   - step: Monitor with Prometheus
     description: Open Prometheus UI → query minio_bucket_usage_object_total to see object counts across both storage buckets in real time.
+  fa_ready: true
 id: template-complete-analytics
 name: Complete Analytics Platform
 description: 'Full stack: batch + streaming ingestion → MinIO → Nessie versioned catalog → Dremio + Trino → Metabase + Prometheus monitoring'

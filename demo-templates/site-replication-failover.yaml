@@ -136,6 +136,7 @@ _template:
       command: mc diff minio-site-a/failover-test minio-site-b/failover-test
       context: Confirms both sites have identical objects after resync completes —
         the definitive proof of zero data loss.
+  fa_ready: true
 id: template-site-replication-failover
 name: Site Replication with Failover
 description: Active-passive failover across two MinIO sites with automatic switchover

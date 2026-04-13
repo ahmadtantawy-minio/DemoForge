@@ -329,12 +329,15 @@ async def _check_template_sync() -> dict:
 
 
 def _parse_semver(v: str) -> tuple:
-    """Parse vX.Y.Z into (X, Y, Z) for ordering. Non-numeric parts fall back to (0,0,0)."""
-    parts = v.lstrip("v").split(".")
-    try:
-        return tuple(int(p) for p in parts[:3])
-    except (ValueError, IndexError):
-        return (0, 0, 0)
+    """Parse vX.Y.Z (or vX.Y.Z-N-gHASH from git describe) into (X, Y, Z, N) for ordering.
+    A version with commits ahead of a tag (e.g. v0.0.4-2-g943f8cb) is newer than the tag itself."""
+    import re
+    m = re.match(r'^v?(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g[0-9a-f]+)?', v)
+    if m:
+        major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        commits_ahead = int(m.group(4)) if m.group(4) else 0
+        return (major, minor, patch, commits_ahead)
+    return (0, 0, 0, 0)
 
 
 def _read_local_version() -> str:

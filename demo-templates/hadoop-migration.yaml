@@ -30,6 +30,7 @@ _template:
     description: Open MinIO Console to see the migrated Parquet data in the warehouse bucket.
   - step: Monitor the migration
     description: Open Grafana → MinIO Dashboard to see PUT operations spike during the migration.
+  fa_ready: true
 id: template-hadoop-migration
 name: Hadoop to MinIO Migration
 description: Demonstrates migrating data from legacy HDFS to MinIO using Spark's S3A connector

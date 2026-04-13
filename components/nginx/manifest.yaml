@@ -1,6 +1,6 @@
 id: nginx
 name: NGINX
-category: infra
+category: infrastructure
 icon: nginx
 version: "latest"
 image: nginx:latest

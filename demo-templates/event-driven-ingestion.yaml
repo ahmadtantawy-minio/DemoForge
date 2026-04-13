@@ -41,6 +41,7 @@ _template:
     - step: Demo rate limiting
       description: Fire a burst at Kong (200 requests). Show the mix of 200s and 429s — Solace buffers the overflow and retries.
 
+  fa_ready: true
 name: event-driven-ingestion
 description: >
   Event-Driven Data Ingestion Pipeline — Event Producer → Solace PubSub+ → Kong Gateway → MinIO
