@@ -765,14 +765,15 @@ async def trigger_sync():
     from ..engine.template_sync import sync_templates
     from ..telemetry import emit_event
     result = sync_templates()
-    if result.get("status") == "ok":
-        asyncio.create_task(emit_event("template_synced", {
-            "method": result.get("method", "s3"),
-            "downloaded": result.get("downloaded", 0),
-            "unchanged": result.get("unchanged", 0),
-            "deleted": result.get("deleted", 0),
-            "errors": result.get("errors", 0),
-        }))
+    if result.get("status") == "error":
+        raise HTTPException(503, result.get("message", "Sync failed"))
+    asyncio.create_task(emit_event("template_synced", {
+        "method": result.get("method", "hub-api"),
+        "downloaded": result.get("downloaded", 0),
+        "unchanged": result.get("unchanged", 0),
+        "deleted": result.get("deleted", 0),
+        "errors": result.get("errors", 0),
+    }))
     return result
 
 
