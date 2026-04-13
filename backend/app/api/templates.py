@@ -37,6 +37,78 @@ else:
     TEMPLATE_SOURCES = _ALL_SOURCES
 
 
+# ── Changelog ──────────────────────────────────────────────────────────────
+_changelog_cache: dict[str, list] | None = None
+
+
+def _load_changelog() -> dict[str, list]:
+    """Load CHANGELOG.yaml from the builtin templates dir. Returns dict keyed by template_id.
+    Entries are ordered newest-first (as written in the file).
+    """
+    global _changelog_cache
+    if _changelog_cache is not None:
+        return _changelog_cache
+    path = os.path.join(BUILTIN_TEMPLATES_DIR, "CHANGELOG.yaml")
+    if not os.path.exists(path):
+        _changelog_cache = {}
+        return _changelog_cache
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        entries = data.get("entries", [])
+        grouped: dict[str, list] = {}
+        for entry in entries:
+            tid = entry.get("template_id", "")
+            if tid:
+                grouped.setdefault(tid, []).append({
+                    "date": entry.get("date", ""),
+                    "summary": entry.get("summary", ""),
+                    "changed_by": entry.get("changed_by", ""),
+                })
+        _changelog_cache = grouped
+    except Exception as e:
+        logger.warning("Failed to load CHANGELOG.yaml: %s", e)
+        _changelog_cache = {}
+    return _changelog_cache
+
+
+# ── Display Order ───────────────────────────────────────────────────────────
+_order_cache: list[str] | None = None
+ORDER_FILE = os.path.join(BUILTIN_TEMPLATES_DIR, "ORDER.yaml")
+
+
+def _load_order() -> list[str]:
+    """Load ORDER.yaml. Returns list of template IDs in preferred display order."""
+    global _order_cache
+    if _order_cache is not None:
+        return _order_cache
+    if not os.path.exists(ORDER_FILE):
+        _order_cache = []
+        return _order_cache
+    try:
+        with open(ORDER_FILE) as f:
+            data = yaml.safe_load(f) or {}
+        _order_cache = data.get("order", [])
+    except Exception as e:
+        logger.warning("Failed to load ORDER.yaml: %s", e)
+        _order_cache = []
+    return _order_cache
+
+
+def _save_order(order: list[str]):
+    """Persist a new order list to ORDER.yaml."""
+    global _order_cache
+    data = {"order": order}
+    # Preserve the header comment by writing manually
+    with open(ORDER_FILE, "w") as f:
+        f.write("# Template display order\n")
+        f.write("# Templates are sorted by this list within each tier.\n")
+        f.write("# Templates not listed appear at the end alphabetically.\n")
+        f.write("# Edit in dev mode via the gallery UI, or update this file directly.\n\n")
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    _order_cache = order
+
+
 def _load_validated() -> set[str]:
     """Load validated template IDs. Templates are validated hub-side; FA sees all as available."""
     return set()
@@ -77,7 +149,7 @@ def _discover_all_templates() -> list[tuple[str, str, dict]]:
                 path = os.path.join(source_dir, fname)
                 with open(path) as f:
                     raw = yaml.safe_load(f)
-                if raw:
+                if raw and ("nodes" in raw or "clusters" in raw):
                     seen_ids.add(template_id)
                     results.append((template_id, source_name, raw))
             except Exception as e:
@@ -117,6 +189,7 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_
     """Build a template summary from raw YAML data."""
     meta = raw.get("_template", {})
     template_id = fname.replace(".yaml", "")
+    changelog = _load_changelog()
 
     # Count containers: nodes + cluster node counts
     node_count = len(raw.get("nodes", []))
@@ -154,6 +227,8 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin", validated_
         "origin": meta.get("origin", source),
         "saved_by": meta.get("saved_by", ""),
         "validated": template_id in (validated_ids or set()),
+        "updated_at": changelog.get(template_id, [{}])[0].get("date", "") if source in ("builtin", "synced") else "",
+        "changelog": changelog.get(template_id, []) if source in ("builtin", "synced") else [],
     }
 
 
@@ -177,13 +252,17 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
     if fa_view:
         templates = [t for t in templates if t.get("validated")]
 
-    # In dev and FA modes, additionally filter out templates with non-ready components
+    # In dev and FA modes, filter out templates with non-ready components.
+    # User templates (source="user") are always shown — the user created them intentionally.
     if os.getenv("DEMOFORGE_MODE") in ("fa", "dev"):
         from ..engine.readiness import readiness
         if not readiness._components:
             readiness.load()
         fa_filtered = []
         for t in templates:
+            if t.get("source") == "user":
+                fa_filtered.append(t)
+                continue
             # Re-load raw template to extract component IDs
             tid = t["id"]
             raw_t, _, _ = _load_template_raw(tid)
@@ -196,6 +275,12 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
                 fa_filtered.append(t)
         templates = fa_filtered
 
+    # Apply custom display order from ORDER.yaml
+    order = _load_order()
+    if order:
+        order_index = {tid: i for i, tid in enumerate(order)}
+        templates.sort(key=lambda t: order_index.get(t["id"], len(order)))
+
     # Get sync status for frontend indicator
     from ..engine.template_sync import get_sync_status
     sync_info = get_sync_status()
@@ -206,6 +291,19 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
         "mode": TEMPLATES_MODE,
         "sync": sync_info,
     }
+
+
+@router.put("/api/templates/order")
+async def set_template_order(body: dict = Body(...)):
+    """Persist a new template display order. Dev mode only."""
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    if mode != "dev":
+        raise HTTPException(403, "Order editing is only available in dev mode.")
+    order = body.get("order", [])
+    if not isinstance(order, list):
+        raise HTTPException(400, "order must be a list of template IDs")
+    _save_order(order)
+    return {"ok": True, "count": len(order)}
 
 
 @router.get("/api/templates/{template_id}")
@@ -382,6 +480,7 @@ async def save_as_template(req: SaveAsTemplateRequest):
         "saved_from_demo": req.demo_id,
         "saved_at": datetime.utcnow().isoformat() + "Z",
         "saved_by": get_fa_id(),
+        "customized": True,
     }
 
     # 5. Build template YAML
@@ -659,6 +758,13 @@ async def promote_template(template_id: str):
     # Remove the user-templates shadow and override manifest entry
     os.remove(user_path)
     remove_override(template_id)
+
+    # Remove synced shadow so the newly promoted builtin takes priority
+    # (synced > builtin in discovery order, so a stale synced copy would hide the promotion)
+    synced_path = os.path.join(SYNCED_TEMPLATES_DIR, f"{template_id}.yaml")
+    if os.path.isfile(synced_path):
+        os.remove(synced_path)
+        logger.info("Removed stale synced shadow for promoted template '%s'", template_id)
 
     logger.info(f"Template '{template_id}' promoted to source by {get_fa_id()}")
 

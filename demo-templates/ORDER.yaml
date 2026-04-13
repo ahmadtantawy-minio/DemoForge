@@ -1,0 +1,37 @@
+# Template display order
+# Templates are sorted by this list within each tier.
+# Templates not listed appear at the end alphabetically.
+# Edit in dev mode via the gallery UI, or update this file directly.
+
+order:
+  # Essentials
+  - active-active-replication
+  - site-replication
+  - site-replication-failover
+  - multi-site-replication
+  - multi-site-replication-3way
+  - bi-dashboard-aistor-tables
+  - bi-dashboard-lakehouse
+  - bi-dashboard-lakehouse-superset
+  - template-smart-tiering
+  - template-time-travel
+  - realtime-analytics
+  - rag-pipeline
+  - ml-experiment-lab
+  # Advanced
+  - multi-cluster-replication
+  - event-driven-ingestion
+  - streaming-lakehouse
+  - dremio-lakehouse
+  - complete-analytics
+  - full-analytics-pipeline
+  - hadoop-migration
+  - versioned-data-lake
+  - template-customer-360
+  - data-labeling-pipeline
+  - automated-ml-pipeline
+  - minio-ai-platform
+  - enterprise-vector-search
+  # Experience
+  - experience-stx-inference
+  - experience-medallion

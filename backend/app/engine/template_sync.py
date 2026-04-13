@@ -109,9 +109,11 @@ def sync_templates() -> dict:
 
 def get_sync_status() -> dict:
     manifest = _load_manifest() if os.path.exists(SYNC_MANIFEST_PATH) else {}
+    synced_count = len(manifest)
     return {
         "hub_url": HUB_URL,
-        "synced_count": len(manifest),
+        "enabled": synced_count > 0,  # True when hub templates are present locally
+        "synced_count": synced_count,
         "last_sync": max(
             (v.get("synced_at", "") for v in manifest.values() if isinstance(v, dict)),
             default=None,

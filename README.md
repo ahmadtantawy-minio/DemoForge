@@ -223,7 +223,7 @@ make hub-release NO_DEPLOY=1        # Skip Cloud Run redeploy
 | `components/` | 37+ component manifests (image, ports, connections, init scripts) |
 | `demo-templates/` | 27 built-in demo templates (YAML) |
 | `user-templates/` | Field Architect-saved custom templates |
-| `synced-templates/` | Templates synced from Hub (remote MinIO) |
+| `synced-templates/` | Templates synced from Hub (GCS) |
 | `scripts/` | Hub management, GCP gateway, FA setup scripts |
 | `data/` | Runtime state (template backups, hub-api DB, override manifests) |
 
@@ -234,50 +234,76 @@ Field Architect Laptop              GCP
 ┌──────────────┐     HTTPS     ┌────────────────────────────┐
 │  DemoForge   │◄─────────────►│  Cloud Run: Gateway (Caddy)│
 │  (local)     │               │  API key auth              │
-│              │               │       │            │        │
-│  hub-        │               │  VPC  ▼     HTTPS  ▼       │
-│  connector   │               │  ┌─────────┐ ┌──────────┐  │
-│  (Caddy)     │               │  │  GCE VM │ │ Cloud Run│  │
-│  :8080       │               │  │  MinIO  │ │ hub-api  │  │
-│              │               │  │  +Reg.  │ │+Litestr. │  │
-│  localhost:  │               │  └─────────┘ └──────────┘  │
-│  9000 (S3)   │               │                  │          │
-│  5000 (Reg)  │               │            GCS bucket       │
-│  9001 (UI)   │               │         (SQLite replica)    │
-└──────────────┘               └────────────────────────────┘
+│              │               │                  │          │
+│  hub-        │               │            HTTPS ▼          │
+│  connector   │               │         ┌──────────┐        │
+│  (Caddy)     │               │         │ Cloud Run│        │
+│  :8080       │               │         │ hub-api  │        │
+│              │               │         │+Litestr. │        │
+└──────────────┘               │         └──────────┘        │
+                               │               │             │
+                               │         GCS bucket          │
+                               │      (SQLite replica +      │
+                               │       templates + licenses) │
+                               └────────────────────────────┘
 ```
 
-The hub-connector (local Docker container) proxies `localhost:9000/5000/9001` through the Cloud Run gateway to the private VM. FAs get the same ports as if MinIO were running locally. Hub API runs as a separate Cloud Run service with SQLite replicated to GCS via Litestream.
+The hub-connector (local Docker container, port `:8080`) proxies DemoForge through the Cloud Run gateway to hub-api. Hub API runs as a Cloud Run service with SQLite replicated to GCS via Litestream. Templates and licenses are stored in GCS and seeded via `make hub-seed` / `make seed-licenses`.
 
 ---
 
 ## Hub Management (Dev Only)
 
+### Updating the Hub
+
+#### Re-seed templates
 ```bash
-make hub-setup              # First-time: bucket + IAM + registry + seed templates
-make hub-deploy             # Full GCP deploy: VPC + gateway + hub-api Cloud Run + Litestream infra
+make hub-seed
+```
+
+#### Re-seed licenses
+```bash
+make seed-licenses
+```
+
+#### Redeploy hub-api (code change)
+```bash
+make hub-deploy-api
+```
+
+#### Redeploy gateway (Caddyfile change)
+```bash
+make hub-deploy-gateway
+```
+
+#### Full redeploy (first time or infra change)
+```bash
+make hub-deploy
+```
+
+### All hub commands
+
+```bash
+make hub-deploy             # Full GCP deploy: hub-api + gateway Cloud Run + GCS infra
 make hub-deploy-gateway     # Rebuild and redeploy gateway Cloud Run only (~1 min)
 make hub-deploy-api         # Rebuild and redeploy hub-api Cloud Run only (~2 min)
 make hub-update             # Update everything: gateway + templates + images + licenses
 make hub-update-gateway     # Rebuild and deploy Cloud Run gateway only
-make hub-update-templates   # Seed built-in templates to MinIO hub only
-make hub-update-images      # Build and push custom images to registry only
-make hub-update-licenses    # Seed license keys to MinIO bucket only
+make hub-update-templates   # Seed built-in templates to GCS
+make hub-update-images      # Build and push custom images to GCR only
 make hub-seed               # Re-seed templates after local changes
-make hub-status             # Show sync status, registry health, template counts
+make hub-status             # Show sync status, Cloud Run health, template counts
 make hub-push               # Build and push all custom images
 make hub-push-<name>        # Build and push one image (e.g. make hub-push-inference-sim)
-make seed-licenses          # Seed licenses from data/licenses.yaml
+make seed-licenses          # Seed license keys to GCS
 ```
 
 ### First-time GCP setup
 
 ```bash
-scripts/minio-gcp.sh            # Deploy the VM
-scripts/minio-gcp.sh --activate # Activate AIStor license
-make hub-deploy                  # Deploy VPC + Cloud Run gateway + hub-api + Litestream
-make gateway-test                # Integration test (simulates FA experience)
-make update-myip                 # Update firewall with your current IP
+make hub-deploy     # Deploy Cloud Run gateway + hub-api + GCS infra
+make hub-seed       # Seed templates to GCS
+make seed-licenses  # Seed licenses to GCS
 ```
 
 ---
@@ -301,7 +327,6 @@ make update-myip                 # Update firewall with your current IP
 | `make check-images` | Show cached vs missing images |
 | `make pull-missing` | Pull all missing vendor images |
 | `make hub-pull` | Pull custom images from Hub |
-| `make hub-trust` | Trust the private registry (one-time) |
 
 ### Dev
 
@@ -323,20 +348,17 @@ make update-myip                 # Update firewall with your current IP
 | `make hub-release-patch` | Release with patch version bump |
 | `make hub-release-minor` | Release with minor version bump |
 | `make hub-release-major` | Release with major version bump |
-| `make hub-deploy` | Full GCP deploy: VPC + gateway + hub-api Cloud Run + Litestream |
+| `make hub-deploy` | Full GCP deploy: hub-api + gateway Cloud Run + GCS infra |
 | `make hub-deploy-gateway` | Rebuild/deploy gateway Cloud Run only (~1 min) |
 | `make hub-deploy-api` | Rebuild/deploy hub-api Cloud Run only (~2 min) |
 | `make hub-update` | Update GCP hub: gateway + templates + images + licenses |
 | `make hub-update-gateway` | Rebuild and redeploy Cloud Run gateway |
-| `make hub-update-templates` | Seed templates to MinIO |
-| `make hub-update-images` | Push custom images to registry |
-| `make hub-setup` | First-time Hub setup |
+| `make hub-update-templates` | Seed templates to GCS |
+| `make hub-update-images` | Push custom images to GCR |
 | `make hub-seed` | Re-seed templates to Hub |
 | `make hub-status` | Hub health and sync status |
 | `make hub-push` | Build and push all custom images |
-| `make seed-licenses` | Seed licenses from data/licenses.yaml |
-| `make gateway-test` | Test gateway connectivity |
-| `make update-myip` | Update firewall with current IP |
+| `make seed-licenses` | Seed license keys to GCS |
 
 ---
 

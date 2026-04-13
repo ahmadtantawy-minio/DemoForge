@@ -3,7 +3,7 @@ import { saveAsTemplate, overrideTemplate, fetchTemplates } from "../../api/clie
 import type { DemoTemplate } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "../../lib/toast";
-import { Loader2, AlertTriangle, ChevronDown, Search } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronDown, Search, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,6 +58,7 @@ export function SaveAsTemplateDialog({
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Override mode state
   const [existingTemplates, setExistingTemplates] = useState<DemoTemplate[]>([]);
@@ -94,6 +95,7 @@ export function SaveAsTemplateDialog({
     setSaving(false);
     setConflict(false);
     setOverwrite(false);
+    setSaveError(null);
     setSelectedTemplateId("");
     setTemplateSearch("");
     setTemplateDropdownOpen(false);
@@ -120,16 +122,10 @@ export function SaveAsTemplateDialog({
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         const isBackupFailure = msg.includes("aborted") || msg.includes("backup");
-        toast.error(
+        setSaveError(
           isBackupFailure
-            ? "Override aborted — backup failed"
-            : "Failed to override template",
-          {
-            description: isBackupFailure
-              ? "The original template could not be safely backed up. No changes were made — your template is safe."
-              : msg,
-            duration: 15000,
-          },
+            ? "Override aborted — the original template could not be safely backed up. No changes were made."
+            : `Failed to override template: ${msg}`
         );
       } finally {
         setSaving(false);
@@ -168,9 +164,7 @@ export function SaveAsTemplateDialog({
       if (msg.includes("409")) {
         setConflict(true);
       } else {
-        toast.error("Failed to save template", {
-          description: msg,
-        });
+        setSaveError(`Template could not be saved: ${msg}`);
       }
     } finally {
       setSaving(false);
@@ -412,6 +406,17 @@ export function SaveAsTemplateDialog({
                 />
                 <span className="text-xs text-yellow-200">Overwrite existing template</span>
               </label>
+            </div>
+          )}
+
+          {/* Save error — shown inline so it's impossible to miss */}
+          {saveError && (
+            <div className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2.5 flex items-start gap-2">
+              <XCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-red-300">Save failed</p>
+                <p className="text-xs text-red-400/80 mt-0.5 break-words">{saveError}</p>
+              </div>
             </div>
           )}
 

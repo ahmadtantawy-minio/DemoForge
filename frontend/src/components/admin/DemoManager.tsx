@@ -19,6 +19,23 @@ import {
 import DeployProgress from "../deploy/DeployProgress";
 import TemplateGallery from "../templates/TemplateGallery";
 
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatLocalDateTime(iso: string | null | undefined): string {
+  if (!iso) return "Never";
+  return new Date(iso).toLocaleString();
+}
+
 interface InventoryContainer {
   id: string; name: string; image: string; status: string;
   demo_id: string; node_id: string; component: string; created: string;
@@ -259,6 +276,14 @@ export default function DemoManager() {
                               )}
                               {demo.description && (
                                 <span className="truncate max-w-[200px]">{demo.description}</span>
+                              )}
+                              {demo.updated_at && (
+                                <span
+                                  className="text-[11px] text-muted-foreground"
+                                  title={formatLocalDateTime(demo.updated_at)}
+                                >
+                                  Updated {relativeTime(demo.updated_at)}
+                                </span>
                               )}
                             </div>
                           </div>

@@ -53,9 +53,10 @@ command -v docker >/dev/null || fail "docker not found"
 
 # Local dev hub-api admin key (for local hub-api on :8000)
 LOCAL_ADMIN_KEY=$(grep "^DEMOFORGE_HUB_API_ADMIN_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- | head -1 || echo "")
-# GCP hub: gateway URL + admin key from .env.hub (first entry = GCP hub-api key)
+# GCP hub: gateway URL + keys from .env.hub
 GCP_HUB_URL=$(grep "^DEMOFORGE_HUB_URL=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2- | head -1 || echo "")
 GCP_ADMIN_KEY=$(grep "^DEMOFORGE_HUB_API_ADMIN_KEY=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2- | head -1 || echo "")
+GCP_GATEWAY_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2- | head -1 || echo "")
 
 [[ -z "$LOCAL_ADMIN_KEY" && -z "$GCP_ADMIN_KEY" ]] && fail "No DEMOFORGE_HUB_API_ADMIN_KEY found in .env.local or .env.hub — run 'make dev-init' or 'make fa-setup' first."
 
@@ -199,11 +200,12 @@ RELEASED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOTIFIED=0
 
 _notify_hub() {
-  local url="$1" key="$2" label="$3"
+  local url="$1" admin_key="$2" gateway_key="$3" label="$4"
   local RESP
   RESP=$(curl -sf -X POST "${url}/api/hub/admin/set-latest-version" \
     -H "Content-Type: application/json" \
-    -H "X-Hub-Admin-Key: ${key}" \
+    -H "X-Hub-Admin-Key: ${admin_key}" \
+    ${gateway_key:+-H "X-Api-Key: ${gateway_key}"} \
     -d "{\"demoforge\": \"${NEW_VERSION}\", \"released_at\": \"${RELEASED_AT}\"}" \
     --connect-timeout 5 2>/dev/null || echo "")
   if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok')" 2>/dev/null; then
@@ -215,7 +217,7 @@ _notify_hub() {
 
 # 1. GCP gateway (preferred — direct to deployed hub-api)
 if [[ -n "$GCP_HUB_URL" && -n "$GCP_ADMIN_KEY" ]]; then
-  if _notify_hub "$GCP_HUB_URL" "$GCP_ADMIN_KEY" "GCP gateway"; then
+  if _notify_hub "$GCP_HUB_URL" "$GCP_ADMIN_KEY" "$GCP_GATEWAY_KEY" "GCP gateway"; then
     NOTIFIED=1
   else
     warn "GCP gateway notification failed (${GCP_HUB_URL})"
@@ -225,7 +227,7 @@ fi
 # 2. Local hub-api (fallback for dev-start mode)
 if [[ $NOTIFIED -eq 0 && -n "$LOCAL_ADMIN_KEY" ]]; then
   for URL in "http://localhost:8000" "http://host.docker.internal:8000"; do
-    if _notify_hub "$URL" "$LOCAL_ADMIN_KEY" "local hub-api ($URL)"; then
+    if _notify_hub "$URL" "$LOCAL_ADMIN_KEY" "" "local hub-api ($URL)"; then
       NOTIFIED=1
       break
     fi
@@ -236,7 +238,7 @@ if [[ $NOTIFIED -eq 0 ]]; then
   warn "Could not notify hub-api."
   warn "FAs won't see the update banner until you run:"
   [[ -n "$GCP_HUB_URL" && -n "$GCP_ADMIN_KEY" ]] && \
-    warn "  curl -X POST ${GCP_HUB_URL}/api/hub/admin/set-latest-version -H 'X-Api-Key: ${GCP_ADMIN_KEY}' -d '{\"demoforge\": \"${NEW_VERSION}\"}'"
+    warn "  curl -X POST ${GCP_HUB_URL}/api/hub/admin/set-latest-version -H 'X-Hub-Admin-Key: ${GCP_ADMIN_KEY}' -H 'X-Api-Key: ${GCP_GATEWAY_KEY}' -d '{\"demoforge\": \"${NEW_VERSION}\"}'"
 fi
 
 # ── Done ───────────────────────────────────────────────────────────────────

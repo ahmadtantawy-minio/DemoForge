@@ -1,0 +1,188 @@
+# CHANGELOG.yaml — Base template change log
+# Manually maintained: add an entry whenever a template's topology,
+# walkthrough steps, SE guide, or component wiring changes meaningfully.
+# This file is read by the backend in dev mode to surface update history.
+#
+# Format:
+#   - template_id: <yaml filename without .yaml>
+#     date: "YYYY-MM-DD"
+#     summary: "What changed and why"
+#     changed_by: <email>
+
+entries:
+  # ── Active-Active Replication ────────────────────────────────────────
+  - template_id: active-active-replication
+    date: "2026-04-13"
+    summary: "Updated component readiness flags; revised walkthrough steps"
+    changed_by: ahmad.tantawy@min.io
+  - template_id: active-active-replication
+    date: "2026-03-31"
+    summary: "Migrated to single MinIO node variant; removed source/target replication roles"
+    changed_by: ahmad.tantawy@min.io
+  - template_id: active-active-replication
+    date: "2026-03-28"
+    summary: "Added SE guide with pitch, talking points, demo flow, and mc commands"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── NVIDIA STX Experience ────────────────────────────────────────────
+  - template_id: experience-stx-inference
+    date: "2026-04-07"
+    summary: "Added FA key management and connectivity checks; updated scenarios"
+    changed_by: ahmad.tantawy@min.io
+  - template_id: experience-stx-inference
+    date: "2026-04-02"
+    summary: "Expanded NVIDIA STX memory tier simulation; fixed chart rendering and fast scenario switching"
+    changed_by: ahmad.tantawy@min.io
+  - template_id: experience-stx-inference
+    date: "2026-03-27"
+    summary: "Initial NVIDIA STX Experience template with dual-GPU simulator and experience mode"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── BI Dashboards ─────────────────────────────────────────────────────
+  - template_id: bi-dashboard-lakehouse-superset
+    date: "2026-04-04"
+    summary: "Added Apache Superset component with proxy SPA and public dashboard access"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: bi-dashboard-aistor-tables
+    date: "2026-04-01"
+    summary: "FA-ready validation pass; dynamic SQL queries; AIStor tables fixes"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: bi-dashboard-lakehouse
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Data Labeling Pipeline ───────────────────────────────────────────
+  - template_id: data-labeling-pipeline
+    date: "2026-04-04"
+    summary: "Added Superset integration; updated pipeline topology"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Event-Driven Ingestion ───────────────────────────────────────────
+  - template_id: event-driven-ingestion
+    date: "2026-04-01"
+    summary: "Added brand icons, event-producer component; clean layout and topology annotations"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Smart Tiering ────────────────────────────────────────────────────
+  - template_id: template-smart-tiering
+    date: "2026-04-01"
+    summary: "FA-ready validation pass; tiering annotations overhaul; SE guide revised"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Site Replication ─────────────────────────────────────────────────
+  - template_id: site-replication
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set; connection wiring fixes"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: site-replication-failover
+    date: "2026-03-31"
+    summary: "Active-passive gateway refinement; tied into smart tiering overhaul"
+    changed_by: ahmad.tantawy@min.io
+  - template_id: site-replication-failover
+    date: "2026-03-17"
+    summary: "Initial site replication failover template with active-passive gateway and resilience tester"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Multi-Site Replication ───────────────────────────────────────────
+  - template_id: multi-site-replication
+    date: "2026-03-30"
+    summary: "Connection fixes; deploy drain guard; timeout support added"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: multi-site-replication-3way
+    date: "2026-03-30"
+    summary: "Connection fixes; 3-way topology validation suite"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: multi-cluster-replication
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; cluster auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Analytics Pipelines ──────────────────────────────────────────────
+  - template_id: realtime-analytics
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: full-analytics-pipeline
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: complete-analytics
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: streaming-lakehouse
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Lakehouses ───────────────────────────────────────────────────────
+  - template_id: dremio-lakehouse
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── AI / ML ──────────────────────────────────────────────────────────
+  - template_id: rag-pipeline
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+  - template_id: rag-pipeline
+    date: "2026-03-26"
+    summary: "Initial RAG pipeline: Ollama, Qdrant, rag-app components and template"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: minio-ai-platform
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: ml-experiment-lab
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: enterprise-vector-search
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: automated-ml-pipeline
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Data Engineering ─────────────────────────────────────────────────
+  - template_id: hadoop-migration
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: versioned-data-lake
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: template-time-travel
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  - template_id: template-customer-360
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io
+
+  # ── Experiences ──────────────────────────────────────────────────────
+  - template_id: experience-medallion
+    date: "2026-03-31"
+    summary: "Removed MinIO variant system; single node auto-set"
+    changed_by: ahmad.tantawy@min.io

@@ -181,8 +181,8 @@ nodes:
   component: file-generator
   variant: steady
   position:
-    x: -616.8210878816761
-    y: 67.06491334288023
+    x: -599.7512341301231
+    y: 86.9797427196922
   config: {}
   networks: {}
   display_name: ''
@@ -192,8 +192,8 @@ nodes:
   component: file-generator
   variant: steady
   position:
-    x: -616.8210878816761
-    y: 67.06491334288023
+    x: -599.7512341301231
+    y: 86.9797427196922
   config: {}
   networks: {}
   display_name: ''
@@ -241,19 +241,6 @@ edges:
   bandwidth: ''
   source_handle: null
   target_handle: data-in
-- id: xy-edge__minio-cluster-4data-out-prometheus
-  source: minio-cluster-4
-  target: prometheus
-  connection_type: metrics
-  network: default
-  connection_config: {}
-  auto_configure: true
-  label: ''
-  protocol: ''
-  latency: ''
-  bandwidth: ''
-  source_handle: data-out
-  target_handle: null
 - id: xy-edge__nginx-lb-minio-cluster-5data-in
   source: nginx-lb
   target: minio-cluster-5
@@ -280,10 +267,10 @@ edges:
   bandwidth: ''
   source_handle: data-out
   target_handle: null
-- id: e-minio-cluster-4-minio-cluster-5-cluster-site-replication-1776061908402
+- id: xy-edge__minio-cluster-4data-out-prometheus
   source: minio-cluster-4
-  target: minio-cluster-5
-  connection_type: cluster-site-replication
+  target: prometheus
+  connection_type: metrics
   network: default
   connection_config: {}
   auto_configure: true
@@ -291,8 +278,8 @@ edges:
   protocol: ''
   latency: ''
   bandwidth: ''
-  source_handle: cluster-out-bottom
-  target_handle: cluster-in-top
+  source_handle: data-out
+  target_handle: null
 groups: []
 sticky_notes: []
 annotations: []
@@ -300,10 +287,10 @@ schematics: []
 clusters:
 - id: minio-cluster-4
   component: minio
-  label: Site 1
+  label: MinIO Cluster
   position:
-    x: 43.06463278985041
-    y: -227.05975784162098
+    x: -9.926317870055769
+    y: -212.14620062844327
   node_count: 4
   drives_per_node: 1
   credentials:
@@ -321,17 +308,17 @@ clusters:
   - id: pool-1
     node_count: 4
     drives_per_node: 4
-    disk_size_tb: 4
+    disk_size_tb: 1
     disk_type: nvme
     ec_parity: 3
     ec_parity_upgrade_policy: upgrade
     volume_path: /data
 - id: minio-cluster-5
   component: minio
-  label: Site 2
+  label: MinIO Cluster
   position:
-    x: 45.594338703924166
-    y: 232.73926716873316
+    x: -9.795908622496995
+    y: 167.51637319660708
   node_count: 4
   drives_per_node: 1
   credentials:
@@ -349,7 +336,7 @@ clusters:
   - id: pool-1
     node_count: 4
     drives_per_node: 4
-    disk_size_tb: 4
+    disk_size_tb: 1
     disk_type: nvme
     ec_parity: 3
     ec_parity_upgrade_policy: upgrade

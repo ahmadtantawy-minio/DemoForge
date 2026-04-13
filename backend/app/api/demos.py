@@ -1,6 +1,7 @@
 import os
 import uuid
 import yaml
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
 from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, NodePosition
@@ -21,6 +22,7 @@ def _load_demo(demo_id: str) -> DemoDefinition | None:
 
 def _save_demo(demo: DemoDefinition):
     os.makedirs(DEMOS_DIR, exist_ok=True)
+    demo.updated_at = datetime.now(timezone.utc).isoformat()
     path = os.path.join(DEMOS_DIR, f"{demo.id}.yaml")
     with open(path, "w") as f:
         yaml.dump(demo.model_dump(), f, default_flow_style=False, sort_keys=False)
@@ -41,6 +43,7 @@ async def list_demos():
                         node_count=len(d.nodes),
                         status=running.status if running else "not_deployed",
                         mode=d.mode,
+                        updated_at=d.updated_at,
                     ))
     return DemoListResponse(demos=demos)
 
@@ -53,6 +56,7 @@ async def create_demo(req: CreateDemoRequest):
         description=req.description,
         networks=[DemoNetwork(name="default")],
     )
+    demo.created_at = datetime.now(timezone.utc).isoformat()
     _save_demo(demo)
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="not_deployed", mode=demo.mode)
 
@@ -79,7 +83,8 @@ async def update_demo(demo_id: str, req: dict):
     running = state.get_demo(demo_id)
     status = running.status if running else "not_deployed"
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description,
-                       node_count=len(demo.nodes), status=status, mode=demo.mode)
+                       node_count=len(demo.nodes), status=status, mode=demo.mode,
+                       updated_at=demo.updated_at)
 
 @router.put("/api/demos/{demo_id}/diagram")
 async def save_diagram(demo_id: str, req: SaveDiagramRequest):

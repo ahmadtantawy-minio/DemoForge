@@ -1,5 +1,5 @@
 id: minio
-name: MinIO Single Node
+name: MinIO Node
 category: storage
 icon: minio
 version: latest

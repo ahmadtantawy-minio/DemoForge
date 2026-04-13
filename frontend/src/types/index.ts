@@ -52,6 +52,8 @@ export interface DemoTemplate {
   origin?: string;  // "builtin" | "synced" | "user"
   saved_by?: string;
   validated?: boolean;
+  updated_at?: string;  // ISO date of most recent changelog entry (builtin/synced only)
+  changelog?: Array<{ date: string; summary: string; changed_by?: string }>;
 }
 
 // --- Demo Template Detail (includes demo definition fields) ---
@@ -112,6 +114,7 @@ export interface DemoSummary {
   node_count: number;
   status: "not_deployed" | "stopped" | "deploying" | "running" | "stopping" | "error";
   mode?: "standard" | "experience";
+  updated_at?: string;
 }
 
 export interface AnnotationNodeData {

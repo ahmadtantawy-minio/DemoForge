@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-setup hub-seed hub-status hub-push hub-pull hub-trust hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-seed hub-status hub-push hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -91,7 +91,7 @@ dev-connector-pull: ## [Dev] Build hub-connector from source and restart (no GCR
 	[ -z "$$API_KEY" ] && API_KEY=$$(grep DEMOFORGE_API_KEY .env.local 2>/dev/null | cut -d= -f2); \
 	if [ -z "$$API_KEY" ]; then echo "Error: DEMOFORGE_API_KEY not found in .env.hub or .env.local"; exit 1; fi; \
 	docker run -d --name hub-connector --restart=always \
-	  -p 9000:9000 -p 5000:5000 -p 9001:9001 -p 8080:8080 \
+	  -p 8080:8080 \
 	  -e "HUB_URL=$$HUB_URL" -e "API_KEY=$$API_KEY" \
 	  demoforge-hub-connector:local
 	@echo "hub-connector restarted with locally-built image"
@@ -148,9 +148,6 @@ pull-missing:
 	@python3 check_images.py --mode fa --pull-missing
 
 ## Hub management
-hub-setup:        ## First-time hub setup: bucket + IAM + registry + seed templates
-	@scripts/hub-setup.sh
-
 hub-seed:         ## Re-seed templates to hub after local changes
 	@scripts/hub-seed.sh
 
@@ -166,10 +163,7 @@ hub-push-%:       ## [Dev] Build and push one image, e.g.: make hub-push-inferen
 hub-pull:         ## [FA] Pull all custom images from private registry
 	@scripts/hub-pull.sh
 
-hub-trust:        ## [One-time] Configure Docker to trust the private registry
-	@scripts/hub-trust-registry.sh
-
-seed-licenses:    ## Seed license keys to MinIO bucket
+seed-licenses:    ## Seed license keys to GCS
 	@scripts/seed-licenses.sh
 
 hub-release:      ## [Dev] Full release: commit, tag, push images+templates, deploy hub-api, notify FAs
@@ -190,7 +184,7 @@ hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licens
 hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images
 	@scripts/hub-update.sh --$*
 
-hub-deploy:       ## [Dev] Full GCP deploy: VPC + gateway Cloud Run + hub-api Cloud Run + Litestream infra
+hub-deploy:       ## [Dev] Full GCP deploy: hub-api + gateway Cloud Run + GCS infra
 	@scripts/minio-gcp.sh --deploy
 
 hub-deploy-api:   ## [Dev] Redeploy hub-api Cloud Run only (SSH-free, ~2 min)
@@ -198,9 +192,6 @@ hub-deploy-api:   ## [Dev] Redeploy hub-api Cloud Run only (SSH-free, ~2 min)
 
 hub-deploy-gateway: ## [Dev] Redeploy gateway Cloud Run only (SSH-free, ~1 min)
 	@scripts/minio-gcp.sh --deploy-gateway
-
-gateway-test:     ## Test hub connectivity locally (simulates Field Architect)
-	@scripts/local-hub-test.sh
 
 fa-setup:         ## Field Architect first-time setup (starts hub-connector, pulls images)
 	@scripts/fa-setup.sh
@@ -223,9 +214,3 @@ fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .e
 	@echo ""
 	@echo "FA environment reset. Run 'make fa-setup' to reconfigure."
 
-update-myip:      ## Update firewall with your current IP
-	@MY_IP=$$(curl -sf ifconfig.me) && \
-	gcloud compute firewall-rules update allow-myip-to-minio \
-	  --source-ranges="$${MY_IP}/32" \
-	  --project=minio-demoforge && \
-	echo "Updated to $${MY_IP}"

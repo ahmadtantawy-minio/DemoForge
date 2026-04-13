@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate, apiFetch } from "../../api/client";
+import { fetchTemplates, fetchTemplate, updateTemplate, createFromTemplate, deleteTemplate, forkTemplate, publishTemplate, triggerTemplateSync, getTemplateSyncStatus, pushBuiltinTemplates, revertTemplate, promoteTemplate, validateTemplate, apiFetch, setTemplateOrder as saveTemplateOrder } from "../../api/client";
 import type { DemoTemplate, DemoTemplateDetail } from "../../types";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "../../lib/toast";
@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff, AlertTriangle } from "lucide-react";
+import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff, AlertTriangle, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
@@ -98,6 +98,29 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const [editObjective, setEditObjective] = useState("");
   const [editMinioValue, setEditMinioValue] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
+  const [templateOrder, setTemplateOrder] = useState<string[]>([]);
+
+  const handleReorder = async (templateId: string, direction: "left" | "right") => {
+    const currentOrder = [...templateOrder];
+    const idx = currentOrder.indexOf(templateId);
+    if (idx === -1) return;
+    const swapIdx = direction === "left" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= currentOrder.length) return;
+    // Swap
+    [currentOrder[idx], currentOrder[swapIdx]] = [currentOrder[swapIdx], currentOrder[idx]];
+    setTemplateOrder(currentOrder);
+    // Reorder displayed templates to match
+    setTemplates((prev) => {
+      const orderMap = Object.fromEntries(currentOrder.map((id, i) => [id, i]));
+      return [...prev].sort((a, b) => (orderMap[a.id] ?? 999) - (orderMap[b.id] ?? 999));
+    });
+    try {
+      await saveTemplateOrder(currentOrder);
+    } catch (err: any) {
+      toast.error("Failed to save order", { description: err.message });
+    }
+  };
 
   const loadAll = () => {
     setLoading(true);
@@ -105,6 +128,8 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
     fetchTemplates()
       .then((res: any) => {
         setTemplates(res.templates);
+        // Preserve display order from server response
+        setTemplateOrder(res.templates.map((t: any) => t.id));
         if (res.sources || res.mode || res.sync) {
           setSourceMeta({ sources: res.sources || {}, mode: res.mode || "all", sync: res.sync || {} });
           if (res.sync) setSyncStatus(res.sync);
@@ -177,6 +202,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
       setEditObjective(detail.objective);
       setEditMinioValue(detail.minio_value);
       setDirty(false);
+      setShowChangelog(false);
       setDetailOpen(true);
     } catch (err: any) {
       toast.error("Failed to load template details", { description: err.message });
@@ -411,7 +437,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
           {sourceMeta.sync?.enabled ? (
             <div className="flex items-center gap-1.5 text-green-400">
               <Cloud className="w-3.5 h-3.5" />
-              <span className="font-medium">Connected to MinIO Hub</span>
+              <span className="font-medium">Hub templates synced</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -422,7 +448,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
           <span className="text-border">|</span>
           <div className="flex items-center gap-3 text-muted-foreground">
             {sourceMeta.mode === "synced" ? (
-              <span className="text-yellow-400 font-medium">Mode: MinIO-only</span>
+              <span className="text-yellow-400 font-medium">Mode: hub-only</span>
             ) : (
               <span>Mode: {sourceMeta.mode}</span>
             )}
@@ -442,6 +468,60 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
               <span className="flex items-center gap-1">{sourceMeta.sources.user} user</span>
             )}
           </div>
+          {faMode === "dev" && (
+            <>
+              <span className="text-border">|</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 text-[11px] px-1.5 gap-1"
+                disabled={pushing}
+                onClick={async () => {
+                  setPushing(true);
+                  try {
+                    const result = await pushBuiltinTemplates();
+                    toast.success(`Pushed ${result.uploaded} templates to hub`);
+                    loadAll();
+                  } catch (err: any) {
+                    toast.error("Push to hub failed", { description: err.message });
+                  } finally {
+                    setPushing(false);
+                  }
+                }}
+                title="Push all built-in templates to GCS hub"
+              >
+                <Upload className={`w-3 h-3 ${pushing ? "animate-spin" : ""}`} />
+                Push to Hub
+              </Button>
+            </>
+          )}
+          {faMode !== "dev" && (
+            <>
+              <span className="text-border">|</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 text-[11px] px-1.5 gap-1"
+                disabled={syncing}
+                onClick={async () => {
+                  setSyncing(true);
+                  try {
+                    const result = await triggerTemplateSync();
+                    toast.success(`Synced: ${result.downloaded} new, ${result.deleted} removed`);
+                    loadAll();
+                  } catch (err: any) {
+                    toast.error("Sync failed", { description: err.message });
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+                title="Download latest templates from hub"
+              >
+                <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
+                Sync from Hub
+              </Button>
+            </>
+          )}
           {sourceMeta.sync?.enabled && (
             <>
               <span className="text-border">|</span>
@@ -732,6 +812,26 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                         }
                       </button>
                     )}
+                    {faMode === "dev" && (
+                      <>
+                        <button
+                          type="button"
+                          title="Move earlier"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-all"
+                          onClick={(e) => { e.stopPropagation(); handleReorder(t.id, "left"); }}
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Move later"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-all"
+                          onClick={(e) => { e.stopPropagation(); handleReorder(t.id, "right"); }}
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
@@ -954,6 +1054,45 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                     ))}
                   </div>
                 </div>
+
+                {/* Changelog — dev mode only, builtin/synced templates */}
+                {faMode === "dev" && selectedTemplate.source !== "user" && (selectedTemplate as any).updated_at && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <Clock className="w-3 h-3" />
+                        Last updated
+                      </label>
+                      {(selectedTemplate as any).changelog?.length > 1 && (
+                        <button
+                          type="button"
+                          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => setShowChangelog((v) => !v)}
+                        >
+                          {showChangelog ? "Hide history" : `Show history (${(selectedTemplate as any).changelog.length})`}
+                        </button>
+                      )}
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs space-y-1.5">
+                      {/* Most recent entry always visible */}
+                      <div className="flex items-start gap-2">
+                        <span className="text-muted-foreground shrink-0 tabular-nums">
+                          {(selectedTemplate as any).updated_at}
+                        </span>
+                        <span className="text-foreground">
+                          {(selectedTemplate as any).changelog?.[0]?.summary}
+                        </span>
+                      </div>
+                      {/* Older entries — collapsible */}
+                      {showChangelog && (selectedTemplate as any).changelog?.slice(1).map((entry: any, i: number) => (
+                        <div key={i} className="flex items-start gap-2 text-muted-foreground border-t border-border/50 pt-1.5">
+                          <span className="shrink-0 tabular-nums">{entry.date}</span>
+                          <span>{entry.summary}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Walkthrough */}
                 {selectedTemplate.walkthrough.length > 0 && (

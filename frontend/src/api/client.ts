@@ -472,6 +472,13 @@ export const fetchIdentity = () =>
 export const pushBuiltinTemplates = () =>
   apiFetch<{ status: string; uploaded: number; errors: number }>("/api/templates/push-all-builtin", { method: "POST" });
 
+// Set custom template display order (dev mode only)
+export const setTemplateOrder = (order: string[]) =>
+  apiFetch<{ ok: boolean; count: number }>("/api/templates/order", {
+    method: "PUT",
+    body: JSON.stringify({ order }),
+  });
+
 // Template management
 export const saveAsTemplate = (payload: {
   demo_id: string;

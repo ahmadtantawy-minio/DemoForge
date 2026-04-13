@@ -159,3 +159,5 @@ class DemoDefinition(BaseModel):
     clusters: list[DemoCluster] = []
     resources: DemoResourceSettings = DemoResourceSettings()
     deploy_timeout_seconds: int | None = None  # None = use global default (180s)
+    created_at: str | None = None   # ISO-8601 UTC — set once on create
+    updated_at: str | None = None   # ISO-8601 UTC — refreshed on every save

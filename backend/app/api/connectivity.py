@@ -328,6 +328,15 @@ async def _check_template_sync() -> dict:
         return {"ok": False, "steps": steps}
 
 
+def _parse_semver(v: str) -> tuple:
+    """Parse vX.Y.Z into (X, Y, Z) for ordering. Non-numeric parts fall back to (0,0,0)."""
+    parts = v.lstrip("v").split(".")
+    try:
+        return tuple(int(p) for p in parts[:3])
+    except (ValueError, IndexError):
+        return (0, 0, 0)
+
+
 def _read_local_version() -> str:
     """Get local DemoForge version via git describe."""
     try:
@@ -367,12 +376,17 @@ async def _check_version(hub_url: str, api_key: str, dev_mode: bool = False) -> 
     if code == 200 and data and "demoforge" in data:
         hub_ver = data["demoforge"].get("version", "")
         if hub_ver:
-            up_to_date = local_ver == hub_ver or local_ver.lstrip("v") == hub_ver.lstrip("v")
+            local_parsed = _parse_semver(local_ver)
+            hub_parsed = _parse_semver(hub_ver)
+            up_to_date = local_parsed >= hub_parsed
+            logger.info("Version check: local=%s hub_latest=%s up_to_date=%s",
+                        local_ver, hub_ver, up_to_date)
             if up_to_date:
-                steps.append(_step("Up to date", True, f"Hub latest: {hub_ver}"))
+                steps.append(_step("Up to date", True,
+                    f"Running {local_ver} (hub latest: {hub_ver})"))
             else:
                 steps.append(_step("Update available", False,
-                    f"Hub latest: {hub_ver} — run `make fa-update` to upgrade",
+                    f"Running {local_ver} → {hub_ver} available — run `make fa-update` to upgrade",
                     warn=True))
             return {
                 "ok": True,
@@ -637,7 +651,7 @@ async def check_connectivity():
             },
             "template_sync": {
                 "label": "Template Sync",
-                "description": "Templates pulled from hub MinIO bucket",
+                "description": "Templates pulled from hub",
                 **template_sync,
             },
             "components": {

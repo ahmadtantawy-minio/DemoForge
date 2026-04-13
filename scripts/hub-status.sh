@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HUB_ALIAS="demoforge-hub"
-HUB_BUCKET="demoforge-templates"
-HUB_PREFIX="templates"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ID="minio-demoforge"
+REGION="me-central1"
+TEMPLATES_BUCKET="gs://demoforge-hub-templates"
+TEMPLATES_PREFIX="templates/"
 
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${CYAN}═══ DemoForge Hub Status ═══${NC}"
 echo ""
 
+# ── Local templates ──
 BUILTIN=$(find "$PROJECT_ROOT/demo-templates" -name "*.yaml" -type f 2>/dev/null | wc -l | tr -d ' ')
 USER=$(find "$PROJECT_ROOT/user-templates" -name "*.yaml" -type f 2>/dev/null | wc -l | tr -d ' ')
 SYNCED=$(find "$PROJECT_ROOT/synced-templates" -name "*.yaml" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -25,63 +28,48 @@ echo -e "    User:      ${GREEN}${USER}${NC}"
 echo -e "    Synced:    ${GREEN}${SYNCED}${NC}"
 echo ""
 
-if mc admin info "${HUB_ALIAS}" &>/dev/null 2>&1; then
-    REMOTE=$(mc ls "${HUB_ALIAS}/${HUB_BUCKET}/${HUB_PREFIX}/" 2>/dev/null | grep -c "\.yaml" || echo "0")
-    echo -e "  Remote hub (${HUB_ALIAS}):"
-    echo -e "    Templates: ${GREEN}${REMOTE}${NC}"
-    echo ""
+# ── GCS remote templates ──
+echo -e "  Remote templates (GCS):"
+REMOTE=$(gcloud storage ls "${TEMPLATES_BUCKET}/${TEMPLATES_PREFIX}" 2>/dev/null | grep -c '\.yaml$' || echo "0")
+echo -e "    Templates: ${GREEN}${REMOTE}${NC} on ${TEMPLATES_BUCKET}/${TEMPLATES_PREFIX}"
+echo ""
 
-    echo -e "  ${YELLOW}Remote-only (not in built-in):${NC}"
-    comm -23 \
-        <(mc ls "${HUB_ALIAS}/${HUB_BUCKET}/${HUB_PREFIX}/" 2>/dev/null | awk '{print $NF}' | grep "\.yaml$" | sort) \
-        <(ls "$PROJECT_ROOT/demo-templates/"*.yaml 2>/dev/null | xargs -n1 basename | sort) \
-      | sed 's/^/    /' || echo "    (none)"
-
-    echo -e "  ${YELLOW}Local-only (not on hub):${NC}"
-    comm -13 \
-        <(mc ls "${HUB_ALIAS}/${HUB_BUCKET}/${HUB_PREFIX}/" 2>/dev/null | awk '{print $NF}' | grep "\.yaml$" | sort) \
-        <(ls "$PROJECT_ROOT/demo-templates/"*.yaml 2>/dev/null | xargs -n1 basename | sort) \
-      | sed 's/^/    /' || echo "    (none)"
+# ── Cloud Run: hub-api ──
+echo -e "  Cloud Run:"
+HUB_API_STATUS=$(gcloud run services describe demoforge-hub-api \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='value(status.conditions[0].status)' 2>/dev/null || echo "not deployed")
+HUB_API_URL=$(gcloud run services describe demoforge-hub-api \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='value(status.url)' 2>/dev/null || echo "")
+if [[ "$HUB_API_STATUS" == "True" ]]; then
+  echo -e "    hub-api:   ${GREEN}running${NC}  ${CYAN}${HUB_API_URL}${NC}"
 else
-    echo -e "  Remote hub: ${YELLOW}not configured${NC} (run scripts/hub-setup.sh)"
+  echo -e "    hub-api:   ${YELLOW}${HUB_API_STATUS}${NC}"
 fi
 
-REGISTRY_HOST="$(echo "${HUB_ENDPOINT:-http://34.18.90.197:9000}" | sed 's|http[s]*://||' | sed 's|:[0-9]*$||'):5000"
-
-echo -e "  ${CYAN}Registry:${NC}"
-if curl -sf "http://${REGISTRY_HOST}/v2/" &>/dev/null 2>&1; then
-    CATALOG=$(curl -sf "http://${REGISTRY_HOST}/v2/_catalog" 2>/dev/null)
-    REPO_COUNT=$(echo "$CATALOG" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('repositories',[])))" 2>/dev/null || echo "?")
-    echo -e "    Status:      ${GREEN}healthy${NC}"
-    echo -e "    URL:         ${CYAN}http://${REGISTRY_HOST}${NC}"
-    echo -e "    Repositories:${GREEN} ${REPO_COUNT}${NC}"
-    if [[ "$REPO_COUNT" != "0" && "$REPO_COUNT" != "?" ]]; then
-        echo -e "    ${YELLOW}Images:${NC}"
-        for repo in $(echo "$CATALOG" | python3 -c "import sys,json; [print(r) for r in json.load(sys.stdin).get('repositories',[])]" 2>/dev/null); do
-            TAGS=$(curl -sf "http://${REGISTRY_HOST}/v2/${repo}/tags/list" 2>/dev/null \
-              | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin).get('tags',[])))" 2>/dev/null || echo "?")
-            echo -e "      ${repo}: ${CYAN}${TAGS}${NC}"
-        done
-    fi
+GATEWAY_STATUS=$(gcloud run services describe demoforge-gateway \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='value(status.conditions[0].status)' 2>/dev/null || echo "not deployed")
+GATEWAY_URL=$(gcloud run services describe demoforge-gateway \
+  --project="${PROJECT_ID}" --region="${REGION}" \
+  --format='value(status.url)' 2>/dev/null || echo "")
+if [[ "$GATEWAY_STATUS" == "True" ]]; then
+  echo -e "    gateway:   ${GREEN}running${NC}  ${CYAN}${GATEWAY_URL}${NC}"
 else
-    echo -e "    Status:      ${YELLOW}unreachable${NC} (http://${REGISTRY_HOST})"
-    echo -e "    ${YELLOW}Run scripts/hub-setup.sh to deploy the registry${NC}"
+  echo -e "    gateway:   ${YELLOW}${GATEWAY_STATUS}${NC}"
 fi
 echo ""
 
+# ── Config files ──
 if [[ -f "$PROJECT_ROOT/.env.hub" ]]; then
-    echo -e "  .env.hub:    ${GREEN}exists${NC}"
+  echo -e "  .env.hub:    ${GREEN}exists${NC}"
 else
-    echo -e "  .env.hub:    ${YELLOW}missing${NC} (run scripts/hub-setup.sh)"
+  echo -e "  .env.hub:    ${YELLOW}missing${NC} (run: make hub-deploy)"
 fi
 if [[ -f "$PROJECT_ROOT/.env.local" ]]; then
-    ENABLED=$(grep "DEMOFORGE_SYNC_ENABLED" "$PROJECT_ROOT/.env.local" 2>/dev/null | grep -c "true" || echo "0")
-    if [[ "$ENABLED" -gt 0 ]]; then
-        echo -e "  .env.local:  ${GREEN}sync enabled${NC}"
-    else
-        echo -e "  .env.local:  ${YELLOW}sync disabled${NC}"
-    fi
+  echo -e "  .env.local:  ${GREEN}exists${NC}"
 else
-    echo -e "  .env.local:  ${YELLOW}missing${NC} (cp .env.hub .env.local)"
+  echo -e "  .env.local:  ${YELLOW}missing${NC} (cp .env.hub .env.local)"
 fi
 echo ""
