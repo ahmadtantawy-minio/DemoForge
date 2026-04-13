@@ -199,25 +199,21 @@ deploy_hub_api_cloudrun() {
 deploy_gateway_cloudrun() {
   local gateway_api_key="${1:-}"
   local hub_api_host="${2:-}"
-  local internal_ip="${3:-}"
 
   # Fall back to VM metadata when called from --deploy-gateway
   [[ -z "$gateway_api_key" ]] && gateway_api_key=$(get_vm_metadata "gateway-api-key" 2>/dev/null || echo "")
   [[ -z "$hub_api_host" ]]    && hub_api_host=$(get_vm_metadata "hub-api-url" 2>/dev/null | sed 's|^https://||' || echo "")
-  if [[ -z "$internal_ip" ]]; then
-    internal_ip=$(gcloud compute instances describe "${VM_NAME}" \
-      --zone="${ZONE}" --project="${PROJECT_ID}" \
-      --format='get(networkInterfaces[0].networkIP)')
-  fi
 
-  [[ -z "$gateway_api_key" ]] && fail "gateway-api-key not found in VM metadata. Run 'make hub-deploy' first."
-  [[ -z "$hub_api_host" ]]    && fail "hub-api-url not found in VM metadata. Run 'make hub-deploy-api' first."
-  [[ -z "$internal_ip" ]]     && fail "Could not determine VM internal IP."
+  [[ -z "$gateway_api_key" ]] && fail "gateway-api-key not found. Run 'make hub-deploy' first."
+  [[ -z "$hub_api_host" ]]    && fail "hub-api-url not found. Run 'make hub-deploy-api' first."
 
   local GATEWAY_DIR
   GATEWAY_DIR=$(mktemp -d /tmp/demoforge-gateway-XXXXXX)
 
-  cat > "${GATEWAY_DIR}/Caddyfile" <<CADDY_EOF
+  # Gateway is now a pure auth-gating proxy to hub-api Cloud Run.
+  # MinIO S3/console, registry, and license/template bucket routes removed
+  # (storage migrated to GCS; templates/licenses served by hub-api directly).
+  cat > "${GATEWAY_DIR}/Caddyfile" <<'CADDY_EOF'
 {
   auto_https off
   admin off
@@ -229,7 +225,7 @@ deploy_gateway_cloudrun() {
     respond "ok" 200
   }
 
-  # FA bootstrap — no gateway key required; hub-api validates the FA's unique key directly
+  # FA bootstrap — no gateway key required; hub-api validates FA key directly
   # Called by fa-setup.sh before the connector exists
   handle /api/hub/fa/bootstrap {
     reverse_proxy {env.HUB_API_HOST}:443 {
@@ -249,41 +245,8 @@ deploy_gateway_cloudrun() {
     respond "Unauthorized — X-Api-Key header required" 401
   }
 
-  # S3 API → MinIO (routed by X-Service header to preserve S3 signatures)
-  @s3 {
-    header X-Service s3
-  }
-  handle @s3 {
-    request_header -X-Service
-    reverse_proxy ${internal_ip}:9000
-  }
-
-  # MinIO Console (routed by X-Service header)
-  @console {
-    header X-Service console
-  }
-  handle @console {
-    request_header -X-Service
-    reverse_proxy ${internal_ip}:9001
-  }
-
-  # Licenses bucket (anonymous read — path rewrite to MinIO bucket)
-  handle_path /licenses/* {
-    rewrite * /demoforge-licenses{uri}
-    reverse_proxy ${internal_ip}:9000
-  }
-
-  # Templates bucket (anonymous read — path rewrite to MinIO bucket)
-  handle_path /templates/* {
-    rewrite * /demoforge-templates{uri}
-    reverse_proxy ${internal_ip}:9000
-  }
-
-  # Hub API (routed by X-Service header) → Cloud Run service
-  @hub_api {
-    header X-Service hub-api
-  }
-  handle @hub_api {
+  # All authenticated traffic → hub-api Cloud Run
+  handle {
     request_header -X-Service
     reverse_proxy {env.HUB_API_HOST}:443 {
       header_up Host {env.HUB_API_HOST}
@@ -292,19 +255,6 @@ deploy_gateway_cloudrun() {
         tls_server_name {env.HUB_API_HOST}
       }
     }
-  }
-
-  # Docker Registry v2 API — flush_interval -1 forces streaming so blobs
-  # larger than Cloud Run's 32 MB response buffer pass through intact.
-  handle /v2/* {
-    reverse_proxy ${internal_ip}:5000 {
-      flush_interval -1
-    }
-  }
-
-  # Root health
-  handle / {
-    respond "DemoForge Hub Gateway" 200
   }
 }
 CADDY_EOF
@@ -331,25 +281,19 @@ GWDOCKERFILE
     --platform=managed \
     --port=8080 \
     --allow-unauthenticated \
-    --vpc-connector="${VPC_CONNECTOR_NAME}" \
-    --vpc-egress=private-ranges-only \
     --min-instances=1 \
     --max-instances=5 \
     --memory=256Mi \
     --cpu=1 \
     --timeout=300 \
     --concurrency=100 \
-    --set-env-vars="GATEWAY_TARGET=${internal_ip},GATEWAY_API_KEY=${gateway_api_key},HUB_API_HOST=${hub_api_host}" \
+    --set-env-vars="GATEWAY_API_KEY=${gateway_api_key},HUB_API_HOST=${hub_api_host}" \
     --quiet
 
   GATEWAY_URL=$(gcloud run services describe "${CLOUD_RUN_SERVICE}" \
     --region="${CLOUD_RUN_REGION}" --project="${PROJECT_ID}" \
     --format='value(status.url)')
   ok "Gateway deployed: ${GATEWAY_URL}"
-
-  # Store gateway API key in VM metadata for future redeploys
-  gcloud compute instances add-metadata "${VM_NAME}" --zone="${ZONE}" --project="${PROJECT_ID}" \
-    --metadata="gateway-api-key=${gateway_api_key}" 2>/dev/null || true
 
   rm -rf "${GATEWAY_DIR}"
 }
@@ -661,7 +605,7 @@ if [[ "$MODE" == "deploy" ]]; then
 
   # ── Step 8: Build and deploy Cloud Run gateway ──
   step 8 "Build and deploy Cloud Run gateway"
-  deploy_gateway_cloudrun "${GATEWAY_API_KEY}" "${HUB_API_HOST}" "${INTERNAL_IP}"
+  deploy_gateway_cloudrun "${GATEWAY_API_KEY}" "${HUB_API_HOST}"
 
   # ── Step 9: Verify gateway ──
   step 9 "Verify gateway connectivity"
