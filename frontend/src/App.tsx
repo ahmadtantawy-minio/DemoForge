@@ -270,10 +270,8 @@ export default function App() {
       <AppNav />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Home page */}
-        <div style={{ display: currentPage === "home" ? "contents" : "none" }}>
-          <HomePage />
-        </div>
+        {/* Home page — unmount on navigation so it re-fetches on return */}
+        {currentPage === "home" && <HomePage />}
 
         {/* Designer - ALWAYS MOUNTED, hidden via display:none to preserve React Flow viewport state */}
         <div style={{ display: currentPage === "designer" ? "contents" : "none" }} className="flex flex-col h-full">
@@ -367,39 +365,13 @@ export default function App() {
           )}
         </div>
 
-        {/* Templates page */}
-        <div style={{ display: currentPage === "templates" ? "contents" : "none" }}>
-          <TemplatesPage />
-        </div>
-
-        {/* Images page */}
-        <div style={{ display: currentPage === "images" ? "contents" : "none" }}>
-          <ImagesPage />
-        </div>
-
-        {/* Readiness page (dev only) */}
-        {useDemoStore.getState().faMode === "dev" && (
-          <div style={{ display: currentPage === "readiness" ? "contents" : "none" }}>
-            <ReadinessPage />
-          </div>
-        )}
-
-        {/* FA Management page (dev only) */}
-        {useDemoStore.getState().faMode === "dev" && (
-          <div style={{ display: currentPage === "fa-management" ? "contents" : "none" }}>
-            <FAManagementPage />
-          </div>
-        )}
-
-        {/* Connectivity page (all modes) */}
-        <div style={{ display: currentPage === "connectivity" ? "contents" : "none" }}>
-          <ConnectivityPage />
-        </div>
-
-        {/* Settings page */}
-        <div style={{ display: currentPage === "settings" ? "contents" : "none" }}>
-          <SettingsPage />
-        </div>
+        {/* All non-designer pages unmount on navigation so they re-fetch fresh data on return */}
+        {currentPage === "templates" && <TemplatesPage />}
+        {currentPage === "images" && <ImagesPage />}
+        {currentPage === "readiness" && useDemoStore.getState().faMode === "dev" && <ReadinessPage />}
+        {currentPage === "fa-management" && useDemoStore.getState().faMode === "dev" && <FAManagementPage />}
+        {currentPage === "connectivity" && <ConnectivityPage />}
+        {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>
   );
