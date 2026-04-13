@@ -572,15 +572,18 @@ async def check_connectivity():
                 },
             }
         else:
-            # dev-start-gcp: routes through real GCP connector
-            # admin_key and local_hub_api are not relevant — omit them entirely
+            # dev-start-gcp: developer connecting to real GCP hub via connector.
+            # The developer authenticates as admin (admin key), not as a registered FA.
+            # fa_auth is optional — a 401 here just means no FA registration, which is
+            # expected for developers who manage the hub rather than use it as an FA.
             results = await asyncio.gather(
                 _check_hub_connector(hub_url),
+                _check_admin_key(hub_url, admin_key, dev_mode=True),
                 _check_fa_auth(hub_url, api_key, dev_mode=False),
                 _check_version(hub_url, api_key, dev_mode=True),
                 return_exceptions=True,
             )
-            connector, fa_auth, version_result = [
+            connector, admin, fa_auth, version_result = [
                 r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
                 for r in results
             ]
@@ -590,9 +593,15 @@ async def check_connectivity():
                     "description": f"Remote connector at {hub_url}",
                     **connector,
                 },
+                "admin_key": {
+                    "label": "Admin Key",
+                    "description": "Admin access to hub-api (used by developers in dev-gcp mode)",
+                    **admin,
+                },
                 "fa_auth": {
                     "label": "FA Authentication",
-                    "description": "FA API key validated against hub-api",
+                    "description": "FA API key — optional in dev-gcp (developers use admin key instead)",
+                    "optional": True,
                     **fa_auth,
                 },
                 "version": {
@@ -647,9 +656,12 @@ async def check_connectivity():
     required = [v for v in checks.values() if not v.get("optional")]
     overall_ok = all(v.get("ok") or v.get("skipped") for v in required)
 
+    hub_local = os.getenv("DEMOFORGE_HUB_LOCAL", "") == "1"
     return {
         "overall": "ok" if overall_ok else "degraded",
         "mode": mode,
+        # dev sub-mode: True = dev-start (local hub-api), False = dev-start-gcp (GCP connector)
+        "hub_local": hub_local if mode == "dev" else None,
         "hub_url": hub_url,
         "fa_id": fa_id,
         "fa_id_configured": bool(fa_id and fa_id != "dev"),

@@ -466,7 +466,7 @@ export const fetchTemplateGuide = (templateId: string) =>
 
 // FA Identity
 export const fetchIdentity = () =>
-  apiFetch<{ fa_id: string; identified: boolean; mode: string }>("/api/identity");
+  apiFetch<{ fa_id: string; identified: boolean; mode: string; hub_local: boolean | null }>("/api/identity");
 
 // Dev mode: push builtin templates to hub
 export const pushBuiltinTemplates = () =>

@@ -44,6 +44,8 @@ interface CheckResult {
 interface ConnectivityResult {
   overall: "ok" | "degraded";
   mode: string;
+  /** True = dev-start (local hub-api), False = dev-start-gcp (GCP connector), null = non-dev mode */
+  hub_local: boolean | null;
   hub_url: string;
   fa_id: string;
   fa_id_configured: boolean;
@@ -215,7 +217,7 @@ export function ConnectivityPage() {
               </p>
               {result.mode === "dev" ? (
                 <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-                  mode=dev · fa={result.fa_id || "—"} · hub={result.hub_url}
+                  mode=dev ({result.hub_local ? "local" : "gcp"}) · fa={result.fa_id || "—"} · hub={result.hub_url}
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground mt-0.5">

@@ -88,6 +88,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const [syncing, setSyncing] = useState(false);
   const [pushing, setPushing] = useState(false);
   const faMode = useDemoStore((s) => s.faMode);
+  const hubLocal = useDemoStore((s) => s.hubLocal);
   const [sourceMeta, setSourceMeta] = useState<{ sources: Record<string, number>; mode: string; sync: any } | null>(null);
   const [connectivityBlocked, setConnectivityBlocked] = useState(false);
   const [connectivityChecked, setConnectivityChecked] = useState(false);
@@ -117,14 +118,20 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   useEffect(() => { if (loadKey !== undefined && loadKey > 0) loadAll(); }, [loadKey]);
 
   useEffect(() => {
-    if (!faMode) { setConnectivityChecked(true); return; }
+    // Connectivity enforcement rules:
+    //   standard     → no check (no hub)
+    //   dev-start    → no check (local hub-api, hubLocal=true, mirrors demoforge.sh)
+    //   dev-start-gcp → check (connected to real GCP hub, hubLocal=false)
+    //   fa           → check
+    const shouldCheck = faMode === "fa" || (faMode === "dev" && hubLocal === false);
+    if (!shouldCheck) { setConnectivityChecked(true); return; }
     apiFetch<{ overall: string; checks: Record<string, { ok: boolean }> }>("/api/connectivity/check")
       .then(r => {
         setConnectivityBlocked(r.overall !== "ok");
       })
       .catch(() => { /* don't block on check failure */ })
       .finally(() => setConnectivityChecked(true));
-  }, [faMode]);
+  }, [faMode, hubLocal]);
 
   const faId = useDemoStore((s) => s.faId);
 
@@ -611,7 +618,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
         </div>
       )}
 
-      {!!faMode && connectivityBlocked && (
+      {connectivityBlocked && (
         <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <div>
@@ -835,7 +842,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 <Button
                   size="sm"
                   className="h-7 text-xs shrink-0"
-                  disabled={creating === t.id || !!loadingDetail || (!!faMode && connectivityBlocked)}
+                  disabled={creating === t.id || !!loadingDetail || connectivityBlocked}
                   aria-label={`Create demo from template: ${t.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -999,7 +1006,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 </div>
 
                 <Button
-                  disabled={creating === selectedTemplate.id || (!!faMode && connectivityBlocked)}
+                  disabled={creating === selectedTemplate.id || connectivityBlocked}
                   aria-label={`Create demo from template: ${selectedTemplate.name}`}
                   onClick={() => handleCreate(selectedTemplate.id)}
                 >

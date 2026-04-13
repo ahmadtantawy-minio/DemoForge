@@ -83,8 +83,12 @@ async def get_app_mode():
 @router.get("/api/identity")
 async def get_identity():
     fa_id = get_fa_id()
+    mode = os.environ.get("DEMOFORGE_MODE", "standard")
+    hub_local = os.environ.get("DEMOFORGE_HUB_LOCAL", "") == "1"
     return {
         "fa_id": fa_id,
         "identified": bool(fa_id),
-        "mode": os.environ.get("DEMOFORGE_MODE", "standard"),
+        "mode": mode,
+        # True when running dev-start (local hub-api); False when running dev-start-gcp
+        "hub_local": hub_local if mode == "dev" else None,
     }

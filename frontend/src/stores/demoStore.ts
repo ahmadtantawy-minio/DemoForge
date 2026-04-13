@@ -28,7 +28,9 @@ interface DemoState {
   faId: string;
   faIdentified: boolean;
   faMode: string;
-  setFaIdentity: (id: string, identified: boolean, mode?: string) => void;
+  /** True when running dev-start (local hub-api), false when dev-start-gcp, null in non-dev modes */
+  hubLocal: boolean | null;
+  setFaIdentity: (id: string, identified: boolean, mode?: string, hubLocal?: boolean | null) => void;
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
@@ -90,7 +92,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   faId: "",
   faIdentified: false,
   faMode: "standard",
-  setFaIdentity: (id, identified, mode) => set({ faId: id, faIdentified: identified, faMode: mode || "standard" }),
+  hubLocal: null,
+  setFaIdentity: (id, identified, mode, hubLocal) => set({ faId: id, faIdentified: identified, faMode: mode || "standard", hubLocal: hubLocal ?? null }),
 
   setDemos: (demos) => set({ demos }),
 

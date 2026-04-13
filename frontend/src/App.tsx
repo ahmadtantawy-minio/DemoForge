@@ -41,7 +41,7 @@ export default function App() {
   // Fetch FA identity on mount
   useEffect(() => {
     fetchIdentity()
-      .then(({ fa_id, identified, mode }) => useDemoStore.getState().setFaIdentity(fa_id, identified, mode))
+      .then(({ fa_id, identified, mode, hub_local }) => useDemoStore.getState().setFaIdentity(fa_id, identified, mode, hub_local))
       .catch(() => {});
   }, []);
 
