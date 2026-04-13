@@ -36,6 +36,14 @@ async def list_demos():
                 d = _load_demo(fname.replace(".yaml", ""))
                 if d:
                     running = state.get_demo(d.id)
+                    # Fall back to file mtime for demos created before updated_at was introduced
+                    updated_at = d.updated_at
+                    if not updated_at:
+                        try:
+                            mtime = os.path.getmtime(os.path.join(DEMOS_DIR, fname))
+                            updated_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+                        except OSError:
+                            pass
                     demos.append(DemoSummary(
                         id=d.id,
                         name=d.name,
@@ -43,7 +51,7 @@ async def list_demos():
                         node_count=len(d.nodes),
                         status=running.status if running else "not_deployed",
                         mode=d.mode,
-                        updated_at=d.updated_at,
+                        updated_at=updated_at,
                     ))
     return DemoListResponse(demos=demos)
 

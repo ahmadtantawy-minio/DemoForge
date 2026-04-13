@@ -252,9 +252,10 @@ async def list_templates(mine: bool = False, fa_view: bool = False):
     if fa_view:
         templates = [t for t in templates if t.get("validated")]
 
-    # In dev and FA modes, filter out templates with non-ready components.
+    # In FA mode only, filter out templates with non-ready components.
+    # Dev mode shows all templates regardless of readiness — that's the point of dev mode.
     # User templates (source="user") are always shown — the user created them intentionally.
-    if os.getenv("DEMOFORGE_MODE") in ("fa", "dev"):
+    if os.getenv("DEMOFORGE_MODE") == "fa":
         from ..engine.readiness import readiness
         if not readiness._components:
             readiness.load()

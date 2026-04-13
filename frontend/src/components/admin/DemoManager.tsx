@@ -278,11 +278,8 @@ export default function DemoManager() {
                                 <span className="truncate max-w-[200px]">{demo.description}</span>
                               )}
                               {demo.updated_at && (
-                                <span
-                                  className="text-[11px] text-muted-foreground"
-                                  title={formatLocalDateTime(demo.updated_at)}
-                                >
-                                  Updated {relativeTime(demo.updated_at)}
+                                <span className="text-[11px] text-muted-foreground">
+                                  {formatLocalDateTime(demo.updated_at)}
                                 </span>
                               )}
                             </div>

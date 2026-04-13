@@ -52,9 +52,9 @@ class DemoServerPool(BaseModel):
     id: str = "pool-1"
     node_count: int = 4
     drives_per_node: int = 4
-    disk_size_tb: int = 8
+    disk_size_tb: int = 1
     disk_type: str = "ssd"              # "nvme" | "ssd" | "hdd" — display only
-    ec_parity: int = 4
+    ec_parity: int = 3
     ec_parity_upgrade_policy: str = "upgrade"
     volume_path: str = "/data"
 
@@ -65,16 +65,16 @@ class DemoCluster(BaseModel):
     label: str = "MinIO Cluster"
     position: NodePosition
     node_count: int = 4               # Valid values: 4, 6, 8, 16
-    drives_per_node: int = 1          # Valid values: 4, 6, 8, 12, 16
+    drives_per_node: int = 4          # Valid values: 1, 4, 6, 8, 12, 16
     credentials: dict[str, str] = {}  # root_user, root_password
     config: dict[str, str] = {}
     width: float = 280
     height: float = 200
     mcp_enabled: bool = True          # Deploy MCP sidecar for AI tool access
     aistor_tables_enabled: bool = False  # Enable AIStor Tables (direct Trino connection)
-    ec_parity: int = 4                         # EC parity shards (EC:N)
+    ec_parity: int = 3                         # EC parity shards (EC:N)
     ec_parity_upgrade_policy: str = "upgrade"  # "upgrade" or "ignore"
-    disk_size_tb: int = 8                      # Planning display only, not used in containers
+    disk_size_tb: int = 1                      # Planning display only, not used in containers
     server_pools: list[DemoServerPool] = []
 
     def get_pools(self) -> list["DemoServerPool"]:

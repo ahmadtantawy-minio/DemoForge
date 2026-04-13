@@ -1,6 +1,6 @@
 id: hdfs
 name: Apache HDFS
-category: storage
+category: infrastructure
 icon: hdfs
 version: "3"
 image: apache/hadoop:3

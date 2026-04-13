@@ -108,7 +108,7 @@ export default function ClusterContextMenu(props: Props) {
   // Resolve node ID for node-type menu
   let nodeId = "";
   let nodeInstance: ContainerInstance | undefined;
-  let drivesPerNode = 1;
+  let drivesPerNode = 4;
   let nodePoolId = "";
   let nodePoolNodeIndex = 0;
   if (type === "node" && nodeIdx !== undefined) {
@@ -123,7 +123,7 @@ export default function ClusterContextMenu(props: Props) {
       remaining -= pools[i].nodeCount;
     }
     const pool = pools[poolIdx];
-    drivesPerNode = pool?.drivesPerNode ?? 1;
+    drivesPerNode = pool?.drivesPerNode ?? 4;
     nodePoolId = pool?.id ?? "";
     nodePoolNodeIndex = remaining + 1;
     nodeId = `${clusterId}-pool${poolIdx + 1}-node-${remaining + 1}`;

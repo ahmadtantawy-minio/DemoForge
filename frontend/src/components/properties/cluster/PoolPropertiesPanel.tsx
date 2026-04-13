@@ -17,11 +17,11 @@ interface Props {
 
 export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpdate }: Props) {
   const nodeCount = pool.nodeCount || 4;
-  const drivesPerNode = pool.drivesPerNode || 1;
+  const drivesPerNode = pool.drivesPerNode || 4;
   const totalDrives = nodeCount * drivesPerNode;
   const setSize = computeErasureSetSize(totalDrives);
   const numSets = totalDrives / setSize;
-  const stats = computePoolErasureStats(nodeCount, drivesPerNode, pool.ecParity ?? 4, pool.diskSizeTb ?? 8);
+  const stats = computePoolErasureStats(nodeCount, drivesPerNode, pool.ecParity ?? 3, pool.diskSizeTb ?? 1);
 
   return (
     <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
@@ -43,7 +43,7 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
             const newSetSize = computeErasureSetSize(newTotal);
             const maxParity = Math.floor(newSetSize / 2);
             const defaultParity = newSetSize <= 5 ? 2 : newSetSize <= 7 ? 3 : 4;
-            const currentParity = pool.ecParity ?? 4;
+            const currentParity = pool.ecParity ?? 3;
             const patch: Partial<MinioServerPool> = { nodeCount: newNodeCount };
             if (newDrivesPerNode !== drivesPerNode) patch.drivesPerNode = newDrivesPerNode;
             if (currentParity > maxParity) patch.ecParity = defaultParity;
@@ -73,7 +73,7 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
             const newSetSize = computeErasureSetSize(newTotal);
             const maxParity = Math.floor(newSetSize / 2);
             const defaultParity = newSetSize <= 5 ? 2 : newSetSize <= 7 ? 3 : 4;
-            const currentParity = pool.ecParity ?? 4;
+            const currentParity = pool.ecParity ?? 3;
             if (currentParity > maxParity) {
               onUpdate({ drivesPerNode: newDrivesPerNode, ecParity: defaultParity });
             } else {
@@ -121,7 +121,7 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
       <div className="mb-3">
         <label className="text-xs text-muted-foreground block mb-1">Disk size per node</label>
         <Select
-          value={String(pool.diskSizeTb ?? 8)}
+          value={String(pool.diskSizeTb ?? 1)}
           onValueChange={(v) => onUpdate({ diskSizeTb: parseInt(v) })}
         >
           <SelectTrigger className="w-full h-8 text-sm">
@@ -139,7 +139,7 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
       <div className="mb-3">
         <label className="text-xs text-muted-foreground block mb-1">EC parity</label>
         <Select
-          value={String(pool.ecParity ?? 4)}
+          value={String(pool.ecParity ?? 3)}
           onValueChange={(v) => onUpdate({ ecParity: parseInt(v) })}
         >
           <SelectTrigger className="w-full h-8 text-sm">

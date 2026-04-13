@@ -6,9 +6,9 @@ export function migrateClusterData(data: any): ClusterNodeData {
     id: "pool-1",
     nodeCount: data.nodeCount ?? 4,
     drivesPerNode: data.drivesPerNode ?? 4,
-    diskSizeTb: data.diskSizeTb ?? 8,
+    diskSizeTb: data.diskSizeTb ?? 1,
     diskType: "ssd",
-    ecParity: data.ecParity ?? 4,
+    ecParity: data.ecParity ?? 3,
     ecParityUpgradePolicy: data.ecParityUpgradePolicy ?? "upgrade",
     volumePath: "/data",
   };
