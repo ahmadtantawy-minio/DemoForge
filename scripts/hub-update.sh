@@ -18,12 +18,11 @@ usage() {
     echo ""
     echo "  --all         Run all update steps (default)"
     echo "  --gateway     Rebuild and deploy Cloud Run gateway only"
-    echo "  --hub-api     Redeploy hub-api Cloud Run only (SSH-free, ~2 min)"
-    echo "  --templates   Seed base templates to MinIO hub"
-    echo "  --images      Build and push custom images to registry"
-    echo "  --licenses    Seed license keys to MinIO"
+    echo "  --hub-api     Redeploy hub-api Cloud Run only (~2 min)"
+    echo "  --templates   Seed base templates to GCS"
+    echo "  --images      Build and push custom images to GCR"
+    echo "  --licenses    Seed license keys to GCS"
     echo ""
-    echo "Requires dev mode (direct MinIO access) for push operations."
     exit 0
 }
 
@@ -39,7 +38,7 @@ echo -e "${CYAN}║  DemoForge Hub — Update                                 �
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── hub-api only: no DIRECT_IP needed (Cloud Run deploy is SSH-free) ──
+# ── hub-api only ──
 if [[ "$MODE" == "--hub-api" ]]; then
     log "=== Redeploying hub-api Cloud Run ==="
     "$SCRIPT_DIR/minio-gcp.sh" --deploy-api
@@ -47,39 +46,33 @@ if [[ "$MODE" == "--hub-api" ]]; then
     exit 0
 fi
 
-# ── Pre-flight checks ──
-DIRECT_IP="${DEMOFORGE_DIRECT_IP:-}"
-if [[ -z "$DIRECT_IP" ]]; then
-    err "DEMOFORGE_DIRECT_IP not set. Configure .env.hub or .env.local first."
-    exit 1
-fi
-
-log "Hub: ${DEMOFORGE_HUB_URL:-not set}"
-log "Direct IP: ${DIRECT_IP}"
-echo ""
-
-# ── Step 1: Gateway ──
+# ── Gateway requires DIRECT_IP for Caddyfile generation ──
 if [[ "$MODE" == "--all" || "$MODE" == "--gateway" ]]; then
+    DIRECT_IP="${DEMOFORGE_DIRECT_IP:-}"
+    if [[ -z "$DIRECT_IP" ]]; then
+        err "DEMOFORGE_DIRECT_IP not set — required for gateway deploy. Configure .env.hub or .env.local."
+        exit 1
+    fi
     log "=== Updating Gateway ==="
     "$SCRIPT_DIR/minio-gcp.sh" --deploy-gateway
     echo ""
 fi
 
-# ── Step 2: Templates ──
+# ── Templates → GCS (no DIRECT_IP needed) ──
 if [[ "$MODE" == "--all" || "$MODE" == "--templates" ]]; then
     log "=== Seeding Templates ==="
     "$SCRIPT_DIR/hub-seed.sh"
     echo ""
 fi
 
-# ── Step 3: Images ──
+# ── Images → GCR (no DIRECT_IP needed) ──
 if [[ "$MODE" == "--all" || "$MODE" == "--images" ]]; then
     log "=== Building & Pushing Custom Images ==="
     "$SCRIPT_DIR/hub-push.sh"
     echo ""
 fi
 
-# ── Step 4: Licenses ──
+# ── Licenses → GCS (no DIRECT_IP needed) ──
 if [[ "$MODE" == "--all" || "$MODE" == "--licenses" ]]; then
     log "=== Seeding Licenses ==="
     "$SCRIPT_DIR/seed-licenses.sh"
@@ -93,5 +86,4 @@ echo -e "${GREEN}║  Hub Update Complete                                    ║
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Show status
 "$SCRIPT_DIR/hub-status.sh" 2>/dev/null || true

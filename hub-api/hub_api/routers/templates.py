@@ -1,14 +1,11 @@
-"""Template proxy — serves templates from hub MinIO to authenticated FAs."""
-import io
-import functools
+"""Template proxy — serves templates from GCS to authenticated FAs."""
 import asyncio
 import logging
 
-import boto3
-from botocore.config import Config as BotoConfig
-from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from google.cloud import storage
+from google.api_core.exceptions import NotFound
 
 from ..auth import get_current_fa
 from ..config import settings
@@ -16,50 +13,31 @@ from ..config import settings
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-def _s3():
-    return boto3.client(
-        "s3",
-        endpoint_url=settings.sync_endpoint,
-        aws_access_key_id="demoforge-sync",
-        aws_secret_access_key=settings.sync_secret_key,
-        region_name="us-east-1",
-        config=BotoConfig(
-            signature_version="s3v4",
-            connect_timeout=5,
-            read_timeout=15,
-            retries={"max_attempts": 1},
-        ),
-    )
+_gcs_client: storage.Client | None = None
 
 
-def _available():
-    return bool(settings.sync_secret_key and settings.sync_endpoint)
+def _gcs() -> storage.Client:
+    global _gcs_client
+    if _gcs_client is None:
+        _gcs_client = storage.Client()
+    return _gcs_client
 
 
 @router.get("/")
 async def list_templates(_fa: dict = Depends(get_current_fa)):
-    if not _available():
-        raise HTTPException(503, "Template sync not configured on hub")
-
     def _list():
-        client = _s3()
-        resp = client.list_objects_v2(
-            Bucket=settings.sync_bucket,
-            Prefix=settings.sync_prefix,
-            MaxKeys=500,
-        )
+        bucket = _gcs().bucket(settings.templates_bucket)
+        blobs = bucket.list_blobs(prefix=settings.templates_prefix)
         results = []
-        for obj in resp.get("Contents", []):
-            key = obj["Key"]
-            fname = key.removeprefix(settings.sync_prefix).lstrip("/")
+        for blob in blobs:
+            fname = blob.name.removeprefix(settings.templates_prefix).lstrip("/")
             if not fname.endswith(".yaml") or "/" in fname or not fname:
                 continue
             results.append({
                 "name": fname,
-                "etag": obj.get("ETag", "").strip('"'),
-                "size": obj.get("Size", 0),
-                "last_modified": obj["LastModified"].isoformat(),
+                "etag": blob.etag or "",
+                "size": blob.size or 0,
+                "last_modified": blob.updated.isoformat() if blob.updated else "",
             })
         return results
 
@@ -73,30 +51,25 @@ async def list_templates(_fa: dict = Depends(get_current_fa)):
 
 @router.get("/{filename}")
 async def get_template(filename: str, _fa: dict = Depends(get_current_fa)):
-    if not _available():
-        raise HTTPException(503, "Template sync not configured on hub")
     if "/" in filename or not filename.endswith(".yaml"):
         raise HTTPException(400, "Invalid template filename")
 
-    key = f"{settings.sync_prefix}{filename}"
+    blob_name = f"{settings.templates_prefix}{filename}"
 
     def _fetch():
-        client = _s3()
+        bucket = _gcs().bucket(settings.templates_bucket)
+        blob = bucket.blob(blob_name)
         try:
-            obj = client.get_object(Bucket=settings.sync_bucket, Key=key)
-            return obj["Body"].read(), obj.get("ETag", "").strip('"')
-        except ClientError as e:
-            if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
-                return None, None
-            raise
+            content = blob.download_as_bytes()
+            return content, blob.etag or ""
+        except NotFound:
+            return None, None
 
     try:
         content, etag = await asyncio.get_event_loop().run_in_executor(None, _fetch)
         if content is None:
             raise HTTPException(404, f"Template '{filename}' not found")
-        headers = {}
-        if etag:
-            headers["ETag"] = etag
+        headers = {"ETag": etag} if etag else {}
         return Response(content=content, media_type="application/x-yaml", headers=headers)
     except HTTPException:
         raise

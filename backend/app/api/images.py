@@ -6,7 +6,6 @@ from uuid import uuid4
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 import urllib.request
-import urllib.error
 
 from ..registry.loader import get_registry
 from ..models.api_models import ImageInfo, PullRequest, PullStatus, PullResponse
@@ -17,37 +16,10 @@ router = APIRouter(prefix="/api/images", tags=["images"])
 # In-memory pull tracking
 _pulls: dict[str, PullStatus] = {}
 
-REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
-# Docker pulls go through the host daemon (via socket), so use localhost
-# even though the backend container reaches the registry at host.docker.internal
-REGISTRY_PULL_HOST = os.environ.get("DEMOFORGE_REGISTRY_PULL_HOST", "localhost:5050")
-# Push host: hub-connector (host.docker.internal:5000) requires X-Api-Key which Docker's
-# binary push protocol can't provide. Set DEMOFORGE_REGISTRY_PUSH_HOST to the direct
-# registry IP (e.g. 34.18.175.14:5000) to bypass the connector. Falls back to REGISTRY_HOST.
-REGISTRY_PUSH_HOST = os.environ.get("DEMOFORGE_REGISTRY_PUSH_HOST", "") or REGISTRY_HOST
-
-
 @router.get("/registry-health")
 async def registry_health():
-    """Check if the private registry is reachable (from backend container)."""
-    if not REGISTRY_HOST:
-        return {"status": "not_configured", "host": ""}
-    try:
-        url = f"http://{REGISTRY_HOST}/v2/"
-        req = urllib.request.Request(url, method="GET")
-        try:
-            resp = await asyncio.to_thread(
-                lambda: urllib.request.urlopen(req, timeout=3)
-            )
-            code = resp.status
-        except urllib.error.HTTPError as he:
-            # 401/403 means registry is reachable but needs auth — that's fine
-            code = he.code
-        if code in (200, 401, 403):
-            return {"status": "connected", "host": REGISTRY_HOST, "code": code}
-        return {"status": "unreachable", "host": REGISTRY_HOST, "code": code}
-    except Exception as e:
-        return {"status": "unreachable", "host": REGISTRY_HOST, "error": str(e)}
+    """Private registry removed — always returns not_configured."""
+    return {"status": "not_configured", "host": ""}
 
 
 def _categorise(manifest) -> str:
@@ -124,11 +96,7 @@ async def get_image_status():
         else:
             status = "missing"
 
-        # Custom images come from the private registry
-        if category in ("custom", "platform") and REGISTRY_HOST:
-            pull_source = f"Private Registry ({REGISTRY_HOST})"
-        else:
-            pull_source = _pull_source(manifest.image)
+        pull_source = _pull_source(manifest.image)
 
         results.append(ImageInfo(
             component_name=name,
@@ -163,9 +131,7 @@ async def get_image_status():
         else:
             cached, local_size, built_at = presult
 
-        if pref.startswith("demoforge/") and REGISTRY_HOST:
-            psource = f"Private Registry ({REGISTRY_HOST})"
-        elif pref.startswith("gcr.io/"):
+        if pref.startswith("gcr.io/"):
             psource = "gcr.io"
         else:
             psource = _pull_source(pref)
@@ -283,9 +249,9 @@ async def hub_push_images():
     if os.environ.get("DEMOFORGE_MODE") != "dev":
         raise HTTPException(403, "Hub image push is only available in dev mode.")
 
-    registry = REGISTRY_PUSH_HOST
+    registry = os.environ.get("DEMOFORGE_REGISTRY_PUSH_HOST", "")
     if not registry:
-        raise HTTPException(400, "DEMOFORGE_REGISTRY_HOST is not configured.")
+        raise HTTPException(400, "DEMOFORGE_REGISTRY_PUSH_HOST is not configured.")
 
     components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "/app/components")
     host_components_dir = os.environ.get("DEMOFORGE_HOST_COMPONENTS_DIR", "")

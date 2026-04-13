@@ -93,9 +93,6 @@ HUB_HOST="${HUB_URL#https://}"
 docker run -d \
     --name hub-connector \
     --restart=always \
-    -p 9000:9000 \
-    -p 5050:5000 \
-    -p 9001:9001 \
     -p 8080:8080 \
     -e "HUB_URL=${HUB_URL}" \
     -e "HUB_HOST=${HUB_HOST}" \
@@ -174,26 +171,8 @@ _set_env() {
 
 _set_env "DEMOFORGE_FA_ID"           "${FA_ID}"
 _set_env "DEMOFORGE_API_KEY"         "${FA_KEY}"
-_set_env "DEMOFORGE_REGISTRY_HOST"   "localhost:5050"
 
 echo -e "${GREEN}✓ Updated .env.local${NC}"
-
-# ── Pull custom images ──
-echo -e "\n${CYAN}Pulling custom DemoForge images...${NC}"
-CATALOG=$(curl -sf "http://localhost:5050/v2/_catalog" 2>/dev/null || echo '{"repositories":[]}')
-REPOS=$(echo "$CATALOG" | python3 -c "import sys,json; [print(r) for r in json.load(sys.stdin).get('repositories',[])]" 2>/dev/null || true)
-
-if [[ -n "$REPOS" ]]; then
-    while IFS= read -r repo; do
-        [[ -z "$repo" ]] && continue
-        echo "  Pulling localhost:5050/${repo}:latest..."
-        docker pull "localhost:5050/${repo}:latest" 2>&1 | tail -1
-        docker tag "localhost:5050/${repo}:latest" "${repo}:latest" 2>/dev/null && echo "  ↳ tagged ${repo}:latest"
-    done <<< "$REPOS"
-    echo -e "${GREEN}✓ Custom images pulled and tagged${NC}"
-else
-    echo -e "${YELLOW}No custom images in registry yet.${NC}"
-fi
 
 # ── Done ──
 echo ""
@@ -203,7 +182,6 @@ echo -e "${GREEN}╠════════════════════
 echo -e "${GREEN}║  FA identity:   ${FA_ID}${NC}"
 echo -e "${GREEN}║  Hub connector: running (auto-restarts)                  ║${NC}"
 echo -e "${GREEN}║  Templates:     sync on next 'make start'               ║${NC}"
-echo -e "${GREEN}║  Images:        pulled from registry                     ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "Next: ${CYAN}make start${NC} to launch DemoForge"

@@ -1,5 +1,4 @@
 import asyncio
-import io
 import json
 import os
 import re
@@ -53,20 +52,8 @@ def _load_validated_safe() -> set[str]:
 
 
 def _save_validated(ids: set[str]):
-    """Persist the set of validated template IDs to MinIO.
-
-    Raises RuntimeError if MinIO is unreachable.
-    """
-    from ..engine.template_sync import SYNC_BUCKET, SYNC_PREFIX, _get_s3_client
-    payload = json.dumps({"validated": sorted(ids)}, indent=2).encode()
-    try:
-        s3 = _get_s3_client()
-        key = f"{SYNC_PREFIX}validated.json"
-        s3.put_object(Bucket=SYNC_BUCKET, Key=key, Body=io.BytesIO(payload), ContentType="application/json")
-        logger.info(f"Saved validated manifest to MinIO: {key}")
-    except Exception as e:
-        logger.error(f"Cannot save validated templates to MinIO: {e}")
-        raise RuntimeError(f"Cannot reach MinIO to save validated templates: {e}") from e
+    """Persist the set of validated template IDs. No-op: validation state is hub-managed."""
+    return
 
 
 def _discover_all_templates() -> list[tuple[str, str, dict]]:

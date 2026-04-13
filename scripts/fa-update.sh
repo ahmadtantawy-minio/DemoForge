@@ -23,13 +23,6 @@ fi
 CONNECTOR_IMAGE="gcr.io/minio-demoforge/demoforge-hub-connector:latest"
 DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 
-# ── Step 1: Migrate stale config values ───────────────────────────────────
-ENVFILE="$PROJECT_ROOT/.env.local"
-if grep -q "^DEMOFORGE_REGISTRY_HOST=localhost:5000$" "$ENVFILE" 2>/dev/null; then
-  sed -i.bak "s|^DEMOFORGE_REGISTRY_HOST=localhost:5000$|DEMOFORGE_REGISTRY_HOST=localhost:5050|" "$ENVFILE" && rm -f "${ENVFILE}.bak"
-  ok "Migrated DEMOFORGE_REGISTRY_HOST → localhost:5050 (port 5000 is reserved by macOS AirPlay)"
-fi
-
 # ── Step 2: Load FA key ────────────────────────────────────────────────────
 FA_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
 HUB_URL=$(grep "^DEMOFORGE_HUB_URL=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "$DEFAULT_HUB_URL")
@@ -64,9 +57,6 @@ else
       docker run -d \
         --name hub-connector \
         --restart=always \
-        -p 9000:9000 \
-        -p 5050:5000 \
-        -p 9001:9001 \
         -p 8080:8080 \
         -e "HUB_URL=${HUB_URL}" \
         -e "HUB_HOST=${HUB_HOST}" \
