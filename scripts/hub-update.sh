@@ -20,7 +20,8 @@ usage() {
     echo "  --gateway     Rebuild and deploy Cloud Run gateway only"
     echo "  --hub-api     Redeploy hub-api Cloud Run only (~2 min)"
     echo "  --templates   Seed base templates to GCS"
-    echo "  --images      Build and push custom images to GCR"
+    echo "  --images      Build and push core images to GCR (frontend, backend, data-generator)
+  --images-all  Build and push ALL custom images to GCR"
     echo "  --licenses    Seed license keys to GCS"
     echo ""
     exit 0
@@ -29,7 +30,7 @@ usage() {
 MODE="${1:---all}"
 case "$MODE" in
     --help|-h) usage ;;
-    --all|--gateway|--hub-api|--templates|--images|--licenses) ;;
+    --all|--gateway|--hub-api|--templates|--images|--images-all|--licenses) ;;
     *) echo "Unknown flag: $MODE"; usage ;;
 esac
 
@@ -67,8 +68,14 @@ fi
 
 # ── Images → GCR (no DIRECT_IP needed) ──
 if [[ "$MODE" == "--all" || "$MODE" == "--images" ]]; then
-    log "=== Building & Pushing Custom Images ==="
+    log "=== Building & Pushing Core Images ==="
     "$SCRIPT_DIR/hub-push.sh"
+    echo ""
+fi
+
+if [[ "$MODE" == "--images-all" ]]; then
+    log "=== Building & Pushing All Custom Images ==="
+    "$SCRIPT_DIR/hub-push.sh" --all
     echo ""
 fi
 

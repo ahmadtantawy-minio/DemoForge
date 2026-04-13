@@ -184,7 +184,7 @@ hub-release-major: ## [Dev] Release with major bump
 hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licenses
 	@scripts/hub-update.sh
 
-hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images
+hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images, hub-update-images-all
 	@scripts/hub-update.sh --$*
 
 hub-deploy:       ## [Dev] Full GCP deploy: hub-api + gateway Cloud Run + GCS infra
