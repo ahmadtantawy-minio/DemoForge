@@ -1,6 +1,6 @@
 """
 Fire-and-forget telemetry emitter.
-Sends events to the Hub API through the local hub connector.
+Sends events to the Hub API through the hub gateway.
 Never blocks or fails the calling operation.
 """
 import asyncio

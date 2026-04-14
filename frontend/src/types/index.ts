@@ -1,5 +1,5 @@
 // --- Connection types ---
-export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query" | "s3-queue" | "spark-submit" | "hdfs" | "failover" | "llm-api" | "vector-db" | "mlflow-tracking" | "labeling-api" | "vector-db-milvus" | "etcd" | "workflow-api" | "llm-gateway" | "structured-data" | "kafka" | "kafka-connect" | "dremio-sql" | "dremio-flight" | "schema-registry" | "aistor-tables" | "inference-api" | "nginx-backend";
+export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query" | "s3-queue" | "spark-submit" | "hdfs" | "failover" | "llm-api" | "vector-db" | "mlflow-tracking" | "labeling-api" | "vector-db-milvus" | "etcd" | "workflow-api" | "llm-gateway" | "structured-data" | "kafka" | "kafka-connect" | "dremio-sql" | "dremio-flight" | "schema-registry" | "aistor-tables" | "inference-api" | "nginx-backend" | "external-api";
 
 // --- Edge data ---
 export interface ComponentEdgeData {
@@ -83,6 +83,7 @@ export interface ConnectionProvides {
   description: string;
   path: string;
   config_schema: ConnectionConfigField[];
+  env_map?: { config_key: string; env_var: string }[];
 }
 
 export interface ConnectionAccepts {
@@ -105,6 +106,8 @@ export interface ComponentSummary {
   image: string;
   variants: string[];
   connections: ConnectionsDef;
+  virtual?: boolean;
+  properties?: ConnectionConfigField[];
 }
 
 // --- Demo ---

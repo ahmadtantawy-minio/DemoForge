@@ -57,13 +57,13 @@ def _extract_component_ids(raw: dict) -> list[str]:
 def _discover_templates() -> list[tuple[str, dict]]:
     """Reuse template discovery from the templates module."""
     from .templates import _discover_all_templates
-    return [(tid, raw) for tid, _source, raw in _discover_all_templates()]
+    return [(tid, raw) for tid, _source, raw, _path in _discover_all_templates()]
 
 
 def _discover_templates_with_source() -> list[tuple[str, dict, str]]:
     """Like _discover_templates but also returns the source (builtin/synced/user)."""
     from .templates import _discover_all_templates
-    return [(tid, raw, source) for tid, source, raw in _discover_all_templates()]
+    return [(tid, raw, source) for tid, source, raw, _path in _discover_all_templates()]
 
 
 def _write_guard():

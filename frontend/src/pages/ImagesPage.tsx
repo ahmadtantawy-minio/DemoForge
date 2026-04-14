@@ -16,7 +16,7 @@ export function ImagesPage() {
   const [hubPushing, setHubPushing] = useState(false);
   const [dangling, setDangling] = useState<{ count: number; reclaimable_mb: number } | null>(null);
   const [pruning, setPruning] = useState(false);
-  const [registryStatus, setRegistryStatus] = useState<"checking" | "connected" | "unreachable">("checking");
+  const [registryStatus, setRegistryStatus] = useState<"checking" | "connected" | "unreachable" | "not_configured">("checking");
 
   const loadImages = useCallback(async () => {
     setLoading(true);
@@ -39,7 +39,9 @@ export function ImagesPage() {
       .then(r => r.json())
       .then(d => {
         setRegistryHost(d.host || "");
-        setRegistryStatus(d.status === "connected" ? "connected" : d.status === "not_configured" ? "unreachable" : "unreachable");
+        if (d.status === "connected") setRegistryStatus("connected");
+        else if (d.status === "not_configured") setRegistryStatus("not_configured");
+        else setRegistryStatus("unreachable");
       })
       .catch(() => setRegistryStatus("unreachable"));
   }, []);
@@ -156,8 +158,8 @@ export function ImagesPage() {
             {faMode === "dev" && (
               <button
                 onClick={handleHubPush}
-                disabled={hubPushing || registryStatus !== "connected"}
-                title={registryStatus !== "connected" ? "Registry unreachable" : "Build and push all custom images to hub"}
+                disabled={hubPushing || registryStatus === "not_configured" || registryStatus === "checking"}
+                title={registryStatus === "not_configured" ? "No private registry configured (set DEMOFORGE_REGISTRY_PUSH_HOST)" : registryStatus === "unreachable" ? "Registry unreachable" : "Build and push all custom images to hub"}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Upload className={`w-4 h-4 ${hubPushing ? "animate-spin" : ""}`} />
@@ -190,10 +192,15 @@ export function ImagesPage() {
                 <Cloud className="w-3.5 h-3.5 text-green-400" />
                 <span className="text-green-400 font-medium">Private Registry{registryHost ? ` (${registryHost})` : ""}</span>
               </>
+            ) : registryStatus === "not_configured" ? (
+              <>
+                <CloudOff className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-muted-foreground">No private registry configured</span>
+              </>
             ) : (
               <>
                 <CloudOff className="w-3.5 h-3.5 text-yellow-400" />
-                <span className="text-yellow-400">Private Registry unreachable</span>
+                <span className="text-yellow-400">Private Registry unreachable ({registryHost})</span>
               </>
             )}
           </div>

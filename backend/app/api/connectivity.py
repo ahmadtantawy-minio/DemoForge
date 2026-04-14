@@ -50,7 +50,7 @@ def _step(name: str, ok: bool, detail: str = "", warn: bool = False) -> dict:
 
 
 async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> dict:
-    """FA API key chain: key configured → hub-api validates (direct in dev, via connector in standard)."""
+    """FA API key chain: key configured → hub-api validates (direct in dev, via gateway in standard)."""
     steps = []
     if not api_key:
         steps.append(_step("API key configured", False,
@@ -66,16 +66,24 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
         if local_url:
             target_url = local_url
             steps.append(_step("Target resolved", True,
-                f"Using local hub-api at {local_url} (bypasses connector routing)"))
+                f"Using local hub-api at {local_url} (bypasses gateway routing)"))
         else:
             steps.append(_step("Target resolved", False,
-                f"Local hub-api not found — falling back to connector at {hub_url}"))
+                f"Local hub-api not found — falling back to gateway at {hub_url}"))
 
     reach_label = "Local hub-api reachable" if (dev_mode and local_url) else "Hub gateway reachable"
 
+    # When going through the Caddy gateway, X-Api-Key must be the gateway key (access control).
+    # Hub-api reads FA identity from X-Fa-Api-Key (preferred) or X-Api-Key fallback.
+    # When hitting local hub-api directly (dev-local), FA key works for both.
+    if dev_mode and local_url:
+        fa_me_headers = {"X-Api-Key": api_key, "X-Fa-Api-Key": api_key}
+    else:
+        gw_key = os.environ.get("DEMOFORGE_GATEWAY_API_KEY", "") or api_key
+        fa_me_headers = {"X-Api-Key": gw_key, "X-Fa-Api-Key": api_key}
+
     async with httpx.AsyncClient() as client:
-        code, data, text, ms = await _get(client, target_url + "/api/hub/fa/me",
-                                           {"X-Api-Key": api_key, "X-Fa-Api-Key": api_key})
+        code, data, text, ms = await _get(client, target_url + "/api/hub/fa/me", fa_me_headers)
         if code == -1:
             steps.append(_step(reach_label, False, f"Connection refused at {target_url}"))
             return {"ok": False, "steps": steps}
@@ -145,7 +153,7 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
             steps.append(_step(reach_label, True, f"Responded in {ms:.0f}ms (non-JSON)"))
             steps.append(_step("FA identity validated", False,
                 f"Response was not JSON: {(text or '').strip()[:80]!r}. "
-                "Hub-api /api/hub/fa/* route not configured in connector."))
+                "Hub-api /api/hub/fa/* route not responding correctly."))
         elif code == 401:
             steps.append(_step(reach_label, True, f"Responded in {ms:.0f}ms"))
             steps.append(_step("FA identity validated", False,
@@ -166,7 +174,7 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
 
 
 async def _check_admin_key(hub_url: str, admin_key: str, dev_mode: bool = False) -> dict:
-    """Admin key: in dev mode hit local hub-api directly; otherwise go through connector."""
+    """Admin key: in dev mode hit local hub-api directly; otherwise go through gateway."""
     steps = []
     if not admin_key:
         steps.append(_step("Admin key configured", False,
@@ -181,10 +189,15 @@ async def _check_admin_key(hub_url: str, admin_key: str, dev_mode: bool = False)
         if local_url:
             target_url = local_url
             steps.append(_step("Target resolved", True,
-                f"Using local hub-api at {local_url} (bypasses connector routing)"))
+                f"Using local hub-api at {local_url} (bypasses gateway routing)"))
         else:
-            steps.append(_step("Target resolved", False,
-                f"Local hub-api not found — falling back to connector at {hub_url}"))
+            # Admin key is only meaningful against a local hub-api.
+            # The GCP gateway does not expose admin endpoints — skip rather than fail.
+            steps.append(_step("Local hub-api not running", True,
+                "Admin key validation requires a local hub-api. "
+                "Start it with `make dev-hub-api` to validate the admin key.",
+                warn=True))
+            return {"ok": True, "skipped": True, "steps": steps}
 
     async with httpx.AsyncClient() as client:
         code, data, text, ms = await _get(client, target_url + "/api/hub/admin/stats",
@@ -237,14 +250,17 @@ async def _find_local_hub_api() -> tuple[str | None, float]:
 
 async def _check_template_sync() -> dict:
     """FA mode: verify hub-api templates endpoint is reachable and returns templates."""
-    from ..engine.template_sync import HUB_URL, FA_API_KEY, TEMPLATES_URL
+    from ..engine.template_sync import HUB_URL, FA_API_KEY, GATEWAY_API_KEY, TEMPLATES_URL
     steps = []
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(
                 f"{TEMPLATES_URL}/",
-                headers={"X-Api-Key": FA_API_KEY},
+                headers={
+                    "X-Api-Key": GATEWAY_API_KEY or FA_API_KEY,
+                    "X-Fa-Api-Key": FA_API_KEY,
+                },
             )
             if resp.status_code == 503:
                 steps.append(_step("Template sync", False,
@@ -431,7 +447,7 @@ async def _check_local_hub_api() -> dict:
     async with httpx.AsyncClient() as client:
         code3, data3, text3, ms3 = await _get(
             client, local_url + "/api/hub/admin/stats",
-            {"X-Api-Key": admin_key}, timeout=3.0
+            {"X-Hub-Admin-Key": admin_key}, timeout=3.0
         )
         if code3 == 200 and data3 and "total_fas" in data3:
             steps.append(_step("DB + admin access", True,
@@ -462,11 +478,11 @@ async def check_connectivity():
 
     if mode == "dev":
         # dev-start sets DEMOFORGE_HUB_LOCAL=1 (local hub-api on :8000)
-        # dev-start-gcp does not set it (routes through GCP connector at :8080)
+        # dev-start-gcp does not set it (routes through GCP gateway)
         hub_local = os.getenv("DEMOFORGE_HUB_LOCAL", "") == "1"
 
         if hub_local:
-            # dev-start (local): local hub-api + admin key required; connector optional
+            # dev-start (local): local hub-api + admin key required; gateway optional
             results = await asyncio.gather(
                 _check_fa_auth(hub_url, api_key, dev_mode=True),
                 _check_admin_key(hub_url, admin_key, dev_mode=True),
@@ -512,7 +528,7 @@ async def check_connectivity():
                 },
             }
         else:
-            # dev-start-gcp: developer connecting to real GCP hub via connector.
+            # dev-start-gcp: developer connecting to real GCP hub via gateway.
             # The developer authenticates as admin (admin key), not as a registered FA.
             # fa_auth is optional — a 401 here just means no FA registration, which is
             # expected for developers who manage the hub rather than use it as an FA.
@@ -588,7 +604,7 @@ async def check_connectivity():
     return {
         "overall": "ok" if overall_ok else "degraded",
         "mode": mode,
-        # dev sub-mode: True = dev-start (local hub-api), False = dev-start-gcp (GCP connector)
+        # dev sub-mode: True = dev-start (local hub-api), False = dev-start-gcp (GCP gateway)
         "hub_local": hub_local if mode == "dev" else None,
         "hub_url": hub_url,
         "fa_id": fa_id,

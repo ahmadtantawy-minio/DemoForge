@@ -805,7 +805,7 @@ async def promote_template(template_id: str):
     # Auto-push the promoted template to the hub bucket
     push_result = publish_single_builtin(template_id)
     pushed = push_result.get("status") == "ok"
-    push_warning = None if pushed or push_result.get("status") == "skipped" else push_result.get("message")
+    push_warning = None if pushed else push_result.get("message")
     if push_warning:
         steps_errors["pushed"] = push_warning
     steps["pushed"] = pushed

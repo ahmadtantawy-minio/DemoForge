@@ -35,7 +35,16 @@ export const connectionColors: Record<string, string> = {
   "dremio-flight": "#6d28d9",
   "inference-api": "#76b900",
   "nginx-backend": "#f97316",
+  "external-api": "#64748b",
 };
+
+export function getConnectionColor(type: string): string {
+  return connectionColors[type] ?? "#94a3b8";
+}
+
+export function getConnectionLabel(type: string): string {
+  return connectionLabels[type] ?? type;
+}
 
 export const connectionLabels: Record<string, string> = {
   s3: "S3",
@@ -74,4 +83,5 @@ export const connectionLabels: Record<string, string> = {
   "dremio-flight": "Arrow Flight",
   "inference-api": "Inference API",
   "nginx-backend": "Backend",
+  "external-api": "External API",
 };

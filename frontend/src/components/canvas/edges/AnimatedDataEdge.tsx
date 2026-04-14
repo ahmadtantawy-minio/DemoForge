@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, useStoreApi, type EdgeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 import type { ComponentEdgeData, ConnectionType } from "../../../types";
-import { connectionColors, connectionLabels } from "../../../lib/connectionMeta";
+import { getConnectionColor, connectionLabels } from "../../../lib/connectionMeta";
 import { useDemoStore } from "../../../stores/demoStore";
 
 
@@ -20,7 +20,7 @@ export default function AnimatedDataEdge({
   const status = edgeData?.status ?? "idle";
   const configStatus = (edgeData as any)?.configStatus as string | undefined; // "pending" | "applied" | "failed" | "paused" | undefined
   const configError = (edgeData as any)?.configError as string | undefined;
-  const color = connectionColors[connectionType] ?? "#6b7280";
+  const color = getConnectionColor(connectionType);
   const connConfig = (edgeData as any)?.connectionConfig as Record<string, any> | undefined;
 
   // For structured-data edges, build a rich label from edge config + source node config

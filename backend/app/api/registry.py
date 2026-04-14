@@ -33,6 +33,8 @@ async def list_components():
                     "accepts": [a.model_dump() for a in m.connections.accepts],
                 },
                 image_size_mb=m.image_size_mb,
+                virtual=m.virtual,
+                properties=[p.model_dump() for p in m.properties],
             )
             for m in manifests
         ]

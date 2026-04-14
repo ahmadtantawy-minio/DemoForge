@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ConfigSchemaForm from "./ConfigSchemaForm";
-import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
+import { getConnectionColor, getConnectionLabel } from "../../lib/connectionMeta";
 import { Eye, EyeOff } from "lucide-react";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
 import SqlPlaybookPanel from "./SqlPlaybookPanel";
@@ -539,8 +539,8 @@ export default function PropertiesPanel() {
 
     const edgeData = (selectedEdge.data ?? {}) as unknown as ComponentEdgeData;
     const connType = edgeData.connectionType ?? "data";
-    const color = connectionColors[connType] ?? "#6b7280";
-    const label = connectionLabels[connType] ?? connType;
+    const color = getConnectionColor(connType);
+    const label = getConnectionLabel(connType);
 
     const sourceNode = nodes.find((n) => n.id === selectedEdge.source);
     const targetNode = nodes.find((n) => n.id === selectedEdge.target);
@@ -1056,6 +1056,28 @@ export default function PropertiesPanel() {
         )}
       </div>
 
+
+      {(componentDef?.properties?.length ?? 0) > 0 && (
+        <div className="mb-3">
+          <div className="text-xs text-muted-foreground mb-2">Configuration</div>
+          {isExperience ? (
+            componentDef!.properties!.map((field) => (
+              <div key={field.key} className="flex gap-1 mb-1">
+                <div className="text-xs text-muted-foreground w-1/2 truncate pt-1">{field.label}</div>
+                <div className="flex-1 text-xs font-mono text-foreground pt-1 truncate">
+                  {data.config[field.key] ?? field.default ?? ""}
+                </div>
+              </div>
+            ))
+          ) : (
+            <ConfigSchemaForm
+              fields={componentDef!.properties!}
+              values={data.config}
+              onChange={updateConfig}
+            />
+          )}
+        </div>
+      )}
 
       {Object.keys(data.config).filter(k => k !== "MINIO_EDITION" && !(data.componentId === "nginx" && k === "mode")).length > 0 && (
         <div className="mb-3">

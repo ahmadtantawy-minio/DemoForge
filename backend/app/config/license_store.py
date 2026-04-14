@@ -1,4 +1,4 @@
-"""License key storage — Hub HTTP API (via connector) → local YAML fallback."""
+"""License key storage — Hub HTTP API (via gateway) → local YAML fallback."""
 import os
 import json
 import logging
@@ -25,7 +25,7 @@ class LicenseEntry:
 
 
 class LicenseStore:
-    """License store — tries HTTP hub connector first, falls back to local YAML."""
+    """License store — tries HTTP hub gateway first, falls back to local YAML."""
 
     def __init__(self):
         data_dir = os.environ.get("DEMOFORGE_DATA_DIR", "./data")
@@ -58,7 +58,7 @@ class LicenseStore:
                 pass
             raise
 
-    # --- HTTP read (via hub connector — no S3 signing needed) ---
+    # --- HTTP read (via hub gateway — no S3 signing needed) ---
 
     def _http_get(self, license_id: str) -> LicenseEntry | None:
         if not HUB_LICENSES_URL or not _FA_API_KEY:
@@ -75,7 +75,7 @@ class LicenseStore:
     # --- Public API ---
 
     def get(self, license_id: str) -> LicenseEntry | None:
-        # Try HTTP (via connector — no S3 signing issues)
+        # Try HTTP (via gateway — no S3 signing issues)
         entry = self._http_get(license_id)
         if entry:
             return entry

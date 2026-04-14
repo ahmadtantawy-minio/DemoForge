@@ -101,6 +101,16 @@
 
 ---
 
+## Images & Registry
+
+- [x] **BUG: Template tab counts inconsistent when Archived tab selected** — `fetchTemplates({ includeArchived: true })` inflates the `templates` array, causing tier/My Templates/FA Ready counts to include archived items. Fixed by adding `!t.archived` guard on all non-Archived tab count computations in `TemplateGallery.tsx`.
+
+- [x] **BUG: Private Registry shown as "unreachable" when no registry is configured** — `registry-health` endpoint always returns `not_configured` (private registry was removed with hub-connector). Frontend maps `not_configured` → `"unreachable"` state showing yellow warning banner. Fix: (a) backend should check `DEMOFORGE_REGISTRY_PUSH_HOST` env var and ping it if set, otherwise return `not_configured`; (b) frontend should treat `not_configured` as neutral "Not configured" rather than yellow "unreachable" warning. Also, "Push Images to Hub" button is disabled when registry `!== "connected"` — this should be gated on `DEMOFORGE_REGISTRY_PUSH_HOST` being set, not on registry reachability.
+
+- [x] **BUG: FA Management unavailable in dev-gcp mode** — FA Management requires a local hub-api (admin key is local-hub-only; GCP gateway rejects it). In `faMode="dev"` + `hubLocal=false` (dev-gcp), the page shows an informational 503. This is architecturally correct — the admin key is only valid against a local hub-api. Consider whether FA Management should be hidden entirely in dev-gcp mode (no local hub running) or if a read-only gateway mode is feasible.
+
+---
+
 ## Demo Management UX
 
 - [x] **Enhancement: Last updated timestamp on demos** — Wherever demos are listed or examined (demo manager, canvas header, any demo list view), show the last modified date/time in local timezone. Needs a `updated_at` field persisted on the demo state whenever the user makes a change (topology edits, config changes, saves). Display format: relative ("2 hours ago") with full timestamp on hover (e.g. "Apr 13, 2026, 14:32"). Scope: demo list/manager view, canvas title bar or header area, demo detail panel if any.

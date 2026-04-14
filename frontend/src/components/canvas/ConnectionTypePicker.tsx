@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useDiagramStore } from "../../stores/diagramStore";
 import type { ConnectionType } from "../../types";
-import { connectionColors, connectionLabels } from "../../lib/connectionMeta";
+import { getConnectionColor, getConnectionLabel } from "../../lib/connectionMeta";
 import { ArrowRight } from "lucide-react";
 
 export default function ConnectionTypePicker() {
@@ -43,8 +43,8 @@ export default function ConnectionTypePicker() {
         {directedOptions ? (
           // Show direction-aware options
           directedOptions.map((opt, i) => {
-            const color = connectionColors[opt.type] ?? "#6b7280";
-            const typeLabel = connectionLabels[opt.type] ?? opt.type;
+            const color = getConnectionColor(opt.type);
+            const typeLabel = getConnectionLabel(opt.type);
             return (
               <button
                 key={`${opt.type}-${opt.direction}-${i}`}
@@ -68,8 +68,8 @@ export default function ConnectionTypePicker() {
         ) : (
           // Legacy: simple type list without direction
           pendingConnection.validTypes.map((type) => {
-            const color = connectionColors[type] ?? "#6b7280";
-            const label = connectionLabels[type] ?? type;
+            const color = getConnectionColor(type);
+            const label = getConnectionLabel(type);
             return (
               <button
                 key={type}

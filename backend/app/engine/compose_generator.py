@@ -370,6 +370,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if manifest is None:
             raise ValueError(f"Unknown component: {node.component}")
 
+        # Virtual components are reference-only nodes — no Docker service generated
+        if manifest.virtual:
+            continue
+
         component_dir = os.path.join(components_dir, node.component)
         service_name = node.id
         container_name = f"{project_name}-{node.id}"
@@ -888,6 +892,29 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 kc_port = next((p.container for p in peer_manifest.ports if p.name == "api"), 8083)
                 env["KAFKA_CONNECT_URL"] = f"http://{project_name}-{peer_id}:{kc_port}"
             break
+
+        # Generic env_map resolution: inject peer node config values declared in manifest
+        # Works for any connection type — additive alongside the hardcoded blocks above
+        for edge in demo.edges:
+            if edge.source == node.id:
+                peer_id = edge.target
+            elif edge.target == node.id:
+                peer_id = edge.source
+            else:
+                continue
+            peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+            if not peer_node:
+                continue
+            peer_manifest = get_component(peer_node.component)
+            if not peer_manifest:
+                continue
+            property_defaults = {p.key: p.default for p in peer_manifest.properties}
+            for provides in peer_manifest.connections.provides:
+                if provides.type == edge.connection_type and provides.env_map:
+                    for mapping in provides.env_map:
+                        val = peer_node.config.get(mapping.config_key) or property_defaults.get(mapping.config_key)
+                        if val:
+                            env[mapping.env_var] = val
 
         # Determine which networks this node joins
         # If node.networks is empty, join all demo networks

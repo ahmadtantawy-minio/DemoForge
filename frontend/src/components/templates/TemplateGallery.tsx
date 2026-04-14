@@ -104,7 +104,8 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const faMode = useDemoStore((s) => s.faMode);
   const hubLocal = useDemoStore((s) => s.hubLocal);
   const [sourceMeta, setSourceMeta] = useState<{ sources: Record<string, number>; mode: string; sync: any } | null>(null);
-  const [connectivityBlocked, setConnectivityBlocked] = useState(false);
+  const [hubUnreachable, setHubUnreachable] = useState(false);  // template_sync failed → templates may be stale, hide grid
+  const [authFailed, setAuthFailed] = useState(false);          // fa_auth failed but templates are fresh → disable creation only
   const [connectivityChecked, setConnectivityChecked] = useState(false);
 
   // Editable fields in the detail dialog
@@ -157,16 +158,26 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   useEffect(() => { if (loadKey !== undefined && loadKey > 0) loadAll(); }, [loadKey]);
 
   useEffect(() => {
-    // Connectivity enforcement rules:
-    //   standard     → no check (no hub)
-    //   dev-start    → no check (local hub-api, hubLocal=true, mirrors demoforge.sh)
-    //   dev-start-gcp → check (connected to real GCP hub, hubLocal=false)
-    //   fa           → check
-    const shouldCheck = faMode === "fa" || (faMode === "dev" && hubLocal === false);
-    if (!shouldCheck) { setConnectivityChecked(true); return; }
-    apiFetch<{ overall: string; checks: Record<string, { ok: boolean }> }>("/api/connectivity/check")
+    // Mode semantics (consistent with AppNav / App.tsx):
+    //   isFaMode      = deployed to a Field Architect (always uses GCP gateway)
+    //   isDevGcp      = developer connected to real GCP hub (no local hub-api)
+    //   isDevLocal    = developer with local hub-api (dev-start)
+    //   isStandard    = no hub at all
+    //
+    // Connectivity gate: only run when actually connected to the GCP hub.
+    const isFaMode   = faMode === "fa";
+    const isDevGcp   = faMode === "dev" && hubLocal === false;
+
+    if (!isFaMode && !isDevGcp) { setConnectivityChecked(true); return; }
+
+    apiFetch<{ overall: string; checks: Record<string, { ok: boolean; optional?: boolean }> }>("/api/connectivity/check")
       .then(r => {
-        setConnectivityBlocked(r.overall !== "ok");
+        const syncOk = r.checks?.template_sync?.ok ?? true;
+        // FA auth gates demo creation only in FA mode — in dev-gcp the admin key is
+        // the auth mechanism and fa_auth is optional.
+        const authOk  = r.checks?.fa_auth?.ok ?? true;
+        setHubUnreachable(!syncOk);
+        setAuthFailed(isFaMode && syncOk && !authOk);
       })
       .catch(() => { /* don't block on check failure */ })
       .finally(() => setConnectivityChecked(true));
@@ -591,7 +602,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
       {tiers.length > 1 && (
         <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Template tiers">
           {tiers.map((tier) => {
-            const count = templates.filter((t) => (t.tier || "essentials") === tier).length;
+            const count = templates.filter((t) => !t.archived && (t.tier || "essentials") === tier).length;
             return (
               <button
                 key={tier}
@@ -620,7 +631,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
               }`}
           >
-            My Templates ({templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
+            My Templates ({templates.filter((t) => !t.archived && (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
           </button>
           {faMode === "dev" && (
             <button
@@ -635,7 +646,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 }`}
             >
               <ShieldCheck className="w-3 h-3" />
-              FA Ready ({templates.filter((t) => t.validated).length})
+              FA Ready ({templates.filter((t) => !t.archived && t.validated).length})
             </button>
           )}
           {faMode === "dev" && (
@@ -688,20 +699,39 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
         </div>
       )}
 
-      {connectivityBlocked && (
+      {hubUnreachable && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <CloudOff className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-300">Hub unreachable</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Could not reach the hub gateway — templates on disk may be outdated. Demo creation is disabled.{" "}
+              Check the <button className="underline text-red-400" onClick={() => useDemoStore.getState().setCurrentPage('connectivity')}>Healthcheck tab</button> for details.
+            </p>
+          </div>
+        </div>
+      )}
+      {authFailed && (
         <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-amber-300">Hub connectivity degraded</p>
+            <p className="text-sm font-medium text-amber-300">FA authentication failed</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Templates or components could not be loaded from the hub. Demo creation is disabled until connectivity is restored.
-              Check the <button className="underline text-amber-400" onClick={() => useDemoStore.getState().setCurrentPage('connectivity')}>Healthcheck tab</button> for details.
+              Templates are up to date, but your FA key could not be verified — demo creation is disabled.{" "}
+              Run <span className="font-mono text-amber-300">make fa-setup</span> to re-authenticate, or check the{" "}
+              <button className="underline text-amber-400" onClick={() => useDemoStore.getState().setCurrentPage('connectivity')}>Healthcheck tab</button>.
             </p>
           </div>
         </div>
       )}
 
-      {emptyMyTemplates ? (
+      {hubUnreachable ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+          <CloudOff className="w-8 h-8 text-red-500/50 mb-1" />
+          <p className="text-sm text-muted-foreground">Templates hidden — hub is unreachable</p>
+          <p className="text-xs text-muted-foreground/60">Templates on disk may be outdated. Restore hub connectivity to browse and create demos.</p>
+        </div>
+      ) : emptyMyTemplates ? (
         <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
           <p className="text-sm text-muted-foreground">
             Save a demo as template to see it here
@@ -953,7 +983,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 <Button
                   size="sm"
                   className="h-7 text-xs shrink-0"
-                  disabled={creating === t.id || !!loadingDetail || connectivityBlocked}
+                  disabled={creating === t.id || !!loadingDetail || hubUnreachable || authFailed}
                   aria-label={`Create demo from template: ${t.name}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1160,7 +1190,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 </div>
 
                 <Button
-                  disabled={creating === selectedTemplate.id || connectivityBlocked}
+                  disabled={creating === selectedTemplate.id || hubUnreachable || authFailed}
                   aria-label={`Create demo from template: ${selectedTemplate.name}`}
                   onClick={() => handleCreate(selectedTemplate.id)}
                 >

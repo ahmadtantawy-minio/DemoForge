@@ -693,6 +693,7 @@ export function FAManagementPage() {
 
   if (error) {
     const isNotConfigured = error.includes("not configured") || error.includes("dev-init");
+    const isInfo = isNotConfigured;
     return (
       <div className="h-full overflow-auto bg-background">
         <div className="max-w-5xl mx-auto px-8 py-8">
@@ -700,10 +701,8 @@ export function FAManagementPage() {
             <Users className="w-6 h-6 text-muted-foreground" />
             <h1 className="text-2xl font-bold text-card-foreground">FA Management</h1>
           </div>
-          <div className={`bg-card border rounded-lg p-8 text-center ${isNotConfigured ? "border-zinc-700" : "border-red-800/50"}`}>
-            {isNotConfigured
-              ? <Users className="w-10 h-10 text-zinc-500 mx-auto mb-3" />
-              : <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />}
+          <div className={`bg-card border rounded-lg p-8 text-center ${isInfo ? "border-zinc-700" : "border-red-800/50"}`}>
+            <Users className={`w-10 h-10 mx-auto mb-3 ${isInfo ? "text-zinc-500" : "text-red-400"}`} />
             <p className="text-sm font-medium text-foreground mb-2">
               {isNotConfigured ? "Hub API not configured" : "Failed to load FA data"}
             </p>

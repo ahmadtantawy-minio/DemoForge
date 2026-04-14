@@ -14,6 +14,8 @@ class ComponentSummary(BaseModel):
     variants: list[str]           # Just the variant names
     connections: dict = {}        # {provides: [...], accepts: [...]}
     image_size_mb: float | None = None
+    virtual: bool = False         # True = reference-only, no Docker service
+    properties: list[dict] = []   # always-visible node config fields
 
 class RegistryResponse(BaseModel):
     components: list[ComponentSummary]

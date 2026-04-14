@@ -556,6 +556,18 @@ function EventProducerIcon({ size }: { size: number }) {
   );
 }
 
+function ExternalSystemIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#475569" />
+      {/* Cloud shape */}
+      <path d="M8 20a4 4 0 01-.5-7.95A5.5 5.5 0 0118 11a4 4 0 014 4h1a3 3 0 010 6H8z" fill="white" opacity="0.9" />
+      {/* Arrow pointing right (external / outbound) */}
+      <path d="M13 20v4m0 0l-2-2m2 2l2-2" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -607,6 +619,7 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("kong")) return <KongIcon size={size} />;
     if (id.includes("event-bridge") || id.includes("event_bridge")) return <EventBridgeIcon size={size} />;
     if (id.includes("event-producer") || id.includes("event_producer")) return <EventProducerIcon size={size} />;
+    if (id.includes("external-system") || id.includes("external_system")) return <ExternalSystemIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();
 

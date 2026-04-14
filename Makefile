@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-seed hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -28,15 +28,13 @@ nuke:           ## Full clean + remove built images
 help:
 	./demoforge.sh help
 
-dev-init:       ## Generate local dev keys (.env.local) for use with make dev-start (local hub-api only)
+dev-init:       ## Generate local dev admin key (.env.local) for use with make dev-start (local hub-api)
 	@if grep -q "DEMOFORGE_HUB_API_ADMIN_KEY" .env.local 2>/dev/null; then \
 		echo "DEMOFORGE_HUB_API_ADMIN_KEY already set in .env.local"; \
-	elif [ -f .env.hub ]; then \
-		echo "GCP hub detected (.env.hub exists) — skipping local admin key (not needed for dev-start-gcp)"; \
 	else \
 		KEY="hubadm-$$(openssl rand -hex 20)"; \
 		echo "DEMOFORGE_HUB_API_ADMIN_KEY=$$KEY" >> .env.local; \
-		echo "Generated DEMOFORGE_HUB_API_ADMIN_KEY → .env.local"; \
+		echo "Generated DEMOFORGE_HUB_API_ADMIN_KEY → .env.local (for local hub-api; GCP key is in .env.hub)"; \
 	fi
 
 dev-hub-api:    ## [Dev] Start hub-api locally on :8000 with hot-reload
@@ -109,13 +107,20 @@ dev-purge-fa:   ## [Dev] Purge an FA (hard delete, can re-register). Usage: make
 	echo "Error: hub-api not reachable. Run: make dev-hub-api"
 
 ## Dev mode (DEMOFORGE_MODE=dev injected automatically)
-dev-start:      ## Start DemoForge in dev mode (local hub-api on :8000)
+dev-start:      ## Start DemoForge in dev mode (local hub-api + local S3 — both cloud runs hosted locally)
 	DEMOFORGE_HUB_LOCAL=1 ./demoforge-dev.sh start
 
-dev-start-gcp:  ## Start DemoForge in dev mode connected to GCP hub via connector
-	@if ! curl -sf http://localhost:8080/health >/dev/null 2>&1 && \
-	    ! curl -sf http://host.docker.internal:8080/health >/dev/null 2>&1; then \
-	  echo "Warning: hub-connector not detected on :8080 — run 'make fa-setup' first"; \
+dev-start-gcp:  ## Start DemoForge in dev mode connected to GCP cloud runs (hub-api + gateway)
+	@HUB_URL=$$(grep "^DEMOFORGE_HUB_URL=" .env.hub .env.local 2>/dev/null | tail -1 | cut -d= -f2-); \
+	HUB_API_URL=$$(grep "^DEMOFORGE_HUB_API_URL=" .env.hub .env.local 2>/dev/null | tail -1 | cut -d= -f2-); \
+	ADMIN_KEY=$$(grep "^DEMOFORGE_HUB_API_ADMIN_KEY=" .env.hub 2>/dev/null | cut -d= -f2-); \
+	if [ -z "$$HUB_URL" ] && [ -z "$$HUB_API_URL" ]; then \
+	  echo "Warning: DEMOFORGE_HUB_URL not set — FA Management will be unavailable. Run 'make hub-deploy' to configure."; \
+	fi; \
+	if [ -z "$$ADMIN_KEY" ]; then \
+	  echo "Warning: DEMOFORGE_HUB_API_ADMIN_KEY not found in .env.hub — FA Management will return 401. Check .env.hub."; \
+	else \
+	  echo "Hub admin key: $${ADMIN_KEY:0:12}... (from .env.hub)"; \
 	fi
 	DEMOFORGE_HUB_LOCAL= ./demoforge-dev.sh start
 
@@ -148,8 +153,10 @@ pull-missing:
 	@python3 check_images.py --mode fa --pull-missing
 
 ## Hub management
-hub-seed:         ## Re-seed templates to hub after local changes
-	@scripts/hub-seed.sh
+# hub-seed: deprecated — use the publish/promote UI buttons or POST /api/templates/push-all-builtin
+# which route via the gateway (GCS write path). hub-seed.sh uses gcloud CLI directly (host-only).
+#hub-seed:         ## Re-seed templates to hub after local changes
+#	@scripts/hub-seed.sh
 
 hub-status:       ## Show local vs remote template counts, sync config, registry health
 	@scripts/hub-status.sh
@@ -166,7 +173,8 @@ hub-push-%:       ## [Dev] Build and push one image, e.g.: make hub-push-inferen
 hub-pull:         ## [FA] Pull all custom images from private registry
 	@scripts/hub-pull.sh
 
-seed-licenses:    ## Seed license keys to GCS
+# seed-licenses: routes via gateway now — run scripts/seed-licenses.sh directly (it uses the gateway, not gcloud)
+seed-licenses:    ## Seed license keys to hub via gateway (GCS write path — no gcloud required)
 	@scripts/seed-licenses.sh
 
 hub-release:      ## [Dev] Full release: commit, tag, push images+templates, deploy hub-api, notify FAs

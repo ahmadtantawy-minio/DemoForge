@@ -1,6 +1,5 @@
 import { Home, LayoutDashboard, FileText, HardDrive, ShieldCheck, Users, Wifi, Settings, Sun, Moon } from "lucide-react";
 import { useDemoStore, type PageKey } from "../../stores/demoStore";
-import { useState } from "react";
 
 const baseTopItems: { key: PageKey; icon: typeof Home; label: string }[] = [
   { key: "home", icon: Home, label: "Home" },
@@ -18,6 +17,14 @@ export default function AppNav() {
   const currentPage = useDemoStore((s) => s.currentPage);
   const setCurrentPage = useDemoStore((s) => s.setCurrentPage);
   const faMode = useDemoStore((s) => s.faMode);
+  const hubLocal = useDemoStore((s) => s.hubLocal);
+
+  const modeLabel = faMode !== "dev" ? "FA" : hubLocal ? "D-LOC" : "D-GCP";
+  const modeLabelClass = faMode !== "dev"
+    ? "text-zinc-400 bg-zinc-800"
+    : hubLocal
+      ? "text-emerald-400 bg-emerald-400/10"
+      : "text-amber-400 bg-amber-400/10";
 
   const topItems = faMode === "dev"
     ? [
@@ -33,11 +40,9 @@ export default function AppNav() {
       <div className="w-7 h-7 rounded-md bg-[#C72C48] flex items-center justify-center mb-1">
         <span className="text-white font-bold text-xs">DF</span>
       </div>
-      {useDemoStore.getState().faMode === "dev" && (
-        <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded mb-2 leading-none">
-          DEV
-        </span>
-      )}
+      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded mb-2 leading-none ${modeLabelClass}`}>
+        {modeLabel}
+      </span>
 
       {/* Top nav items */}
       <div className="flex flex-col items-center gap-1 flex-1">
@@ -55,11 +60,7 @@ export default function AppNav() {
               }`}
             >
               <Icon size={18} className={active ? "text-zinc-100" : "text-zinc-400"} />
-              <span
-                className={`text-[9px] leading-tight mt-0.5 ${
-                  active ? "text-zinc-100" : "text-zinc-400"
-                }`}
-              >
+              <span className={`text-[9px] leading-tight mt-0.5 ${active ? "text-zinc-100" : "text-zinc-400"}`}>
                 {label}
               </span>
             </button>

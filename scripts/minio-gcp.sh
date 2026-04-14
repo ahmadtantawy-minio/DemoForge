@@ -124,13 +124,29 @@ setup_hub_api_litestream_infra() {
     ok "Service account already exists: ${sa}"
   fi
 
-  # objectAdmin on the bucket only (not project-wide)
+  # objectAdmin on the Litestream bucket only (not project-wide)
   gcloud storage buckets add-iam-policy-binding "${bucket}" \
     --member="serviceAccount:${sa}" \
     --role="roles/storage.objectAdmin" \
     --project="${PROJECT_ID}" \
     --quiet 2>/dev/null || true
   ok "IAM binding set: ${sa} → objectAdmin on ${bucket}"
+
+  # objectAdmin on the templates bucket — required for the upload endpoint (PUT /api/hub/templates/{filename})
+  gcloud storage buckets add-iam-policy-binding "gs://demoforge-hub-templates" \
+    --member="serviceAccount:${sa}" \
+    --role="roles/storage.objectAdmin" \
+    --project="${PROJECT_ID}" \
+    --quiet 2>/dev/null || true
+  ok "IAM binding set: ${sa} → objectAdmin on gs://demoforge-hub-templates"
+
+  # objectAdmin on the licenses bucket — for license management endpoints
+  gcloud storage buckets add-iam-policy-binding "gs://demoforge-hub-licenses" \
+    --member="serviceAccount:${sa}" \
+    --role="roles/storage.objectAdmin" \
+    --project="${PROJECT_ID}" \
+    --quiet 2>/dev/null || true
+  ok "IAM binding set: ${sa} → objectAdmin on gs://demoforge-hub-licenses"
 }
 
 # Helper: build hub-api image and deploy/update the Cloud Run service
@@ -216,7 +232,11 @@ deploy_gateway_cloudrun() {
   # Gateway is now a pure auth-gating proxy to hub-api Cloud Run.
   # MinIO S3/console, registry, and license/template bucket routes removed
   # (storage migrated to GCS; templates/licenses served by hub-api directly).
-  cat > "${GATEWAY_DIR}/Caddyfile" <<'CADDY_EOF'
+  # Inject the gateway key directly into the Caddyfile at build time.
+  # Using an unquoted heredoc so ${gateway_api_key} is shell-expanded now.
+  # Other Caddy placeholders ({env.HUB_API_HOST}, {upstream_host}) are safe —
+  # they don't start with $ so the shell leaves them untouched.
+  cat > "${GATEWAY_DIR}/Caddyfile" <<CADDY_EOF
 {
   auto_https off
   admin off
@@ -240,16 +260,12 @@ deploy_gateway_cloudrun() {
     }
   }
 
-  # API key validation — uses runtime env var (not baked into image)
-  @nokey {
-    not header X-Api-Key {env.GATEWAY_API_KEY}
-  }
-  handle @nokey {
-    respond "Unauthorized — X-Api-Key header required" 401
-  }
+  # API key validation — key is baked in at image build time.
+  # Positive matcher (@auth) avoids Caddy's broken "not header" block on Cloud Run.
+  @auth header X-Api-Key ${gateway_api_key}
 
-  # All authenticated traffic → hub-api Cloud Run
-  handle {
+  # Authenticated traffic → hub-api Cloud Run
+  handle @auth {
     request_header -X-Service
     reverse_proxy {env.HUB_API_HOST}:443 {
       header_up Host {env.HUB_API_HOST}
@@ -258,6 +274,11 @@ deploy_gateway_cloudrun() {
         tls_server_name {env.HUB_API_HOST}
       }
     }
+  }
+
+  # Everything else → 401
+  handle {
+    respond "Unauthorized — X-Api-Key header required" 401
   }
 }
 CADDY_EOF

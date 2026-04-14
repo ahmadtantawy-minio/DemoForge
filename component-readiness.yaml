@@ -1,4 +1,6 @@
 components:
+  external-system:
+    fa_ready: true
   minio:
     fa_ready: true
   prometheus:

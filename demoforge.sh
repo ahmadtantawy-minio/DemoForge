@@ -31,7 +31,7 @@ if [[ "${DEMOFORGE_MODE:-standard}" == "dev" && -f "$SCRIPT_DIR/docker-compose.d
     DC_FLAGS+=(-f "docker-compose.dev.yml")
 fi
 # Include local hub-api (profile "local-hub") when DEMOFORGE_HUB_LOCAL=1 (make dev-start)
-# Skip it for dev-start-gcp, which routes hub API calls through the connector instead
+# Skip it for dev-start-gcp, which routes FA admin calls directly to DEMOFORGE_HUB_API_URL
 if [[ "${DEMOFORGE_HUB_LOCAL:-}" == "1" ]]; then
     DC_FLAGS+=("--profile" "local-hub")
 fi
@@ -137,6 +137,7 @@ load_env() {
     export DEMOFORGE_VERSION="${DEMOFORGE_VERSION:-$(git -C "$SCRIPT_DIR" describe --tags --always 2>/dev/null || echo 'dev')}"
     # In GCP mode (DEMOFORGE_HUB_LOCAL not set), the .env.hub admin key is the GCP hub-api key.
     # Re-apply it after .env.local so the local dev key never wins in GCP mode.
+    # fa_admin.py uses DEMOFORGE_HUB_API_URL (direct Cloud Run) with this key for FA Management.
     # If .env.hub has no admin key (old deployment), unset entirely — wrong local key is worse than none.
     if [[ "${DEMOFORGE_HUB_LOCAL:-}" != "1" && -f "$SCRIPT_DIR/.env.hub" ]]; then
         _hub_admin=$(grep "^DEMOFORGE_HUB_API_ADMIN_KEY=" "$SCRIPT_DIR/.env.hub" 2>/dev/null \
@@ -147,6 +148,14 @@ load_env() {
             unset DEMOFORGE_HUB_API_ADMIN_KEY 2>/dev/null || true
         fi
         unset _hub_admin
+        # Gateway key: prefer explicit DEMOFORGE_GATEWAY_API_KEY from .env.hub,
+        # fall back to DEMOFORGE_API_KEY. Always from .env.hub — never overridden locally.
+        _gw_key=$(grep "^DEMOFORGE_GATEWAY_API_KEY=" "$SCRIPT_DIR/.env.hub" 2>/dev/null \
+            | cut -d= -f2- || true)
+        [[ -z "$_gw_key" ]] && _gw_key=$(grep "^DEMOFORGE_API_KEY=" "$SCRIPT_DIR/.env.hub" 2>/dev/null \
+            | cut -d= -f2- || true)
+        [[ -n "$_gw_key" ]] && export DEMOFORGE_GATEWAY_API_KEY="$_gw_key"
+        unset _gw_key
     fi
 }
 
@@ -265,19 +274,15 @@ cmd_start() {
     # Hub connectivity check (FA/standard mode only)
     if [[ "${DEMOFORGE_MODE:-standard}" != "dev" ]]; then
         log "Checking hub connectivity..."
-        if ! docker inspect hub-connector --format='{{.State.Status}}' 2>/dev/null | grep -q "running"; then
-            err "hub-connector is not running. Run: make fa-setup"
+        _HUB_URL="${DEMOFORGE_HUB_URL:-}"
+        if [[ -z "$_HUB_URL" ]]; then
+            err "DEMOFORGE_HUB_URL not set. Run: make fa-setup"
             exit 1
         fi
-        _HEALTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" "http://localhost:8080/health" 2>/dev/null || echo "000")
+        _HEALTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" \
+            "${_HUB_URL}/health" 2>/dev/null || echo "000")
         if [[ "$_HEALTH_HTTP" != "200" ]]; then
-            err "Hub gateway unreachable through connector (HTTP $_HEALTH_HTTP). Run: make fa-update"
-            echo ""
-            echo -e "  ${YELLOW}── hub-connector status ──${NC}"
-            docker inspect hub-connector --format='  State: {{.State.Status}}  RestartCount: {{.RestartCount}}' 2>/dev/null || echo "  (container not found)"
-            echo -e "  ${YELLOW}── hub-connector logs (last 30 lines) ──${NC}"
-            docker logs --tail 30 hub-connector 2>&1 | sed 's/^/  /' || true
-            echo ""
+            err "Hub gateway unreachable (HTTP $_HEALTH_HTTP). Check your network connection."
             exit 1
         fi
         ok "Hub connectivity verified"
@@ -292,14 +297,13 @@ cmd_start() {
     build_component_images
 
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
-        # Dev mode: use cached images if available; only rebuild on first run or after nuke
+        # Dev mode: always rebuild frontend (target changes prod→dev) and backend.
+        # Component images are cached separately above; other services use --no-build.
+        log "Building dev images (frontend + backend)..."
+        docker compose "${DC_FLAGS[@]}" build frontend backend
+        docker image prune -f --filter "until=1h" &>/dev/null || true
         log "Starting services..."
-        if ! docker compose "${DC_FLAGS[@]}" up -d --no-build 2>/dev/null; then
-            log "Images not found — building for first time..."
-            docker compose "${DC_FLAGS[@]}" build
-            docker image prune -f --filter "until=1h" &>/dev/null || true
-            docker compose "${DC_FLAGS[@]}" up -d
-        fi
+        docker compose "${DC_FLAGS[@]}" up -d --no-build
     else
         # FA mode: use pre-built images only — never build locally
         log "Starting services (using pre-built images)..."

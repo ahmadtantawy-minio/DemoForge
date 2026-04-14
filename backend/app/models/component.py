@@ -53,12 +53,17 @@ class ConnectionConfigField(BaseModel):
     options: list[str] = []
     description: str = ""
 
+class EnvMapping(BaseModel):
+    config_key: str   # key in the peer node's config (e.g. "endpoint_url")
+    env_var: str      # env var injected into the connecting node (e.g. "EXTERNAL_API_URL")
+
 class ConnectionProvides(BaseModel):
     type: str                     # "s3", "metrics", "jdbc"
     port: int
     description: str = ""
     path: str = ""
     config_schema: list[ConnectionConfigField] = []
+    env_map: list[EnvMapping] = []  # env vars to inject into nodes that connect here
 
 class ConnectionAccepts(BaseModel):
     type: str
@@ -110,7 +115,7 @@ class ComponentManifest(BaseModel):
     category: str                 # "storage", "analytics", "streaming", "ai", "database", "cloud", "infra", "tooling"
     icon: str = ""
     version: str = ""
-    image: str                    # Docker image reference
+    image: str = ""               # Docker image reference; empty for virtual components
     build_context: str = ""       # If set, path relative to component dir for docker build (e.g. ".")
     description: str = ""
     resources: ResourceDef = ResourceDef()
@@ -134,3 +139,5 @@ class ComponentManifest(BaseModel):
     resource_weight: str = "medium"      # "light" | "medium" | "heavy"
     depends_on_components: list[str] = [] # component names resolved to node IDs at deploy time
     log_commands: list[LogCommandDef] = []
+    virtual: bool = False              # True = reference-only node, no Docker service generated
+    properties: list[ConnectionConfigField] = []  # always-visible node config fields in properties panel

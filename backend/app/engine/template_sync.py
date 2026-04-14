@@ -5,7 +5,7 @@ No on/off flag — sync attempts whenever called. If hub is unreachable or
 FA key is missing, sync returns an error status; no separate enable flag needed.
 
 Environment variables:
-  DEMOFORGE_HUB_URL=http://host.docker.internal:8080
+  DEMOFORGE_HUB_URL=https://demoforge-gateway-64xwtiev6q-ww.a.run.app
   DEMOFORGE_API_KEY=<fa-api-key>
   DEMOFORGE_SYNCED_TEMPLATES_DIR=./synced-templates
 """
@@ -13,17 +13,19 @@ Environment variables:
 import os
 import json
 import logging
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import httpx
+import yaml
 
 logger = logging.getLogger("demoforge.template_sync")
 
-HUB_URL = os.environ.get("DEMOFORGE_HUB_URL", "http://host.docker.internal:8080").rstrip("/")
+HUB_URL = os.environ.get("DEMOFORGE_HUB_URL", "").rstrip("/")
 FA_API_KEY = os.environ.get("DEMOFORGE_API_KEY", "")
 SYNCED_DIR = os.environ.get("DEMOFORGE_SYNCED_TEMPLATES_DIR", "./synced-templates")
+GATEWAY_API_KEY = os.environ.get("DEMOFORGE_GATEWAY_API_KEY", "") or FA_API_KEY
+HUB_LOCAL = os.environ.get("DEMOFORGE_HUB_LOCAL", "") == "1"
 SYNC_MANIFEST_PATH = os.path.join(SYNCED_DIR, ".sync-manifest.json")
 
 TEMPLATES_URL = f"{HUB_URL}/api/hub/templates"
@@ -50,7 +52,12 @@ def sync_templates() -> dict:
     manifest = _load_manifest()
     stats = {"downloaded": 0, "unchanged": 0, "deleted": 0, "errors": 0}
 
-    headers = {"X-Api-Key": FA_API_KEY}
+    # Gateway requires X-Api-Key = gateway key; hub-api reads FA identity from X-Fa-Api-Key.
+    # When HUB_LOCAL=1 there is no gateway, so FA key works directly.
+    headers = {
+        "X-Api-Key": GATEWAY_API_KEY or FA_API_KEY,
+        "X-Fa-Api-Key": FA_API_KEY,
+    }
 
     try:
         with httpx.Client(timeout=15) as client:
@@ -123,98 +130,113 @@ def get_sync_status() -> dict:
     }
 
 
+_NON_TEMPLATES = {"CHANGELOG.yaml", "ORDER.yaml"}
+
+ADMIN_KEY = os.environ.get("DEMOFORGE_HUB_API_ADMIN_KEY", "")
+
+
+def _hub_upload(filename: str, content: bytes) -> dict:
+    """
+    PUT a template YAML to the hub. In GCP mode this goes via the Caddy gateway
+    (requires X-Api-Key); in local hub mode it hits hub-api directly (no gateway, no key needed).
+    """
+    if not HUB_URL:
+        return {"status": "error", "message": "DEMOFORGE_HUB_URL not set — cannot reach hub gateway."}
+    if not ADMIN_KEY:
+        return {"status": "error", "message": "DEMOFORGE_HUB_API_ADMIN_KEY not set — cannot authenticate to hub-api."}
+    if not HUB_LOCAL and not GATEWAY_API_KEY:
+        return {"status": "error", "message": "DEMOFORGE_API_KEY (or DEMOFORGE_GATEWAY_API_KEY) not set — gateway will reject the request."}
+
+    headers: dict[str, str] = {
+        "X-Hub-Admin-Key": ADMIN_KEY,
+        "Content-Type": "application/x-yaml",
+    }
+    if not HUB_LOCAL and GATEWAY_API_KEY:
+        headers["X-Api-Key"] = GATEWAY_API_KEY
+
+    url = f"{HUB_URL}/api/hub/templates/{filename}"
+    try:
+        with httpx.Client(timeout=30) as client:
+            resp = client.put(url, content=content, headers=headers)
+        if resp.status_code == 200:
+            return {"status": "ok", "remote_key": filename}
+        return {"status": "error", "message": f"Gateway returned HTTP {resp.status_code}: {resp.text[:200]}"}
+    except httpx.TimeoutException:
+        return {"status": "error", "message": "Upload timed out after 30s"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 def publish_template(template_id: str) -> dict:
-    """Upload a user template YAML to GCS for team-wide hub distribution. Dev mode only."""
+    """Upload a user template YAML via the hub gateway to GCS. Dev mode only.
+
+    Injects fa_ready: true into _template before uploading so the template
+    appears in tier/category tabs for all FAs after sync, not just My Templates.
+    Also updates the local file so the publisher sees it in categories immediately.
+
+    The gateway is the write path — no GCS credentials needed on the dev machine.
+    Fails loudly if the gateway is unreachable or auth fails.
+    """
     user_dir = os.environ.get("DEMOFORGE_USER_TEMPLATES_DIR", "./user-templates")
     src = Path(user_dir) / f"{template_id}.yaml"
     if not src.exists():
         return {"status": "error", "message": f"Template file not found: {src}"}
 
-    remote_key = f"{template_id}.yaml"
-    GCS_BUCKET = "gs://demoforge-hub-templates"
-    GCS_PREFIX = "templates"
-    dst = f"{GCS_BUCKET}/{GCS_PREFIX}/{remote_key}"
-    project_root = Path(__file__).parent.parent.parent.parent
+    raw_bytes = src.read_bytes()
     try:
-        result = subprocess.run(
-            ["gcloud", "storage", "cp", str(src), dst],
-            capture_output=True, text=True, timeout=30,
-            cwd=str(project_root),
-        )
-        if result.returncode != 0:
-            err = (result.stderr or result.stdout or "gcloud storage cp failed").strip()
-            return {"status": "error", "message": err}
-        logger.info(f"Published user template {template_id} → {dst}")
-        return {"status": "ok", "template_id": template_id, "remote_key": remote_key}
-    except FileNotFoundError:
-        return {"status": "error", "message": "gcloud not found — run 'gcloud auth login' and ensure gcloud is in PATH"}
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "message": "Upload timed out after 30s"}
+        data = yaml.safe_load(raw_bytes) or {}
+        if "_template" not in data:
+            data["_template"] = {}
+        data["_template"]["fa_ready"] = True
+        upload_bytes = yaml.dump(data, allow_unicode=True, sort_keys=False).encode()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.warning("Could not parse YAML for %s, uploading raw: %s", template_id, e)
+        upload_bytes = raw_bytes
+
+    result = _hub_upload(f"{template_id}.yaml", upload_bytes)
+    if result["status"] == "ok":
+        result["template_id"] = template_id
+        logger.info("Published user template %s via gateway", template_id)
+        # Update local copy so publisher sees it in categories immediately
+        try:
+            src.write_bytes(upload_bytes)
+        except Exception as e:
+            logger.warning("Could not update local template file %s: %s", src, e)
+    return result
 
 
 def publish_single_builtin(template_id: str) -> dict:
-    """Push a single builtin template file directly to GCS. Dev mode only."""
+    """Push a single builtin template via the hub gateway to GCS. Called after promote. Dev mode only.
+
+    Fails loudly — never silently skips.
+    """
     templates_dir = os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates")
     src = Path(templates_dir) / f"{template_id}.yaml"
     if not src.exists():
         return {"status": "error", "message": f"Template file not found: {src}"}
-
-    GCS_BUCKET = "gs://demoforge-hub-templates"
-    GCS_PREFIX = "templates"
-    dst = f"{GCS_BUCKET}/{GCS_PREFIX}/{template_id}.yaml"
-
-    try:
-        result = subprocess.run(
-            ["gcloud", "storage", "cp", str(src), dst],
-            capture_output=True, text=True, timeout=30,
-            cwd=str(project_root),
-        )
-        if result.returncode != 0:
-            err_msg = (result.stderr or result.stdout or "gcloud storage cp failed").strip()
-            logger.error(f"publish_single_builtin failed for {template_id}: {err_msg}")
-            return {"status": "error", "message": err_msg}
-        logger.info(f"Pushed {template_id}.yaml → {dst}")
-        return {"status": "ok", "uploaded": 1}
-    except FileNotFoundError:
-        return {"status": "skipped", "message": "gcloud not available — run make hub-seed manually"}
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "message": "Upload timed out after 30s"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    result = _hub_upload(f"{template_id}.yaml", src.read_bytes())
+    if result["status"] == "ok":
+        logger.info("Pushed builtin template %s via gateway", template_id)
+    return result
 
 
 def publish_builtin_templates() -> dict:
-    """Run hub-seed.sh to rsync demo-templates/ to GCS. Dev mode only."""
-    project_root = Path(__file__).parent.parent.parent.parent  # backend/app/engine -> project root
-    script = project_root / "scripts" / "hub-seed.sh"
-    templates_dir = project_root / "demo-templates"
+    """Upload all builtin templates via the hub gateway to GCS. Dev mode only."""
+    templates_dir = Path(os.environ.get("DEMOFORGE_TEMPLATES_DIR", "./demo-templates"))
+    srcs = sorted(f for f in templates_dir.glob("*.yaml") if f.name not in _NON_TEMPLATES)
+    if not srcs:
+        return {"status": "error", "message": f"No template files found in {templates_dir}"}
 
-    if not script.exists():
-        return {"status": "error", "message": f"hub-seed.sh not found at {script}"}
+    uploaded = errors = 0
+    for src in srcs:
+        result = _hub_upload(src.name, src.read_bytes())
+        if result["status"] == "ok":
+            uploaded += 1
+            logger.info("Uploaded %s via gateway", src.name)
+        else:
+            logger.error("Failed to upload %s: %s", src.name, result.get("message"))
+            errors += 1
 
-    # Count actual template files (exclude non-template YAMLs like CHANGELOG, ORDER)
-    _NON_TEMPLATES = {"CHANGELOG.yaml", "ORDER.yaml"}
-    uploaded = sum(
-        1 for f in templates_dir.glob("*.yaml") if f.name not in _NON_TEMPLATES
-    )
-
-    try:
-        result = subprocess.run(
-            ["bash", str(script)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(project_root),
-        )
-        if result.returncode != 0:
-            err_msg = (result.stderr or result.stdout or "hub-seed.sh failed").strip()
-            logger.error(f"hub-seed.sh failed: {err_msg}")
-            return {"status": "error", "message": err_msg}
-        logger.info(f"hub-seed.sh succeeded: {result.stdout.strip()}")
-        return {"status": "ok", "uploaded": uploaded, "errors": 0}
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "message": "Push timed out after 120s"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    if errors:
+        return {"status": "error", "message": f"{errors} upload(s) failed", "uploaded": uploaded, "errors": errors}
+    return {"status": "ok", "uploaded": uploaded, "errors": 0}

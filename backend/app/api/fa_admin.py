@@ -12,27 +12,37 @@ logger = logging.getLogger("demoforge.fa_admin")
 router = APIRouter()
 
 _LOCAL_HUB_CANDIDATES = ["http://localhost:8000", "http://host.docker.internal:8000"]
-_resolved_hub_url: str | None = None
 
 
 async def _resolve_hub_url() -> str:
-    """In dev mode, find local hub-api; otherwise use the hub connector URL."""
-    global _resolved_hub_url
-    if _resolved_hub_url:
-        return _resolved_hub_url
+    """Find hub-api: try local candidates first, then DEMOFORGE_HUB_API_URL (direct Cloud Run
+    URL), then DEMOFORGE_HUB_URL (gateway) as a last resort.
+    Raises 503 only if no reachable endpoint is found.
+
+    Priority:
+      1. Local hub-api (localhost:8000 / host.docker.internal:8000) — dev-start
+      2. DEMOFORGE_HUB_API_URL — direct Cloud Run URL, no gateway routing needed (dev-start-gcp)
+      3. DEMOFORGE_HUB_URL — gateway URL (legacy fallback; requires X-Service routing by gateway)
+    """
+    direct_url = os.getenv("DEMOFORGE_HUB_API_URL", "").rstrip("/")
+    gateway_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
+    fallback = direct_url or gateway_url
+    # Use short timeout when a remote fallback is available — avoids 6s wait per request
+    local_timeout = 1.0 if fallback else 3.0
     async with httpx.AsyncClient() as client:
         for url in _LOCAL_HUB_CANDIDATES:
             try:
-                r = await client.get(f"{url}/api/hub/health", timeout=3.0)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get("service") == "demoforge-hub-api":
-                        _resolved_hub_url = url
-                        return url
+                r = await client.get(f"{url}/api/hub/health", timeout=local_timeout)
+                if r.status_code == 200 and r.json().get("service") == "demoforge-hub-api":
+                    return url
             except Exception:
                 continue
-    # Fall back to connector URL
-    return os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
+        if fallback:
+            return fallback
+    raise HTTPException(
+        503,
+        "Hub API not reachable. Set DEMOFORGE_HUB_API_URL or start local hub-api with `make dev-hub-api`."
+    )
 
 
 def _dev_guard():
@@ -52,10 +62,10 @@ def _parse_response(r: httpx.Response) -> JSONResponse:
         data = r.json()
         return JSONResponse(content=data, status_code=r.status_code)
     except Exception:
+        hint = "Check DEMOFORGE_HUB_API_ADMIN_KEY." if r.status_code == 401 else "Check DEMOFORGE_HUB_URL."
         raise HTTPException(
             503,
-            f"Hub API returned a non-JSON response (status {r.status_code}). "
-            "Is the hub-api service running? Check DEMOFORGE_HUB_API_ADMIN_KEY and hub connector."
+            f"Hub API returned a non-JSON response (status {r.status_code}). {hint}"
         )
 
 

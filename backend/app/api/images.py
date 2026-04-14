@@ -18,8 +18,21 @@ _pulls: dict[str, PullStatus] = {}
 
 @router.get("/registry-health")
 async def registry_health():
-    """Private registry removed — always returns not_configured."""
-    return {"status": "not_configured", "host": ""}
+    """Check private registry reachability. Returns not_configured when no registry is set."""
+    host = os.environ.get("DEMOFORGE_REGISTRY_PUSH_HOST", "").strip()
+    if not host:
+        return {"status": "not_configured", "host": ""}
+
+    def _ping():
+        try:
+            req = urllib.request.Request(f"http://{host}/v2/", method="GET")
+            resp = urllib.request.urlopen(req, timeout=3)
+            return resp.status in (200, 401)  # 401 = auth required but reachable
+        except Exception:
+            return False
+
+    reachable = await asyncio.to_thread(_ping)
+    return {"status": "connected" if reachable else "unreachable", "host": host}
 
 
 def _categorise(manifest) -> str:
@@ -61,7 +74,6 @@ def _check_image_cached(image_ref: str) -> tuple[bool, Optional[float], Optional
 PLATFORM_IMAGES = [
     ("demoforge-backend", "demoforge/demoforge-backend:latest", ["demoforge-backend:latest"]),
     ("demoforge-frontend", "demoforge/demoforge-frontend:latest", ["demoforge-frontend:latest"]),
-    ("hub-connector", "gcr.io/minio-demoforge/demoforge-hub-connector:latest", []),
 ]
 
 
