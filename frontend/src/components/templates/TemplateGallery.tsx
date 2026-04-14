@@ -19,6 +19,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Box, Cpu, MemoryStick, Container, Layers, Loader2, LayoutGrid, ListFilter, RefreshCw, MoreHorizontal, Copy, Trash2, Upload, Cloud, CloudOff, HardDrive, RotateCcw, ShieldCheck, ShieldOff, AlertTriangle, Clock, ChevronLeft, ChevronRight, Archive } from "lucide-react";
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
 interface TemplateGalleryProps {
   onCreateDemo: (demoId: string) => void;
   loadKey?: number;
@@ -100,6 +114,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const [dirty, setDirty] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [templateOrder, setTemplateOrder] = useState<string[]>([]);
+  const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set());
 
   const handleReorder = async (templateId: string, direction: "left" | "right") => {
     const currentOrder = [...templateOrder];
@@ -268,6 +283,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const handlePublish = async (templateId: string) => {
     try {
       await publishTemplate(templateId);
+      setPublishedIds((prev) => new Set(prev).add(templateId));
       toast.success("Template published to team");
     } catch (err: any) {
       toast.error("Failed to publish", { description: err.message });
@@ -311,6 +327,13 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const handlePromote = async (templateId: string) => {
     try {
       const result = await promoteTemplate(templateId);
+      const failedSteps = Object.entries(result.steps || {}).filter(([, v]) => v === false).map(([k]) => k);
+      if (failedSteps.length > 0) {
+        const errors = result.steps_errors || {};
+        failedSteps.forEach((step) => {
+          toast.warning(`Promote step failed: ${step}`, { description: errors[step] || "Unknown error" });
+        });
+      }
       if (result.push_warning) {
         toast.success("Promoted to source", { description: `Hub push failed: ${result.push_warning}. Run make hub-update-templates to sync manually.` });
       } else if (result.pushed) {
@@ -741,6 +764,11 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                         My Template
                       </span>
                     )}
+                    {publishedIds.has(t.id) && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">
+                        Published
+                      </span>
+                    )}
                     {(t as any).source === "synced" && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">
                         Team
@@ -893,6 +921,11 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                       </span>
                     ))}
                   </div>
+                )}
+                {(t as any).updated_at && (
+                  <p className="text-[10px] text-muted-foreground mt-1" title={(t as any).updated_at}>
+                    Updated {timeAgo((t as any).updated_at)}
+                  </p>
                 )}
               </div>
 
@@ -1053,7 +1086,9 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                       {/* Most recent entry always visible */}
                       <div className="flex items-start gap-2">
                         <span className="text-muted-foreground shrink-0 tabular-nums">
-                          {(selectedTemplate as any).updated_at}
+                          {timeAgo((selectedTemplate as any).updated_at)}
+                          {" "}
+                          <span className="text-muted-foreground">({(selectedTemplate as any).updated_at?.slice(0,10)})</span>
                         </span>
                         {faMode === "dev" && (
                           <span className="text-foreground">

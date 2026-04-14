@@ -170,6 +170,7 @@ _set_env() {
 
 _set_env "DEMOFORGE_FA_ID"           "${FA_ID}"
 _set_env "DEMOFORGE_API_KEY"         "${FA_KEY}"
+_set_env "DEMOFORGE_HUB_URL"        "${HUB_URL}"
 _set_env "DEMOFORGE_MODE"            "fa"
 
 echo -e "${GREEN}✓ Updated .env.local${NC}"

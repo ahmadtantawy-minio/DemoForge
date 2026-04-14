@@ -2,10 +2,12 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from fastapi import APIRouter, HTTPException
 from ..state.store import state
 from ..engine.docker_manager import exec_in_container, docker_client
+from .demos import _load_demo
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -81,6 +83,111 @@ async def _get_throughput_from_prometheus(mc_shell: str, alias: str, demo_id: st
     except Exception as e:
         logger.debug(f"Prometheus metrics failed for {alias}: {e}")
     return {}
+
+
+def _parse_nginx_stub_status(text: str) -> dict:
+    """Parse nginx stub_status output into structured metrics.
+
+    Format:
+    Active connections: 3
+    server accepts handled requests
+     7 7 12
+    Reading: 0 Writing: 1 Waiting: 2
+    """
+    result = {"active_connections": 0, "total_requests": 0}
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("Active connections:"):
+            try:
+                result["active_connections"] = int(line.split(":")[1].strip())
+            except (ValueError, IndexError):
+                pass
+        elif line and line[0].isdigit():
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    result["total_requests"] = int(parts[2])
+                except (ValueError, IndexError):
+                    pass
+    return result
+
+
+async def _get_nginx_stats(mc_shell: str, project_name: str, cluster_id: str, demo_id: str) -> dict:
+    """Get nginx request rate from stub_status via mc-shell curl."""
+    lb_name = f"{project_name}-{cluster_id}-lb"
+    cache_key = (demo_id, cluster_id, "nginx")
+    try:
+        exit_code, stdout, _ = await exec_in_container(
+            mc_shell, f"curl -sf http://{lb_name}:80/nginx_status"
+        )
+        if exit_code != 0 or not stdout.strip():
+            return {"nginx_req_per_sec": 0, "nginx_active_connections": 0}
+
+        parsed = _parse_nginx_stub_status(stdout)
+        total_reqs = parsed["total_requests"]
+        now = time.time()
+
+        prev = _prom_snapshot.get(cache_key)
+        _prom_snapshot[cache_key] = (now, {"total_requests": total_reqs})
+
+        if prev:
+            prev_time, prev_data = prev
+            dt = now - prev_time
+            if dt > 0:
+                req_rate = max(0, (total_reqs - prev_data.get("total_requests", 0)) / dt)
+                return {
+                    "nginx_req_per_sec": round(req_rate, 2),
+                    "nginx_active_connections": parsed["active_connections"],
+                }
+        return {"nginx_req_per_sec": 0, "nginx_active_connections": parsed["active_connections"]}
+    except Exception:
+        return {"nginx_req_per_sec": 0, "nginx_active_connections": 0}
+
+
+async def _get_minio_cluster_metrics(mc_shell: str, project_name: str, cluster_id: str, demo_id: str) -> dict:
+    """Get MinIO byte rates from Prometheus endpoint on first pool node."""
+    node_name = f"{project_name}-{cluster_id}-pool1-node-1"
+    cache_key = (demo_id, cluster_id, "minio_direct")
+    try:
+        exit_code, stdout, _ = await exec_in_container(
+            mc_shell, f"curl -sf http://{node_name}:9000/minio/v2/metrics/cluster"
+        )
+        if exit_code != 0 or not stdout.strip():
+            return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
+
+        now = time.time()
+        rx_total = 0.0
+        tx_total = 0.0
+        for line in stdout.splitlines():
+            if line.startswith("#") or not line.strip():
+                continue
+            if "minio_s3_traffic_received_bytes" in line:
+                try:
+                    rx_total += float(line.split()[-1])
+                except (ValueError, IndexError):
+                    pass
+            elif "minio_s3_traffic_sent_bytes" in line:
+                try:
+                    tx_total += float(line.split()[-1])
+                except (ValueError, IndexError):
+                    pass
+
+        prev = _prom_snapshot.get(cache_key)
+        _prom_snapshot[cache_key] = (now, {"rx": rx_total, "tx": tx_total})
+
+        if prev:
+            prev_time, prev_data = prev
+            dt = now - prev_time
+            if dt > 0:
+                rx_rate = max(0, (rx_total - prev_data.get("rx", 0)) / dt)
+                tx_rate = max(0, (tx_total - prev_data.get("tx", 0)) / dt)
+                return {
+                    "minio_rx_bytes_per_sec": round(rx_rate),
+                    "minio_tx_bytes_per_sec": round(tx_rate),
+                }
+        return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
+    except Exception:
+        return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
 
 
 async def _get_host_stats(demo_id: str) -> dict:
@@ -192,6 +299,15 @@ async def get_cockpit_data(demo_id: str):
             except json.JSONDecodeError:
                 continue
 
+    # Build alias → cluster_id map from demo definition
+    project_name = f"demoforge-{demo_id}"
+    alias_to_cluster_id: dict[str, str] = {}
+    demo_def = _load_demo(demo_id)
+    if demo_def:
+        for cluster in demo_def.clusters:
+            mapped_alias = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+            alias_to_cluster_id[mapped_alias] = cluster.id
+
     # For each alias, get bucket stats and throughput in parallel
     async def get_cluster_stats(alias: str) -> dict:
         result = {"alias": alias, "buckets": [], "throughput": {"rx_bytes_per_sec": 0, "tx_bytes_per_sec": 0}}
@@ -273,6 +389,15 @@ async def get_cockpit_data(demo_id: str):
             prom = await _get_throughput_from_prometheus(mc_shell, alias, demo_id)
             if prom:
                 result["throughput"].update(prom)
+
+        # Gather nginx edge stats + direct MinIO Prometheus metrics in parallel
+        cluster_id = alias_to_cluster_id.get(alias, alias)
+        nginx_stats, minio_stats = await asyncio.gather(
+            _get_nginx_stats(mc_shell, project_name, cluster_id, demo_id),
+            _get_minio_cluster_metrics(mc_shell, project_name, cluster_id, demo_id),
+        )
+        result.update(nginx_stats)
+        result.update(minio_stats)
 
         return result
 

@@ -17,6 +17,7 @@ class RunningContainer:
     container_name: str               # Docker container name
     networks: list[str]               # Docker network names this container is on
     health: ContainerHealthStatus = ContainerHealthStatus.STARTING
+    init_status: str = "pending"      # pending | running | completed | failed | timeout
 
 @dataclass
 class EdgeConfigResult:

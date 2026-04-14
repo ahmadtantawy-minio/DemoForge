@@ -499,7 +499,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           id: `minio-cluster-${nodeCounter}`,
           type: "cluster",
           position: { x, y },
-          style: { width: 380, height: 200 },
+          style: { width: 380 },
           data: {
             label: "MinIO Cluster",
             componentId: "minio",

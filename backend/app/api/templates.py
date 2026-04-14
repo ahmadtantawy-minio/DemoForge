@@ -4,13 +4,14 @@ import os
 import re
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import yaml
 from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
 from ..models.demo import DemoDefinition
 from ..models.api_models import DemoSummary
 from ..engine.template_backup import backup_original, get_override_info, remove_override, BackupError
+from ..engine.template_sync import publish_single_builtin
 from ..fa_identity import get_fa_id
 
 logger = logging.getLogger("demoforge.templates")
@@ -128,13 +129,13 @@ def _save_validated(ids: set[str]):
     return
 
 
-def _discover_all_templates() -> list[tuple[str, str, dict]]:
+def _discover_all_templates() -> list[tuple[str, str, dict, str]]:
     """
-    Scan all template directories. Returns list of (template_id, source, raw_dict).
+    Scan all template directories. Returns list of (template_id, source, raw_dict, path).
     Higher-priority sources shadow lower-priority ones on ID collision.
     """
     seen_ids: set[str] = set()
-    results: list[tuple[str, str, dict]] = []
+    results: list[tuple[str, str, dict, str]] = []
 
     for source_name, source_dir in TEMPLATE_SOURCES:
         if not os.path.isdir(source_dir):
@@ -151,7 +152,7 @@ def _discover_all_templates() -> list[tuple[str, str, dict]]:
                     raw = yaml.safe_load(f)
                 if raw and ("nodes" in raw or "clusters" in raw):
                     seen_ids.add(template_id)
-                    results.append((template_id, source_name, raw))
+                    results.append((template_id, source_name, raw, path))
             except Exception as e:
                 logger.warning(f"Failed to load template {fname} from {source_name}: {e}")
     return results
@@ -185,7 +186,7 @@ def _save_template_raw(template_id: str, raw: dict, target_dir: str | None = Non
         yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
+def _template_summary(fname: str, raw: dict, source: str = "builtin", path: str | None = None) -> dict:
     """Build a template summary from raw YAML data."""
     meta = raw.get("_template", {})
     template_id = fname.replace(".yaml", "")
@@ -228,7 +229,10 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
         "saved_by": meta.get("saved_by", ""),
         "validated": bool(meta.get("fa_ready", False)),
         "archived": bool(meta.get("archived", False)),
-        "updated_at": meta.get("updated_at", "") or (changelog.get(template_id, [{}])[0].get("date", "") if source in ("builtin", "synced") else ""),
+        "updated_at": (lambda val: val if val else (
+            datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if source == "user" and path and os.path.isfile(path) else val
+        ))(meta.get("updated_at", "") or (changelog.get(template_id, [{}])[0].get("date", "") if source in ("builtin", "synced") else "")),
         "changelog": changelog.get(template_id, []) if source in ("builtin", "synced") else [],
     }
 
@@ -237,8 +241,8 @@ def _template_summary(fname: str, raw: dict, source: str = "builtin") -> dict:
 async def list_templates(mine: bool = False, fa_view: bool = False, include_archived: bool = False):
     templates = []
     source_counts = {"builtin": 0, "synced": 0, "user": 0}
-    for template_id, source, raw in _discover_all_templates():
-        summary = _template_summary(f"{template_id}.yaml", raw, source=source)
+    for template_id, source, raw, tpath in _discover_all_templates():
+        summary = _template_summary(f"{template_id}.yaml", raw, source=source, path=tpath)
         templates.append(summary)
         source_counts[source] = source_counts.get(source, 0) + 1
 
@@ -301,7 +305,7 @@ async def get_template(template_id: str):
     if not raw:
         raise HTTPException(404, "Template not found")
     fname = f"{template_id}.yaml"
-    summary = _template_summary(fname, raw, source=source)
+    summary = _template_summary(fname, raw, source=source, path=path)
     # Include the full demo definition fields too
     summary["nodes"] = raw.get("nodes", [])
     summary["edges"] = raw.get("edges", [])
@@ -354,7 +358,7 @@ async def update_template(template_id: str, req: dict):
     _save_template_raw(template_id, raw)
 
     fname = f"{template_id}.yaml"
-    return _template_summary(fname, raw, source="user")
+    return _template_summary(fname, raw, source="user", path=path)
 
 
 @router.post("/api/demos/from-template/{template_id}")
@@ -383,6 +387,7 @@ async def create_from_template(template_id: str):
     demo_raw = {k: v for k, v in raw.items() if k != "_template"}
     demo_id = str(uuid.uuid4())[:8]
     demo_raw["id"] = demo_id
+    demo_raw["source_template_id"] = template_id
     demo = DemoDefinition(**demo_raw)
 
     # Save to demos directory
@@ -762,26 +767,57 @@ async def promote_template(template_id: str):
     except Exception as e:
         raise HTTPException(500, f"Cannot write to demo-templates/{template_id}.yaml: {e}")
 
-    # Remove the user-templates shadow and override manifest entry
-    os.remove(user_path)
-    remove_override(template_id)
+    steps = {"written": True}
+    steps_errors = {}
+
+    # Remove user-templates shadow
+    try:
+        os.remove(user_path)
+        steps["shadow_removed"] = True
+    except Exception as e:
+        steps["shadow_removed"] = False
+        steps_errors["shadow_removed"] = str(e)
+        logger.warning(f"Failed to remove user-templates shadow for '{template_id}': {e}")
+
+    # remove_override call
+    try:
+        remove_override(template_id)
+    except Exception as e:
+        logger.warning(f"Failed to remove override entry for '{template_id}': {e}")
 
     # Remove synced shadow so the newly promoted builtin takes priority
     # (synced > builtin in discovery order, so a stale synced copy would hide the promotion)
     synced_path = os.path.join(SYNCED_TEMPLATES_DIR, f"{template_id}.yaml")
     if os.path.isfile(synced_path):
-        os.remove(synced_path)
-        logger.info("Removed stale synced shadow for promoted template '%s'", template_id)
+        try:
+            os.remove(synced_path)
+            steps["synced_removed"] = True
+            logger.info("Removed stale synced shadow for promoted template '%s'", template_id)
+        except Exception as e:
+            steps["synced_removed"] = False
+            steps_errors["synced_removed"] = str(e)
+            logger.warning(f"Failed to remove synced shadow for '{template_id}': {e}")
+    else:
+        steps["synced_removed"] = "skipped"
 
     logger.info(f"Template '{template_id}' promoted to source by {get_fa_id()}")
 
     # Auto-push the promoted template to the hub bucket
-    from ..engine.template_sync import publish_single_builtin
     push_result = publish_single_builtin(template_id)
     pushed = push_result.get("status") == "ok"
     push_warning = None if pushed or push_result.get("status") == "skipped" else push_result.get("message")
+    if push_warning:
+        steps_errors["pushed"] = push_warning
+    steps["pushed"] = pushed
 
-    return {"promoted": template_id, "source_path": source_path, "pushed": pushed, "push_warning": push_warning}
+    return {
+        "promoted": template_id,
+        "source_path": source_path,
+        "pushed": pushed,
+        "push_warning": push_warning,
+        "steps": steps,
+        "steps_errors": steps_errors,
+    }
 
 
 # ── Sync endpoints ──────────────────────────────────────────────────────

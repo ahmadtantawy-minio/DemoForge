@@ -161,3 +161,4 @@ class DemoDefinition(BaseModel):
     deploy_timeout_seconds: int | None = None  # None = use global default (180s)
     created_at: str | None = None   # ISO-8601 UTC — set once on create
     updated_at: str | None = None   # ISO-8601 UTC — refreshed on every save
+    source_template_id: str | None = None  # template this demo was created from

@@ -262,7 +262,7 @@ async def list_instances(demo_id: str):
             quick_actions=quick_actions,
             networks=network_memberships,
             credentials=credentials,
-            init_status="completed",
+            init_status=container.init_status,
             stopped_drives=running.stopped_drives.get(node_id, []),
         ))
 

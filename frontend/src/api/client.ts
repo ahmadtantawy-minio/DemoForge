@@ -525,7 +525,7 @@ export const revertTemplate = (templateId: string) =>
   });
 
 export const promoteTemplate = (templateId: string) =>
-  apiFetch<{ promoted: string; source_path: string; pushed: boolean; push_warning: string | null }>(`/api/templates/${templateId}/promote`, {
+  apiFetch<{ promoted: string; source_path: string; pushed: boolean; push_warning: string | null; steps: Record<string, boolean | "skipped">; steps_errors: Record<string, string> }>(`/api/templates/${templateId}/promote`, {
     method: "POST",
   });
 

@@ -124,8 +124,38 @@ def get_sync_status() -> dict:
 
 
 def publish_template(template_id: str) -> dict:
-    """Upload a user template to the hub for team sharing. Stub — not yet implemented via proxy."""
-    return {"status": "error", "message": "Template publishing via hub-api proxy not yet implemented."}
+    """Upload a user template YAML to the hub for team sharing."""
+    if not FA_API_KEY:
+        return {"status": "error", "message": "DEMOFORGE_API_KEY not set."}
+
+    user_dir = os.environ.get("DEMOFORGE_USER_TEMPLATES_DIR", "./user-templates")
+    src = Path(user_dir) / f"{template_id}.yaml"
+    if not src.exists():
+        return {"status": "error", "message": f"Template file not found: {src}"}
+
+    with open(src, "rb") as f:
+        content = f.read()
+
+    remote_key = f"{template_id}.yaml"
+    headers = {"X-Api-Key": FA_API_KEY, "Content-Type": "application/octet-stream"}
+    try:
+        with httpx.Client(timeout=30) as client:
+            resp = client.put(
+                f"{HUB_URL}/api/hub/templates/{remote_key}",
+                content=content,
+                headers=headers,
+            )
+            if resp.status_code == 404:
+                return {"status": "error", "message": "Hub does not support template publishing yet — contact your admin to update the hub."}
+            if resp.status_code == 405:
+                return {"status": "error", "message": "Hub does not accept template uploads yet — contact your admin to enable publishing."}
+            resp.raise_for_status()
+        logger.info(f"Published user template {template_id} → {HUB_URL}/api/hub/templates/{remote_key}")
+        return {"status": "ok", "template_id": template_id, "remote_key": remote_key}
+    except httpx.HTTPStatusError as e:
+        return {"status": "error", "message": f"Hub rejected upload ({e.response.status_code}): {e.response.text[:200]}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 def publish_single_builtin(template_id: str) -> dict:

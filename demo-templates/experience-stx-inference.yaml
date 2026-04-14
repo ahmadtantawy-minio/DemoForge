@@ -1,5 +1,5 @@
 _template:
-  name: 'NVIDIA STX: inside inference memory'
+  name: 'NVIDIA STX: Storage Tier Comparison'
   tier: experience
   mode: experience
   category: simulation
@@ -11,15 +11,16 @@ _template:
   - kv-cache
   - memory-hierarchy
   - bluefield-4
-  description: Interactive simulation of the NVIDIA STX/CMX inference memory architecture.
-    Visualizes how KV cache blocks flow through 5 memory tiers during LLM inference,
-    and demonstrates why the G3.5 context memory tier (MinIO AIStor) dramatically
-    improves throughput.
-  objective: Explain the NVIDIA STX architecture and demonstrate MinIO AIStor's role
-    as the G3.5 context memory tier for agentic AI inference
-  minio_value: MinIO AIStor operates as the G3.5 context memory storage tier in the
-    NVIDIA STX architecture, providing petabyte-scale, high-bandwidth KV cache storage
-    between local NVMe and enterprise storage.
+  description: 'Three-scenario demo of NVIDIA STX inference storage: File/POSIX/NFS
+    baseline → MinIO S3 over TCP → MinIO S3 + G3.5 NVMe-oF/RDMA via BlueField-4. Shows
+    how storage modernization compounds GPU utilization gains.'
+  objective: Demonstrate how each storage tier upgrade — from legacy file protocols
+    to MinIO S3 to MinIO with RDMA — compounds GPU throughput and eliminates KV cache
+    recomputation stalls
+  minio_value: MinIO AIStor serves dual roles in the NVIDIA STX architecture — as
+    the G4 archive tier (S3/TCP) and as the G3.5 context memory tier (NVMe-oF/RDMA
+    via BlueField-4), providing petabyte-scale KV cache storage at sub-millisecond
+    latency.
   estimated_resources:
     memory: 2.5GB
     cpu: 2.5
@@ -31,22 +32,24 @@ _template:
   - step: Open the simulation
     description: Click 'Simulation' on the Inference Simulator node inside the GPU
       Server group.
-  - step: Run with CMX enabled
-    description: Click 'Multi-turn chat burst'. Watch blocks flow through all 5 tiers.
-      GPU utilization stays high.
-  - step: Toggle CMX off
-    description: Flip the G3.5 CMX toggle. Blocks skip MinIO and dump to G4. Recomputations
-      spike.
-  - step: Check MinIO Console
-    description: Open MinIO Console for the G3.5 instance. See real KV cache objects
-      appearing.
+  - step: Scenario 1 — File/POSIX baseline
+    description: The simulation starts in File/POSIX mode (NFS/Lustre). Watch GPU
+      utilization and recomputation rate. This is the legacy baseline.
+  - step: Switch to Scenario 2 — MinIO S3
+    description: Click 'MinIO S3 / TCP' in the scenario panel. KV cache now offloads
+      to MinIO over standard S3. Recomputations drop and GPU utilization improves.
+  - step: Switch to Scenario 3 — MinIO + RDMA
+    description: Click 'MinIO + RDMA (G3.5)' to enable the BlueField-4 NVMe-oF path.
+      Cross-GPU restores become near-instant. Watch utilization climb to its peak.
+  - step: Read the chart
+    description: The chart background is color-coded by scenario. Compare each band
+      side-by-side to see the compounding effect of each storage tier upgrade.
   external_dependencies: []
   fa_ready: true
-  updated_at: "2026-04-07"
 id: experience-stx-inference
-name: 'NVIDIA STX: The G3.5 Tier'
-description: Simulate KV cache flow through the 5-tier memory hierarchy. Toggle MinIO
-  CMX to see the throughput difference.
+name: 'NVIDIA STX: Storage Tier Comparison'
+description: 'Three-scenario demo: File/POSIX baseline → MinIO Object Store → MinIO
+  Object + RDMA. Demonstrates GPU utilization improvements from storage modernization.'
 mode: experience
 networks:
 - name: default
@@ -58,8 +61,8 @@ nodes:
   component: inference-client
   variant: default
   position:
-    x: -39.84926405246888
-    y: 276.1505867651097
+    x: -36.815384615384616
+    y: 199.29230769230767
   config: {}
   networks: {}
   display_name: Inference Client
@@ -69,8 +72,8 @@ nodes:
   component: inference-sim
   variant: default
   position:
-    x: 150
-    y: 260
+    x: 150.0
+    y: 260.0
   config: {}
   networks: {}
   display_name: Inference Simulator
@@ -80,7 +83,7 @@ nodes:
   component: prometheus
   variant: default
   position:
-    x: 450
+    x: 450.0
     y: 962.4557692307692
   config: {}
   networks: {}
@@ -175,8 +178,8 @@ groups:
   color: '#a855f7'
   style: dashed
   position:
-    x: 241.96153846153845
-    y: 44.82307692307691
+    x: 244.35072641242874
+    y: -91.27427733596764
   width: 500.0
   height: 380.0
   mode: visual
@@ -185,24 +188,25 @@ sticky_notes: []
 annotations:
 - id: ann-arch
   position:
-    x: -300
-    y: 30
+    x: -300.0
+    y: -5.437865080412621
   width: 260
   title: NVIDIA STX architecture
-  body: 'STX is a modular reference architecture for AI storage, built on **BlueField-4**
-    processors.
+  body: 'STX is a modular reference architecture for AI inference storage, built on
+    **BlueField-4** processors.
 
 
-    It introduces a **G3.5 context memory tier** between local NVMe and enterprise
-    storage, designed for KV cache in LLM inference.'
+    This demo walks through **three storage tiers**: File/POSIX (NFS/Lustre baseline),
+    MinIO S3 over TCP, and MinIO with **G3.5 NVMe-oF/RDMA** — showing how each upgrade
+    compounds GPU throughput.'
   style: info
   step_number: null
   pointer_target: null
   collapsed: false
 - id: ann-connectivity
   position:
-    x: -280.86153846153843
-    y: 658.1384615384616
+    x: -314.86153846153843
+    y: 626.1384615384616
   width: 350
   title: Why G3.5 is faster than G4
   body: 'G3.5 uses **NVMe-oF over RDMA** via BlueField-4 and Spectrum-X Ethernet —
@@ -217,8 +221,8 @@ annotations:
   collapsed: false
 - id: ann-gpu-isolation
   position:
-    x: 800
-    y: 50
+    x: 783.4486313124647
+    y: -22.432481964386568
   width: 240
   title: GPU memory is isolated
   body: 'Each GPU has its own G1/G2/G3 memory. GPU-B **cannot access** GPU-A''s HBM
@@ -232,8 +236,8 @@ annotations:
   collapsed: false
 - id: ann-step1
   position:
-    x: -21.610360535968283
-    y: 112.05219158196604
+    x: 12.30384145233262
+    y: 30.770331013619256
   width: 200
   title: Start here
   body: Deploy, then click **Simulation** on the inference node.
@@ -243,19 +247,21 @@ annotations:
   collapsed: false
 - id: ann-step2
   position:
-    x: 794.4692307692308
-    y: 265.5923076923077
+    x: 770.3070500325858
+    y: 175.38683294216656
   width: 220
-  title: The key toggle
-  body: In the simulation UI, toggle **G3.5 CMX** on and off to see the dramatic difference.
+  title: Step through the scenarios
+  body: 'Use the **Scenario** buttons in the simulation UI to progress: **File/POSIX
+    → MinIO S3 → MinIO + RDMA**. Each switch is live — watch GPU utilization and recomputations
+    respond immediately.'
   style: step
   step_number: 2
   pointer_target: null
   collapsed: false
 - id: ann-g35
   position:
-    x: -183.59999999999997
-    y: 454.9846153846154
+    x: -231.59999999999997
+    y: 430.9846153846154
   width: 260
   title: The G3.5 tier — MinIO AIStor
   body: 'Runs on BlueField-4 with **800Gb/s** connectivity. Provides petabyte-scale
@@ -269,8 +275,8 @@ annotations:
   collapsed: false
 - id: ann-g4
   position:
-    x: 950
-    y: 450
+    x: 1212.9730844198698
+    y: 424.77837590178063
   width: 240
   title: G4 — enterprise storage
   body: 'Long-term archival tier for cold KV cache. Higher latency than G3.5.
@@ -283,12 +289,12 @@ annotations:
   collapsed: false
 - id: ann-step3
   position:
-    x: -464.94615384615383
+    x: -486.94615384615383
     y: 427.5923076923077
   width: 240
   title: See real S3 ops
-  body: Open **MinIO Console** for the G3.5 instance. Watch KV cache objects appear
-    and disappear as the simulation runs.
+  body: Open **MinIO Console** for the G3.5 instance (Scenario 3 only). Watch KV cache
+    objects appear and disappear as RDMA-backed restores run.
   style: step
   step_number: 3
   pointer_target: minio-g35
@@ -307,8 +313,8 @@ annotations:
   collapsed: false
 - id: ann-claim
   position:
-    x: 944.6846153846154
-    y: 624.2153846153846
+    x: 1213.3225720991431
+    y: 606.7126930573716
   width: 350
   title: Performance claim
   body: 'NVIDIA reports **up to 5x tokens/sec** and **5x power efficiency** with CMX
@@ -324,8 +330,8 @@ annotations:
 schematics:
 - id: sch-gpu-a
   position:
-    x: 20
-    y: 50
+    x: 28.054060245548328
+    y: 61.27568434376765
   label: GPU-A
   sublabel: Rubin Ultra
   variant: gpu
@@ -347,8 +353,8 @@ schematics:
   height: 190
 - id: sch-gpu-b
   position:
-    x: 260
-    y: 50
+    x: 260.0
+    y: 50.0
   label: GPU-B
   sublabel: Rubin Ultra
   variant: gpu
@@ -373,9 +379,9 @@ clusters:
   component: minio
   label: MinIO AIStor (G3.5 CMX)
   position:
-    x: 101.60769230769233
-    y: 545.9153846153846
-  node_count: 2
+    x: 79.60769230769233
+    y: 497.9153846153846
+  node_count: 4
   drives_per_node: 1
   credentials:
     root_user: minioadmin
@@ -385,13 +391,25 @@ clusters:
   height: 200.0
   mcp_enabled: false
   aistor_tables_enabled: false
+  ec_parity: 4
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 8
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 2
+    disk_size_tb: 1
+    disk_type: ssd
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
 - id: minio-g4
   component: minio
   label: MinIO AIStor (G4 Archive)
   position:
-    x: 651.6076923076922
-    y: 516.9769230769231
-  node_count: 2
+    x: 805.6076923076922
+    y: 492.9769230769231
+  node_count: 4
   drives_per_node: 1
   credentials:
     root_user: minioadmin
@@ -401,6 +419,18 @@ clusters:
   height: 200.0
   mcp_enabled: false
   aistor_tables_enabled: false
+  ec_parity: 4
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 8
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 2
+    disk_size_tb: 1
+    disk_type: ssd
+    ec_parity: 3
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
 resources:
   default_memory: 256m
   default_cpu: 0.25
@@ -409,3 +439,5 @@ resources:
   total_memory: 3g
   total_cpu: 3.0
 deploy_timeout_seconds: null
+created_at: null
+updated_at: '2026-04-14T04:52:03.478233+00:00'

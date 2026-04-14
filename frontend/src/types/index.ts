@@ -116,6 +116,7 @@ export interface DemoSummary {
   status: "not_deployed" | "stopped" | "deploying" | "running" | "stopping" | "error";
   mode?: "standard" | "experience";
   updated_at?: string;
+  source_template_id?: string;
 }
 
 export interface AnnotationNodeData {
@@ -152,7 +153,7 @@ export interface ContainerInstance {
   resource_usage?: Record<string, number>;
   networks: NetworkMembership[];
   credentials: CredentialInfo[];
-  init_status: "pending" | "running" | "completed" | "failed";
+  init_status: "pending" | "running" | "completed" | "failed" | "timeout";
   stopped_drives?: number[];
 }
 

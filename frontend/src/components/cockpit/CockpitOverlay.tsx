@@ -20,6 +20,10 @@ interface ClusterStats {
     put_ops_per_sec?: number;
     get_ops_per_sec?: number;
   };
+  nginx_req_per_sec?: number;
+  nginx_active_connections?: number;
+  minio_rx_bytes_per_sec?: number;
+  minio_tx_bytes_per_sec?: number;
 }
 
 interface HostStats {
@@ -691,6 +695,27 @@ function ThroughputTabContent({
                 {rxRate > 0 && (
                   <span className="text-muted-foreground text-[10px]">({formatRate(rxRate)})</span>
                 )}
+              </div>
+            </div>
+
+            {/* Nginx edge + MinIO direct sub-rows */}
+            <div className="mt-1.5 pt-1.5 border-t border-border/40 space-y-0.5 text-[10px]">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Nginx (edge)</span>
+                <span className="font-mono text-foreground">
+                  {(cluster.nginx_req_per_sec ?? 0).toFixed(1)} req/s
+                  <span className="text-muted-foreground ml-1">
+                    ({cluster.nginx_active_connections ?? 0} active)
+                  </span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">MinIO (cluster)</span>
+                <span className="font-mono text-foreground">
+                  ↑ {formatRate(cluster.minio_tx_bytes_per_sec ?? 0)}
+                  <span className="text-muted-foreground mx-1">/</span>
+                  ↓ {formatRate(cluster.minio_rx_bytes_per_sec ?? 0)}
+                </span>
               </div>
             </div>
           </div>

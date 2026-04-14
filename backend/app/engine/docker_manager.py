@@ -411,19 +411,40 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         # Run init scripts after containers are discovered
         await progress("init_scripts", "running", "Running init scripts...")
         from .init_runner import run_init_scripts
-        init_results = await run_init_scripts(running)
-        running.init_results = init_results
+        per_node_results = await run_init_scripts(running)
 
-        failed_inits = [r for r in init_results if r.get("exit_code", 0) != 0]
-        if failed_inits:
+        # Update per-container init_status and flatten for legacy init_results
+        flat_results = []
+        failed_nodes = []
+        for node_result in per_node_results:
+            nid = node_result.get("node_id")
+            timed_out = node_result.get("timed_out", False)
+            script_results = node_result.get("results", [])
+            flat_results.extend(script_results)
+            if nid and nid in running.containers:
+                any_failed = any(r.get("exit_code", 0) != 0 for r in script_results)
+                if timed_out:
+                    running.containers[nid].init_status = "timeout"
+                    failed_nodes.append(nid)
+                elif any_failed:
+                    running.containers[nid].init_status = "failed"
+                    failed_nodes.append(nid)
+                else:
+                    running.containers[nid].init_status = "completed"
+        running.init_results = flat_results
+
+        if failed_nodes:
             details = "; ".join(
-                f"{r.get('node_id','?')}: {r.get('stderr','') or r.get('stdout','') or 'exit code ' + str(r.get('exit_code','?'))}"
-                for r in failed_inits
+                f"{nid}: {'timeout' if node_result.get('timed_out') else 'script error'}"
+                for node_result in per_node_results
+                for nid in [node_result.get("node_id", "?")]
+                if nid in failed_nodes
             )
-            logger.warning(f"Demo {demo.id}: {len(failed_inits)} init script(s) failed: {details}")
-            await progress("init_scripts", "warning", f"{len(failed_inits)} init script(s) failed: {details}")
+            logger.warning(f"Demo {demo.id}: init scripts failed for node(s): {details}")
+            await progress("init_scripts", "warning", f"{len(failed_nodes)} node(s) had init failures: {details}")
         else:
-            await progress("init_scripts", "done", f"{len(init_results)} init script(s) completed")
+            total = sum(len(r.get("results", [])) for r in per_node_results)
+            await progress("init_scripts", "done", f"{total} init script(s) completed")
 
         # Register edge automation scripts — site-replication auto-activates, others start paused
         from .edge_automation import generate_edge_scripts

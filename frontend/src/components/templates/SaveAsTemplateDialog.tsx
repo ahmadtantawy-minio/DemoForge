@@ -27,6 +27,7 @@ interface SaveAsTemplateDialogProps {
   demoName?: string;
   demoDescription?: string;
   onSaved?: (templateId: string) => void;
+  sourceTemplateId?: string;
 }
 
 const CATEGORIES = [
@@ -46,6 +47,7 @@ export function SaveAsTemplateDialog({
   demoName = "",
   demoDescription = "",
   onSaved,
+  sourceTemplateId,
 }: SaveAsTemplateDialogProps) {
   const [mode, setMode] = useState<"new" | "override">("new");
   const [templateName, setTemplateName] = useState(demoName);
@@ -72,6 +74,12 @@ export function SaveAsTemplateDialog({
       fetchTemplates().then((res) => setExistingTemplates(res.templates)).catch(() => {});
     }
   }, [open, mode]);
+
+  useEffect(() => {
+    if (open && mode === "override" && sourceTemplateId) {
+      setSelectedTemplateId(sourceTemplateId);
+    }
+  }, [open, mode, sourceTemplateId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

@@ -159,9 +159,14 @@ export default function ComponentCard({ instance, demoId, onOpenTerminal }: Prop
             </div>
           )}
 
-          {instance.init_status && instance.init_status !== "completed" && (
+          {(instance.init_status === "failed" || instance.init_status === "timeout") && (
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded bg-red-500/20 text-red-400 border border-red-500/30">
+              {instance.init_status === "timeout" ? "Init timeout" : "Init failed"}
+            </span>
+          )}
+          {instance.init_status === "pending" && (
             <div className="text-[10px] text-yellow-500">
-              Init: {instance.init_status}
+              Init: pending
             </div>
           )}
         </CardContent>

@@ -647,6 +647,7 @@ export default function Toolbar() {
           demoId={activeDemoId}
           demoName={activeDemo?.name}
           demoDescription={activeDemo?.description}
+          sourceTemplateId={activeDemo?.source_template_id}
           onSaved={() => {
             toast.success("Template saved");
             setSaveTemplateOpen(false);
