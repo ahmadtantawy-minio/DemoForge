@@ -43,7 +43,7 @@ class FAPermissionCache:
             return self._permissions
 
     async def _fetch(self) -> dict[str, Any] | None:
-        hub_url = os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://localhost:8080")
+        hub_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
         api_key = os.getenv("DEMOFORGE_API_KEY", "")
         if not api_key:
             return None

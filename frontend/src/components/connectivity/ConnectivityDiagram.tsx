@@ -243,43 +243,37 @@ function buildFaDiagram(result: ConnectivityResult): {
   viewBox: string;
 } {
   const checks = result.checks;
-  const connector = checks.hub_connector;
   const faAuth = checks.fa_auth;
-  const steps = connector?.steps;
+  const steps = faAuth?.steps;
 
-  const e1Status = stepStatus(steps, 0);
-  const e2Status = stepStatus(steps, 1);
-  const e3Status = stepStatus(steps, 2);
-  const e4Status: NodeStatus = connector?.ok ? "ok" : e3Status;
-  const e5Status = checkStatus(faAuth);
+  // steps[0] = API key configured, steps[1] = Hub gateway reachable, steps[2] = FA identity validated
+  const eConnect = stepStatus(steps, 1);   // fa_pc → gateway
+  const eRoute   = stepStatus(steps, 1);   // gateway → hub_api / minio
+  const eFaAuth  = checkStatus(faAuth);
 
   const rawEdges: EdgeDef[] = [
-    { from: "fa_pc", to: "connector", status: e1Status, label: steps?.[0]?.name },
-    { from: "connector", to: "gateway", status: e2Status, label: steps?.[1]?.name },
-    { from: "gateway", to: "hub_api", status: e3Status, label: steps?.[2]?.name },
-    { from: "gateway", to: "minio", status: e4Status },
-    { from: "connector", to: "fa_auth", status: e5Status, label: faAuth?.error },
+    { from: "fa_pc",   to: "gateway",  status: eConnect },
+    { from: "gateway", to: "hub_api",  status: eRoute },
+    { from: "gateway", to: "minio",    status: eRoute },
+    { from: "gateway", to: "fa_auth",  status: eFaAuth, label: faAuth?.error },
   ];
 
   const edges = propagate(rawEdges);
 
-  // Node statuses derived from incoming edges
-  const connectorStatus: NodeStatus = edges[0].status;
-  const gatewayStatus: NodeStatus = edges[1].status;
-  const hubApiStatus: NodeStatus = edges[2].status;
-  const minioStatus: NodeStatus = edges[3].status;
-  const faAuthStatus: NodeStatus = edges[4].status;
+  const gatewayStatus: NodeStatus = edges[0].status;
+  const hubApiStatus:  NodeStatus = edges[1].status;
+  const minioStatus:   NodeStatus = edges[2].status;
+  const faAuthStatus:  NodeStatus = edges[3].status;
 
   const nodes: NodeDef[] = [
-    { id: "fa_pc", label: "FA Laptop", sublabel: "your machine", x: 90, y: 100, status: "ok" },
-    { id: "connector", label: "Hub Connector", sublabel: ":8080", x: 270, y: 100, status: connectorStatus, tooltip: steps?.[0]?.detail },
-    { id: "gateway", label: "GCP Gateway", sublabel: "Cloud Run", x: 470, y: 100, status: gatewayStatus, tooltip: steps?.[1]?.detail },
-    { id: "hub_api", label: "Hub API", sublabel: ":8000 on VM", x: 660, y: 50, status: hubApiStatus, tooltip: steps?.[2]?.detail },
-    { id: "minio", label: "MinIO / Registry", sublabel: "VM storage (inferred)", x: 660, y: 170, status: minioStatus },
-    { id: "fa_auth", label: "FA Auth", sublabel: faAuth?.fa_name || "identity check", x: 470, y: 220, status: faAuthStatus, tooltip: faAuth?.error || faAuth?.description },
+    { id: "fa_pc",   label: "FA Laptop",        sublabel: "your machine",       x: 80,  y: 120, status: "ok" },
+    { id: "gateway", label: "GCP Gateway",       sublabel: "Cloud Run",          x: 300, y: 120, status: gatewayStatus, tooltip: steps?.[1]?.detail },
+    { id: "hub_api", label: "Hub API",           sublabel: ":8000 on VM",        x: 520, y: 55,  status: hubApiStatus },
+    { id: "minio",   label: "MinIO / Registry",  sublabel: "VM storage",         x: 520, y: 175, status: minioStatus },
+    { id: "fa_auth", label: "FA Auth",           sublabel: faAuth?.fa_name || "identity check", x: 520, y: 270, status: faAuthStatus, tooltip: faAuth?.error || faAuth?.description },
   ];
 
-  return { nodes, edges, viewBox: "0 0 760 280" };
+  return { nodes, edges, viewBox: "0 0 640 310" };
 }
 
 function buildDevDiagram(result: ConnectivityResult): {
@@ -289,59 +283,48 @@ function buildDevDiagram(result: ConnectivityResult): {
 } {
   const checks = result.checks;
   const localHub = checks.local_hub_api;
-  const connector = checks.hub_connector;
   const faAuth = checks.fa_auth;
   const adminKey = checks.admin_key;
-  const steps = connector?.steps;
 
   const eDevLocal = checkStatus(localHub);
-  const eDevConn = checkStatus(connector);
   const eLocalAuth = checkStatus(faAuth);
-  const eConnGw = stepStatus(steps, 1);
-  const eGwHub = stepStatus(steps, 2);
-  const eGwMinio: NodeStatus = connector?.ok ? "ok" : eGwHub;
   const eAdmin = checkStatus(adminKey);
 
-  // Each branch propagates independently
-  const connectorBranch = propagate([
-    { from: "dev_pc", to: "connector", status: eDevConn, label: connector?.error },
-    { from: "connector", to: "gateway", status: eConnGw, label: steps?.[1]?.name },
-    { from: "gateway", to: "hub_api", status: eGwHub, label: steps?.[2]?.name },
-    { from: "gateway", to: "minio", status: eGwMinio },
+  // dev-start (local hub-api): Dev Machine → Local Hub → FA Auth / Admin Key
+  // dev-start-gcp (no local hub): Dev Machine → GCP Gateway → FA Auth / Admin Key
+  if (localHub) {
+    const localBranch = propagate([
+      { from: "dev_pc", to: "local_hub", status: eDevLocal, label: localHub?.error },
+      { from: "local_hub", to: "fa_auth", status: faAuth?.optional && eLocalAuth === "fail" ? "warn" : eLocalAuth },
+    ]);
+    const adminBranch: EdgeDef[] = [{ from: "local_hub", to: "admin_key", status: eAdmin }];
+    const edges = [...localBranch, ...adminBranch];
+
+    const nodes: NodeDef[] = [
+      { id: "dev_pc",    label: "Dev Machine",   sublabel: "localhost",   x: 80,  y: 130, status: "ok" },
+      { id: "local_hub", label: "Local Hub API", sublabel: ":8000",       x: 300, y: 90,  status: localBranch[0].status, tooltip: localHub?.description },
+      { id: "fa_auth",   label: "FA Auth",       sublabel: faAuth?.fa_name || "identity check", x: 510, y: 50, status: localBranch[1].status, tooltip: faAuth?.description },
+      { id: "admin_key", label: "Admin Key",     sublabel: "hub admin",   x: 510, y: 170, status: adminBranch[0].status, tooltip: adminKey?.description, width: SMALL_W, height: SMALL_H },
+    ];
+    return { nodes, edges, viewBox: "0 0 640 230" };
+  }
+
+  // dev-gcp: direct gateway path (fa_auth steps carry gateway reachability)
+  const faSteps = faAuth?.steps;
+  const eGateway = stepStatus(faSteps, 1); // "Hub gateway reachable"
+  const gwBranch = propagate([
+    { from: "dev_pc",  to: "gateway",  status: eGateway },
+    { from: "gateway", to: "fa_auth",  status: eLocalAuth },
+    { from: "gateway", to: "admin_key", status: eAdmin },
   ]);
-
-  const localBranch = propagate([
-    { from: "dev_pc", to: "local_hub", status: eDevLocal, label: localHub?.error },
-    // fa_auth is optional in dev mode — use warn edge so it doesn't animate broken
-    { from: "local_hub", to: "fa_auth", status: faAuth?.optional && eLocalAuth === "fail" ? "warn" : eLocalAuth },
-  ]);
-
-  const adminBranch: EdgeDef[] = [
-    { from: "local_hub", to: "admin_key", status: eAdmin },
-  ];
-
-  const edges = [...localBranch, ...connectorBranch, ...adminBranch];
-
-  const localHubStatus: NodeStatus = localBranch[0].status;
-  const faAuthStatus: NodeStatus = localBranch[1].status;
-  const connectorStatus: NodeStatus = connectorBranch[0].status;
-  const gatewayStatus: NodeStatus = connectorBranch[1].status;
-  const hubApiStatus: NodeStatus = connectorBranch[2].status;
-  const minioStatus: NodeStatus = connectorBranch[3].status;
-  const adminKeyStatus: NodeStatus = adminBranch[0].status;
 
   const nodes: NodeDef[] = [
-    { id: "dev_pc", label: "Dev Machine", sublabel: "localhost", x: 50, y: 110, status: "ok" },
-    { id: "local_hub", label: "Local Hub API", sublabel: ":8000", x: 240, y: 60, status: localHubStatus, tooltip: localHub?.error || localHub?.description },
-    { id: "connector", label: "Hub Connector", sublabel: ":8080 (optional)", x: 240, y: 190, status: connectorStatus, tooltip: connector?.error || connector?.description },
-    { id: "gateway", label: "GCP Gateway", sublabel: "Cloud Run", x: 450, y: 190, status: gatewayStatus, tooltip: steps?.[1]?.detail },
-    { id: "hub_api", label: "GCP Hub API", sublabel: ":8000 on VM", x: 640, y: 145, status: hubApiStatus, tooltip: steps?.[2]?.detail },
-    { id: "minio", label: "MinIO / Registry", sublabel: "VM storage (inferred)", x: 640, y: 240, status: minioStatus },
-    { id: "fa_auth", label: "FA Auth", sublabel: faAuth?.fa_name || "identity check", x: 450, y: 60, status: faAuthStatus, tooltip: faAuth?.error || faAuth?.description },
-    { id: "admin_key", label: "Admin Key", sublabel: "hub admin", x: 240, y: 270, status: adminKeyStatus, tooltip: adminKey?.error || adminKey?.description, width: SMALL_W, height: SMALL_H },
+    { id: "dev_pc",    label: "Dev Machine", sublabel: "localhost",  x: 80,  y: 110, status: "ok" },
+    { id: "gateway",   label: "GCP Gateway", sublabel: "Cloud Run",  x: 300, y: 110, status: gwBranch[0].status, tooltip: faSteps?.[1]?.detail },
+    { id: "fa_auth",   label: "FA Auth",     sublabel: faAuth?.fa_name || "identity check", x: 510, y: 55, status: gwBranch[1].status, tooltip: faAuth?.description },
+    { id: "admin_key", label: "Admin Key",   sublabel: "hub admin",  x: 510, y: 170, status: gwBranch[2].status, tooltip: adminKey?.description, width: SMALL_W, height: SMALL_H },
   ];
-
-  return { nodes, edges, viewBox: "0 0 760 300" };
+  return { nodes, edges: gwBranch, viewBox: "0 0 640 220" };
 }
 
 export function ConnectivityDiagram({ result }: { result: ConnectivityResult }) {

@@ -65,46 +65,20 @@ _FA_ID_FROM_HUB=$(echo "$BOOTSTRAP_RESP" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(d.get('fa_id',''))" 2>/dev/null || echo "")
 _IS_ACTIVE=$(echo "$BOOTSTRAP_RESP" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(str(d.get('is_active',True)).lower())" 2>/dev/null || echo "true")
-CONNECTOR_KEY=$(echo "$BOOTSTRAP_RESP" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d.get('connector_key',''))" 2>/dev/null || echo "")
 if [[ "$_IS_ACTIVE" != "true" ]]; then
     echo -e "${RED}✗ Your account is deactivated. Contact your DemoForge admin.${NC}"
-    exit 1
-fi
-
-if [[ -z "$CONNECTOR_KEY" ]]; then
-    echo -e "${RED}✗ Hub did not return connector configuration. Contact your admin — hub-api may need updating.${NC}"
     exit 1
 fi
 
 echo -e "${GREEN}✓ FA key validated${NC}"
 [[ -n "$_FA_ID_FROM_HUB" ]] && echo -e "  Identity: ${CYAN}${_FA_ID_FROM_HUB}${NC}"
 
-# ── Stop existing connector ──
-docker rm -f hub-connector 2>/dev/null || true
-
-# ── Start hub connector ──
-echo -e "\n${CYAN}Starting hub connector...${NC}"
-CONNECTOR_IMAGE="gcr.io/minio-demoforge/demoforge-hub-connector:latest"
-docker pull "${CONNECTOR_IMAGE}" 2>/dev/null || true
-
-HUB_HOST="${HUB_URL#https://}"
-docker run -d \
-    --name hub-connector \
-    --restart=always \
-    -p 8080:8080 \
-    -e "HUB_URL=${HUB_URL}" \
-    -e "HUB_HOST=${HUB_HOST}" \
-    -e "API_KEY=${CONNECTOR_KEY}" \
-    "${CONNECTOR_IMAGE}"
-
-# Wait for connector
-for i in $(seq 1 15); do
-    curl -sf "http://localhost:8080/health" &>/dev/null && break
-    sleep 1
-done
-
-echo -e "${GREEN}✓ Hub connector running${NC}"
+# ── Remove legacy hub-connector if still running ──
+if docker inspect hub-connector &>/dev/null 2>&1; then
+    echo -e "${CYAN}Removing legacy hub-connector container...${NC}"
+    docker rm -f hub-connector 2>/dev/null || true
+    echo -e "${GREEN}✓ Legacy hub-connector removed${NC}"
+fi
 
 # ─── Detect FA identity ──────────────────────────────────────────────
 echo -e "\n${CYAN}Confirming your identity...${NC}"
@@ -140,12 +114,13 @@ if [[ -z "$FA_ID" ]]; then
 fi
 echo -e "${GREEN}✓ FA identity: ${FA_ID}${NC}"
 
-# ── Register with Hub API (now via connector) ──
+# ── Register with Hub API ──
 echo ""
 echo -e "${CYAN}Registering with DemoForge Hub API...${NC}"
 _FA_NAME="$(git config user.name 2>/dev/null || echo "$FA_ID")"
-_REGISTER_RESP=$(curl -sf -X POST http://localhost:8080/api/hub/fa/register \
+_REGISTER_RESP=$(curl -sf -X POST "${HUB_URL}/api/hub/fa/register" \
     -H "Content-Type: application/json" \
+    -H "X-Api-Key: ${FA_KEY}" \
     -d "{\"fa_id\": \"$FA_ID\", \"fa_name\": \"$_FA_NAME\", \"api_key\": \"$FA_KEY\"}" \
     2>/dev/null || echo "")
 
@@ -181,7 +156,7 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║  Setup complete!                                         ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}║  FA identity:   ${FA_ID}${NC}"
-echo -e "${GREEN}║  Hub connector: running (auto-restarts)                  ║${NC}"
+echo -e "${GREEN}║  Hub gateway:   ${HUB_URL}${NC}"
 echo -e "${GREEN}║  Templates:     sync on next 'make start'               ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""

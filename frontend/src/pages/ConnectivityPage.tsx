@@ -354,11 +354,9 @@ export function ConnectivityPage() {
               cmds.push({ cmd: "make dev-init", comment: "generate local admin key, then restart backend" });
             if (checks.local_hub_api && !checks.local_hub_api.ok && !checks.local_hub_api.skipped)
               cmds.push({ cmd: "make dev-start", comment: "start local hub-api + all services" });
-            if (checks.hub_connector && !checks.hub_connector.ok && !checks.hub_connector.skipped)
-              cmds.push({ cmd: "make dev-connector-pull", comment: "rebuild + restart hub-connector from source" });
           } else {
-            // FA mode: connector + identity guidance
-            if (!result.api_key_configured || (checks.hub_connector && !checks.hub_connector.ok))
+            // FA mode: gateway + identity guidance
+            if (!result.api_key_configured || (checks.fa_auth && !checks.fa_auth.ok))
               cmds.push({ cmd: "make fa-setup", comment: "connect to hub, register your identity" });
             if (cmds.length > 0)
               cmds.push({ cmd: "make start", comment: "launch DemoForge" });

@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     # Telemetry init (fire-and-forget, FA mode only)
     from .telemetry import init_telemetry, shutdown_telemetry, emit_event
     _mode = os.getenv("DEMOFORGE_MODE", "dev")
-    _hub_url = os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://localhost:8080")
+    _hub_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
     _api_key = os.getenv("DEMOFORGE_API_KEY", "")
     await init_telemetry(
         hub_url=_hub_url,

@@ -10,14 +10,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Hub connector endpoint for license reads (avoids S3 signature issues)
-HUB_LICENSES_URL = os.environ.get("DEMOFORGE_HUB_LICENSES_URL", "")
-# Auto-detect from registry host: if connector is at host.docker.internal:5000,
-# the licenses endpoint is at host.docker.internal:8080/api/hub/licenses
-_REGISTRY_HOST = os.environ.get("DEMOFORGE_REGISTRY_HOST", "")
-if not HUB_LICENSES_URL and _REGISTRY_HOST:
-    _hub_host = _REGISTRY_HOST.split(":")[0]  # e.g. host.docker.internal
-    HUB_LICENSES_URL = f"http://{_hub_host}:8080/api/hub/licenses"
+# Gateway endpoint for license reads — authenticated with FA API key
+_HUB_URL = os.environ.get("DEMOFORGE_HUB_URL", "").rstrip("/")
+_FA_API_KEY = os.environ.get("DEMOFORGE_API_KEY", "")
+HUB_LICENSES_URL = f"{_HUB_URL}/api/hub/licenses" if _HUB_URL else ""
 
 
 @dataclass
@@ -65,11 +61,11 @@ class LicenseStore:
     # --- HTTP read (via hub connector — no S3 signing needed) ---
 
     def _http_get(self, license_id: str) -> LicenseEntry | None:
-        if not HUB_LICENSES_URL:
+        if not HUB_LICENSES_URL or not _FA_API_KEY:
             return None
         try:
             url = f"{HUB_LICENSES_URL}/{license_id}.json"
-            req = urllib.request.Request(url, method="GET")
+            req = urllib.request.Request(url, method="GET", headers={"X-Api-Key": _FA_API_KEY})
             resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read())
             return LicenseEntry(**data)

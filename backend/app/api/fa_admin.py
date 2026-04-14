@@ -32,7 +32,7 @@ async def _resolve_hub_url() -> str:
             except Exception:
                 continue
     # Fall back to connector URL
-    return os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://localhost:8080")
+    return os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
 
 
 def _dev_guard():

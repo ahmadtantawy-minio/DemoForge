@@ -49,68 +49,6 @@ def _step(name: str, ok: bool, detail: str = "", warn: bool = False) -> dict:
     return {"name": name, "ok": ok, "warn": warn, "detail": detail}
 
 
-async def _check_hub_connector(hub_url: str) -> dict:
-    """Full chain: connector reachable → gateway reachable → hub-api routed."""
-    steps = []
-    async with httpx.AsyncClient() as client:
-        # Step 1: connector root
-        code, _, text, ms = await _get(client, hub_url + "/")
-        if code == -1:
-            steps.append(_step("Connector reachable", False, f"Connection refused at {hub_url}"))
-            return {"ok": False, "steps": steps}
-        if code == -2:
-            steps.append(_step("Connector reachable", False, "Timed out (>5s)"))
-            return {"ok": False, "steps": steps}
-        if code < 0:
-            steps.append(_step("Connector reachable", False, text or "Network error"))
-            return {"ok": False, "steps": steps}
-
-        connector_running = "hub-connector" in (text or "").lower()
-        steps.append(_step(
-            "Connector reachable",
-            True,
-            f"HTTP {code} in {ms:.0f}ms — {text[:80].strip()!r}" if text else f"HTTP {code} in {ms:.0f}ms",
-        ))
-
-        # Step 2: gateway reachable via connector's /health proxy
-        code2, _, text2, ms2 = await _get(client, hub_url + "/health")
-        if code2 == 200 and text2 and ("ok" in text2.lower() or "demoforge" in text2.lower()):
-            steps.append(_step("Gateway reachable", True, f"HTTP {code2} in {ms2:.0f}ms — {text2[:60].strip()!r}"))
-        elif code2 > 0:
-            preview2 = text2[:80].strip() if text2 else "(empty)"
-            steps.append(_step("Gateway reachable", False,
-                f"HTTP {code2} in {ms2:.0f}ms — {preview2!r}. "
-                "Connector may be running but cannot reach the remote gateway."))
-        else:
-            steps.append(_step("Gateway reachable", False,
-                f"Gateway check failed: {text2 or 'no response'}. Connector up but gateway unreachable."))
-
-        # Step 3: hub-api route through connector → gateway → hub-api
-        code3, data3, text3, ms3 = await _get(client, hub_url + "/api/hub/health")
-        if code3 == 200 and data3 and data3.get("service") == "demoforge-hub-api":
-            steps.append(_step("Hub API routed", True,
-                f"HTTP {code3} in {ms3:.0f}ms — status={data3.get('status')}"))
-            return {"ok": True, "steps": steps}
-        elif code3 == 200 and data3 is None:
-            raw_preview = (text3 or "").strip()[:80]
-            steps.append(_step("Hub API routed", False,
-                f"HTTP {code3} in {ms3:.0f}ms but non-JSON response: {raw_preview!r}. "
-                "Connector does not have /api/hub/* route configured — "
-                "rebuild connector image with `make hub-setup` or `minio-gcp.sh`."))
-        elif code3 == 401:
-            steps.append(_step("Hub API routed", False,
-                f"HTTP 401 — gateway rejected the connector's API key. "
-                "Re-run `make fa-setup` to refresh the connector credentials."))
-        elif code3 > 0:
-            steps.append(_step("Hub API routed", False,
-                f"HTTP {code3} in {ms3:.0f}ms — {(text3 or '').strip()[:80]!r}"))
-        else:
-            steps.append(_step("Hub API routed", False,
-                f"Request failed: {text3 or 'network error'}"))
-
-    return {"ok": False, "steps": steps}
-
-
 async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> dict:
     """FA API key chain: key configured → hub-api validates (direct in dev, via connector in standard)."""
     steps = []
@@ -133,7 +71,7 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
             steps.append(_step("Target resolved", False,
                 f"Local hub-api not found — falling back to connector at {hub_url}"))
 
-    reach_label = "Local hub-api reachable" if (dev_mode and local_url) else "Hub connector reachable"
+    reach_label = "Local hub-api reachable" if (dev_mode and local_url) else "Hub gateway reachable"
 
     async with httpx.AsyncClient() as client:
         code, data, text, ms = await _get(client, target_url + "/api/hub/fa/me",
@@ -515,7 +453,7 @@ async def _check_local_hub_api() -> dict:
 @router.get("/api/connectivity/check")
 async def check_connectivity():
     mode = os.getenv("DEMOFORGE_MODE", "standard")
-    hub_url = os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://localhost:8080")
+    hub_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
     api_key = os.getenv("DEMOFORGE_API_KEY", "")
     admin_key = os.getenv("DEMOFORGE_HUB_API_ADMIN_KEY", "")
 
@@ -530,25 +468,16 @@ async def check_connectivity():
         if hub_local:
             # dev-start (local): local hub-api + admin key required; connector optional
             results = await asyncio.gather(
-                _check_hub_connector(hub_url),
                 _check_fa_auth(hub_url, api_key, dev_mode=True),
                 _check_admin_key(hub_url, admin_key, dev_mode=True),
                 _check_local_hub_api(),
                 _check_version(hub_url, api_key, dev_mode=True),
                 return_exceptions=True,
             )
-            connector, fa_auth, admin, local, version_result = [
+            fa_auth, admin, local, version_result = [
                 r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
                 for r in results
             ]
-            # Connector is N/A when local hub is healthy
-            if local.get("ok"):
-                connector = {
-                    "ok": False,
-                    "skipped": True,
-                    "steps": [_step("Connector check skipped", True,
-                        "Local hub-api is healthy — connector not needed in dev mode.")],
-                }
             # If local hub-api is not running, admin key can't be validated — skip it
             # to avoid a confusing 403 from the GCP hub rejecting the local dev key
             if not local.get("ok"):
@@ -569,12 +498,6 @@ async def check_connectivity():
                     "description": "Admin access to hub-api (required for FA Management page)",
                     **admin,
                 },
-                "hub_connector": {
-                    "label": "Hub Connector",
-                    "description": f"Remote connector at {hub_url} (optional — alternative to local hub-api)",
-                    "optional": True,
-                    **connector,
-                },
                 "fa_auth": {
                     "label": "FA Authentication",
                     "description": "FA API key validated via hub-api (optional in dev — admin key takes precedence)",
@@ -594,22 +517,16 @@ async def check_connectivity():
             # fa_auth is optional — a 401 here just means no FA registration, which is
             # expected for developers who manage the hub rather than use it as an FA.
             results = await asyncio.gather(
-                _check_hub_connector(hub_url),
                 _check_admin_key(hub_url, admin_key, dev_mode=True),
                 _check_fa_auth(hub_url, api_key, dev_mode=False),
                 _check_version(hub_url, api_key, dev_mode=True),
                 return_exceptions=True,
             )
-            connector, admin, fa_auth, version_result = [
+            admin, fa_auth, version_result = [
                 r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
                 for r in results
             ]
             checks = {
-                "hub_connector": {
-                    "label": "Hub Connector",
-                    "description": f"Remote connector at {hub_url}",
-                    **connector,
-                },
                 "admin_key": {
                     "label": "Admin Key",
                     "description": "Admin access to hub-api (used by developers in dev-gcp mode)",
@@ -630,23 +547,17 @@ async def check_connectivity():
             }
     else:
         results = await asyncio.gather(
-            _check_hub_connector(hub_url),
             _check_fa_auth(hub_url, api_key),
             _check_template_sync(),
             _check_components(),
             _check_version(hub_url, api_key),
             return_exceptions=True,
         )
-        connector, fa_auth, template_sync, components, version_result = [
+        fa_auth, template_sync, components, version_result = [
             r if not isinstance(r, Exception) else {"ok": False, "error": str(r), "steps": []}
             for r in results
         ]
         checks = {
-            "hub_connector": {
-                "label": "Hub Connector",
-                "description": f"Hub connector at {hub_url}",
-                **connector,
-            },
             "fa_auth": {
                 "label": "FA Authentication",
                 "description": "FA API key validated against hub-api",
@@ -692,7 +603,7 @@ async def check_connectivity():
 async def get_me():
     """Return current FA's identity and permissions from hub-api."""
     api_key = os.getenv("DEMOFORGE_API_KEY", "")
-    hub_url = os.getenv("DEMOFORGE_HUB_CONNECTOR_URL", "http://host.docker.internal:8080")
+    hub_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
 
     if not api_key:
         return {"ok": False, "permissions": {}}
