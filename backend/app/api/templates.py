@@ -864,11 +864,9 @@ async def push_all_builtin():
 
 @router.post("/api/templates/{template_id}/publish")
 async def publish_template_endpoint(template_id: str):
-    """Publish a user template to the remote bucket for team sharing."""
-    if os.getenv("DEMOFORGE_MODE", "dev") == "fa":
-        from ..fa_permissions import permission_cache
-        if not await permission_cache.check_permission("template_publish"):
-            raise HTTPException(403, "Your account does not have permission to publish templates.")
+    """Publish a user template to GCS for team-wide hub distribution. Dev mode only."""
+    if os.getenv("DEMOFORGE_MODE", "dev") != "dev":
+        raise HTTPException(403, "Template publishing is only available in dev mode.")
     raw, source, path = _load_template_raw(template_id)
     if not raw:
         raise HTTPException(404, "Template not found")

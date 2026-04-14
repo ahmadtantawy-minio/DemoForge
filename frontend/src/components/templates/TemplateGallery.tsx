@@ -849,10 +849,12 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                         )}
                         {(t as any).source === "user" && (
                           <>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handlePublish(t.id); }}>
-                              <Upload className="w-3.5 h-3.5 mr-2" />
-                              Publish to Team
-                            </DropdownMenuItem>
+                            {faMode === "dev" && (
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handlePublish(t.id); }}>
+                                <Upload className="w-3.5 h-3.5 mr-2" />
+                                Publish to Team
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
                               className="text-destructive focus:text-destructive"

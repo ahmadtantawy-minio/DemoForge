@@ -124,62 +124,32 @@ def get_sync_status() -> dict:
 
 
 def publish_template(template_id: str) -> dict:
-    """Upload a user template YAML to the hub for team sharing.
-
-    Dev mode (no FA key): uploads directly to GCS via gcloud storage cp.
-    FA mode (FA key present): PUTs to the hub gateway with the FA key.
-    """
+    """Upload a user template YAML to GCS for team-wide hub distribution. Dev mode only."""
     user_dir = os.environ.get("DEMOFORGE_USER_TEMPLATES_DIR", "./user-templates")
     src = Path(user_dir) / f"{template_id}.yaml"
     if not src.exists():
         return {"status": "error", "message": f"Template file not found: {src}"}
 
     remote_key = f"{template_id}.yaml"
-
-    if not FA_API_KEY:
-        # Dev mode: push directly to GCS (requires gcloud auth)
-        GCS_BUCKET = "gs://demoforge-hub-templates"
-        GCS_PREFIX = "templates"
-        dst = f"{GCS_BUCKET}/{GCS_PREFIX}/{remote_key}"
-        project_root = Path(__file__).parent.parent.parent.parent
-        try:
-            result = subprocess.run(
-                ["gcloud", "storage", "cp", str(src), dst],
-                capture_output=True, text=True, timeout=30,
-                cwd=str(project_root),
-            )
-            if result.returncode != 0:
-                err = (result.stderr or result.stdout or "gcloud storage cp failed").strip()
-                return {"status": "error", "message": err}
-            logger.info(f"Published user template {template_id} → {dst} (dev/gcloud)")
-            return {"status": "ok", "template_id": template_id, "remote_key": remote_key}
-        except FileNotFoundError:
-            return {"status": "error", "message": "gcloud not found — run 'gcloud auth login' and ensure gcloud is in PATH"}
-        except subprocess.TimeoutExpired:
-            return {"status": "error", "message": "Upload timed out after 30s"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-    # FA mode: PUT via hub gateway with FA key
-    with open(src, "rb") as f:
-        content = f.read()
-    headers = {"X-Api-Key": FA_API_KEY, "Content-Type": "application/octet-stream"}
+    GCS_BUCKET = "gs://demoforge-hub-templates"
+    GCS_PREFIX = "templates"
+    dst = f"{GCS_BUCKET}/{GCS_PREFIX}/{remote_key}"
+    project_root = Path(__file__).parent.parent.parent.parent
     try:
-        with httpx.Client(timeout=30) as client:
-            resp = client.put(
-                f"{HUB_URL}/api/hub/templates/{remote_key}",
-                content=content,
-                headers=headers,
-            )
-            if resp.status_code == 404:
-                return {"status": "error", "message": "Hub does not support template publishing yet — contact your admin to update the hub."}
-            if resp.status_code == 405:
-                return {"status": "error", "message": "Hub does not accept template uploads yet — contact your admin to enable publishing."}
-            resp.raise_for_status()
-        logger.info(f"Published user template {template_id} → {HUB_URL}/api/hub/templates/{remote_key} (FA mode)")
+        result = subprocess.run(
+            ["gcloud", "storage", "cp", str(src), dst],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(project_root),
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "gcloud storage cp failed").strip()
+            return {"status": "error", "message": err}
+        logger.info(f"Published user template {template_id} → {dst}")
         return {"status": "ok", "template_id": template_id, "remote_key": remote_key}
-    except httpx.HTTPStatusError as e:
-        return {"status": "error", "message": f"Hub rejected upload ({e.response.status_code}): {e.response.text[:200]}"}
+    except FileNotFoundError:
+        return {"status": "error", "message": "gcloud not found — run 'gcloud auth login' and ensure gcloud is in PATH"}
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Upload timed out after 30s"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
