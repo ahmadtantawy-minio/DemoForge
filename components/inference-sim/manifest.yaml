@@ -84,7 +84,7 @@ variants:
 template_mounts: []
 static_mounts: []
 init_scripts:
-- command: sh -c 'until wget -qO- http://localhost:8095/health 2>/dev/null | grep -q ok; do sleep 2; done; echo Simulator ready'
+- command: python3 -c "import urllib.request,sys; resp=urllib.request.urlopen('http://localhost:8095/health',timeout=10).read(); print('Simulator ready') if b'ok' in resp else sys.exit(1)"
   wait_for_healthy: true
   timeout: 30
   order: 1

@@ -612,13 +612,20 @@ async def restart_container(container_name: str):
         raise ValueError(f"Container {container_name} not found")
 
 
-async def exec_in_container(container_name: str, command: str) -> tuple[int, str, str]:
-    """Run a one-shot command in a container. Returns (exit_code, stdout, stderr)."""
+async def exec_in_container(container_name: str, command: str, timeout: int = 60) -> tuple[int, str, str]:
+    """Run a one-shot command in a container. Returns (exit_code, stdout, stderr).
+    Raises asyncio.TimeoutError if the command takes longer than `timeout` seconds."""
     try:
         c = await asyncio.to_thread(docker_client.containers.get, container_name)
-        result = await asyncio.to_thread(c.exec_run, command, demux=True)
+        result = await asyncio.wait_for(
+            asyncio.to_thread(c.exec_run, command, demux=True),
+            timeout=timeout,
+        )
         stdout = result.output[0].decode() if result.output[0] else ""
         stderr = result.output[1].decode() if result.output[1] else ""
         return result.exit_code, stdout, stderr
+    except asyncio.TimeoutError:
+        logger.error(f"exec_in_container timed out after {timeout}s: {container_name}: {command[:80]}")
+        return -1, "", f"Command timed out after {timeout}s"
     except NotFound:
         raise ValueError(f"Container {container_name} not found")

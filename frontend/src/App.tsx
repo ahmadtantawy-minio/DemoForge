@@ -45,9 +45,21 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Initial load + periodic sync of demo status from backend
+  // Initial load + periodic sync of demo status from backend.
+  // Preserve transitional states (deploying/stopping) so the background poll
+  // doesn't overwrite local state while a task is actively in progress.
   useEffect(() => {
-    const sync = () => fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
+    const sync = () => fetchDemos().then((res) => {
+      const current = useDemoStore.getState().demos;
+      const merged = res.demos.map((d: any) => {
+        const local = current.find((c) => c.id === d.id);
+        if (local && (local.status === "deploying" || local.status === "stopping")) {
+          return { ...d, status: local.status };
+        }
+        return d;
+      });
+      setDemos(merged);
+    }).catch(() => {});
     sync();
     const interval = setInterval(sync, 5000);
     return () => clearInterval(interval);
