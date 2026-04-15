@@ -6,7 +6,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "9210:9210"
+      - "${BACKEND_PORT:-9210}:${BACKEND_PORT:-9210}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # Docker-in-Docker control
       - ./components:/app/components:ro              # Component manifests

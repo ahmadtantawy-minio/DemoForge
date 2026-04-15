@@ -168,10 +168,10 @@ load_env() {
 
     # Mode-specific ports: dev→9211/3001 so dev and FA can coexist on the same machine
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
-        BACKEND_PORT=9211
+        export BACKEND_PORT=9211
         FRONTEND_PORT=3001
     else
-        BACKEND_PORT=9210
+        export BACKEND_PORT=9210
         FRONTEND_PORT=3000
     fi
 }
