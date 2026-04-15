@@ -119,6 +119,9 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
         if rf_node.get("type") == "sticky":
             s_data = rf_node.get("data", {})
             s_style = rf_node.get("style") if isinstance(rf_node.get("style"), dict) else {}
+            # Prefer rf_node.width/height (updated by ReactFlow NodeResizer on resize)
+            # over style.width/height (may be stale if only rf_node dims were updated)
+            rf_w, rf_h = rf_node.get("width"), rf_node.get("height")
             demo.sticky_notes.append(DemoStickyNote(
                 id=rf_node["id"],
                 text=s_data.get("text", ""),
@@ -127,8 +130,8 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 visibility=s_data.get("visibility", "customer"),
                 position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
                                        y=rf_node.get("position", {}).get("y", 0)),
-                width=s_style.get("width", rf_node.get("width", 200)),
-                height=s_style.get("height", rf_node.get("height", 120)),
+                width=rf_w if rf_w is not None else s_style.get("width", 200),
+                height=rf_h if rf_h is not None else s_style.get("height", 120),
             ))
             continue
 

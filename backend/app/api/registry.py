@@ -63,6 +63,18 @@ async def list_component_scenarios(component_id: str):
             scen = data.get("scenario", {})
             disp = data.get("display", {})
             first_ds = next(iter(data.get("datasets", [])), {})
+            datasets = [
+                {
+                    "id": ds.get("id", ""),
+                    "target": ds.get("target", "table"),
+                    "format": ds.get("format"),
+                    "namespace": ds.get("namespace") or ds.get("bucket", ""),
+                    "table_name": ds.get("table_name", ""),
+                    "generation_mode": ds.get("generation", {}).get("mode", ""),
+                    "description": ds.get("description", ""),
+                }
+                for ds in data.get("datasets", [])
+            ]
             scenarios.append({
                 "id": scen.get("id", filename.replace(".yaml", "")),
                 "name": scen.get("name", scen.get("id", filename)),
@@ -73,6 +85,7 @@ async def list_component_scenarios(component_id: str):
                 "default_subtitle": disp.get("default_subtitle", ""),
                 "format": first_ds.get("format"),
                 "primary_table": first_ds.get("table_name"),
+                "datasets": datasets,
             })
         except Exception as e:
             print(f"[registry] Failed to load scenario {yaml_path}: {e}")

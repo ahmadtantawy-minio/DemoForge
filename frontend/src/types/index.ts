@@ -218,6 +218,16 @@ export interface ClusterNodeData {
   diskSizeTb?: number;
 }
 
+export interface ScenarioDataset {
+  id: string;
+  target: "table" | "object" | string;
+  format?: string;
+  namespace: string;
+  table_name: string;
+  generation_mode: string;
+  description: string;
+}
+
 export interface ScenarioOption {
   id: string;
   name: string;
@@ -228,6 +238,7 @@ export interface ScenarioOption {
   default_subtitle: string;
   format?: string;
   primary_table?: string;
+  datasets?: ScenarioDataset[];
 }
 
 export interface DemoGroup {
