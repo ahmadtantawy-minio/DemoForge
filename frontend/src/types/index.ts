@@ -226,6 +226,8 @@ export interface ScenarioDataset {
   table_name: string;
   generation_mode: string;
   description: string;
+  stream_rate?: string;
+  seed_rows?: number;
 }
 
 export interface ScenarioOption {

@@ -1021,23 +1021,88 @@ async def get_scenario_queries(demo_id: str, scenario_id: str):
         return raw, queries
 
     if scenario_id == "all":
-        if not os.path.isdir(datasets_dir):
-            return {"scenarios": []}
+        # Collect deployed scenario IDs from demo nodes
+        deployed_scenarios: set[str] = set()
+        has_running_demo = bool(running)
+        if running:
+            demos_dir_path = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
+            demo_path = os.path.join(demos_dir_path, f"{demo_id}.yaml")
+            if os.path.isfile(demo_path):
+                with open(demo_path) as _df:
+                    demo_def_all = _yaml.safe_load(_df)
+                for node in demo_def_all.get("nodes", []):
+                    cfg = node.get("config", {})
+                    if node.get("component") == "data-generator":
+                        sc = cfg.get("DG_SCENARIO", "")
+                        if sc:
+                            deployed_scenarios.add(sc)
+                    elif node.get("component") == "external-system":
+                        sc = cfg.get("ES_SCENARIO", "")
+                        if sc:
+                            deployed_scenarios.add(sc)
+
         scenarios = []
-        for fname in sorted(os.listdir(datasets_dir)):
-            if not fname.endswith(".yaml"):
-                continue
-            sid = fname[: -len(".yaml")]
-            yaml_path = os.path.join(datasets_dir, fname)
-            try:
-                raw, queries = _load_queries_from_yaml(yaml_path)
-                scenarios.append({
-                    "id": raw.get("id", sid),
-                    "name": raw.get("name", sid),
-                    "queries": queries,
-                })
-            except Exception:
-                pass
+        should_skip = lambda sid: has_running_demo and deployed_scenarios and sid not in deployed_scenarios
+
+        # Scan data-generator datasets
+        if os.path.isdir(datasets_dir):
+            for fname in sorted(os.listdir(datasets_dir)):
+                if not fname.endswith(".yaml"):
+                    continue
+                sid = fname[: -len(".yaml")]
+                if should_skip(sid):
+                    continue
+                yaml_path = os.path.join(datasets_dir, fname)
+                try:
+                    raw, queries = _load_queries_from_yaml(yaml_path)
+                    scenarios.append({
+                        "id": raw.get("id", sid),
+                        "name": raw.get("name", sid),
+                        "queries": queries,
+                    })
+                except Exception:
+                    pass
+
+        # Scan external-system scenarios
+        ext_scenarios_dir = os.path.join(os.path.abspath(components_dir), "external-system", "scenarios")
+        if os.path.isdir(ext_scenarios_dir):
+            for fname in sorted(os.listdir(ext_scenarios_dir)):
+                if not fname.endswith(".yaml") or fname.startswith("_"):
+                    continue
+                sid = fname[: -len(".yaml")]
+                if should_skip(sid):
+                    continue
+                yaml_path = os.path.join(ext_scenarios_dir, fname)
+                try:
+                    with open(yaml_path, "r", encoding="utf-8") as fh:
+                        ext_raw = _yaml.safe_load(fh)
+                    scen = ext_raw.get("scenario", {})
+                    scenario_name = scen.get("name", sid)
+                    # Build queries from saved_queries block using first dataset's namespace
+                    first_ds = next(iter(ext_raw.get("datasets", [])), {})
+                    namespace = first_ds.get("namespace", "soc")
+                    catalog = "iceberg"
+                    ext_queries = []
+                    saved_q = ext_raw.get("saved_queries", {})
+                    for q in saved_q.get("queries", []):
+                        sql = (q.get("query", "")
+                               .replace("{catalog}", catalog)
+                               .replace("{namespace}", namespace))
+                        ext_queries.append({
+                            "id": q.get("id", ""),
+                            "name": q.get("title", q.get("name", "")),
+                            "sql": sql.strip(),
+                            "chart_type": q.get("visualization", ""),
+                        })
+                    if ext_queries:
+                        scenarios.append({
+                            "id": scen.get("id", sid),
+                            "name": scenario_name,
+                            "queries": ext_queries,
+                        })
+                except Exception:
+                    pass
+
         return {"scenarios": scenarios}
 
     yaml_path = os.path.join(datasets_dir, f"{scenario_id}.yaml")

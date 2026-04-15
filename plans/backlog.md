@@ -55,12 +55,26 @@
 
 ---
 
-- [ ] **Enhancement: SQL Editor — scenario-driven tabs and richer pre-built queries**
-  - Tabs in the SQL Editor should reflect only the scenarios present in the active demo (based on `ES_SCENARIO` config on External System / Data Generator nodes). If no IoT data generator is deployed, the "IoT sensor telemetry" tab should not appear.
-  - Each scenario tab should expose a curated set of pre-built queries: basic (SELECT/COUNT from primary table), intermediate (aggregates, top-N), and advanced (time-windowed, cross-table, data freshness checks).
-  - Include queries that show data freshness (e.g. `SELECT MAX(event_time), NOW() - MAX(event_time) AS lag FROM ...`) and row counts per table.
-  - Pre-built queries live in the scenario YAML under a `queries:` block (label + SQL) so they're co-located with the scenario definition and easy to update.
-  - The SQL Editor UI reads available scenarios from the currently deployed demo's node configs, filters tabs accordingly, and loads queries from the registry scenario endpoint.
+- [x] **BUG: Destroying a demo does not stop the running containers**
+  - Fixed: `_cleanup_demo` now always calls `_force_remove_containers` as a final pass after compose down (not just on failure). Added `os.path.exists(compose_path)` guard — if the compose file is missing, skips directly to force-remove. Belt-and-suspenders: even if compose down succeeds, the Docker API force-remove pass catches any stragglers.
+
+- [x] **BUG: Cockpit Health tab shows stale/old date for cluster last-seen timestamp**
+  - Fixed: The displayed value was `servers[0].version` (MinIO binary release date like `RELEASE.2026-03-20T23:11:32Z`) which never changes. Replaced with formatted `servers[0].uptime` (seconds → "3d 4h online") which reflects actual server runtime. Added `formatUptime()` helper in CockpitOverlay.tsx.
+
+- [x] **Enhancement: Cockpit Stats tab — replace UP/DOWN object counters with per-cluster storage utilisation**
+  - Fixed: Removed `↑ txRate` and `↓ rxRate` byte-rate indicators from the Stats tab footer (these belong in Throughput tab). Replaced with object count + storage utilisation bar (used/total bytes + % bar) sourced from `healthData?.clusters` capacity data already in scope.
+
+- [x] **BUG: Cockpit Throughput tab always shows 0 ops/s and 0 req/s**
+  - Fixed: `_get_minio_cluster_metrics` now tries both `pool1-node-1` (multi-pool) and `node-1` (single-pool) naming — single-pool clusters were failing silently because the hardcoded `pool1-node-1` suffix didn't match their actual container names. Also widened Prometheus metric name matching in `_get_throughput_from_prometheus` to handle `minio_` prefix and `method` label variants.
+
+- [x] **BUG: Sovereign Cyber Data Lake — data volume not growing (JSON files not being written)**
+  - Fixed: `compose_generator.py` was injecting `ICEBERG_CATALOG_URI` for external-system containers but not `ICEBERG_WAREHOUSE`. The container defaulted to `"warehouse"` while AIStor clusters use `"analytics"` — causing all Iceberg writes to silently fail. Now injects `ICEBERG_WAREHOUSE` from cluster/node config alongside `ICEBERG_CATALOG_URI` in all AIStor branches.
+
+- [x] **Enhancement: External System properties panel — show data push frequency per dataset**
+  - Fixed: Added `stream_rate?: string` and `seed_rows?: number` to `ScenarioDataset` type. Registry endpoint now reads `generation.stream_rate` and `generation.seed_rows` from scenario YAML. ScenarioPicker dataset cards show formatted rate (e.g. "500k seed rows, then 25/s") in blue text.
+
+- [x] **Enhancement: SQL Editor — scenario-driven tabs and richer pre-built queries**
+  - Fixed: `scenario-queries/all` endpoint now scans both `data-generator/datasets/` AND `external-system/scenarios/` directories. When a demo is running, filters to only scenarios present in deployed nodes (`ES_SCENARIO` / `DG_SCENARIO` config). External-system queries use `catalog=iceberg` and namespace from the scenario YAML. Graceful fallback: shows all scenarios when demo is not running.
 
 ## In Progress
 

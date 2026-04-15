@@ -96,6 +96,16 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
+function formatUptime(seconds: number): string {
+  if (!seconds || seconds <= 0) return "";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  if (d > 0) return `${d}d ${h}h online`;
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m online`;
+  return `${m}m online`;
+}
+
 function formatRate(bytesPerSec: number): string {
   if (bytesPerSec === 0) return "0";
   const k = 1024;
@@ -304,6 +314,7 @@ export default function CockpitOverlay() {
           ) : activeTab === "stats" ? (
             <StatsTabContent
               data={data}
+              healthData={healthData}
               isRunning={isRunning}
               activeDemoId={activeDemoId}
               clusters={clusters}
@@ -420,9 +431,6 @@ function ClusterAdminInfo({ cluster }: { cluster: ClusterHealthResult }) {
   const usedBytes = usage.size ?? 0;
   const capacityBytes = usage.capacity ?? 0;
 
-  // Extract version from first server
-  const version = servers[0]?.version ?? null;
-
   return (
     <div className="mb-2 last:mb-0">
       {/* Cluster header */}
@@ -434,9 +442,9 @@ function ClusterAdminInfo({ cluster }: { cluster: ClusterHealthResult }) {
               {info.mode}
             </span>
           )}
-          {version && (
-            <span className="text-[9px] text-muted-foreground font-mono">{version}</span>
-          )}
+          {servers[0]?.uptime ? (
+            <span className="text-[9px] text-muted-foreground font-mono">{formatUptime(servers[0].uptime)}</span>
+          ) : null}
         </div>
       </div>
 
@@ -503,12 +511,14 @@ function ClusterAdminInfo({ cluster }: { cluster: ClusterHealthResult }) {
 
 function StatsTabContent({
   data,
+  healthData,
   isRunning,
   activeDemoId,
   clusters,
   clusterHealth,
 }: {
   data: CockpitData | null;
+  healthData: CockpitHealthData | null;
   isRunning: boolean;
   activeDemoId: string | null;
   clusters: { id: string; drivesPerNode: number }[];
@@ -527,8 +537,6 @@ function StatsTabContent({
       ) : (
         data.clusters.map((cluster) => {
           const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
-          const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
-          const txRate = cluster.throughput.tx_bytes_per_sec || 0;
 
           return (
             <div key={cluster.alias} className="mb-3 last:mb-0">
@@ -545,13 +553,33 @@ function StatsTabContent({
                 {cluster.buckets.length === 0 && (
                   <div className="text-muted-foreground col-span-2">No buckets</div>
                 )}
-                <div className="col-span-2 mt-1 pt-1 border-t border-border/50">
-                  <div className="flex gap-3">
-                    <span className="text-green-400">↑ {formatRate(txRate)}</span>
-                    <span className="text-blue-400">↓ {formatRate(rxRate)}</span>
-                    <span className="text-muted-foreground ml-auto">{totalObjects.toLocaleString()} total</span>
-                  </div>
-                </div>
+                {(() => {
+                  const clusterHealthInfo = healthData?.clusters?.find((c: any) => c.alias === cluster.alias);
+                  const usedBytes = clusterHealthInfo?.info?.usage?.size ?? 0;
+                  const capBytes = clusterHealthInfo?.info?.usage?.capacity ?? 0;
+                  const pct = capBytes > 0 ? ((usedBytes / capBytes) * 100).toFixed(3) : null;
+                  return (
+                    <div className="col-span-2 mt-1 pt-1 border-t border-border/50">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground text-[10px]">{totalObjects.toLocaleString()} objects</span>
+                        {capBytes > 0 && (
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {formatBytes(usedBytes)} / {formatBytes(capBytes)}
+                            {pct !== null && <span className="text-zinc-500 ml-1">· {pct}%</span>}
+                          </span>
+                        )}
+                      </div>
+                      {capBytes > 0 && (
+                        <div className="mt-1 h-1 bg-zinc-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500/60 rounded-full"
+                            style={{ width: `${Math.min(100, (usedBytes / capBytes) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           );

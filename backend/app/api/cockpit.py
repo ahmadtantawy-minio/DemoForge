@@ -56,10 +56,10 @@ async def _get_throughput_from_prometheus(mc_shell: str, alias: str, demo_id: st
             except ValueError:
                 continue
 
-            if "s3_requests_total" in metric_def:
-                if "putobject" in metric_def or '"put"' in metric_def:
+            if "minio_s3_requests_total" in metric_def or "s3_requests_total" in metric_def:
+                if any(x in metric_def for x in ["putobject", '"put"', "put_object", 'method="put"']):
                     put_total += val
-                elif "getobject" in metric_def or '"get"' in metric_def:
+                elif any(x in metric_def for x in ["getobject", '"get"', "get_object", 'method="get"']):
                     get_total += val
             elif "s3_traffic_sent_bytes" in metric_def or "traffic_sent" in metric_def:
                 sent_bytes += val
@@ -151,48 +151,58 @@ async def _get_nginx_stats(mc_shell: str, project_name: str, cluster_id: str, de
 
 async def _get_minio_cluster_metrics(mc_shell: str, project_name: str, cluster_id: str, demo_id: str) -> dict:
     """Get MinIO byte rates from Prometheus endpoint on first pool node."""
-    node_name = f"{project_name}-{cluster_id}-pool1-node-1"
+    # Try multi-pool naming first, then single-pool fallback
+    node_candidates = [
+        f"{project_name}-{cluster_id}-pool1-node-1",
+        f"{project_name}-{cluster_id}-node-1",
+    ]
     cache_key = (demo_id, cluster_id, "minio_direct")
-    try:
-        exit_code, stdout, _ = await exec_in_container(
-            mc_shell, f"curl -sf http://{node_name}:9000/minio/v2/metrics/cluster"
-        )
-        if exit_code != 0 or not stdout.strip():
-            return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
+    stdout = ""
+    for node_name in node_candidates:
+        try:
+            exit_code, out, _ = await exec_in_container(
+                mc_shell, f"curl -sf http://{node_name}:9000/minio/v2/metrics/cluster"
+            )
+            if exit_code == 0 and out.strip():
+                stdout = out
+                break
+        except Exception:
+            continue
 
-        now = time.time()
-        rx_total = 0.0
-        tx_total = 0.0
-        for line in stdout.splitlines():
-            if line.startswith("#") or not line.strip():
-                continue
-            if "minio_s3_traffic_received_bytes" in line:
-                try:
-                    rx_total += float(line.split()[-1])
-                except (ValueError, IndexError):
-                    pass
-            elif "minio_s3_traffic_sent_bytes" in line:
-                try:
-                    tx_total += float(line.split()[-1])
-                except (ValueError, IndexError):
-                    pass
-
-        prev = _prom_snapshot.get(cache_key)
-        _prom_snapshot[cache_key] = (now, {"rx": rx_total, "tx": tx_total})
-
-        if prev:
-            prev_time, prev_data = prev
-            dt = now - prev_time
-            if dt > 0:
-                rx_rate = max(0, (rx_total - prev_data.get("rx", 0)) / dt)
-                tx_rate = max(0, (tx_total - prev_data.get("tx", 0)) / dt)
-                return {
-                    "minio_rx_bytes_per_sec": round(rx_rate),
-                    "minio_tx_bytes_per_sec": round(tx_rate),
-                }
+    if not stdout:
         return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
-    except Exception:
-        return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
+
+    now = time.time()
+    rx_total = 0.0
+    tx_total = 0.0
+    for line in stdout.splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        if "minio_s3_traffic_received_bytes" in line:
+            try:
+                rx_total += float(line.split()[-1])
+            except (ValueError, IndexError):
+                pass
+        elif "minio_s3_traffic_sent_bytes" in line:
+            try:
+                tx_total += float(line.split()[-1])
+            except (ValueError, IndexError):
+                pass
+
+    prev = _prom_snapshot.get(cache_key)
+    _prom_snapshot[cache_key] = (now, {"rx": rx_total, "tx": tx_total})
+
+    if prev:
+        prev_time, prev_data = prev
+        dt = now - prev_time
+        if dt > 0:
+            rx_rate = max(0, (rx_total - prev_data.get("rx", 0)) / dt)
+            tx_rate = max(0, (tx_total - prev_data.get("tx", 0)) / dt)
+            return {
+                "minio_rx_bytes_per_sec": round(rx_rate),
+                "minio_tx_bytes_per_sec": round(tx_rate),
+            }
+    return {"minio_rx_bytes_per_sec": 0, "minio_tx_bytes_per_sec": 0}
 
 
 async def _get_host_stats(demo_id: str) -> dict:

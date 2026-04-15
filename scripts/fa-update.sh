@@ -12,20 +12,11 @@ fail() { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
 
 cd "$PROJECT_ROOT"
 
-# ── Step 2b: Pull latest DemoForge code ────────────────────────────────────
-log "Pulling latest DemoForge code..."
-if git -C "$PROJECT_ROOT" pull --ff-only 2>/dev/null; then
-  ok "DemoForge code updated"
-else
-  warn "git pull failed or not a clean repo — skipping code update (will use current version)"
-fi
-
 DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 
 # ── Step 2: Load FA credentials ───────────────────────────────────────────
 FA_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
-HUB_URL=$(grep "^DEMOFORGE_HUB_URL=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "$DEFAULT_HUB_URL")
-[[ -z "$HUB_URL" ]] && HUB_URL="$DEFAULT_HUB_URL"
+HUB_URL="$DEFAULT_HUB_URL"
 
 if [[ -z "$FA_KEY" ]]; then
   warn "No FA key found in .env.local — skipping connectivity check."
@@ -58,6 +49,20 @@ _set_env() {
     fi
 }
 _set_env "DEMOFORGE_MODE" "fa"
+
+# ── Self-repair ────────────────────────────────────────────────────────────
+# Remove legacy hub-connector container (retired — FA traffic now goes direct to gateway)
+if docker inspect hub-connector &>/dev/null 2>&1; then
+  warn "Legacy hub-connector found — removing..."
+  docker rm -f hub-connector 2>/dev/null || true
+  ok "Legacy hub-connector removed"
+fi
+
+# Remove stale DEMOFORGE_HUB_URL from .env.local (gateway URL is now built-in)
+if grep -q "^DEMOFORGE_HUB_URL=" "$ENVFILE" 2>/dev/null; then
+  sed -i.bak '/^DEMOFORGE_HUB_URL=/d' "$ENVFILE" && rm -f "${ENVFILE}.bak"
+  ok "Removed stale DEMOFORGE_HUB_URL from .env.local (gateway URL is built-in)"
+fi
 
 # ── Step 7: Restart DemoForge services ────────────────────────────────────
 log "Restarting DemoForge..."

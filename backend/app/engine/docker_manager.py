@@ -190,14 +190,15 @@ async def _cleanup_demo(demo_id: str, compose_path: str | None, project_name: st
         logger.warning(f"Failed to leave networks for {demo_id}: {e}")
 
     # Try compose down first
-    if compose_path:
+    if compose_path and os.path.exists(compose_path):
         success = await _compose_down(compose_path, project_name, remove_volumes=remove_volumes)
         if not success:
-            logger.warning(f"compose down failed for {demo_id}, falling back to force-remove")
-            await _force_remove_containers(demo_id)
-    else:
-        # No compose file — force-remove directly
-        await _force_remove_containers(demo_id)
+            logger.warning(f"compose down failed for {demo_id}")
+    elif compose_path:
+        logger.warning(f"Compose file not found at {compose_path} for demo {demo_id}, skipping compose down")
+
+    # Always force-remove as final pass to catch any stragglers
+    await _force_remove_containers(demo_id)
 
     # Clean up any networks left behind (use prefix match for compose-created networks)
     try:
@@ -239,7 +240,6 @@ async def _build_custom_images(demo: DemoDefinition, components_dir: str, progre
             continue
         except Exception:
             pass  # image not found, proceed to build
-            pass
 
         await progress("images", "running", f"Building {manifest.image}...")
         logger.info(f"Building image {manifest.image} from {build_path}")

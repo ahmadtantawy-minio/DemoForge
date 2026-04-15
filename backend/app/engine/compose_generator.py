@@ -659,10 +659,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     env["S3_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
                     env["S3_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
 
-                # aistor-tables edge: inject Iceberg catalog URI
+                # aistor-tables edge: inject Iceberg catalog URI + warehouse
                 if edge.connection_type == "aistor-tables":
                     env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
                     env["ICEBERG_SIGV4"] = "true"
+                    if peer_cluster:
+                        env["ICEBERG_WAREHOUSE"] = peer_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
+                    elif peer_node_obj:
+                        env["ICEBERG_WAREHOUSE"] = (peer_node_obj.config or {}).get("ICEBERG_WAREHOUSE", "analytics")
                 elif "ICEBERG_CATALOG_URI" not in env or not env["ICEBERG_CATALOG_URI"]:
                     # s3 edge to AIStor standalone node: check edition
                     if peer_node_obj:
@@ -670,9 +674,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         if node_cfg.get("MINIO_EDITION", "ce") == "aistor":
                             env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
                             env["ICEBERG_SIGV4"] = "true"
+                            env["ICEBERG_WAREHOUSE"] = node_cfg.get("ICEBERG_WAREHOUSE", "analytics")
                     elif peer_cluster and getattr(peer_cluster, "aistor_tables_enabled", False):
                         env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
                         env["ICEBERG_SIGV4"] = "true"
+                        env["ICEBERG_WAREHOUSE"] = peer_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
                 break
 
             # Inject TRINO_HOST if a Trino node exists

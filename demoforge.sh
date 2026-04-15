@@ -274,18 +274,15 @@ cmd_start() {
     # Hub connectivity check (FA/standard mode only)
     if [[ "${DEMOFORGE_MODE:-standard}" != "dev" ]]; then
         log "Checking hub connectivity..."
-        _HUB_URL="${DEMOFORGE_HUB_URL:-}"
-        if [[ -z "$_HUB_URL" ]]; then
-            err "DEMOFORGE_HUB_URL not set. Run: make fa-setup"
-            exit 1
-        fi
+        _DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
+        _HUB_URL="${DEMOFORGE_HUB_URL:-$_DEFAULT_HUB_URL}"
         _HEALTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" \
             "${_HUB_URL}/health" 2>/dev/null || echo "000")
         if [[ "$_HEALTH_HTTP" != "200" ]]; then
-            err "Hub gateway unreachable (HTTP $_HEALTH_HTTP). Check your network connection."
-            exit 1
+            warn "Hub gateway unreachable (HTTP $_HEALTH_HTTP) — FA management features may be limited."
+        else
+            ok "Hub connectivity verified"
         fi
-        ok "Hub connectivity verified"
     fi
 
     # Kill anything that's already running

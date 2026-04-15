@@ -114,8 +114,8 @@ nodes:
   component: external-system
   variant: default
   position:
-    x: -223.00698573127232
-    y: 78.72183412604043
+    x: -291.2355724615658
+    y: 112.0427718315326
   config:
     ES_SCENARIO: soc-firewall-events
     ES_STARTUP_DELAY: '30'
@@ -129,8 +129,8 @@ nodes:
   component: external-system
   variant: default
   position:
-    x: -242.17947384066588
-    y: 280.0
+    x: -279.2453674477936
+    y: 318.88942216908583
   config:
     ES_SCENARIO: soc-threat-intel
     ES_STARTUP_DELAY: '0'
@@ -144,8 +144,8 @@ nodes:
   component: external-system
   variant: default
   position:
-    x: -238.34497621878717
-    y: 477.44366825208084
+    x: -290.7064497559892
+    y: 494.89749276448146
   config:
     ES_SCENARIO: soc-vuln-scan
     ES_STARTUP_DELAY: '0'
@@ -251,166 +251,221 @@ edges:
   target_handle: null
 groups: []
 sticky_notes:
-# --- Customer-facing notes ---
 - id: sn-fw-data
-  position: {x: -560, y: 30}
-  width: 280
-  height: 90
+  text: '500K events as Iceberg tables (Parquet). 20 columns: IPs, ports, protocol,
+    action, severity, MITRE ATT&CK tactic. Streaming at 25 events/sec after initial
+    seed.'
+  color: '#6b7280'
   title: Firewall event stream
-  text: "500K events as Iceberg tables (Parquet). 20 columns: IPs, ports, protocol,
-    action, severity, MITRE ATT\u0026CK tactic. Streaming at 25 events/sec after initial
-    seed."
-  color: '#6b7280'
   visibility: customer
+  position:
+    x: -584.0
+    y: 30.0
+  width: 327.0
+  height: 110.0
 - id: sn-ti-data
-  position: {x: -560, y: 240}
-  width: 280
-  height: 110
-  title: Three data types, two write paths
-  text: "Structured: 8K IOC records as Iceberg table via catalog API. Semi-structured:
+  text: 'Structured: 8K IOC records as Iceberg table via catalog API. Semi-structured:
     500 STIX 2.1 JSON bundles as S3 objects. Unstructured: 200 malware binary samples
-    as S3 objects with metadata mirrored to queryable Iceberg table."
+    as S3 objects with metadata mirrored to queryable Iceberg table.'
   color: '#6b7280'
+  title: Three data types, two write paths
   visibility: customer
+  position:
+    x: -583.5867113193092
+    y: 206.67906229450784
+  width: 335.0
+  height: 144.0
 - id: sn-vs-data
-  position: {x: -560, y: 440}
-  width: 280
-  height: 80
-  title: Vulnerability scan data
-  text: "15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
-    business unit, OS. Batch import \u2014 scans are periodic."
+  text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
+    business unit, OS. Batch import — scans are periodic.
   color: '#6b7280'
+  title: Vulnerability scan data
   visibility: customer
+  position:
+    x: -566.0
+    y: 408.2657736138169
+  width: 299.0
+  height: 101.0
 - id: sn-aistor-catalog
-  position: {x: 150, y: 100}
-  width: 360
-  height: 100
+  text: No external metastore. No Polaris. No Hive. The catalog is embedded at /_iceberg
+    on port 9000. Warehouse → Namespace → Table hierarchy. Structured Iceberg tables
+    AND raw S3 objects coexist — same cluster, same encryption, same IAM.
+  color: '#0d9488'
   title: Built-in Iceberg V3 REST catalog
-  text: "No external metastore. No Polaris. No Hive. The catalog is embedded at /_iceberg
-    on port 9000. Warehouse \u2192 Namespace \u2192 Table hierarchy. Structured Iceberg
-    tables AND raw S3 objects coexist \u2014 same cluster, same encryption, same IAM."
-  color: '#0d9488'
   visibility: customer
+  position:
+    x: 212.92129369591873
+    y: 109.26112515185525
+  width: 399.0
+  height: 126.0
 - id: sn-trino-config
-  position: {x: 789, y: 190}
-  width: 250
-  height: 70
-  title: Standard SQL over Iceberg
-  text: "Trino connects to AIStor\u2019s Iceberg REST catalog. Any SQL query runs against
-    all 4 tables. No proprietary query language \u2014 standard ANSI SQL."
+  text: Trino connects to AIStor’s Iceberg REST catalog. Any SQL query runs against
+    all 4 tables. No proprietary query language — standard ANSI SQL.
   color: '#3b82f6'
+  title: Standard SQL over Iceberg
   visibility: customer
+  position:
+    x: 692.4615743938016
+    y: 163.52978652733267
+  width: 299.0
+  height: 129.0
 - id: sn-metabase-info
-  position: {x: 1079, y: 50}
-  width: 250
-  height: 80
-  title: Auto-provisioned dashboards
-  text: "3 dashboards created automatically: SOC Overview, Threat Intelligence, Vulnerability
-    Posture. Plus 10 pre-configured analyst queries."
+  text: '3 dashboards created automatically: SOC Overview, Threat Intelligence, Vulnerability
+    Posture. Plus 10 pre-configured analyst queries.'
   color: '#a855f7'
+  title: Auto-provisioned dashboards
   visibility: customer
+  position:
+    x: 1079.0
+    y: 50.0
+  width: 281.0
+  height: 124.0
 - id: sn-sovereignty
-  position: {x: 150, y: 580}
-  width: 360
-  height: 80
-  title: Full data sovereignty
-  text: "Everything runs on-prem. No cloud dependency. UAE PDPL compliant. Data never
-    leaves your infrastructure. Open standards \u2014 Iceberg + S3 API. Swap any component
-    without vendor lock-in."
+  text: Everything runs on-prem. No cloud dependency. UAE PDPL compliant. Data never
+    leaves your infrastructure. Open standards — Iceberg + S3 API. Swap any component
+    without vendor lock-in.
   color: '#0d9488'
+  title: Full data sovereignty
   visibility: customer
-# --- FA internal notes ---
+  position:
+    x: 221.62528351427625
+    y: 519.2742161509398
+  width: 396.0
+  height: 118.0
 - id: sn-fw-fa
-  position: {x: -560, y: 130}
-  width: 280
-  height: 100
+  text: Seeding takes ~30s. Show DemoForge log viewer during seeding — audience sees
+    progress bar. After seed, open MinIO Console to show Parquet files landing. 3%
+    of dst_ips correlate with IOCs — the join query WILL have results.
+  color: '#eab308'
   title: Demo tip
-  text: "Seeding takes ~30s. Show DemoForge log viewer during seeding \u2014 audience
-    sees progress bar. After seed, open MinIO Console to show Parquet files landing.
-    3% of dst_ips correlate with IOCs \u2014 the join query WILL have results."
   visibility: internal
+  position:
+    x: -1014.4702092549868
+    y: 229.65256836768867
+  width: 348.0
+  height: 146.0
 - id: sn-ti-fa
-  position: {x: -560, y: 360}
-  width: 280
-  height: 110
+  text: Open MinIO Console → navigate to threat-intel/feeds/stix/ and click a JSON
+    file. Show it’s a real STIX bundle. Then navigate to malware-vault/samples/ —
+    show binary objects exist. Then run Query 8 in Metabase to show malware_metadata
+    table. This IS the structured+unstructured unified story.
+  color: '#eab308'
   title: Key demo moment
-  text: "Open MinIO Console \u2192 navigate to threat-intel/feeds/stix/ and click a
-    JSON file. Show it\u2019s a real STIX bundle. Then navigate to malware-vault/samples/
-    \u2014 show binary objects exist. Then run Query 8 in Metabase to show malware_metadata
-    table. This IS the structured+unstructured unified story."
   visibility: internal
+  position:
+    x: -999.0941293701285
+    y: 414.49749832607984
+  width: 404.0
+  height: 146.0
 - id: sn-vs-fa
-  position: {x: -560, y: 530}
-  width: 280
-  height: 80
-  title: "Query 6 setup"
-  text: "80% of firewall src_ips match vuln scan host_ips \u2014 so the cross-join
-    in Query 6 (exposed hosts) will return a meaningful prioritized remediation list.
-    This is usually the \u2018wow\u2019 moment for CISOs."
+  text: 80% of firewall src_ips match vuln scan host_ips — so the cross-join in Query
+    6 (exposed hosts) will return a meaningful prioritized remediation list. This
+    is usually the ‘wow’ moment for CISOs.
+  color: '#eab308'
+  title: Query 6 setup
   visibility: internal
+  position:
+    x: 688.5150255312291
+    y: 414.2872674822338
+  width: 395.0
+  height: 112.0
 - id: sn-aistor-fa
-  position: {x: 150, y: 490}
-  width: 360
-  height: 120
+  text: 'Say: ‘Every other Iceberg deployment requires a separate catalog service
+    — Hive metastore, Nessie, Polaris. That’s another component to deploy, secure,
+    back up, and monitor. AIStor builds the catalog directly into the storage layer.
+    One system. One security model.’ Then open MinIO Console and show the tables AND
+    the raw object buckets side by side.'
+  color: '#eab308'
   title: Differentiator script
-  text: "Say: \u2018Every other Iceberg deployment requires a separate catalog service
-    \u2014 Hive metastore, Nessie, Polaris. That\u2019s another component to deploy,
-    secure, back up, and monitor. AIStor builds the catalog directly into the storage
-    layer. One system. One security model.\u2019 Then open MinIO Console and show the
-    tables AND the raw object buckets side by side."
   visibility: internal
+  position:
+    x: 1543.578885766897
+    y: 356.09186125591833
+  width: 389.0
+  height: 167.0
 - id: sn-cost-fa
-  position: {x: 789, y: 490}
-  width: 250
-  height: 100
-  title: "Total cost of ownership"
-  text: "Proprietary SIEM platforms charge $150-200/GB ingested. At 1TB/day that exceeds
+  text: 'Proprietary SIEM platforms charge $150-200/GB ingested. At 1TB/day that exceeds
     $55M/year. AIStor + Trino + Metabase: pay only for storage, not per byte ingested.
-    Open-source query and visualisation layer — no license lock-in."
+    Open-source query and visualisation layer — no license lock-in.'
+  color: '#eab308'
+  title: Total cost of ownership
   visibility: customer
+  position:
+    x: 220.44848712835568
+    y: 651.1849073519733
+  width: 405.0
+  height: 120.0
 - id: sn-queries-fa
-  position: {x: 789, y: 390}
-  width: 250
-  height: 200
+  text: 'Open Metabase → CPX Demo Queries collection. Run in order:
+
+    Q1: Event count (confirms scale)
+
+    Q2: Show all tables (catalog works)
+
+    Q3: IOC correlation join (the wow query — pause here, explain)
+
+    Q4: Threat actor summary (who’s attacking)
+
+    Q6: Exposed hosts (CISO moment — unpatched + suspicious)
+
+    Q8: Malware metadata (unstructured → queryable)
+
+    Q10: Run twice, 30s apart (streaming proof)
+
+    Skip Q5, Q7, Q9 if short on time.'
+  color: '#eab308'
   title: Query presentation order
-  text: "Open Metabase \u2192 CPX Demo Queries collection. Run in order:\nQ1: Event
-    count (confirms scale)\nQ2: Show all tables (catalog works)\nQ3: IOC correlation
-    join (the wow query \u2014 pause here, explain)\nQ4: Threat actor summary (who\u2019s
-    attacking)\nQ6: Exposed hosts (CISO moment \u2014 unpatched + suspicious)\nQ8:
-    Malware metadata (unstructured \u2192 queryable)\nQ10: Run twice, 30s apart (streaming
-    proof)\nSkip Q5, Q7, Q9 if short on time."
   visibility: internal
+  position:
+    x: 694.0186457745468
+    y: 534.8076384092977
+  width: 400.0
+  height: 233.0
 - id: sn-metabase-fa
-  position: {x: 1079, y: 320}
-  width: 280
-  height: 140
-  title: Dashboard flow
-  text: "Start with SOC Overview (big picture, time series). Move to Threat Intel
+  text: 'Start with SOC Overview (big picture, time series). Move to Threat Intel
     (actor-specific). Then Vuln Posture (remediation angle). THEN switch to Demo Queries
-    collection for the interactive portion.\n\nIf dashboards are slow to load, Metabase
-    is still syncing schema. Wait 15s and refresh."
+    collection for the interactive portion.
+
+
+    If dashboards are slow to load, Metabase is still syncing schema. Wait 15s and
+    refresh.'
+  color: '#eab308'
+  title: Dashboard flow
   visibility: internal
+  position:
+    x: 1169.310140083218
+    y: 276.4020013391362
+  width: 350.0
+  height: 182.0
 - id: sn-opening-fa
-  position: {x: -650, y: -100}
-  width: 300
-  height: 120
-  title: "Opening (before deploy)"
-  text: "Show canvas first \u2014 narrate the topology. \u2018Three source systems
-    on the left \u2014 your firewalls, threat intel, vuln scanners. MinIO AIStor in
-    the center \u2014 one system for tables AND objects. Trino for SQL. Metabase for
-    dashboards. Everything on-prem, everything sovereign.\u2019 THEN click Deploy."
+  text: Show canvas first — narrate the topology. ‘Three source systems on the left
+    — your firewalls, threat intel, vuln scanners. MinIO AIStor in the center — one
+    system for tables AND objects. Trino for SQL. Metabase for dashboards. Everything
+    on-prem, everything sovereign.’ THEN click Deploy.
+  color: '#eab308'
+  title: Opening (before deploy)
   visibility: internal
+  position:
+    x: -990.4006337223211
+    y: 23.008639078865777
+  width: 354.0
+  height: 164.0
 - id: sn-closing-fa
-  position: {x: -650, y: 650}
-  width: 300
-  height: 120
-  title: "Closing (after queries)"
-  text: "Recap: \u2018One platform. Structured tables + raw objects. Standard SQL +
-    auto-provisioned dashboards. Sovereign. On-prem. A fraction of Splunk\u2019s cost.
-    And the same data can power ML anomaly detection and AI threat hunting tomorrow
-    \u2014 no ETL, no copying. That\u2019s AIStor Tables.\u2019\n\nThen offer: \u2018Want
-    to see the AI extension? We have notebooks ready.\u2019"
+  text: 'Recap: ‘One platform. Structured tables + raw objects. Standard SQL + auto-provisioned
+    dashboards. Sovereign. On-prem. A fraction of Splunk’s cost. And the same data
+    can power ML anomaly detection and AI threat hunting tomorrow — no ETL, no copying.
+    That’s AIStor Tables.’
+
+
+    Then offer: ‘Want to see the AI extension? We have notebooks ready.’'
+  color: '#eab308'
+  title: Closing (after queries)
   visibility: internal
+  position:
+    x: 1170.2164440910644
+    y: 496.62846899660417
+  width: 344.0
+  height: 212.0
 annotations: []
 schematics: []
 clusters:
@@ -418,8 +473,8 @@ clusters:
   component: minio
   label: AIStor MinIO Cluster
   position:
-    x: 242.7379310344828
-    y: 252.16206896551728
+    x: 244.10737335384772
+    y: 254.9009536042472
   node_count: 4
   drives_per_node: 1
   credentials:
@@ -453,5 +508,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-15T03:40:46.702377+00:00'
+updated_at: '2026-04-15T06:08:14.525630+00:00'
 source_template_id: sovereign-cyber-data-lake

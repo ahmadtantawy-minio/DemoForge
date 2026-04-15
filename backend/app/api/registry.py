@@ -72,6 +72,8 @@ async def list_component_scenarios(component_id: str):
                     "table_name": ds.get("table_name", ""),
                     "generation_mode": ds.get("generation", {}).get("mode", ""),
                     "description": ds.get("description", ""),
+                    "stream_rate": ds.get("generation", {}).get("stream_rate"),
+                    "seed_rows": ds.get("generation", {}).get("seed_rows"),
                 }
                 for ds in data.get("datasets", [])
             ]

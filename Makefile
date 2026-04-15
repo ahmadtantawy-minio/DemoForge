@@ -204,15 +204,13 @@ hub-deploy-api:   ## [Dev] Redeploy hub-api Cloud Run only (SSH-free, ~2 min)
 hub-deploy-gateway: ## [Dev] Redeploy gateway Cloud Run only (SSH-free, ~1 min)
 	@scripts/minio-gcp.sh --deploy-gateway
 
-fa-setup:         ## Field Architect first-time setup (starts hub-connector, pulls images)
+fa-setup:         ## Field Architect first-time setup (validates FA key with gateway, pulls images)
 	@scripts/fa-setup.sh
 
 fa-update:        ## Pull latest scripts, core images, and restart (FA day-to-day update workflow)
 	@scripts/demoforge-update.sh
 
-fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .env.local, stops hub-connector)
-	@echo "Stopping hub-connector..."
-	@docker rm -f hub-connector 2>/dev/null && echo "  hub-connector stopped" || echo "  hub-connector not running"
+fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .env.local)
 	@if [ -f .env.local ]; then \
 	  cp .env.local .env.local.bak; \
 	  echo "  Backed up .env.local → .env.local.bak"; \

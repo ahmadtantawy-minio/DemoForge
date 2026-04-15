@@ -77,6 +77,13 @@ export default function ScenarioPicker({ currentScenario, onScenarioChange }: Sc
   );
 }
 
+function formatPushRate(ds: ScenarioDataset): string | null {
+  const parts: string[] = [];
+  if (ds.seed_rows) parts.push(`${(ds.seed_rows / 1000).toFixed(0)}k seed rows`);
+  if (ds.stream_rate) parts.push(`then ${ds.stream_rate}`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
 function modeLabel(mode: string): string {
   if (mode === "batch_then_stream") return "seed → stream";
   if (mode === "batch") return "batch";
@@ -102,6 +109,7 @@ function DatasetList({ datasets }: { datasets: ScenarioDataset[] }) {
               {ds.table_name || ds.id}
             </p>
             <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{method}</p>
+            {(() => { const rate = formatPushRate(ds); return rate && <p className="text-[10px] text-blue-400/80 leading-tight mt-0.5">{rate}</p>; })()}
             <p className="text-[10px] font-mono text-muted-foreground/80 leading-tight mt-0.5 truncate" title={destination}>
               {destination}
             </p>
