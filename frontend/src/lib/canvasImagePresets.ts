@@ -17,6 +17,7 @@ export interface CanvasImagePreset {
 
 export const CANVAS_IMAGE_PRESETS: CanvasImagePreset[] = [
   { id: "minio-aistor-tables-logo", label: "AIStor", description: "MinIO AIStor logo", defaultWidth: 240, defaultHeight: 100, svgUrl: aistorTablesLogo },
+  { id: "aistor-tables-logo", label: "AIStor Tables", description: "MinIO AIStor Tables logo", defaultWidth: 240, defaultHeight: 100, svgUrl: aistorTablesLogo },
   { id: "minio-logo", label: "MinIO", description: "MinIO logo", defaultWidth: 160, defaultHeight: 50, svgUrl: minioLogo },
   { id: "trino-logo", label: "Trino", description: "Trino distributed SQL", defaultWidth: 140, defaultHeight: 50, svgUrl: trinoLogo },
   { id: "apache-iceberg-logo", label: "Apache Iceberg", description: "Apache Iceberg table format", defaultWidth: 180, defaultHeight: 55, svgUrl: apacheIcebergLogo },
