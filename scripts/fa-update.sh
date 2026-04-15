@@ -58,11 +58,8 @@ if docker inspect hub-connector &>/dev/null 2>&1; then
   ok "Legacy hub-connector removed"
 fi
 
-# Remove stale DEMOFORGE_HUB_URL from .env.local (gateway URL is now built-in)
-if grep -q "^DEMOFORGE_HUB_URL=" "$ENVFILE" 2>/dev/null; then
-  sed -i.bak '/^DEMOFORGE_HUB_URL=/d' "$ENVFILE" && rm -f "${ENVFILE}.bak"
-  ok "Removed stale DEMOFORGE_HUB_URL from .env.local (gateway URL is built-in)"
-fi
+# Ensure DEMOFORGE_HUB_URL is set to the current gateway URL
+_set_env "DEMOFORGE_HUB_URL" "$DEFAULT_HUB_URL"
 
 # ── Step 7: Restart DemoForge services ────────────────────────────────────
 log "Restarting DemoForge..."
