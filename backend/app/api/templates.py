@@ -265,7 +265,7 @@ async def list_templates(mine: bool = False, fa_view: bool = False, include_arch
     if os.getenv("DEMOFORGE_MODE") == "fa":
         templates = [
             t for t in templates
-            if t.get("source") == "user" or t.get("validated")
+            if t.get("source") in ("user", "synced") or t.get("validated")
         ]
 
     # Apply custom display order from ORDER.yaml

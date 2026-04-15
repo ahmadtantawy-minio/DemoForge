@@ -22,7 +22,7 @@ export default function AppNav() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/version")
+    fetch(`${import.meta.env.VITE_API_URL || "http://localhost:9210"}/api/version`)
       .then((r) => r.json())
       .then((d) => setAppVersion(d.version ?? null))
       .catch(() => {});

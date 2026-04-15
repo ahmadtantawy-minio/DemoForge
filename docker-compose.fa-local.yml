@@ -1,8 +1,8 @@
 # docker-compose.fa-local.yml — standalone FA-mode stack for same-PC local testing
 #
 # Runs a second DemoForge instance in FA mode alongside the dev stack:
-#   Backend:  http://localhost:9211   (dev: 9210)
-#   Frontend: http://localhost:3001   (dev: 3000)
+#   Backend:  http://localhost:9212   (FA: 9210, dev: 9211)
+#   Frontend: http://localhost:3002   (FA: 3000, dev: 3001)
 #
 # All mutable state lives under ./fa-data/ (gitignored) so the two instances
 # never share templates, licenses, or demo definitions.
@@ -18,7 +18,7 @@ services:
     image: demoforge/demoforge-backend:latest
     container_name: demoforge-fa-backend
     ports:
-      - "9211:9210"
+      - "9212:9210"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./components:/app/components:ro
@@ -56,8 +56,8 @@ services:
     image: demoforge/demoforge-frontend:latest
     container_name: demoforge-fa-frontend
     ports:
-      - "3001:3000"
+      - "3002:3000"
     depends_on:
       - backend
     environment:
-      - VITE_API_URL=http://localhost:9211
+      - VITE_API_URL=http://localhost:9212

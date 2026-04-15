@@ -1,6 +1,9 @@
 # docker-compose.dev.yml — Dev mode hot-reload overrides
 # Applied automatically by demoforge-dev.sh when DEMOFORGE_MODE=dev.
 # Layered on top of docker-compose.yml via: docker compose -f docker-compose.yml -f docker-compose.dev.yml
+#
+# Dev mode uses ports 9211 (backend) and 3001 (frontend) so a dev instance and an FA
+# instance can run simultaneously on the same machine without port conflicts.
 services:
   hub-api:
     profiles: ["local-hub"]   # only started when DEMOFORGE_HUB_LOCAL=1 (make dev-start)
@@ -18,8 +21,10 @@ services:
       - HUB_API_DATABASE_PATH=/data/hub-api/demoforge-hub.db
 
   backend:
-    # Enable uvicorn --reload: watches /app/app (already volume-mounted from ./backend/app)
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9210", "--reload"]
+    # Enable uvicorn --reload on port 9211 (dev port, avoids conflict with FA on 9210)
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9211", "--reload"]
+    ports:
+      - "9211:9211"
 
   frontend:
     # Use the dev stage: Vite HMR instead of nginx
@@ -27,6 +32,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: dev
+    ports:
+      - "3001:3001"
+    environment:
+      - VITE_API_URL=http://localhost:9211
+      - VITE_PORT=3001
+      - VITE_BACKEND_URL=http://backend:9211
     # Source files mounted for HMR; node_modules stays from the image layer
     volumes:
       - ./frontend/src:/app/src

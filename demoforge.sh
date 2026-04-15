@@ -23,12 +23,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PROJECT_NAME="demoforge"
-BACKEND_PORT=9210
+BACKEND_PORT=9210  # overridden to 9211 for dev mode inside load_env()
 
 # FA local instance config (same PC, isolated data under ./fa-data/)
+# Uses 9212/3002 — distinct from FA (9210/3000) and dev (9211/3001)
 FA_PROJECT_NAME="demoforge-fa"
-FA_BACKEND_PORT=9211
-FA_FRONTEND_PORT=3001
+FA_BACKEND_PORT=9212
+FA_FRONTEND_PORT=3002
 FA_DC_FLAGS=(-p "$FA_PROJECT_NAME" -f "docker-compose.fa-local.yml")
 
 # Build compose file flags — layer dev override when DEMOFORGE_MODE=dev
@@ -163,6 +164,15 @@ load_env() {
             | cut -d= -f2- || true)
         [[ -n "$_gw_key" ]] && export DEMOFORGE_GATEWAY_API_KEY="$_gw_key"
         unset _gw_key
+    fi
+
+    # Mode-specific ports: dev→9211/3001 so dev and FA can coexist on the same machine
+    if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
+        BACKEND_PORT=9211
+        FRONTEND_PORT=3001
+    else
+        BACKEND_PORT=9210
+        FRONTEND_PORT=3000
     fi
 }
 
@@ -572,7 +582,7 @@ cmd_help() {
     echo -e "  ${GREEN}dev:fe${NC}      Run frontend locally (no Docker)"
     echo -e "  ${GREEN}help${NC}        Show this help"
     echo ""
-    echo -e "${BLUE}FA Local Testing (same PC, isolated on ports 9211/3001):${NC}"
+    echo -e "${BLUE}FA Local Testing (same PC, isolated on ports 9212/3002):${NC}"
     echo -e "  ${GREEN}fa:start${NC}    Start FA instance (./fa-data/ for templates/licenses)"
     echo -e "  ${GREEN}fa:stop${NC}     Stop FA instance"
     echo -e "  ${GREEN}fa:restart${NC}  Restart FA instance"

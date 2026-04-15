@@ -73,17 +73,15 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
 
     reach_label = "Local hub-api reachable" if (dev_mode and local_url) else "Hub gateway reachable"
 
-    # When going through the Caddy gateway, X-Api-Key must be the gateway key (access control).
-    # Hub-api reads FA identity from X-Fa-Api-Key (preferred) or X-Api-Key fallback.
-    # When hitting local hub-api directly (dev-local), FA key works for both.
+    # Use /api/hub/fa/bootstrap: accepts FA key directly as X-Api-Key (same as fa-setup.sh).
+    # /api/hub/fa/me requires the gateway master key which FAs don't have — use bootstrap instead.
+    fa_bootstrap_headers = {"X-Api-Key": api_key}
+    # For local dev hub-api, also send X-Fa-Api-Key for compatibility.
     if dev_mode and local_url:
-        fa_me_headers = {"X-Api-Key": api_key, "X-Fa-Api-Key": api_key}
-    else:
-        gw_key = os.environ.get("DEMOFORGE_GATEWAY_API_KEY", "") or api_key
-        fa_me_headers = {"X-Api-Key": gw_key, "X-Fa-Api-Key": api_key}
+        fa_bootstrap_headers["X-Fa-Api-Key"] = api_key
 
     async with httpx.AsyncClient() as client:
-        code, data, text, ms = await _get(client, target_url + "/api/hub/fa/me", fa_me_headers)
+        code, data, text, ms = await _get(client, target_url + "/api/hub/fa/bootstrap", fa_bootstrap_headers)
         if code == -1:
             steps.append(_step(reach_label, False, f"Connection refused at {target_url}"))
             return {"ok": False, "steps": steps}
@@ -657,12 +655,11 @@ async def get_me():
     if not api_key:
         return {"ok": False, "permissions": {}}
 
-    gw_key = os.environ.get("DEMOFORGE_GATEWAY_API_KEY", "") or api_key
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.get(
-                hub_url + "/api/hub/fa/me",
-                headers={"X-Api-Key": gw_key, "X-Fa-Api-Key": api_key},
+                hub_url + "/api/hub/fa/bootstrap",
+                headers={"X-Api-Key": api_key},
             )
             if resp.status_code == 200:
                 data = resp.json()
