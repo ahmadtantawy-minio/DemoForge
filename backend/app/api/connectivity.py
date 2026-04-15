@@ -125,7 +125,7 @@ async def _check_fa_auth(hub_url: str, api_key: str, dev_mode: bool = False) -> 
                 if reg_r.status_code == 200:
                     steps.append(_step("FA auto-register", True,
                         f"Registered fa_id={fa_id!r} in local hub-api in {reg_ms:.0f}ms"))
-                    code2, data2, _, ms2 = await _get(client, target_url + "/api/hub/fa/me",
+                    code2, data2, _, ms2 = await _get(client, target_url + "/api/hub/fa/bootstrap",
                                                       {"X-Api-Key": api_key})
                     if code2 == 200 and data2:
                         active = data2.get("is_active", True)
