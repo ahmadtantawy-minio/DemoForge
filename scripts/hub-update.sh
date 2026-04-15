@@ -21,7 +21,7 @@ usage() {
     echo "  --hub-api     Redeploy hub-api Cloud Run only (~2 min)"
     echo "  --images      Build and push core images to GCR (frontend, backend, data-generator)"
     echo "  --images-all  Build and push ALL custom images to GCR"
-    echo "  --licenses    Seed license keys to GCS"
+    echo "  --licenses    Seed license keys to GCS (explicit opt-in — normally managed via the UI)"
     echo ""
     echo "  Note: templates are managed via the UI (publish/promote) or POST /api/templates/push-all-builtin"
     echo ""
@@ -73,8 +73,8 @@ if [[ "$MODE" == "--images-all" ]]; then
     echo ""
 fi
 
-# ── Licenses → GCS (no DIRECT_IP needed) ──
-if [[ "$MODE" == "--all" || "$MODE" == "--licenses" ]]; then
+# ── Licenses → GCS (explicit opt-in only — licenses are managed via the UI) ──
+if [[ "$MODE" == "--licenses" ]]; then
     log "=== Seeding Licenses ==="
     "$SCRIPT_DIR/seed-licenses.sh"
     echo ""
