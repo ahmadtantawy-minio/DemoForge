@@ -255,34 +255,24 @@ export function ConnectivityPage() {
           const vc = result.checks?.version;
           if (!vc?.local_version) return null;
           const isOutdated = vc.up_to_date === false;
-          const hasHubVersion = !!vc.hub_version;
           const borderCls = isOutdated
             ? "border-amber-500/30 bg-amber-500/10"
-            : hasHubVersion
-              ? "border-green-500/20 bg-green-500/5"
-              : "border-zinc-700 bg-zinc-800/20";
+            : "border-green-500/20 bg-green-500/5";
           return (
             <div className={cn("rounded-lg border px-4 py-3 flex items-center gap-3 mb-4", borderCls)}>
               {isOutdated
                 ? <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                : hasHubVersion
-                  ? <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
-                  : <AlertCircle className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                : <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
               }
               <div className="flex-1 min-w-0">
                 <p className={cn("text-sm font-medium",
-                  isOutdated ? "text-amber-300" : hasHubVersion ? "text-green-300" : "text-zinc-400"
+                  isOutdated ? "text-amber-300" : "text-green-300"
                 )}>
-                  {isOutdated
-                    ? `Update available: ${vc.hub_version}`
-                    : hasHubVersion
-                      ? "Up to date"
-                      : "No release published yet"}
+                  {isOutdated ? `Update available: ${vc.hub_version}` : "Up to date"}
                 </p>
                 <p className="text-xs text-muted-foreground font-mono mt-0.5">
                   Running {vc.local_version}
                   {isOutdated && ` → ${vc.hub_version} available — run make fa-update`}
-                  {!hasHubVersion && " — run make hub-release to publish the first release"}
                 </p>
               </div>
             </div>
