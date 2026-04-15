@@ -114,9 +114,9 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
   log "Syncing templates from hub..."
   _SYNCED=0
   for i in $(seq 1 12); do
-    _SYNC=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
-      --connect-timeout 3 2>/dev/null | grep -c '"status"' || echo 0)
-    if [ "$_SYNC" -gt 0 ]; then
+    _SYNC_RESP=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
+      --connect-timeout 3 2>/dev/null || true)
+    if echo "$_SYNC_RESP" | grep -q '"status"'; then
       ok "Templates synced from hub"
       _SYNCED=1
       break

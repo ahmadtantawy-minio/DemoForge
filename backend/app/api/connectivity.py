@@ -657,11 +657,12 @@ async def get_me():
     if not api_key:
         return {"ok": False, "permissions": {}}
 
+    gw_key = os.environ.get("DEMOFORGE_GATEWAY_API_KEY", "") or api_key
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.get(
                 hub_url + "/api/hub/fa/me",
-                headers={"X-Api-Key": api_key, "X-Fa-Api-Key": api_key},
+                headers={"X-Api-Key": gw_key, "X-Fa-Api-Key": api_key},
             )
             if resp.status_code == 200:
                 data = resp.json()

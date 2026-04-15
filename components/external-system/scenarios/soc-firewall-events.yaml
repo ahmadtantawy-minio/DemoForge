@@ -336,13 +336,6 @@ saved_queries:
     - id: semi-structured
       label: "Semi-structured"
       order: 3
-    - id: unstructured
-      label: "Unstructured"
-      order: 4
-    - id: unified
-      label: "Unified"
-      order: 5
-
   subcollections:
     - id: sc-structured
       name: "1 — Structured (Iceberg tables)"
@@ -687,3 +680,4 @@ saved_queries:
             min(event_timestamp),
             max(event_timestamp)) AS time_span_seconds
         FROM iceberg.soc.firewall_events
+
