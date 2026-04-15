@@ -92,9 +92,10 @@ stop_services() {
         echo "$demo_containers" | xargs docker rm 2>/dev/null || true
     fi
 
-    # Stop any containers matching demoforge naming convention
+    # Stop stale demoforge containers, but spare the isolated FA local instance (demoforge-fa-*)
     local stale
-    stale=$(docker ps -aq --filter "name=demoforge-" 2>/dev/null || true)
+    stale=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null \
+        | awk '$2 ~ /^demoforge-/ && $2 !~ /^demoforge-fa-/ {print $1}' || true)
     if [ -n "$stale" ]; then
         warn "Removing stale demoforge containers..."
         echo "$stale" | xargs docker stop 2>/dev/null || true
@@ -536,6 +537,21 @@ cmd_fa_status() {
     docker compose "${FA_DC_FLAGS[@]}" ps 2>/dev/null || echo "  Not running."
 }
 
+cmd_fa_clean() {
+    log "Cleaning FA local instance..."
+    docker compose "${FA_DC_FLAGS[@]}" down -v --remove-orphans 2>/dev/null || true
+
+    # Clear mutable FA data dirs (templates, licenses, demo state)
+    for subdir in demos data user-templates synced-templates; do
+        local dir="$SCRIPT_DIR/fa-data/$subdir"
+        if [ -d "$dir" ]; then
+            find "$dir" -mindepth 1 -not -name ".gitkeep" -delete 2>/dev/null || true
+        fi
+    done
+
+    ok "FA local instance cleaned. Run './demoforge.sh fa:start' to restart fresh."
+}
+
 cmd_help() {
     echo -e "${BLUE}DemoForge Management Script${NC}"
     echo ""
@@ -562,6 +578,7 @@ cmd_help() {
     echo -e "  ${GREEN}fa:restart${NC}  Restart FA instance"
     echo -e "  ${GREEN}fa:logs${NC}     Tail FA instance logs"
     echo -e "  ${GREEN}fa:status${NC}   Show FA instance status"
+    echo -e "  ${GREEN}fa:clean${NC}    Stop FA instance, remove volumes and clear fa-data/"
 }
 
 # -------------------------------------------------------------------
@@ -586,6 +603,7 @@ case "${1:-help}" in
     fa:restart) cmd_fa_restart ;;
     fa:logs)    cmd_fa_logs ;;
     fa:status)  cmd_fa_status ;;
+    fa:clean)   cmd_fa_clean ;;
     help|--help|-h) cmd_help ;;
     *)
         err "Unknown command: $1"

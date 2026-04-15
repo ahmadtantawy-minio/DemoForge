@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# hub-release.sh — Full DemoForge release: commit → tag → push → images → templates → deploy → notify
+# hub-release.sh — Full DemoForge release: commit → tag → push → images → deploy → notify
+#
+# Templates are managed via the UI (publish/promote buttons) or POST /api/templates/push-all-builtin
+# which writes directly to GCS via the gateway. hub-seed.sh (gcloud CLI) is no longer part of release.
 #
 # Usage:
 #   scripts/hub-release.sh                     # auto-bump patch (v0.5.0 → v0.5.1)
@@ -8,7 +11,6 @@
 #   scripts/hub-release.sh --major             # bump major (v0.5.0 → v1.0.0)
 #   scripts/hub-release.sh --no-images         # skip image build+push (code-only release)
 #   scripts/hub-release.sh --no-deploy         # skip Cloud Run redeploy
-#   scripts/hub-release.sh --no-templates      # skip template seed
 #   VERSION=v1.0.0 scripts/hub-release.sh      # version via env var
 set -euo pipefail
 
@@ -29,7 +31,6 @@ BUMP_TYPE="patch"
 EXPLICIT_VERSION="${VERSION:-}"
 SKIP_IMAGES=0
 SKIP_DEPLOY=0
-SKIP_TEMPLATES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,9 +39,8 @@ while [[ $# -gt 0 ]]; do
     --major)     BUMP_TYPE="major"; shift ;;
     --minor)     BUMP_TYPE="minor"; shift ;;
     --patch)     BUMP_TYPE="patch"; shift ;;
-    --no-images)    SKIP_IMAGES=1; shift ;;
-    --no-deploy)    SKIP_DEPLOY=1; shift ;;
-    --no-templates) SKIP_TEMPLATES=1; shift ;;
+    --no-images) SKIP_IMAGES=1; shift ;;
+    --no-deploy) SKIP_DEPLOY=1; shift ;;
     *) fail "Unknown flag: $1. See script header for usage." ;;
   esac
 done
@@ -111,10 +111,9 @@ echo ""
 echo -e "  Steps:"
 echo -e "    1. Commit any staged changes"
 echo -e "    2. Create and push git tag ${NEW_VERSION}"
-[[ $SKIP_IMAGES    -eq 0 ]] && echo -e "    3. Build + push custom images to GCR" || echo -e "    3. ${YELLOW}skip${NC} image push (--no-images)"
-[[ $SKIP_TEMPLATES -eq 0 ]] && echo -e "    4. Seed templates to hub MinIO" || echo -e "    4. ${YELLOW}skip${NC} template seed (--no-templates)"
-[[ $SKIP_DEPLOY    -eq 0 ]] && echo -e "    5. Redeploy hub-api Cloud Run" || echo -e "    5. ${YELLOW}skip${NC} Cloud Run redeploy (--no-deploy)"
-echo -e "    6. Notify hub-api → all FAs see update banner"
+[[ $SKIP_IMAGES -eq 0 ]] && echo -e "    3. Build + push custom images to GCR" || echo -e "    3. ${YELLOW}skip${NC} image push (--no-images)"
+[[ $SKIP_DEPLOY -eq 0 ]] && echo -e "    4. Redeploy hub-api Cloud Run" || echo -e "    4. ${YELLOW}skip${NC} Cloud Run redeploy (--no-deploy)"
+echo -e "    5. Notify hub-api → all FAs see update banner"
 echo ""
 
 if [[ $STAGED -gt 0 ]]; then
@@ -137,7 +136,7 @@ read -rp "  Proceed with release ${NEW_VERSION}? [y/N] " CONFIRM
 [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && fail "Aborted."
 
 # ── Step 1: Commit staged changes ─────────────────────────────────────────
-section "Step 1/6 — Commit"
+section "Step 1/5 — Commit"
 
 if [[ $STAGED -gt 0 ]]; then
   log "Committing staged changes..."
@@ -148,7 +147,7 @@ else
 fi
 
 # ── Step 2: Tag + push ─────────────────────────────────────────────────────
-section "Step 2/6 — Tag + push"
+section "Step 2/5 — Tag + push"
 
 log "Creating tag ${NEW_VERSION}..."
 git tag -a "${NEW_VERSION}" -m "Release ${NEW_VERSION}"
@@ -161,27 +160,17 @@ ok "Pushed to origin"
 
 # ── Step 3: Build + push images ───────────────────────────────────────────
 if [[ $SKIP_IMAGES -eq 0 ]]; then
-  section "Step 3/6 — Images"
+  section "Step 3/5 — Images"
   log "Building and pushing custom images to GCR..."
   "$SCRIPT_DIR/hub-push.sh" || warn "Some images failed to push — check output above"
   ok "Images pushed"
 else
-  section "Step 3/6 — Images (skipped)"
+  section "Step 3/5 — Images (skipped)"
 fi
 
-# ── Step 4: Seed templates ────────────────────────────────────────────────
-if [[ $SKIP_TEMPLATES -eq 0 ]]; then
-  section "Step 4/6 — Templates"
-  log "Seeding templates to hub MinIO..."
-  "$SCRIPT_DIR/hub-seed.sh" || warn "Template seed failed — check output above"
-  ok "Templates seeded"
-else
-  section "Step 4/6 — Templates (skipped)"
-fi
-
-# ── Step 5: Redeploy hub-api ──────────────────────────────────────────────
+# ── Step 4: Redeploy hub-api ──────────────────────────────────────────────
 if [[ $SKIP_DEPLOY -eq 0 ]]; then
-  section "Step 5/6 — Deploy hub-api"
+  section "Step 4/5 — Deploy hub-api"
   if [[ -f "$PROJECT_ROOT/scripts/minio-gcp.sh" ]]; then
     log "Redeploying hub-api Cloud Run..."
     "$PROJECT_ROOT/scripts/minio-gcp.sh" --deploy-api || warn "Cloud Run redeploy failed — FAs may not see the new version endpoint yet"
@@ -190,11 +179,11 @@ if [[ $SKIP_DEPLOY -eq 0 ]]; then
     warn "minio-gcp.sh not found — skipping Cloud Run redeploy"
   fi
 else
-  section "Step 5/6 — Deploy hub-api (skipped)"
+  section "Step 4/5 — Deploy hub-api (skipped)"
 fi
 
-# ── Step 6: Notify hub-api ────────────────────────────────────────────────
-section "Step 6/6 — Notify hub"
+# ── Step 5: Notify hub-api ────────────────────────────────────────────────
+section "Step 5/5 — Notify hub"
 
 RELEASED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOTIFIED=0
@@ -247,9 +236,8 @@ echo -e "${GREEN}${BOLD}╔═════════════════�
 echo -e "${GREEN}${BOLD}║  Released ${NEW_VERSION}$(printf '%*s' $((48 - ${#NEW_VERSION})) '')║${NC}"
 echo -e "${GREEN}${BOLD}╠══════════════════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}${BOLD}║  Tag:     ${NEW_VERSION} (pushed to origin)$(printf '%*s' $((31 - ${#NEW_VERSION})) '')║${NC}"
-[[ $SKIP_IMAGES    -eq 0 ]] && echo -e "${GREEN}${BOLD}║  Images:  pushed to GCR                                  ║${NC}"
-[[ $SKIP_TEMPLATES -eq 0 ]] && echo -e "${GREEN}${BOLD}║  Templates: seeded to hub MinIO                          ║${NC}"
-[[ $NOTIFIED       -eq 1 ]] && echo -e "${GREEN}${BOLD}║  FAs:     update banner active                           ║${NC}"
+[[ $SKIP_IMAGES -eq 0 ]] && echo -e "${GREEN}${BOLD}║  Images:  pushed to GCR                                  ║${NC}"
+[[ $NOTIFIED    -eq 1 ]] && echo -e "${GREEN}${BOLD}║  FAs:     update banner active                           ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  FAs update with: ${CYAN}make fa-update${NC}"

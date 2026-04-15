@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -192,7 +192,7 @@ hub-release-major: ## [Dev] Release with major bump
 hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licenses
 	@scripts/hub-update.sh
 
-hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-templates, hub-update-images, hub-update-images-all
+hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-images, hub-update-images-all
 	@scripts/hub-update.sh --$*
 
 hub-deploy:       ## [Dev] Full GCP deploy: hub-api + gateway Cloud Run + GCS infra
@@ -222,4 +222,7 @@ fa-cleanup:       ## Reset FA local environment for a fresh fa-setup (removes .e
 	@rm -f .env.sim 2>/dev/null || true
 	@echo ""
 	@echo "FA environment reset. Run 'make fa-setup' to reconfigure."
+
+fa-clean:         ## Stop FA local instance, remove volumes, and clear fa-data/ runtime state
+	./demoforge.sh fa:clean
 

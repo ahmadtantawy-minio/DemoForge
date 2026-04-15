@@ -14,15 +14,16 @@ err()  { echo -e "${RED}[hub-update]${NC} $*" >&2; }
 [[ -f "$PROJECT_ROOT/.env.local" ]] && source "$PROJECT_ROOT/.env.local"
 
 usage() {
-    echo "Usage: $0 [--all | --gateway | --hub-api | --templates | --images | --licenses]"
+    echo "Usage: $0 [--all | --gateway | --hub-api | --images | --licenses]"
     echo ""
     echo "  --all         Run all update steps (default)"
     echo "  --gateway     Rebuild and deploy Cloud Run gateway only"
     echo "  --hub-api     Redeploy hub-api Cloud Run only (~2 min)"
-    echo "  --templates   Seed base templates to GCS"
-    echo "  --images      Build and push core images to GCR (frontend, backend, data-generator)
-  --images-all  Build and push ALL custom images to GCR"
+    echo "  --images      Build and push core images to GCR (frontend, backend, data-generator)"
+    echo "  --images-all  Build and push ALL custom images to GCR"
     echo "  --licenses    Seed license keys to GCS"
+    echo ""
+    echo "  Note: templates are managed via the UI (publish/promote) or POST /api/templates/push-all-builtin"
     echo ""
     exit 0
 }
@@ -30,7 +31,7 @@ usage() {
 MODE="${1:---all}"
 case "$MODE" in
     --help|-h) usage ;;
-    --all|--gateway|--hub-api|--templates|--images|--images-all|--licenses) ;;
+    --all|--gateway|--hub-api|--images|--images-all|--licenses) ;;
     *) echo "Unknown flag: $MODE"; usage ;;
 esac
 
@@ -56,13 +57,6 @@ if [[ "$MODE" == "--all" || "$MODE" == "--gateway" ]]; then
     fi
     log "=== Updating Gateway ==="
     "$SCRIPT_DIR/minio-gcp.sh" --deploy-gateway
-    echo ""
-fi
-
-# ── Templates → GCS (no DIRECT_IP needed) ──
-if [[ "$MODE" == "--all" || "$MODE" == "--templates" ]]; then
-    log "=== Seeding Templates ==="
-    "$SCRIPT_DIR/hub-seed.sh"
     echo ""
 fi
 

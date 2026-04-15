@@ -271,9 +271,12 @@ DemoForge connects directly to the Cloud Run gateway using your FA API key. Hub 
 
 ### Updating the Hub
 
-#### Re-seed templates
+#### Publish templates to GCS
+
+Templates are published via the DemoForge UI (publish/promote buttons on the Templates page)
+or via the API:
 ```bash
-make hub-seed
+curl -X POST http://localhost:9210/api/templates/push-all-builtin
 ```
 
 #### Re-seed licenses
@@ -302,11 +305,9 @@ make hub-deploy
 make hub-deploy             # Full GCP deploy: hub-api + gateway Cloud Run + GCS infra
 make hub-deploy-gateway     # Rebuild and redeploy gateway Cloud Run only (~1 min)
 make hub-deploy-api         # Rebuild and redeploy hub-api Cloud Run only (~2 min)
-make hub-update             # Update everything: gateway + templates + images + licenses
+make hub-update             # Update everything: gateway + images + licenses
 make hub-update-gateway     # Rebuild and deploy Cloud Run gateway only
-make hub-update-templates   # Seed built-in templates to GCS
 make hub-update-images      # Build and push custom images to GCR only
-make hub-seed               # Re-seed templates after local changes
 make hub-status             # Show sync status, Cloud Run health, template counts
 make hub-push               # Build and push all custom images
 make hub-push-<name>        # Build and push one image (e.g. make hub-push-inference-sim)
@@ -317,8 +318,8 @@ make seed-licenses          # Seed license keys to GCS
 
 ```bash
 make hub-deploy     # Deploy Cloud Run gateway + hub-api + GCS infra
-make hub-seed       # Seed templates to GCS
 make seed-licenses  # Seed licenses to GCS
+# Publish templates via the UI (publish/promote) or: POST /api/templates/push-all-builtin
 ```
 
 ---
@@ -366,11 +367,9 @@ make seed-licenses  # Seed licenses to GCS
 | `make hub-deploy` | Full GCP deploy: hub-api + gateway Cloud Run + GCS infra |
 | `make hub-deploy-gateway` | Rebuild/deploy gateway Cloud Run only (~1 min) |
 | `make hub-deploy-api` | Rebuild/deploy hub-api Cloud Run only (~2 min) |
-| `make hub-update` | Update GCP hub: gateway + templates + images + licenses |
+| `make hub-update` | Update GCP hub: gateway + images + licenses |
 | `make hub-update-gateway` | Rebuild and redeploy Cloud Run gateway |
-| `make hub-update-templates` | Seed templates to GCS |
 | `make hub-update-images` | Push custom images to GCR |
-| `make hub-seed` | Re-seed templates to Hub |
 | `make hub-status` | Hub health and sync status |
 | `make hub-push` | Build and push all custom images |
 | `make seed-licenses` | Seed license keys to GCS |

@@ -53,7 +53,7 @@ export default function AppNav() {
         {modeLabel}
       </span>
       {faMode !== "dev" && appVersion && (
-        <span className="text-[7px] text-zinc-600 leading-none mb-2 px-1 text-center" title={appVersion}>
+        <span className="text-[7px] text-zinc-400 leading-none mb-2 px-1 text-center" title={appVersion}>
           {appVersion}
         </span>
       )}

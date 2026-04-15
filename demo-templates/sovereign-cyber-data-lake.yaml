@@ -332,10 +332,10 @@ sticky_notes:
   title: Full data sovereignty
   visibility: customer
   position:
-    x: 221.62528351427625
-    y: 519.2742161509398
-  width: 396.0
-  height: 118.0
+    x: 210.94618681815973
+    y: 517.7486309086374
+  width: 414.0
+  height: 108.0
 - id: sn-fw-fa
   text: Seeding takes ~30s. Show DemoForge log viewer during seeding — audience sees
     progress bar. After seed, open MinIO Console to show Parquet files landing. 3%
@@ -395,10 +395,10 @@ sticky_notes:
   title: Total cost of ownership
   visibility: customer
   position:
-    x: 220.44848712835568
-    y: 651.1849073519733
-  width: 405.0
-  height: 120.0
+    x: 209.76939043223916
+    y: 637.4546401712519
+  width: 414.0
+  height: 123.0
 - id: sn-queries-fa
   text: 'Open Metabase → CPX Demo Queries collection. Run in order:
 
@@ -495,8 +495,8 @@ clusters:
   component: minio
   label: AIStor MinIO Cluster
   position:
-    x: 244.10737335384772
-    y: 254.9009536042472
+    x: 227.05934243399918
+    y: 275.8629778342123
   node_count: 4
   drives_per_node: 1
   credentials:
@@ -524,8 +524,8 @@ canvas_images:
 - id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: -231.0
-    y: -225.5
+    x: -253.99229508682726
+    y: -197.55393439220921
   width: 240
   height: 70
   opacity: 0.8
@@ -535,8 +535,8 @@ canvas_images:
 - id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: -231.0
-    y: -225.5
+    x: -253.99229508682726
+    y: -197.55393439220921
   width: 240
   height: 70
   opacity: 0.8
@@ -547,7 +547,7 @@ canvas_images:
   image_id: apache-iceberg-logo
   position:
     x: -203.0
-    y: -123.0
+    y: -107.03081965269098
   width: 180
   height: 55
   opacity: 0.8
@@ -563,5 +563,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-15T14:06:51.685867+00:00'
+updated_at: '2026-04-15T16:08:11.683943+00:00'
 source_template_id: sovereign-cyber-data-lake
