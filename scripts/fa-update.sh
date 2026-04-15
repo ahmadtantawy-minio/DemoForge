@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 log()  { echo -e "${GREEN}▶${NC} $*"; }
 warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
@@ -56,6 +56,7 @@ DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 # ── Step 1: Load FA credentials ───────────────────────────────────────────────
 FA_KEY=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
 HUB_URL="$DEFAULT_HUB_URL"
+_FA_VALID=0
 
 if [[ -z "$FA_KEY" ]]; then
   warn "No FA key found in .env.local — skipping connectivity check."
@@ -69,6 +70,7 @@ else
     fail "Hub gateway unreachable (HTTP $_HEALTH_HTTP at ${HUB_URL}/health). Check your network connection."
   fi
   ok "Hub reachable"
+  _FA_VALID=1
   echo ""
 
   # ── Step 3: Version check ──────────────────────────────────────────────────
@@ -132,16 +134,22 @@ for i in $(seq 1 12); do
 done
 echo ""
 
-# ── Step 8: Sync templates from hub ───────────────────────────────────────────
-if [ "$_BACKEND_READY" -eq 1 ]; then
+# ── Steps 8–9: Hub sync (only when FA key is present and hub was reachable) ────
+if [ "$_BACKEND_READY" -eq 1 ] && [ "$_FA_VALID" -eq 1 ]; then
+
+  # ── Step 8: Sync templates from hub ─────────────────────────────────────────
   log "Syncing templates from hub..."
   _SYNCED=0
-  for i in $(seq 1 12); do
-    _spinner_start "Contacting hub (attempt ${i}/12)..."
+  _SYNC_STATUS=""
+  for i in $(seq 1 4); do
+    _spinner_start "Contacting hub (attempt ${i}/4)..."
     _SYNC_RESP=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
       --connect-timeout 5 --max-time 30 2>/dev/null || true)
     _spinner_stop
-    if echo "$_SYNC_RESP" | grep -q '"status"'; then
+
+    _SYNC_STATUS=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+
+    if [[ "$_SYNC_STATUS" == "ok" ]]; then
       _DL=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('downloaded',0))" 2>/dev/null || echo "?")
       _UNCH=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('unchanged',0))" 2>/dev/null || echo "?")
       _ERRS=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('errors',0))" 2>/dev/null || echo "0")
@@ -149,39 +157,54 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
       [ "$_ERRS" != "0" ] && [ "$_ERRS" != "?" ] && warn "  ${_ERRS} template(s) had errors during sync"
       _SYNCED=1
       break
+    elif [[ "$_SYNC_STATUS" == "error" ]]; then
+      _SYNC_MSG=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','(no detail)'))" 2>/dev/null || echo "$_SYNC_RESP")
+      warn "Template sync failed: ${_SYNC_MSG}"
+      break  # error response won't change on retry
+    elif [[ -n "$_SYNC_RESP" ]]; then
+      warn "Template sync: unexpected response — ${_SYNC_RESP}"
+      break
     fi
-    if [ "$i" -lt 12 ]; then
+
+    # Empty response — backend may still be starting; retry
+    if [ "$i" -lt 4 ]; then
       _spinner_start "Retrying in 5s..."
       sleep 5
       _spinner_stop
     fi
   done
-  [ "$_SYNCED" -eq 0 ] && warn "Template sync timed out — will retry on next fa-update"
+  [ "$_SYNCED" -eq 0 ] && [[ "$_SYNC_STATUS" != "error" ]] && warn "Template sync timed out — will retry on next fa-update"
   echo ""
 
   # ── Step 9: Cache license keys locally ──────────────────────────────────────
+  # Downloads licenses from hub and stores them in data/licenses.yaml so deploys
+  # work without a live hub call. Fails gracefully — deploys fall back to live fetch.
   log "Caching license keys..."
   _spinner_start "Fetching from hub..."
   _LIC_RESP=$(curl -s "http://localhost:${BACKEND_PORT}/api/fa/licenses/cache" --connect-timeout 5 --max-time 15 2>/dev/null || echo "")
   _spinner_stop
-  if echo "$_LIC_RESP" | grep -q '"status"'; then
+  _LIC_STATUS=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+  if echo "$_LIC_RESP" | grep -q '"cached"'; then
     _LIC_CACHED=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cached',0))" 2>/dev/null || echo "?")
     _LIC_FAILED=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('failed',[])))" 2>/dev/null || echo "0")
     _LIC_ERR=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); errs=d.get('errors',{}); items=list(errs.items()); print(items[0][1] if items else '')" 2>/dev/null || echo "")
     if [ "$_LIC_FAILED" != "0" ] && [ "$_LIC_FAILED" != "?" ]; then
-      if [ -n "$_LIC_ERR" ]; then
-        warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable (${_LIC_ERR})"
-      else
-        warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable"
-      fi
+      [ -n "$_LIC_ERR" ] \
+        && warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable (${_LIC_ERR})" \
+        || warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable"
       warn "  Licenses will be fetched live from hub when a demo is deployed."
     else
       ok "License keys cached (${_LIC_CACHED})"
     fi
+  elif [[ -n "$_LIC_RESP" ]]; then
+    _LIC_MSG=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message', d.get('detail','(no detail)')))" 2>/dev/null || echo "$_LIC_RESP")
+    warn "License cache skipped: ${_LIC_MSG}"
+    warn "  Licenses will be fetched live from hub when a demo is deployed."
   else
     warn "License cache skipped — will use existing cache"
   fi
   echo ""
+
 fi
 
 ok "Update complete."
