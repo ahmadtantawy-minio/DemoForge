@@ -117,7 +117,11 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
     _SYNC_RESP=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
       --connect-timeout 3 2>/dev/null || true)
     if echo "$_SYNC_RESP" | grep -q '"status"'; then
-      ok "Templates synced from hub"
+      _DL=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('downloaded',0))" 2>/dev/null || echo "?")
+      _UNCH=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('unchanged',0))" 2>/dev/null || echo "?")
+      _ERRS=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('errors',0))" 2>/dev/null || echo "0")
+      ok "Templates synced: ${_DL} downloaded, ${_UNCH} unchanged"
+      [ "$_ERRS" != "0" ] && [ "$_ERRS" != "?" ] && warn "  ${_ERRS} template(s) had errors during sync"
       _SYNCED=1
       break
     fi
@@ -128,10 +132,18 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
 
   # ── Step 9: Cache license keys locally ──────────────────────────────────────
   log "Caching license keys..."
-  curl -s "http://localhost:${BACKEND_PORT}/api/fa/licenses/cache" --connect-timeout 5 2>/dev/null \
-    | grep -q '"status"' \
-    && ok "License keys cached" \
-    || warn "License cache skipped — will use existing cache"
+  _LIC_RESP=$(curl -s "http://localhost:${BACKEND_PORT}/api/fa/licenses/cache" --connect-timeout 5 2>/dev/null || echo "")
+  if echo "$_LIC_RESP" | grep -q '"status"'; then
+    _LIC_CACHED=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cached',0))" 2>/dev/null || echo "?")
+    _LIC_FAILED=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('failed',[])))" 2>/dev/null || echo "0")
+    if [ "$_LIC_FAILED" != "0" ] && [ "$_LIC_FAILED" != "?" ]; then
+      warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable (will be fetched live from hub when needed)"
+    else
+      ok "License keys cached (${_LIC_CACHED})"
+    fi
+  else
+    warn "License cache skipped — will use existing cache"
+  fi
   echo ""
 fi
 

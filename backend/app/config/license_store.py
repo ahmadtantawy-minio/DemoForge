@@ -10,11 +10,6 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Gateway endpoint for license reads — authenticated with FA API key
-_HUB_URL = os.environ.get("DEMOFORGE_HUB_URL", "").rstrip("/")
-_FA_API_KEY = os.environ.get("DEMOFORGE_API_KEY", "")
-HUB_LICENSES_URL = f"{_HUB_URL}/api/hub/licenses" if _HUB_URL else ""
-
 
 @dataclass
 class LicenseEntry:
@@ -61,15 +56,19 @@ class LicenseStore:
     # --- HTTP read (via hub gateway — no S3 signing needed) ---
 
     def _http_get(self, license_id: str) -> LicenseEntry | None:
-        if not HUB_LICENSES_URL or not _FA_API_KEY:
+        # Read env vars at call time — not at import time — so container env is always current.
+        hub_url = os.environ.get("DEMOFORGE_HUB_URL", "").rstrip("/")
+        fa_key = os.environ.get("DEMOFORGE_API_KEY", "")
+        if not hub_url or not fa_key:
             return None
         try:
-            url = f"{HUB_LICENSES_URL}/{license_id}.json"
-            req = urllib.request.Request(url, method="GET", headers={"X-Api-Key": _FA_API_KEY})
+            url = f"{hub_url}/api/hub/licenses/{license_id}.json"
+            req = urllib.request.Request(url, method="GET", headers={"X-Api-Key": fa_key})
             resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read())
             return LicenseEntry(**data)
-        except Exception:
+        except Exception as e:
+            logger.debug("License HTTP fetch failed for %r: %s", license_id, e)
             return None
 
     # --- Public API ---
