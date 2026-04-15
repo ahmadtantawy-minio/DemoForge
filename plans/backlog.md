@@ -6,6 +6,14 @@
 
 ## Backlog
 
+- [ ] **Bug: Integration logs not tracked in dedicated log tab**
+  - When a deployed demo runs integrations (e.g. external system data generator, init scripts), the logs from those integrations should appear in the dedicated "Logs" tab in the control plane. Investigate why log entries are missing or not being streamed to the frontend.
+  - Check: backend log collection path for integration/init containers, the log streaming endpoint, and the frontend log tab component to identify where the gap is.
+
+- [ ] **Bug: Metabase dashboards not pushed / not accessible after deploy**
+  - Metabase is deployed as part of certain demo templates but dashboards are not being provisioned or are not accessible after the deploy completes. Investigate the provisioning flow: dashboard push mechanism, Metabase startup timing, and any connection or auth issues preventing dashboard access.
+  - Check: Metabase component init scripts, the provisioning step, and whether the dashboard URLs are correctly exposed via the control plane.
+
 - [ ] **Fix: Update AIStor & Iceberg logos to use bundled assets — works offline on FA PCs**
   - The AIStor Tables and Apache Iceberg canvas images currently reference SVG files served from `/canvas-images/` at runtime. On FA (Field Accelerator) PCs deployed without internet access, these may not load if the path resolution differs from development.
   - Audit how `CanvasImageNode` loads SVG files — check whether they are inlined as imports or fetched from a public URL at runtime.

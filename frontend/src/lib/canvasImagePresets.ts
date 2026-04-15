@@ -1,4 +1,4 @@
-import aistorTablesLogo from "../assets/canvas-images/minio-aistor-tables-logo.svg";
+import aistorTablesLogo from "../assets/canvas-images/minio-aistor-tables-logo.png";
 import minioLogo from "../assets/canvas-images/minio-logo.svg";
 import trinoLogo from "../assets/canvas-images/trino-logo.svg";
 import apacheIcebergLogo from "../assets/canvas-images/apache-iceberg-logo.svg";
@@ -16,7 +16,7 @@ export interface CanvasImagePreset {
 }
 
 export const CANVAS_IMAGE_PRESETS: CanvasImagePreset[] = [
-  { id: "minio-aistor-tables-logo", label: "AIStor Tables", description: "MinIO AIStor Tables logo", defaultWidth: 240, defaultHeight: 70, svgUrl: aistorTablesLogo },
+  { id: "minio-aistor-tables-logo", label: "AIStor Tables", description: "MinIO AIStor Tables logo", defaultWidth: 240, defaultHeight: 100, svgUrl: aistorTablesLogo },
   { id: "minio-logo", label: "MinIO", description: "MinIO logo", defaultWidth: 160, defaultHeight: 50, svgUrl: minioLogo },
   { id: "trino-logo", label: "Trino", description: "Trino distributed SQL", defaultWidth: 140, defaultHeight: 50, svgUrl: trinoLogo },
   { id: "apache-iceberg-logo", label: "Apache Iceberg", description: "Apache Iceberg table format", defaultWidth: 180, defaultHeight: 55, svgUrl: apacheIcebergLogo },
