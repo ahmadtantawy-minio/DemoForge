@@ -22,18 +22,25 @@ async def wait_for_healthy(container_name: str, timeout: int = 60) -> bool:
     return False
 
 
-async def _run_node_scripts(node_id: str, container_name: str, scripts: list) -> list[dict]:
+async def _run_node_scripts(node_id: str, container_name: str, scripts: list, on_progress=None) -> list[dict]:
     """Run init scripts for a single node sequentially."""
     results = []
     for script in scripts:
+        desc = script.description or script.command[:60]
         if script.wait_for_healthy:
+            if on_progress:
+                await on_progress("init_scripts", "running", f"{node_id}: waiting for healthy ({desc})")
             healthy = await wait_for_healthy(container_name, script.timeout)
             if not healthy:
+                if on_progress:
+                    await on_progress("init_scripts", "running", f"{node_id}: timed out waiting for healthy")
                 results.append({
                     "node_id": node_id, "script": script.command,
                     "exit_code": -1, "stdout": "", "stderr": "Timed out waiting for healthy"
                 })
                 continue
+        if on_progress:
+            await on_progress("init_scripts", "running", f"{node_id}: {desc}")
         exit_code, stdout, stderr = await exec_in_container(container_name, script.command)
         logger.info(f"Init script on {node_id}: exit={exit_code}")
         results.append({
@@ -44,12 +51,12 @@ async def _run_node_scripts(node_id: str, container_name: str, scripts: list) ->
 
 
 async def _run_node_scripts_with_timeout(
-    node_id: str, container_name: str, scripts: list, timeout_s: float = 120.0
+    node_id: str, container_name: str, scripts: list, timeout_s: float = 120.0, on_progress=None
 ) -> dict:
     """Run init scripts for a single node with an overall timeout."""
     try:
         results = await asyncio.wait_for(
-            _run_node_scripts(node_id, container_name, scripts),
+            _run_node_scripts(node_id, container_name, scripts, on_progress),
             timeout=timeout_s,
         )
         return {"node_id": node_id, "timed_out": False, "results": results}
@@ -58,7 +65,7 @@ async def _run_node_scripts_with_timeout(
         return {"node_id": node_id, "timed_out": True, "results": []}
 
 
-async def run_init_scripts(demo: RunningDemo) -> list[dict]:
+async def run_init_scripts(demo: RunningDemo, on_progress=None) -> list[dict]:
     """Run init scripts for all nodes in parallel.
 
     Returns a list of per-node dicts:
@@ -77,7 +84,7 @@ async def run_init_scripts(demo: RunningDemo) -> list[dict]:
 
     # Run each node's scripts in parallel across nodes
     per_node_results = await asyncio.gather(
-        *[_run_node_scripts_with_timeout(node_id, container_name, scripts, timeout_s)
+        *[_run_node_scripts_with_timeout(node_id, container_name, scripts, timeout_s, on_progress)
           for node_id, (container_name, scripts, timeout_s) in node_tasks.items()]
     )
 

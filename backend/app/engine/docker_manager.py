@@ -397,7 +397,10 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
             docker_client.containers.list,
             filters={"label": f"demoforge.demo={demo.id}"}
         )
+        service_containers = []
         for c in containers:
+            if c.labels.get("demoforge.sidecar") == "true":
+                continue  # ephemeral run-once sidecars (e.g. metabase-init) — not tracked
             node_id = c.labels.get("demoforge.node", "")
             component_id = c.labels.get("demoforge.component", "")
             running.containers[node_id] = RunningContainer(
@@ -406,12 +409,13 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
                 container_name=c.name,
                 networks=network_names,
             )
-        await progress("discovery", "done", f"Found {len(containers)} container(s)")
+            service_containers.append(c)
+        await progress("discovery", "done", f"Found {len(service_containers)} service container(s)")
 
         # Run init scripts after containers are discovered
         await progress("init_scripts", "running", "Running init scripts...")
         from .init_runner import run_init_scripts
-        per_node_results = await run_init_scripts(running)
+        per_node_results = await run_init_scripts(running, on_progress=progress)
 
         # Update per-container init_status and flatten for legacy init_results
         flat_results = []

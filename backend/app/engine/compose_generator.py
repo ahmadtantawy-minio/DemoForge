@@ -1415,6 +1415,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "demoforge.demo": demo.id,
                     "demoforge.node": "metabase-init",
                     "demoforge.component": "metabase-init",
+                    "demoforge.sidecar": "true",
                 },
                 "networks": init_networks,
                 "volumes": [f"{setup_host_path}:/setup/setup-metabase.sh:ro"],

@@ -55,6 +55,13 @@
 
 ---
 
+- [ ] **Enhancement: SQL Editor — scenario-driven tabs and richer pre-built queries**
+  - Tabs in the SQL Editor should reflect only the scenarios present in the active demo (based on `ES_SCENARIO` config on External System / Data Generator nodes). If no IoT data generator is deployed, the "IoT sensor telemetry" tab should not appear.
+  - Each scenario tab should expose a curated set of pre-built queries: basic (SELECT/COUNT from primary table), intermediate (aggregates, top-N), and advanced (time-windowed, cross-table, data freshness checks).
+  - Include queries that show data freshness (e.g. `SELECT MAX(event_time), NOW() - MAX(event_time) AS lag FROM ...`) and row counts per table.
+  - Pre-built queries live in the scenario YAML under a `queries:` block (label + SQL) so they're co-located with the scenario definition and easy to update.
+  - The SQL Editor UI reads available scenarios from the currently deployed demo's node configs, filters tabs accordingly, and loads queries from the registry scenario endpoint.
+
 ## In Progress
 
 - [x] **Proper Health Reporting in Cockpit**: When a cluster is not deployed or unreachable, the Health tab shows "0/0 online" and "0 B / 0 B" instead of a meaningful state.

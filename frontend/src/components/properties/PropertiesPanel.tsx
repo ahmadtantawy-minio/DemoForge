@@ -1218,19 +1218,29 @@ export default function PropertiesPanel() {
               config: { ...data.config, ES_SCENARIO: scenarioId },
               ...(needsNameUpdate ? { displayName: scenario.default_name } : {}),
             });
-            // Update edge labels on outgoing edges with data format info
-            if (scenario.format || scenario.primary_table) {
-              const currentEdges = useDiagramStore.getState().edges;
-              setEdges(
-                currentEdges.map((e) => {
-                  if (e.source !== selectedNodeId) return e;
-                  const ct = (e.data as any)?.connectionType as string | undefined;
-                  const prefix = ct === "aistor-tables" ? "Iceberg" : ct === "s3" ? "S3" : null;
-                  const parts = [prefix, scenario.format, scenario.primary_table].filter(Boolean);
-                  return { ...e, data: { ...e.data, label: parts.join(" · ") } };
-                })
-              );
-            }
+            // Update outgoing edges: label + generation_mode for animation pace
+            const currentEdges = useDiagramStore.getState().edges;
+            const primaryMode = scenario.datasets?.[0]?.generation_mode ?? "";
+            setEdges(
+              currentEdges.map((e) => {
+                if (e.source !== selectedNodeId) return e;
+                const ct = (e.data as any)?.connectionType as string | undefined;
+                const prefix = ct === "aistor-tables" ? "Iceberg" : ct === "s3" ? "S3" : null;
+                const parts = [prefix, scenario.format, scenario.primary_table].filter(Boolean);
+                const label = parts.length > 0 ? parts.join(" · ") : (e.data as any)?.label;
+                return {
+                  ...e,
+                  data: {
+                    ...e.data,
+                    ...(label ? { label } : {}),
+                    connectionConfig: {
+                      ...((e.data as any)?.connectionConfig ?? {}),
+                      generation_mode: primaryMode,
+                    },
+                  },
+                };
+              })
+            );
           }}
         />
       )}

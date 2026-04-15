@@ -65,6 +65,19 @@ export default function AnimatedDataEdge({
     return {};
   })();
 
+  // External-system data flow animation
+  const sourceNode = getNode(source);
+  const sourceComponentId = (sourceNode?.data as any)?.componentId as string | undefined;
+  const sourceHealth = (sourceNode?.data as any)?.health as string | undefined;
+  const isExternalSystem = sourceComponentId === "external-system";
+  const isExternalActive = isExternalSystem && isDemoRunning && (sourceHealth === "healthy");
+
+  // Pace from generation_mode stored on edge connectionConfig when scenario is selected
+  const generationMode = connConfig?.generation_mode as string | undefined;
+  // stream → fast/dense, batch_then_stream → medium, batch/default → slow
+  const paceDur = generationMode === "stream" ? 1.0 : generationMode === "batch" ? 3.5 : 1.8;
+  const paceParticles = generationMode === "stream" ? 4 : generationMode === "batch" ? 2 : 3;
+
   const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
     connectionType === "site-replication" ||
     connectionType === "cluster-site-replication";
@@ -77,8 +90,8 @@ export default function AnimatedDataEdge({
 
   // nginx-backend: derive style from source node's config.mode; failover role from edge index
   const isNginxBackend = connectionType === "nginx-backend";
-  const sourceNode = isNginxBackend ? getNode(source) : undefined;
-  const nginxMode = isNginxBackend ? ((sourceNode?.data as any)?.config?.mode as string | undefined) ?? "round-robin" : undefined;
+  const nginxSourceNode = isNginxBackend ? sourceNode : undefined;
+  const nginxMode = isNginxBackend ? ((nginxSourceNode?.data as any)?.config?.mode as string | undefined) ?? "round-robin" : undefined;
   const isNginxFailover = isNginxBackend && nginxMode === "failover";
   const allRfEdges = useStoreApi().getState().edges;
   const nginxEdgeIndex = isNginxFailover
@@ -181,6 +194,27 @@ export default function AnimatedDataEdge({
               />
             </circle>
           )}
+        </>
+      )}
+      {/* External-system: continuous data stream particles scaled to generation pace */}
+      {isExternalActive && (
+        <>
+          {Array.from({ length: paceParticles }).map((_, i) => {
+            const offset = (paceDur / paceParticles) * i;
+            return (
+              <circle key={i} r="2.5" fill={color} opacity={0.75 - i * 0.1}>
+                <animateMotion
+                  dur={`${paceDur}s`}
+                  begin={`${offset}s`}
+                  repeatCount="indefinite"
+                  path={edgePath}
+                  keyPoints="0;1"
+                  keyTimes="0;1"
+                  calcMode="linear"
+                />
+              </circle>
+            );
+          })}
         </>
       )}
       <EdgeLabelRenderer>
