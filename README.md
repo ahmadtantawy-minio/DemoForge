@@ -4,6 +4,23 @@ Interactive demo orchestration platform for MinIO Field Architects. Design, depl
 
 ---
 
+## Connectivity Requirements
+
+DemoForge runs **locally** on your laptop. Internet access is only required for the initial setup and periodic updates:
+
+| Operation | Internet required? |
+|-----------|-------------------|
+| `make fa-setup` (first-time) | Yes — validates FA key, pulls images from GCR |
+| `make fa-update` | Yes — pulls latest code + images |
+| Template sync (UI) | Yes — syncs from Hub (GCS) |
+| License sync | Yes — fetches from Hub (GCS) |
+| **Creating / deploying / tearing down demos** | **No — fully offline** |
+| **All demo traffic (MinIO, Trino, etc.)** | **No — fully offline** |
+
+Once setup is complete and images are cached, DemoForge can run entirely air-gapped.
+
+---
+
 ## Field Architect Setup
 
 ### Prerequisites
@@ -35,11 +52,10 @@ open http://localhost:3000
 
 1. Verifies Docker is running
 2. Prompts for your **API key** (one-time, saved to `.env.local`)
-3. Starts the **hub-connector** container (Caddy reverse proxy, auto-restarts on reboot)
-4. Verifies Hub gateway connectivity
-5. Detects your FA identity (git email → GitHub CLI → prompt)
-6. Writes `.env.local` with credentials and FA identity
-7. Pulls all custom component images from the registry (pre-built — no local build needed)
+3. Verifies Hub gateway connectivity
+4. Detects your FA identity (git email → GitHub CLI → prompt)
+5. Writes `.env.local` with credentials and FA identity
+6. Pulls all custom component images from the registry (pre-built — no local build needed)
 
 After setup, DemoForge automatically syncs templates from the Hub on every start.
 
@@ -49,7 +65,7 @@ After setup, DemoForge automatically syncs templates from the Hub on every start
 make fa-update
 ```
 
-Runs `git pull --ff-only`, refreshes the hub-connector, and restarts DemoForge. Run this whenever your team lead announces an update.
+Pulls the latest scripts, refreshes core images from GCR, and restarts DemoForge. Also self-repairs stale environment configuration. Run this whenever your team lead announces an update.
 
 ### Day-to-Day Commands
 
@@ -68,7 +84,7 @@ make logs     # Tail logs
 2. **Templates** — Browse 27+ templates, filter by category/tier, create demos
 3. **Designer** — Visual canvas to wire components, configure connections, deploy
 4. **Images** — Manage Docker image cache (pull, re-pull, cleanup)
-5. **Healthcheck** (sidebar bottom) — Connectivity health check, hub-connector status, current vs latest DemoForge version with update available notice
+5. **Healthcheck** (sidebar bottom) — Connectivity health check, current vs latest DemoForge version with update available notice
 
 **Workflow:** Templates → Pick a template → Create Demo → Deploy → Double-click nodes to open web UIs
 
@@ -110,13 +126,13 @@ make dev-start
 | Command | Hub routing | When to use |
 |---------|-------------|-------------|
 | `make dev-start` | Sets `DEMOFORGE_HUB_LOCAL=1` — backend connects directly to local hub-api on `:8000` | Default dev workflow |
-| `make dev-start-gcp` | No `DEMOFORGE_HUB_LOCAL=1` — routes through GCP hub-connector on `:8080` | Testing against the real hub |
+| `make dev-start-gcp` | Routes through GCP Cloud Run gateway | Testing against the real hub |
 
 Both run with `DEMOFORGE_MODE=dev` active.
 
 ### What the local hub-api does
 
-The hub-api (FastAPI + SQLite) tracks Field Architects, their permissions, and telemetry events. In dev mode it runs locally on `:8000` and is used directly instead of going through the hub connector.
+The hub-api (FastAPI + SQLite) tracks Field Architects, their permissions, and telemetry events. In dev mode it runs locally on `:8000` and is used directly instead of going through the cloud gateway.
 
 ```bash
 make dev-hub-api    # Start hub-api with hot-reload on :8000
@@ -131,12 +147,11 @@ The **Healthcheck** page (accessible in all modes, sidebar bottom) runs a full c
 
 - **Local Hub API** — direct health + DB/admin access (dev mode)
 - **Admin Key** — validates admin key against hub-api
-- **Hub Connector** — connector → gateway → hub-api route (skipped if local hub-api is healthy)
 - **FA Authentication** — FA API key validated against hub-api
 
 It also shows the current DemoForge version, the hub-latest version, and a banner when an update is available.
 
-In dev mode, all checks route directly to `localhost:8000` bypassing the connector.
+In dev mode, all checks route directly to `localhost:8000`.
 
 ### FA Management (Dev Only)
 
@@ -235,10 +250,10 @@ Field Architect Laptop              GCP
 │  DemoForge   │◄─────────────►│  Cloud Run: Gateway (Caddy)│
 │  (local)     │               │  API key auth              │
 │              │               │                  │          │
-│  hub-        │               │            HTTPS ▼          │
-│  connector   │               │         ┌──────────┐        │
-│  (Caddy)     │               │         │ Cloud Run│        │
-│  :8080       │               │         │ hub-api  │        │
+│              │               │            HTTPS ▼          │
+│              │               │         ┌──────────┐        │
+│              │               │         │ Cloud Run│        │
+│              │               │         │ hub-api  │        │
 │              │               │         │+Litestr. │        │
 └──────────────┘               │         └──────────┘        │
                                │               │             │
@@ -248,7 +263,7 @@ Field Architect Laptop              GCP
                                └────────────────────────────┘
 ```
 
-The hub-connector (local Docker container, port `:8080`) proxies DemoForge through the Cloud Run gateway to hub-api. Hub API runs as a Cloud Run service with SQLite replicated to GCS via Litestream. Templates and licenses are stored in GCS and seeded via `make hub-seed` / `make seed-licenses`.
+DemoForge connects directly to the Cloud Run gateway using your FA API key. Hub API runs as a Cloud Run service with SQLite replicated to GCS via Litestream. Templates and licenses are stored in GCS.
 
 ---
 
@@ -314,8 +329,8 @@ make seed-licenses  # Seed licenses to GCS
 
 | Command | Description |
 |---------|-------------|
-| `make fa-setup` | First-time setup: connector + Hub connectivity + pull images |
-| `make fa-update` | Pull latest code, refresh hub-connector, restart |
+| `make fa-setup` | First-time setup: validates FA key with gateway, pulls images |
+| `make fa-update` | Pull latest code + images, self-repair env, restart |
 | `make start` | Start DemoForge (FA mode) |
 | `make stop` | Stop DemoForge |
 | `make restart` | Restart DemoForge |
@@ -335,7 +350,7 @@ make seed-licenses  # Seed licenses to GCS
 | `make dev-init` | Generate `DEMOFORGE_HUB_API_ADMIN_KEY` → `.env.local` (idempotent) |
 | `make dev-hub-api` | Start hub-api locally on `:8000` with hot-reload |
 | `make dev-start` | Start DemoForge in dev mode (local hub-api on `:8000`) |
-| `make dev-start-gcp` | Start DemoForge in dev mode (GCP hub via connector) |
+| `make dev-start-gcp` | Start DemoForge in dev mode (GCP hub via gateway) |
 | `make dev-stop` | Stop DemoForge (dev mode) |
 | `make dev-restart` | Restart DemoForge (dev mode) |
 | `make dev-status` | Show running services |
@@ -366,10 +381,8 @@ make seed-licenses  # Seed licenses to GCS
 
 | Component | Monthly |
 |---|---|
-| VM (e2-medium, private) | ~$25 |
 | Cloud Run gateway (1 min instance) | ~$3–5 |
 | Cloud Run hub-api (1 min instance) | ~$3–5 |
-| VPC connector (2 instances) | ~$7 |
-| Data disk (50GB) | ~$5 |
+| GCS bucket (templates + licenses + SQLite replica) | ~$1–2 |
 | Egress | ~$1–3 |
-| **Total** | **~$43–48** |
+| **Total** | **~$8–15** |
