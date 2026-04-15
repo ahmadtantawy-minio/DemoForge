@@ -851,88 +851,32 @@ def run_streams(stream_datasets: list, table_writer, ctx: dict, client=None):
 # Metabase provisioning
 # ---------------------------------------------------------------------------
 
-def provision_metabase(scenario: dict):
+INTENTS_DIR = os.environ.get("MB_INTENTS_DIR", "/provision-intents")
+
+
+def publish_metabase_intent(scenario: dict):
+    """Write a provisioning intent file to the shared volume for the Metabase reconciler."""
     dashboards = scenario.get("dashboards", [])
     saved_queries = scenario.get("saved_queries", {})
     if not dashboards and not saved_queries.get("queries"):
-        print("[external-system] No Metabase dashboards/queries to provision.")
+        print("[external-system] No Metabase dashboards/queries in scenario — skipping intent.")
         return
 
+    import json as _json
+    intent = {
+        "scenario_id": scenario["id"],
+        "scenario_name": scenario.get("name", ""),
+        "dashboards": dashboards,
+        "saved_queries": saved_queries,
+    }
+    os.makedirs(INTENTS_DIR, exist_ok=True)
+    path = os.path.join(INTENTS_DIR, f"{scenario['id']}.json")
     try:
-        mc.wait_for_metabase(METABASE_URL, timeout=300)
+        with open(path, "w") as f:
+            _json.dump(intent, f, indent=2)
+        print(f"[external-system] Metabase intent written → {path}")
     except Exception as exc:
-        print(f"[external-system] Metabase not ready, skipping provisioning: {exc}")
-        return
-
-    try:
-        token = mc.get_session_token(METABASE_URL, METABASE_USER, METABASE_PASSWORD)
-    except Exception as exc:
-        print(f"[external-system] Metabase login failed, skipping: {exc}")
-        return
-
-    try:
-        db_id = mc.ensure_trino_database(METABASE_URL, token, TRINO_HOST or "trino:8080",
-                                         catalog=TRINO_CATALOG)
-    except Exception as exc:
-        print(f"[external-system] Trino db setup failed, skipping: {exc}")
-        return
-
-    # Saved queries
-    sq_col_name = saved_queries.get("collection")
-    sq_collection_id = None
-    if sq_col_name:
-        try:
-            sq_collection_id = mc.create_collection(METABASE_URL, token, sq_col_name,
-                                                    description=f"Queries for {scenario['name']}")
-            print(f"[external-system] Collection '{sq_col_name}' ready (id={sq_collection_id})")
-        except Exception as exc:
-            print(f"[external-system] collection create failed: {exc}")
-
-    queries = sorted(saved_queries.get("queries", []), key=lambda q: q.get("order", 0))
-    for q in queries:
-        try:
-            card_id = mc.create_question(
-                METABASE_URL, token,
-                collection_id=sq_collection_id,
-                title=q["title"],
-                sql=q["query"],
-                visualization=q.get("visualization", "table"),
-                description=q.get("description", ""),
-                db_id=db_id,
-            )
-            print(f"[external-system]   + question: {q['title']} (card={card_id})")
-        except Exception as exc:
-            print(f"[external-system]   ! question failed {q.get('id')}: {exc}")
-
-    # Dashboards
-    for dash in dashboards:
-        try:
-            dash_id = mc.create_dashboard(METABASE_URL, token, dash["title"],
-                                          description=dash.get("description", ""))
-            dashcards = []
-            for chart in dash.get("charts", []):
-                card_id = mc.create_question(
-                    METABASE_URL, token,
-                    collection_id=sq_collection_id,
-                    title=chart["title"],
-                    sql=chart["query"],
-                    visualization=chart.get("type", "table"),
-                    description="",
-                    db_id=db_id,
-                )
-                pos = chart.get("position", {})
-                dashcards.append({
-                    "card_id": card_id,
-                    "row": pos.get("row", 0),
-                    "col": pos.get("col", 0),
-                    "width": pos.get("width", 6),
-                    "height": pos.get("height", 4),
-                })
-            if dashcards:
-                mc.add_cards_to_dashboard(METABASE_URL, token, dash_id, dashcards)
-            print(f"[external-system] Dashboard '{dash['title']}' ready (id={dash_id}, {len(dashcards)} cards)")
-        except Exception as exc:
-            print(f"[external-system] dashboard failed {dash.get('id')}: {exc}")
+        print(f"[external-system] Failed to write Metabase intent: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -1033,11 +977,8 @@ def main():
         else:
             print(f"[external-system] Unknown dataset target '{target}' — skipping.")
 
-    # Provision Metabase only when a dashboard-provision edge injected METABASE_URL
-    if METABASE_URL:
-        provision_metabase(scenario)
-    else:
-        print("[external-system] No Metabase URL configured — skipping dashboard provisioning.")
+    # Publish provisioning intent to shared volume for Metabase reconciler
+    publish_metabase_intent(scenario)
 
     # Stream phase
     if stream_metas and table_writer:

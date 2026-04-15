@@ -1433,41 +1433,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         setup_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "setup-metabase.sh")
         provision_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "provision.py")
 
-        # Build MB_PROVISION_SPEC from any external-system node with ES_SCENARIO config.
-        # No dashboard-provision edge required — provisioning is a startup procedure.
-        provision_spec = ""
-        import yaml as _yaml
-        import json as _json
-        for es_node in [n for n in demo.nodes if n.component == "external-system"]:
-            scenario_id = (es_node.config or {}).get("ES_SCENARIO", "")
-            if not scenario_id:
-                continue
-            scenario_path = os.path.join(
-                os.path.abspath(components_dir), "external-system", "scenarios",
-                f"{scenario_id}.yaml"
-            )
-            if not os.path.exists(scenario_path):
-                logger.warning(f"Scenario YAML not found: {scenario_path}")
-                continue
-            with open(scenario_path) as _f:
-                scenario_data = _yaml.safe_load(_f)
-            dashboards = scenario_data.get("dashboards", [])
-            saved_queries = scenario_data.get("saved_queries", {})
-            if not dashboards and not saved_queries:
-                continue
-            spec_str = _json.dumps({"dashboards": dashboards, "saved_queries": saved_queries})
-            # Substitute default 'iceberg.' catalog with the actual catalog name
-            if catalog and catalog != "iceberg":
-                spec_str = spec_str.replace('"iceberg.', f'"{catalog}.')
-            provision_spec = spec_str
-            logger.info(f"Injecting MB_PROVISION_SPEC for scenario '{scenario_id}' (catalog={catalog})")
-            break
-
         if os.path.exists(setup_script):
             setup_host_path = _to_host_path(setup_script, "components")
             init_networks = {docker_net_name: None for docker_net_name in network_map.values()}
 
-            has_provision = bool(provision_spec) and os.path.exists(provision_script)
+            has_provision = os.path.exists(provision_script)
             sidecar_image = "python:3.11-alpine" if has_provision else "alpine:3.19"
             if has_provision:
                 provision_host_path = _to_host_path(provision_script, "components")
@@ -1482,12 +1452,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "TRINO_CATALOG": catalog,
                 "TRINO_SCHEMA": schema,
             }
-            if provision_spec:
-                sidecar_env["MB_PROVISION_SPEC"] = provision_spec
 
+            mb_intents_vol = f"{project_name}-mb-intents"
             sidecar_volumes = [f"{setup_host_path}:/setup/setup-metabase.sh:ro"]
             if has_provision:
                 sidecar_volumes.append(f"{provision_host_path}:/setup/provision.py:ro")
+                sidecar_volumes.append(f"{mb_intents_vol}:/provision-intents")
 
             services["metabase-init"] = {
                 "image": sidecar_image,
@@ -1508,6 +1478,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "depends_on": [metabase_node.id],
             }
             logger.info(f"Added metabase-init sidecar for demo {demo.id} (provision={'yes' if has_provision else 'no'})")
+
+            if has_provision:
+                # Mount the shared intents volume into every external-system container
+                for es_node in [n for n in demo.nodes if n.component == "external-system"]:
+                    if es_node.id in services:
+                        svc_vols = services[es_node.id].setdefault("volumes", [])
+                        svc_vols.append(f"{mb_intents_vol}:/provision-intents")
+                compose_volumes[mb_intents_vol] = None
 
     # --- mcp-server: one MCP sidecar per MinIO cluster for AI tool access ---
     if demo.clusters:

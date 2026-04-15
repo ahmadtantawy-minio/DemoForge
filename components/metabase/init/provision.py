@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Metabase dashboard provisioning from MB_PROVISION_SPEC env var.
-Runs as a sidecar after setup-metabase.sh completes.
-Reads a JSON spec injected by DemoForge compose generator and provisions
-dashboards/saved-queries into the already-setup Metabase instance.
+Metabase dashboard provisioner — reconcile loop.
+
+Polls a shared Docker volume for JSON intent files written by external-system
+containers. For each intent, provisions missing collections, questions, and
+dashboards into Metabase, then moves the file to done/.
+
+Runs fully offline — no S3, no external network access required.
 """
 
 import json
 import os
-import sys
 import time
 
 import requests
@@ -19,7 +21,10 @@ MB_USER = os.environ.get("MB_USER", "admin@demoforge.local")
 MB_PASS = os.environ.get("MB_PASSWORD", "DemoForge123!")
 TRINO_HOST = os.environ.get("TRINO_HOST", "")
 TRINO_CATALOG = os.environ.get("TRINO_CATALOG", "iceberg")
-SPEC_JSON = os.environ.get("MB_PROVISION_SPEC", "")
+
+INTENTS_DIR = os.environ.get("MB_INTENTS_DIR", "/provision-intents")
+DONE_DIR = os.path.join(INTENTS_DIR, "done")
+POLL_INTERVAL = 30  # seconds
 
 VIS_MAP = {
     "table": "table", "bar": "bar", "line": "line",
@@ -140,44 +145,24 @@ def add_cards(token, dash_id, dashcards):
     put(token, f"/api/dashboard/{dash_id}", {"dashcards": payload})
 
 
-def main():
-    if not SPEC_JSON:
-        print("[provision] MB_PROVISION_SPEC not set — nothing to provision.", flush=True)
-        return
-
-    spec = json.loads(SPEC_JSON)
+def provision_spec(token: str, db_id: int, spec: dict):
+    """Provision a single intent spec into Metabase."""
     dashboards = spec.get("dashboards", [])
     saved_queries = spec.get("saved_queries", {})
 
-    if not dashboards and not saved_queries.get("queries"):
-        print("[provision] No dashboards or saved queries in spec.", flush=True)
-        return
-
-    print(f"[provision] Starting Metabase provisioning (catalog={TRINO_CATALOG})", flush=True)
-    wait_ready()
-    token = get_token()
-    print("[provision] Authenticated.", flush=True)
-
-    db_id = ensure_trino_db(token) if TRINO_HOST else None
-    if not db_id:
-        print("[provision] No Trino host — skipping.", flush=True)
-        return
-
-    # Saved queries / collection
+    # Root collection + sub-collections
     col_name = saved_queries.get("collection", "")
     col_id = ensure_collection(token, col_name) if col_name else None
 
-    # Create sub-collections as children of root collection
     subcol_id_map: dict = {}
     for sc in saved_queries.get("subcollections", []):
         sc_id = ensure_collection(token, sc["name"], sc.get("description", ""), parent_id=col_id)
         subcol_id_map[sc["id"]] = sc_id
         print(f"[provision] Sub-collection '{sc['name']}' id={sc_id}", flush=True)
 
-    queries = sorted(saved_queries.get("queries", []), key=lambda q: q.get("order", 0))
-    for q in queries:
+    # Saved queries
+    for q in sorted(saved_queries.get("queries", []), key=lambda q: q.get("order", 0)):
         try:
-            # Resolve to sub-collection if specified, otherwise root collection
             q_col_id = subcol_id_map.get(q.get("subcollection"), col_id)
             create_question(token, q_col_id, q["title"], q["query"],
                             q.get("visualization", "table"), db_id)
@@ -205,7 +190,61 @@ def main():
         except Exception as exc:
             print(f"[provision] Dashboard '{dash.get('title')}' failed: {exc}", flush=True)
 
-    print("[provision] Provisioning complete.", flush=True)
+
+def list_pending() -> list[str]:
+    try:
+        return [
+            os.path.join(INTENTS_DIR, f)
+            for f in os.listdir(INTENTS_DIR)
+            if f.endswith(".json") and os.path.isfile(os.path.join(INTENTS_DIR, f))
+        ]
+    except FileNotFoundError:
+        return []
+
+
+def mark_done(path: str):
+    os.makedirs(DONE_DIR, exist_ok=True)
+    dest = os.path.join(DONE_DIR, os.path.basename(path))
+    try:
+        os.replace(path, dest)
+    except Exception as exc:
+        print(f"[provision] Could not move intent to done: {exc}", flush=True)
+
+
+def main():
+    print(f"[provision] Starting reconcile loop — polling {INTENTS_DIR} every {POLL_INTERVAL}s",
+          flush=True)
+
+    # Wait for Metabase to be ready once upfront
+    wait_ready()
+
+    while True:
+        pending = list_pending()
+        if pending:
+            try:
+                token = get_token()
+                db_id = ensure_trino_db(token) if TRINO_HOST else None
+            except Exception as exc:
+                print(f"[provision] Metabase auth/db failed: {exc}", flush=True)
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            if not db_id:
+                print("[provision] No Trino host configured — skipping cycle.", flush=True)
+            else:
+                for path in pending:
+                    scenario_id = os.path.basename(path).removesuffix(".json")
+                    try:
+                        with open(path) as f:
+                            spec = json.load(f)
+                        print(f"[provision] Processing intent: {scenario_id}", flush=True)
+                        provision_spec(token, db_id, spec)
+                        mark_done(path)
+                        print(f"[provision] Intent '{scenario_id}' complete.", flush=True)
+                    except Exception as exc:
+                        print(f"[provision] Intent '{scenario_id}' failed: {exc}", flush=True)
+
+        time.sleep(POLL_INTERVAL)
 
 
 if __name__ == "__main__":
