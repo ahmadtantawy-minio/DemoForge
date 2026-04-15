@@ -48,17 +48,19 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(init_fa_identity)
 
     # Sync templates from remote (non-blocking, best-effort)
-    from .engine.template_sync import sync_templates
+    # Only run in dev mode — FA boots from local cache
+    _mode = os.getenv("DEMOFORGE_MODE", "dev")
     _startup_sync_result = None
-    try:
-        _startup_sync_result = await asyncio.to_thread(sync_templates)
-        logger.info(f"Template sync on startup: {_startup_sync_result}")
-    except Exception as e:
-        logger.warning(f"Template sync failed on startup (continuing with local): {e}")
+    if _mode not in ("fa", "standard"):
+        from .engine.template_sync import sync_templates
+        try:
+            _startup_sync_result = await asyncio.to_thread(sync_templates)
+            logger.info(f"Template sync on startup: {_startup_sync_result}")
+        except Exception as e:
+            logger.warning(f"Template sync failed on startup (continuing with local): {e}")
 
     # Telemetry init (fire-and-forget, FA mode only)
     from .telemetry import init_telemetry, shutdown_telemetry, emit_event
-    _mode = os.getenv("DEMOFORGE_MODE", "dev")
     _hub_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
     _api_key = os.getenv("DEMOFORGE_API_KEY", "")
     await init_telemetry(
@@ -68,7 +70,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.start_time = _time.time()
     asyncio.create_task(emit_event("app_started", {"mode": _mode}))
-    if _startup_sync_result and _startup_sync_result.get("status") == "ok":
+    if _startup_sync_result is not None and _startup_sync_result.get("status") == "ok":
         asyncio.create_task(emit_event("template_synced", {
             "method": _startup_sync_result.get("method", "s3"),
             "downloaded": _startup_sync_result.get("downloaded", 0),

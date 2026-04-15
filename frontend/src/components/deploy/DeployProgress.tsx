@@ -16,7 +16,7 @@ const STEP_LABELS: Record<string, string> = {
   containers: "Start Containers",
   networks: "Connect Networks",
   discovery: "Discover Containers",
-  init_scripts: "Init Scripts",
+  init_scripts: "Integration Scripts",
   edge_config: "Configure Connections",
   complete: "Complete",
   rollback: "Rollback",
@@ -62,12 +62,13 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
             const prev = prevStepStatuses.current[s.step];
             if (prev !== s.status) {
               prevStepStatuses.current[s.step] = s.status;
+              const source = s.step === "init_scripts" ? "Provision" : "Deploy";
               if (s.status === "done" || s.status === "error" || s.status === "warning") {
                 const level = s.status === "error" ? "error" : s.status === "warning" ? "warn" : "info";
                 const label = STEP_LABELS[s.step] ?? s.step;
-                addEntry(level, "Deploy", `${label}: ${s.status}`, s.detail || undefined);
+                addEntry(level, source, `${label}: ${s.status}`, s.detail || undefined);
               } else if (s.status === "running" && !prev) {
-                addEntry("info", "Deploy", `${STEP_LABELS[s.step] ?? s.step}: started`, s.detail || undefined);
+                addEntry("info", source, `${STEP_LABELS[s.step] ?? s.step}: started`, s.detail || undefined);
                 lastHeartbeat.current[s.step] = Date.now();
               }
               // Heartbeat: log every 8s while a step stays in "running"
@@ -75,7 +76,7 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
                 const last = lastHeartbeat.current[s.step] ?? 0;
                 if (Date.now() - last >= 8000) {
                   lastHeartbeat.current[s.step] = Date.now();
-                  addEntry("info", "Deploy", `${STEP_LABELS[s.step] ?? s.step}: still running\u2026`, s.detail || undefined);
+                  addEntry("info", source, `${STEP_LABELS[s.step] ?? s.step}: still running\u2026`, s.detail || undefined);
                 }
               }
             }

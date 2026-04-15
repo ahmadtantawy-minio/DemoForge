@@ -1087,6 +1087,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             edition = node.config.get("MINIO_EDITION", "ce")
             if edition == "aistor":
                 image = "quay.io/minio/aistor/minio:latest"
+            elif edition == "aistor-edge":
+                image = "quay.io/minio/aistor/minio:edge"
 
         # Build service definition
         service = {
@@ -1385,9 +1387,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         # Use AIStor mc image if any cluster has AIStor features (mc table commands)
         has_aistor = any(getattr(c, 'aistor_tables_enabled', False) for c in demo.clusters) or any(
-            n.config.get("MINIO_EDITION", "ce") == "aistor" for n in demo.nodes if n.component == "minio"
+            n.config.get("MINIO_EDITION", "ce") in ("aistor", "aistor-edge") for n in demo.nodes if n.component == "minio"
         )
-        mc_image = "quay.io/minio/aistor/mc:latest" if has_aistor else "minio/mc:latest"
+        mc_image = "quay.io/minio/aistor/mc:latest" if has_aistor else "quay.io/minio/mc:latest"
 
         services["mc-shell"] = {
             "image": mc_image,

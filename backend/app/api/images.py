@@ -91,9 +91,18 @@ async def get_image_status():
         manifests_with_images.append((name, manifest))
         tasks.append(asyncio.to_thread(_check_image_cached, manifest.image))
 
-    cache_results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Collect extra refs alongside primary images
+    extra_refs_meta: list[tuple[str, str]] = []  # (component_name, image_ref)
+    for name, manifest in manifests_with_images:
+        for ref in manifest.image_extra_refs:
+            extra_refs_meta.append((name, ref))
+            tasks.append(asyncio.to_thread(_check_image_cached, ref))
 
-    for (name, manifest), cache_result in zip(manifests_with_images, cache_results):
+    all_results = await asyncio.gather(*tasks, return_exceptions=True)
+    primary_results = all_results[: len(manifests_with_images)]
+    extra_results = all_results[len(manifests_with_images) :]
+
+    for (name, manifest), cache_result in zip(manifests_with_images, primary_results):
         if isinstance(cache_result, Exception):
             cached, local_size, built_at = False, None, None
         else:
@@ -103,13 +112,6 @@ async def get_image_status():
         manifest_size = manifest.image_size_mb
         effective_size = manifest_size if manifest_size is not None else local_size
 
-        if cached:
-            status = "cached"
-        else:
-            status = "missing"
-
-        pull_source = _pull_source(manifest.image)
-
         results.append(ImageInfo(
             component_name=name,
             image_ref=manifest.image,
@@ -118,9 +120,28 @@ async def get_image_status():
             local_size_mb=local_size,
             manifest_size_mb=manifest_size,
             effective_size_mb=effective_size,
-            pull_source=pull_source,
-            status=status,
-            built_at=built_at if category in ("custom", "platform") else None,
+            pull_source=_pull_source(manifest.image),
+            status="cached" if cached else "missing",
+            built_at=built_at,
+        ))
+
+    for (name, ref), cache_result in zip(extra_refs_meta, extra_results):
+        if isinstance(cache_result, Exception):
+            cached, local_size, built_at = False, None, None
+        else:
+            cached, local_size, built_at = cache_result
+
+        results.append(ImageInfo(
+            component_name=name,
+            image_ref=ref,
+            category="vendor",
+            cached=cached,
+            local_size_mb=local_size,
+            manifest_size_mb=None,
+            effective_size_mb=local_size,
+            pull_source=_pull_source(ref),
+            status="cached" if cached else "missing",
+            built_at=built_at,
         ))
 
     # Add platform images (DemoForge infrastructure)

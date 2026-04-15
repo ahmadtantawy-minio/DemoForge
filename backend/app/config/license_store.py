@@ -75,11 +75,7 @@ class LicenseStore:
     # --- Public API ---
 
     def get(self, license_id: str) -> LicenseEntry | None:
-        # Try HTTP (via gateway — no S3 signing issues)
-        entry = self._http_get(license_id)
-        if entry:
-            return entry
-        # Fall back to local YAML
+        # Local cache first — works offline after fa-update
         data = self._yaml_load()
         info = data.get(license_id)
         if info and isinstance(info, dict):
@@ -89,7 +85,8 @@ class LicenseStore:
                 label=info.get("label", ""),
                 created_at=info.get("created_at", ""),
             )
-        return None
+        # Fall back to HTTP (hub) if not cached locally
+        return self._http_get(license_id)
 
     def set(self, entry: LicenseEntry):
         # Write to local YAML (fallback + cache)

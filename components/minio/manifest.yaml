@@ -3,7 +3,10 @@ name: MinIO Node
 category: storage
 icon: minio
 version: latest
-image: minio/minio:latest
+image: quay.io/minio/minio:latest
+image_extra_refs:
+  - quay.io/minio/aistor/minio:edge
+  - quay.io/minio/aistor/minio:latest
 image_size_mb: 110
 description: S3-compatible high-performance object storage (CE or AIStor edition)
 resources:
@@ -164,8 +167,9 @@ config:
     options:
       - ce
       - aistor
+      - aistor-edge
     default: ce
-    description: CE (Community) or AIStor (Enterprise) edition
+    description: CE (Community), AIStor (Enterprise), or AIStor Edge (Enterprise)
 init_scripts:
 - command: sh -c 'until mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD 2>/dev/null; do sleep 2; done && mc mb local/demo-bucket --ignore-existing && mc mb local/data --ignore-existing'
   wait_for_healthy: true
@@ -187,3 +191,17 @@ license_requirements:
   env_var: MINIO_LICENSE
   required: false
   edition: aistor
+- license_id: minio-aistor-free
+  label: AIStor Free (Edge)
+  description: Required for AIStor Edge single-node deployments
+  injection_type: env_var
+  env_var: MINIO_LICENSE
+  required: false
+  edition: aistor-edge
+- license_id: minio-enterprise
+  label: AIStor Enterprise (Edge)
+  description: Required for AIStor Edge cluster deployments
+  injection_type: env_var
+  env_var: MINIO_LICENSE
+  required: false
+  edition: aistor-edge

@@ -1049,6 +1049,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         if (!instance && isCluster) {
           instance = instances.find((i) => i.node_id === `${contextMenu.nodeId}-pool1-node-1`);
         }
+        const canViewLogs = isRunning || (isDeploying && instance?.health === "starting");
         const terminalNodeId = isCluster ? `${contextMenu.nodeId}-pool1-node-1` : contextMenu.nodeId;
         return (
           <NodeContextMenu
@@ -1067,6 +1068,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             onOpenAiChat={isCluster ? () => setMcpPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}
             onOpenSqlEditor={(ctxNode?.data as any)?.componentId === "trino" ? () => setSqlEditorPanel({ scenarioId: "ecommerce-orders" }) : undefined}
             isRunning={isRunning || (isDeploying && instance?.health === "healthy")}
+            canViewLogs={canViewLogs}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
             onCopyNode={() => handleCopyNode(contextMenu.nodeId)}

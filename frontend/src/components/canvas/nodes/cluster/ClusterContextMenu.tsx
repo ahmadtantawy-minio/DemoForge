@@ -129,6 +129,8 @@ export default function ClusterContextMenu(props: Props) {
     nodeId = `${clusterId}-pool${poolIdx + 1}-node-${remaining + 1}`;
     nodeInstance = instances.find((i) => i.node_id === nodeId);
   }
+  const clusterStarting = instances.some((i) => i.health === "starting");
+  const canViewClusterLogs = isRunning || clusterStarting;
 
   const style: React.CSSProperties = {
     top: Math.min(y, window.innerHeight - 200),
@@ -155,13 +157,22 @@ export default function ClusterContextMenu(props: Props) {
           >
             View node details
           </button>
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
-            disabled
-            title="Deploy the cluster first"
-          >
-            View logs (deploy first)
-          </button>
+          {nodeInstance?.health === "starting" ? (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-sky-400 hover:bg-sky-500/10 transition-colors"
+              onClick={() => { onViewLogs(nodeId); onClose(); }}
+            >
+              View Logs
+            </button>
+          ) : (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
+              disabled
+              title="Deploy the cluster first"
+            >
+              View logs (deploy first)
+            </button>
+          )}
           <button
             className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
             disabled
@@ -545,6 +556,14 @@ export default function ClusterContextMenu(props: Props) {
           >
             Edit cluster settings
           </button>
+          {canViewClusterLogs && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-sky-400 hover:bg-sky-500/10 transition-colors"
+              onClick={() => { onViewLogs(`${clusterId}-pool1-node-1`); onClose(); }}
+            >
+              View Logs
+            </button>
+          )}
           <button
             className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
             onClick={onAddPool}

@@ -524,7 +524,7 @@ canvas_images:
 - id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: -209.0
+    x: -231.0
     y: -225.5
   width: 240
   height: 70
@@ -535,7 +535,7 @@ canvas_images:
 - id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: -209.0
+    x: -231.0
     y: -225.5
   width: 240
   height: 70
@@ -546,7 +546,7 @@ canvas_images:
 - id: canvas-img-1776256028144
   image_id: apache-iceberg-logo
   position:
-    x: -183.0
+    x: -203.0
     y: -123.0
   width: 180
   height: 55
@@ -563,5 +563,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-15T12:27:24.145574+00:00'
+updated_at: '2026-04-15T14:06:51.685867+00:00'
 source_template_id: sovereign-cyber-data-lake

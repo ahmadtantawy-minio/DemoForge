@@ -49,7 +49,13 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
   const pools = data.serverPools || [];
   const aggregates = computeClusterAggregates(pools);
   const edition = data.config?.MINIO_EDITION || "ce";
-  const isAIStor = edition === "aistor";
+  const isAIStor = edition === "aistor" || edition === "aistor-edge";
+  const imageRef =
+    edition === "aistor-edge"
+      ? "quay.io/minio/aistor/minio:edge"
+      : edition === "aistor"
+        ? "quay.io/minio/aistor/minio:latest"
+        : "quay.io/minio/minio:latest";
 
   const clusterNodeInstance = instances.find((i) => i.node_id === `${nodeId}-node-1`);
 
@@ -86,10 +92,11 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
           <SelectContent>
             <SelectItem value="ce">Community (CE)</SelectItem>
             <SelectItem value="aistor">AIStor (Enterprise)</SelectItem>
+            <SelectItem value="aistor-edge">AIStor (Edge)</SelectItem>
           </SelectContent>
         </Select>
         <div className="text-xs text-muted-foreground mt-1 font-mono bg-muted px-1.5 py-0.5 rounded inline-block">
-          {edition === "aistor" ? "quay.io/minio/aistor/minio:latest" : "minio/minio:latest"}
+          {imageRef}
         </div>
       </div>
 

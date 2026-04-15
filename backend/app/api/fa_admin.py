@@ -194,3 +194,32 @@ async def update_fa_key(fa_id: str, request: Request):
     _dev_guard()
     body = await request.json()
     return await _proxy_put(f"/api/hub/admin/fas/{quote(fa_id, safe='')}/key", body)
+
+
+@router.get("/api/fa/licenses/cache")
+async def cache_licenses():
+    """Pre-fetch and cache all licenses defined across component manifests."""
+    from ..config.license_store import license_store
+    from ..registry.loader import get_registry
+
+    fa_key = os.getenv("DEMOFORGE_API_KEY", "")
+    if not fa_key:
+        return {"status": "skipped", "reason": "no FA key configured"}
+
+    # Discover all unique license IDs from every component manifest
+    license_ids: set[str] = set()
+    for manifest in get_registry().values():
+        for req in getattr(manifest, "license_requirements", []):
+            if req.license_id:
+                license_ids.add(req.license_id)
+
+    cached, failed = 0, []
+    for lid in sorted(license_ids):
+        entry = license_store._http_get(lid)
+        if entry:
+            license_store.set(entry)
+            cached += 1
+        else:
+            failed.append(lid)
+
+    return {"status": "ok", "cached": cached, "failed": failed, "discovered": sorted(license_ids)}

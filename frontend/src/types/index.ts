@@ -230,6 +230,8 @@ export interface ScenarioDataset {
   description: string;
   stream_rate?: string;
   seed_rows?: number;
+  has_raw_landing?: boolean;
+  seed_count?: number;
 }
 
 export interface ScenarioOption {

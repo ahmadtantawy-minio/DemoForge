@@ -1114,6 +1114,14 @@ export default function PropertiesPanel() {
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isExperience = activeDemo?.mode === "experience";
   const isRunning = activeDemo?.status === "running";
+  const minioEdition = data.config?.MINIO_EDITION || "ce";
+  const isAIStorEdition = minioEdition === "aistor" || minioEdition === "aistor-edge";
+  const minioImageRef =
+    minioEdition === "aistor-edge"
+      ? "quay.io/minio/aistor/minio:edge"
+      : minioEdition === "aistor"
+        ? "quay.io/minio/aistor/minio:latest"
+        : "quay.io/minio/minio:latest";
 
   const updateData = (patch: Partial<ComponentNodeData>) => {
     setNodes(
@@ -1153,9 +1161,9 @@ export default function PropertiesPanel() {
         <div className="text-sm font-medium text-foreground">{componentDef?.name || data.label}</div>
         {data.componentId === "minio" && !isExperience ? (
           <>
-            <Select value={data.config?.MINIO_EDITION || "ce"} onValueChange={(v) => {
+            <Select value={minioEdition} onValueChange={(v) => {
               updateConfig("MINIO_EDITION", v);
-              if (v !== "aistor") updateData({ aistorTablesEnabled: false, mcpEnabled: false });
+              if (v === "ce") updateData({ aistorTablesEnabled: false, mcpEnabled: false });
             }}>
               <SelectTrigger className="w-full h-8 text-sm mt-1">
                 <SelectValue />
@@ -1163,12 +1171,13 @@ export default function PropertiesPanel() {
               <SelectContent>
                 <SelectItem value="ce">Community (CE)</SelectItem>
                 <SelectItem value="aistor">AIStor (Enterprise)</SelectItem>
+                <SelectItem value="aistor-edge">AIStor (Edge)</SelectItem>
               </SelectContent>
             </Select>
             <div className="text-xs text-muted-foreground mt-1 font-mono bg-muted px-1.5 py-0.5 rounded inline-block">
-              {(data.config?.MINIO_EDITION || "ce") === "aistor" ? "quay.io/minio/aistor/minio:latest" : "minio/minio:latest"}
+              {minioImageRef}
             </div>
-            {(data.config?.MINIO_EDITION || "ce") === "aistor" && (
+            {isAIStorEdition && (
               <div className="mt-2 space-y-1.5">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input

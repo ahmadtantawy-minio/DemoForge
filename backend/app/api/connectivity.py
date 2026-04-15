@@ -620,6 +620,34 @@ async def check_connectivity():
     }
 
 
+@router.get("/api/hub/version")
+async def get_hub_version():
+    """Return local version and hub latest; update_available flag. Non-blocking — hub failure returns null hub."""
+    local_ver = _read_local_version()
+    hub_url = os.getenv("DEMOFORGE_HUB_URL", "").rstrip("/")
+
+    hub_ver: str | None = None
+    if hub_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(hub_url + "/api/hub/version/latest")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    hub_ver = data.get("demoforge", {}).get("version") if isinstance(data, dict) else None
+        except Exception:
+            pass
+
+    update_available = False
+    if hub_ver:
+        update_available = _parse_semver(hub_ver) > _parse_semver(local_ver)
+
+    return {
+        "local": local_ver,
+        "hub": hub_ver,
+        "update_available": update_available,
+    }
+
+
 @router.get("/api/connectivity/me")
 async def get_me():
     """Return current FA's identity and permissions from hub-api."""

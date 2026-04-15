@@ -267,7 +267,7 @@ export function ImagesPage() {
                           </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <span>{img.component_name}</span>
-                            {img.category !== "vendor" && formatBuiltAt(img.built_at) && (
+                            {img.status === "cached" && formatBuiltAt(img.built_at) && (
                               <span className="text-[10px] text-zinc-500" title={img.built_at ?? undefined}>
                                 built {formatBuiltAt(img.built_at)}
                               </span>

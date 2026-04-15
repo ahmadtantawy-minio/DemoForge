@@ -15,6 +15,7 @@ interface Props {
   instance: ContainerInstance | undefined;
   demoId: string;
   isRunning: boolean;
+  canViewLogs?: boolean;
   nodeConfig?: Record<string, string>;
   onOpenTerminal: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
@@ -28,7 +29,7 @@ interface Props {
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onViewLogs, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, canViewLogs, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onViewLogs, onClose,
 }: Props) {
 
   const clampedX = Math.min(x, window.innerWidth - 200);
@@ -202,7 +203,7 @@ export default function NodeContextMenu({
           </button>
         </>
       )}
-      {isRunning && onViewLogs && (
+      {(canViewLogs ?? isRunning) && onViewLogs && (
         <>
           <div className="border-t border-border my-1" />
           <button

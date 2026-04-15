@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fetchAllScenarioQueries, executeTrinoQuery } from "../../api/client";
+import CodeMirror from "@uiw/react-codemirror";
+import { sql as sqlLang } from "@codemirror/lang-sql";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { keymap } from "@codemirror/view";
 
 interface ScenarioQuery {
   id: string;
@@ -30,16 +34,17 @@ interface QueryResult {
   error?: string;
 }
 
-
 export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId }: Props) {
   const [allScenarios, setAllScenarios] = useState<ScenarioTab[]>([]);
   const [activeTab, setActiveTab] = useState<string>(scenarioId ?? "ecommerce-orders");
-  const [sql, setSql] = useState("");
+  const [sqlText, setSqlText] = useState("");
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
   const [loadingQueries, setLoadingQueries] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Stable ref so the keymap extension can always call the latest runQuery
+  const runQueryRef = useRef<() => void>(() => {});
 
   // Load all scenarios' queries when panel opens or demoId changes
   useEffect(() => {
@@ -48,7 +53,6 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
     fetchAllScenarioQueries(demoId)
       .then((res) => {
         setAllScenarios(res.scenarios);
-        // Set active tab to the current scenario if provided, else first scenario
         if (scenarioId && res.scenarios.some((s) => s.id === scenarioId)) {
           setActiveTab(scenarioId);
         } else if (res.scenarios.length > 0) {
@@ -59,8 +63,7 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
       .finally(() => setLoadingQueries(false));
   }, [open, demoId]);
 
-  // When scenarioId prop changes (user switched scenario in properties panel),
-  // update the active tab if that scenario exists
+  // When scenarioId prop changes, update the active tab if that scenario exists
   useEffect(() => {
     if (scenarioId && allScenarios.some((s) => s.id === scenarioId)) {
       setActiveTab(scenarioId);
@@ -78,25 +81,23 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
   const activeScenario = allScenarios.find((s) => s.id === activeTab);
   const queries = activeScenario?.queries ?? [];
 
-
   const loadQuery = (q: ScenarioQuery) => {
     setSelectedQueryId(q.id);
-    setSql(q.sql);
+    setSqlText(q.sql);
     setResult(null);
   };
 
-  // Clear selected query when switching tabs
   const switchTab = (tabId: string) => {
     setActiveTab(tabId);
     setSelectedQueryId(null);
   };
 
   const runQuery = async () => {
-    if (!sql.trim() || running) return;
+    if (!sqlText.trim() || running) return;
     setRunning(true);
     setResult(null);
     try {
-      const res = await executeTrinoQuery(demoId, sql.trim());
+      const res = await executeTrinoQuery(demoId, sqlText.trim());
       setResult(res);
     } catch (err: any) {
       setResult({
@@ -111,16 +112,29 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      runQuery();
-    }
-  };
+  // Keep ref current so the static keymap extension always calls latest runQuery
+  runQueryRef.current = runQuery;
+
+  const extensions = useMemo(
+    () => [
+      sqlLang(),
+      keymap.of([
+        {
+          key: "Ctrl-Enter",
+          run: () => { runQueryRef.current(); return true; },
+        },
+        {
+          key: "Mod-Enter",
+          run: () => { runQueryRef.current(); return true; },
+        },
+      ]),
+    ],
+    []
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0 bg-card text-foreground">
+      <DialogContent className="max-w-7xl max-h-[85vh] overflow-hidden flex flex-col p-0 gap-0 bg-card text-foreground">
         <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
           <DialogTitle className="text-base font-semibold">SQL Editor</DialogTitle>
         </DialogHeader>
@@ -174,7 +188,7 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
 
           {/* Main area */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            {/* SQL textarea */}
+            {/* CodeMirror SQL editor */}
             <div className="px-4 pt-3 pb-2 shrink-0">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
@@ -184,20 +198,30 @@ export default function SqlEditorPanel({ open, onOpenChange, demoId, scenarioId 
                   Ctrl+Enter to run
                 </span>
               </div>
-              <textarea
-                ref={textareaRef}
-                value={sql}
-                onChange={(e) => setSql(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="SELECT * FROM iceberg.demo.orders LIMIT 10"
-                rows={7}
-                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                spellCheck={false}
-              />
+              <div className="rounded-md overflow-hidden border border-input text-sm" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                <CodeMirror
+                  value={sqlText}
+                  onChange={setSqlText}
+                  extensions={extensions}
+                  theme={oneDark}
+                  height="168px"
+                  placeholder="SELECT * FROM iceberg.demo.orders LIMIT 10"
+                  style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "13px" }}
+                  basicSetup={{
+                    lineNumbers: true,
+                    foldGutter: false,
+                    dropCursor: false,
+                    allowMultipleSelections: false,
+                    indentOnInput: true,
+                    closeBrackets: true,
+                    autocompletion: true,
+                  }}
+                />
+              </div>
               <div className="mt-2">
                 <button
                   onClick={runQuery}
-                  disabled={running || !sql.trim()}
+                  disabled={running || !sqlText.trim()}
                   className="px-4 py-1.5 text-sm font-medium rounded bg-green-600 text-white hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {running ? "Running..." : "Run Query"}

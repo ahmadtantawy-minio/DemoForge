@@ -80,7 +80,8 @@ export default function ScenarioPicker({ currentScenario, onScenarioChange, cata
 
 function formatPushRate(ds: ScenarioDataset): string | null {
   const parts: string[] = [];
-  if (ds.seed_rows) parts.push(`${(ds.seed_rows / 1000).toFixed(0)}k seed rows`);
+  const seedCount = ds.seed_rows ?? ds.seed_count;
+  if (seedCount) parts.push(`${(seedCount / 1000).toFixed(0)}k seed rows`);
   if (ds.stream_rate) parts.push(`then ${ds.stream_rate}`);
   return parts.length > 0 ? parts.join(", ") : null;
 }
@@ -112,6 +113,11 @@ function DatasetList({ datasets, catalogName }: { datasets: ScenarioDataset[]; c
               {ds.table_name || ds.id}
             </p>
             <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{method}</p>
+            {ds.has_raw_landing && (
+              <span className="inline-block mt-0.5 text-[9px] font-medium px-1 py-0.5 rounded bg-amber-400/15 text-amber-400 leading-none">
+                raw landing
+              </span>
+            )}
             {(() => { const rate = formatPushRate(ds); return rate && <p className="text-[10px] text-blue-400/80 leading-tight mt-0.5">{rate}</p>; })()}
             <p className="text-[10px] font-mono text-muted-foreground/80 leading-tight mt-0.5 truncate" title={destination}>
               {destination}

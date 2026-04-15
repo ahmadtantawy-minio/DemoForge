@@ -537,33 +537,6 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
               </Button>
             </>
           )}
-          {faMode !== "dev" && (
-            <>
-              <span className="text-border">|</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 text-[11px] px-1.5 gap-1"
-                disabled={syncing}
-                onClick={async () => {
-                  setSyncing(true);
-                  try {
-                    const result = await triggerTemplateSync();
-                    toast.success(`Synced: ${result.downloaded} new, ${result.deleted} removed`);
-                    loadAll();
-                  } catch (err: any) {
-                    toast.error("Sync failed", { description: err.message });
-                  } finally {
-                    setSyncing(false);
-                  }
-                }}
-                title="Download latest templates from hub"
-              >
-                <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
-                Sync from Hub
-              </Button>
-            </>
-          )}
           {faMode === "dev" && sourceMeta.sync?.enabled && (
             <>
               <span className="text-border">|</span>
