@@ -1,0 +1,63 @@
+# docker-compose.fa-local.yml — standalone FA-mode stack for same-PC local testing
+#
+# Runs a second DemoForge instance in FA mode alongside the dev stack:
+#   Backend:  http://localhost:9211   (dev: 9210)
+#   Frontend: http://localhost:3001   (dev: 3000)
+#
+# All mutable state lives under ./fa-data/ (gitignored) so the two instances
+# never share templates, licenses, or demo definitions.
+# Builtin templates and components are shared read-only from the working tree.
+#
+# Usage: ./demoforge.sh fa:start
+#        ./demoforge.sh fa:stop
+#        ./demoforge.sh fa:restart
+#        ./demoforge.sh fa:logs
+
+services:
+  backend:
+    image: demoforge/demoforge-backend:latest
+    container_name: demoforge-fa-backend
+    ports:
+      - "9211:9210"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./components:/app/components:ro
+      - ./fa-data/demos:/app/demos
+      - ./fa-data/data:/app/data
+      - ./demo-templates:/app/demo-templates:ro
+      - ./fa-data/user-templates:/app/user-templates
+      - ./fa-data/synced-templates:/app/synced-templates
+      - ./backend/app:/app/app
+      - ./component-readiness.yaml:/app/component-readiness.yaml:ro
+    environment:
+      - DEMOFORGE_COMPONENTS_DIR=/app/components
+      - DEMOFORGE_DEMOS_DIR=/app/demos
+      - DEMOFORGE_DATA_DIR=/app/data
+      - DEMOFORGE_TEMPLATES_DIR=/app/demo-templates
+      - DEMOFORGE_USER_TEMPLATES_DIR=/app/user-templates
+      - DEMOFORGE_SYNCED_TEMPLATES_DIR=/app/synced-templates
+      - DEMOFORGE_REGISTRY_HOST=host.docker.internal:5050
+      - DEMOFORGE_REGISTRY_PUSH_HOST=${DEMOFORGE_REGISTRY_PUSH_HOST:-}
+      - DEMOFORGE_FA_ID=${DEMOFORGE_FA_ID:-}
+      - DEMOFORGE_MODE=fa
+      - DEMOFORGE_API_KEY=${DEMOFORGE_API_KEY:-}
+      - DEMOFORGE_HUB_URL=${DEMOFORGE_HUB_URL:-https://demoforge-gateway-64xwtiev6q-ww.a.run.app}
+      - DEMOFORGE_HUB_API_URL=${DEMOFORGE_HUB_API_URL:-}
+      - DEMOFORGE_HUB_API_ADMIN_KEY=${DEMOFORGE_HUB_API_ADMIN_KEY:-}
+      - DEMOFORGE_GATEWAY_API_KEY=${DEMOFORGE_GATEWAY_API_KEY:-}
+      - DEMOFORGE_READINESS_CONFIG=/app/component-readiness.yaml
+      - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components
+      - DEMOFORGE_HOST_DATA_DIR=${PWD}/fa-data/data
+      - DEMOFORGE_VERSION=${DEMOFORGE_VERSION:-dev}
+    labels:
+      - "demoforge.role=backend"
+
+  frontend:
+    image: demoforge/demoforge-frontend:latest
+    container_name: demoforge-fa-frontend
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:9211

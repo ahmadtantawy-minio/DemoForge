@@ -25,6 +25,12 @@ cd "$SCRIPT_DIR"
 PROJECT_NAME="demoforge"
 BACKEND_PORT=9210
 
+# FA local instance config (same PC, isolated data under ./fa-data/)
+FA_PROJECT_NAME="demoforge-fa"
+FA_BACKEND_PORT=9211
+FA_FRONTEND_PORT=3001
+FA_DC_FLAGS=(-p "$FA_PROJECT_NAME" -f "docker-compose.fa-local.yml")
+
 # Build compose file flags — layer dev override when DEMOFORGE_MODE=dev
 DC_FLAGS=(-f "docker-compose.yml")
 if [[ "${DEMOFORGE_MODE:-standard}" == "dev" && -f "$SCRIPT_DIR/docker-compose.dev.yml" ]]; then
@@ -487,6 +493,49 @@ cmd_dev_fe() {
     npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT"
 }
 
+cmd_fa_ensure_dirs() {
+    mkdir -p "$SCRIPT_DIR/fa-data"/{demos,data,user-templates,synced-templates}
+    touch "$SCRIPT_DIR/fa-data/demos/.gitkeep" \
+          "$SCRIPT_DIR/fa-data/data/.gitkeep" \
+          "$SCRIPT_DIR/fa-data/user-templates/.gitkeep" \
+          "$SCRIPT_DIR/fa-data/synced-templates/.gitkeep" 2>/dev/null || true
+}
+
+cmd_fa_start() {
+    check_deps
+    log "Starting DemoForge FA local instance (ports $FA_BACKEND_PORT/$FA_FRONTEND_PORT)..."
+    load_env
+    cmd_fa_ensure_dirs
+    build_component_images
+    docker compose "${FA_DC_FLAGS[@]}" up -d --remove-orphans
+    wait_for_service "http://localhost:${FA_BACKEND_PORT}/docs" "FA Backend" 60 || true
+    echo ""
+    ok "DemoForge FA local instance running:"
+    echo -e "  ${CYAN}Backend:${NC}   http://localhost:${FA_BACKEND_PORT}"
+    echo -e "  ${CYAN}Frontend:${NC}  http://localhost:${FA_FRONTEND_PORT}"
+    echo -e "  ${CYAN}Data:${NC}      ./fa-data/"
+}
+
+cmd_fa_stop() {
+    log "Stopping DemoForge FA local instance..."
+    docker compose "${FA_DC_FLAGS[@]}" down --remove-orphans 2>/dev/null || true
+    ok "FA local instance stopped."
+}
+
+cmd_fa_restart() {
+    cmd_fa_stop
+    cmd_fa_start
+}
+
+cmd_fa_logs() {
+    docker compose "${FA_DC_FLAGS[@]}" logs -f --tail=100
+}
+
+cmd_fa_status() {
+    echo -e "${CYAN}FA Local Instance (port $FA_BACKEND_PORT):${NC}"
+    docker compose "${FA_DC_FLAGS[@]}" ps 2>/dev/null || echo "  Not running."
+}
+
 cmd_help() {
     echo -e "${BLUE}DemoForge Management Script${NC}"
     echo ""
@@ -506,6 +555,13 @@ cmd_help() {
     echo -e "  ${GREEN}dev:be${NC}      Run backend locally (no Docker)"
     echo -e "  ${GREEN}dev:fe${NC}      Run frontend locally (no Docker)"
     echo -e "  ${GREEN}help${NC}        Show this help"
+    echo ""
+    echo -e "${BLUE}FA Local Testing (same PC, isolated on ports 9211/3001):${NC}"
+    echo -e "  ${GREEN}fa:start${NC}    Start FA instance (./fa-data/ for templates/licenses)"
+    echo -e "  ${GREEN}fa:stop${NC}     Stop FA instance"
+    echo -e "  ${GREEN}fa:restart${NC}  Restart FA instance"
+    echo -e "  ${GREEN}fa:logs${NC}     Tail FA instance logs"
+    echo -e "  ${GREEN}fa:status${NC}   Show FA instance status"
 }
 
 # -------------------------------------------------------------------
@@ -525,6 +581,11 @@ case "${1:-help}" in
     nuke)       cmd_nuke ;;
     dev:be)     cmd_dev_be ;;
     dev:fe)     cmd_dev_fe ;;
+    fa:start)   cmd_fa_start ;;
+    fa:stop)    cmd_fa_stop ;;
+    fa:restart) cmd_fa_restart ;;
+    fa:logs)    cmd_fa_logs ;;
+    fa:status)  cmd_fa_status ;;
     help|--help|-h) cmd_help ;;
     *)
         err "Unknown command: $1"

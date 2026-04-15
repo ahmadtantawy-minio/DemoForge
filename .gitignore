@@ -35,6 +35,9 @@ state/
 # Generated data (compose files, rendered templates)
 data/
 
+# FA local instance data (isolated runtime state for same-PC FA testing)
+fa-data/
+
 # Screenshots and Playwright artifacts
 .artifacts/
 .playwright-mcp/

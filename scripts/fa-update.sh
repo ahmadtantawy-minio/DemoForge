@@ -12,6 +12,22 @@ fail() { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
 
 cd "$PROJECT_ROOT"
 
+# Parse flags
+LOCAL_MODE=0
+for arg in "$@"; do
+  [[ "$arg" == "--local" ]] && LOCAL_MODE=1
+done
+
+# Port and restart target depend on local vs normal FA mode
+if [[ "$LOCAL_MODE" -eq 1 ]]; then
+  BACKEND_PORT=9211
+  RESTART_CMD="$PROJECT_ROOT/demoforge.sh fa:restart"
+  log "Running in --local mode (FA instance on port $BACKEND_PORT)"
+else
+  BACKEND_PORT=9210
+  RESTART_CMD="$PROJECT_ROOT/demoforge.sh restart"
+fi
+
 DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 
 # ── Step 1: Load FA credentials ───────────────────────────────────────────────
@@ -76,14 +92,14 @@ _set_env "DEMOFORGE_HUB_URL" "$DEFAULT_HUB_URL"
 
 # ── Step 6: Restart DemoForge services ────────────────────────────────────────
 log "Restarting DemoForge..."
-"$PROJECT_ROOT/demoforge.sh" restart
+$RESTART_CMD
 echo ""
 
 # ── Step 7: Wait for backend to come up ───────────────────────────────────────
 log "Waiting for DemoForge to start..."
 _BACKEND_READY=0
 for i in $(seq 1 12); do
-  if curl -s "http://localhost:8080/api/health" --connect-timeout 3 2>/dev/null | grep -q '"status"'; then
+  if curl -s "http://localhost:${BACKEND_PORT}/api/health" --connect-timeout 3 2>/dev/null | grep -q '"status"'; then
     ok "DemoForge backend ready"
     _BACKEND_READY=1
     break
@@ -98,7 +114,7 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
   log "Syncing templates from hub..."
   _SYNCED=0
   for i in $(seq 1 12); do
-    _SYNC=$(curl -s -X POST "http://localhost:8080/api/templates/sync" \
+    _SYNC=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
       --connect-timeout 3 2>/dev/null | grep -c '"status"' || echo 0)
     if [ "$_SYNC" -gt 0 ]; then
       ok "Templates synced from hub"
@@ -112,7 +128,7 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
 
   # ── Step 9: Cache license keys locally ──────────────────────────────────────
   log "Caching license keys..."
-  curl -s "http://localhost:8080/api/fa/licenses/cache" --connect-timeout 5 2>/dev/null \
+  curl -s "http://localhost:${BACKEND_PORT}/api/fa/licenses/cache" --connect-timeout 5 2>/dev/null \
     | grep -q '"status"' \
     && ok "License keys cached" \
     || warn "License cache skipped — will use existing cache"
