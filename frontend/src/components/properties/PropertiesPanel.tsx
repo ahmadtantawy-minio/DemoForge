@@ -22,6 +22,7 @@ import { Eye, EyeOff } from "lucide-react";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
 import SqlPlaybookPanel from "./SqlPlaybookPanel";
 import { migrateClusterData } from "../../lib/clusterMigration";
+import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
 
 // --- Data Generator scenario metadata ---
 const DG_SCENARIOS = [
@@ -788,6 +789,20 @@ export default function PropertiesPanel() {
           />
         </div>
         <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Font Size</label>
+          <Select value={aData.fontSize ?? "sm"} onValueChange={(v) => updateAnnotation({ fontSize: v })}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sm">Small</SelectItem>
+              <SelectItem value="base">Medium</SelectItem>
+              <SelectItem value="lg">Large</SelectItem>
+              <SelectItem value="xl">Extra Large</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Style</label>
           <Select value={aData.style ?? "info"} onValueChange={(v) => updateAnnotation({ style: v })}>
             <SelectTrigger className="w-full h-8 text-sm">
@@ -800,17 +815,6 @@ export default function PropertiesPanel() {
               <SelectItem value="step">Step</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-        <div className="mb-3">
-          <label className="text-xs text-muted-foreground block mb-1">Width</label>
-          <Input
-            type="number"
-            value={aData.width ?? 260}
-            onChange={(e) => updateAnnotation({ width: parseInt(e.target.value) || 260 })}
-            className="h-8 text-sm"
-            min={120}
-            max={600}
-          />
         </div>
         {aData.style === "step" && (
           <div className="mb-3">
@@ -997,6 +1001,17 @@ export default function PropertiesPanel() {
         return { ...n, ...extra, data: { ...n.data, ...patch } };
       }));
     };
+    const changePreset = (newImageId: string) => {
+      const preset = CANVAS_IMAGE_PRESETS.find(p => p.id === newImageId);
+      setNodes(nodes.map((n) => {
+        if (n.id !== selectedNodeId) return n;
+        return {
+          ...n,
+          style: preset ? { width: preset.defaultWidth, height: preset.defaultHeight } : n.style,
+          data: { ...n.data, image_id: newImageId },
+        };
+      }));
+    };
     const handleDelete = () => {
       const newNodes = nodes.filter((n) => n.id !== selectedNodeId);
       _setNodes(newNodes);
@@ -1011,7 +1026,16 @@ export default function PropertiesPanel() {
 
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Image</label>
-          <div className="text-sm text-foreground font-mono bg-muted px-2 py-1 rounded">{imgData.image_id ?? ""}</div>
+          <Select value={imgData.image_id ?? ""} onValueChange={changePreset}>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue placeholder="Select visual" />
+            </SelectTrigger>
+            <SelectContent>
+              {CANVAS_IMAGE_PRESETS.map(preset => (
+                <SelectItem key={preset.id} value={preset.id}>{preset.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="mb-3">
@@ -1208,6 +1232,7 @@ export default function PropertiesPanel() {
       {data.componentId === "external-system" && !isExperience && (
         <ScenarioPicker
           currentScenario={data.config?.ES_SCENARIO ?? ""}
+          catalogName={(edges.find((e) => e.source === selectedNodeId && (e.data as any)?.connectionConfig?.catalog_name)?.data as any)?.connectionConfig?.catalog_name}
           onScenarioChange={(scenarioId, scenario) => {
             const currentDisplayName = data.displayName ?? "";
             const needsNameUpdate =
