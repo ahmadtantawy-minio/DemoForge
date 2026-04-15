@@ -1,96 +1,74 @@
 id: external-system
 name: External System
-category: cloud
+category: tooling
 icon: external-system
-version: ""
-image: ""
-virtual: true
-description: "Reference node representing an external service (AWS S3, GCS, Azure Blob, REST API, external Kafka, etc.). No container is deployed — configured endpoint details are injected into connected components via env vars."
+version: '1.0'
+image: demoforge/external-system:latest
+build_context: .
+description: "Scenario-driven data source that generates realistic data into MinIO AIStor. Represents an external system (firewall, threat intel feed, vulnerability scanner, etc.) that pushes data into the data lake."
+resources:
+  memory: 512m
+  cpu: 0.5
 
-properties:
-  - key: EXTERNAL_ENDPOINT
-    label: Endpoint URL
-    type: string
-    required: true
-    description: "Full URL of the external service (e.g. https://s3.amazonaws.com or https://storage.googleapis.com)"
-  - key: EXTERNAL_ACCESS_KEY
-    label: Access Key / API Key
-    type: string
-    description: "Access key, API key, or username"
-  - key: EXTERNAL_SECRET_KEY
-    label: Secret Key / Password
-    type: string
-    description: "Secret key, API secret, or password"
-  - key: EXTERNAL_BUCKET
-    label: Bucket / Resource
-    type: string
-    description: "Default bucket, container, or resource name"
-  - key: EXTERNAL_REGION
-    label: Region
-    type: string
-    default: "us-east-1"
-    description: "AWS region or equivalent (e.g. us-east-1, europe-west1)"
+environment:
+  ES_SCENARIO: ""
+  S3_ENDPOINT: "localhost:9000"
+  S3_ACCESS_KEY: "minioadmin"
+  S3_SECRET_KEY: "minioadmin"
+  METABASE_URL: "http://metabase:3000"
+  TRINO_HOST: ""
+  ICEBERG_CATALOG_URI: ""
+  ICEBERG_SIGV4: "false"
+  ES_STARTUP_DELAY: "0"
+
+secrets:
+  - key: S3_ACCESS_KEY
+    label: S3 Access Key
+    default: minioadmin
+  - key: S3_SECRET_KEY
+    label: S3 Secret Key
+    default: minioadmin
 
 connections:
   provides:
     - type: s3
       port: 0
-      description: "External S3-compatible storage (AWS S3, GCS, Azure Blob S3-compat)"
+      description: "External S3-compatible data source (pushes data into S3 target)"
       env_map:
-        - config_key: EXTERNAL_ENDPOINT
+        - config_key: S3_ENDPOINT
           env_var: S3_ENDPOINT
-        - config_key: EXTERNAL_ACCESS_KEY
+        - config_key: S3_ACCESS_KEY
           env_var: S3_ACCESS_KEY
-        - config_key: EXTERNAL_SECRET_KEY
+        - config_key: S3_SECRET_KEY
           env_var: S3_SECRET_KEY
-        - config_key: EXTERNAL_BUCKET
-          env_var: S3_BUCKET
-        - config_key: EXTERNAL_REGION
-          env_var: AWS_DEFAULT_REGION
-    - type: http
+    - type: aistor-tables
       port: 0
-      description: "External HTTP/REST API endpoint"
+      description: "Pushes data into AIStor Tables (Iceberg catalog) on the connected MinIO"
       env_map:
-        - config_key: EXTERNAL_ENDPOINT
-          env_var: EXTERNAL_API_URL
-        - config_key: EXTERNAL_ACCESS_KEY
-          env_var: EXTERNAL_API_KEY
-    - type: external-api
-      port: 0
-      description: "External API connection (generic REST/HTTP with auth)"
-      env_map:
-        - config_key: EXTERNAL_ENDPOINT
-          env_var: EXTERNAL_API_URL
-        - config_key: EXTERNAL_ACCESS_KEY
-          env_var: EXTERNAL_API_KEY
-        - config_key: EXTERNAL_SECRET_KEY
-          env_var: EXTERNAL_API_SECRET
-    - type: cluster-tiering
-      port: 0
-      description: "External cold storage tier for MinIO ILM cluster (AWS S3, GCS, Azure Blob)"
-      env_map:
-        - config_key: EXTERNAL_ENDPOINT
-          env_var: MINIO_TIER_ENDPOINT
-        - config_key: EXTERNAL_ACCESS_KEY
-          env_var: MINIO_TIER_ACCESS_KEY
-        - config_key: EXTERNAL_SECRET_KEY
-          env_var: MINIO_TIER_SECRET_KEY
-        - config_key: EXTERNAL_BUCKET
-          env_var: MINIO_TIER_BUCKET
+        - config_key: S3_ENDPOINT
+          env_var: S3_ENDPOINT
+        - config_key: S3_ACCESS_KEY
+          env_var: S3_ACCESS_KEY
+        - config_key: S3_SECRET_KEY
+          env_var: S3_SECRET_KEY
   accepts: []
 
 terminal:
-  shell: ""
-  welcome_message: ""
-  quick_actions: []
+  shell: /bin/sh
+  welcome_message: "External System Scenario Engine"
+  quick_actions:
+    - label: Check status
+      command: ps aux | grep run.py
 
 web_ui: []
 ports: []
 volumes: []
-environment: {}
-secrets: []
-health_check: null
+init_scripts: []
 log_commands: []
 template_mounts: []
-static_mounts: []
-init_scripts: []
+
+static_mounts:
+  - host_path: "./scenarios"
+    mount_path: "/scenarios"
+
+health_check: null

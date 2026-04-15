@@ -196,8 +196,8 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
   const tierFiltered = useMemo(() => {
     if (showArchived) return templates.filter((t) => t.archived);
     if (showFAReady) return templates.filter((t) => t.validated);
-    if (showMyTemplates) return templates.filter((t) => (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId));
-    return templates.filter((t) => (t.tier || "essentials") === activeTier);
+    if (showMyTemplates) return templates.filter((t) => (t as any).source === "user" && (faMode === "fa" && faId ? t.saved_by === faId : (!faId || !t.saved_by || t.saved_by === faId)));
+    return templates.filter((t) => (t.tier || "essentials") === activeTier && (faMode !== "fa" || t.validated));
   }, [templates, activeTier, showMyTemplates, showFAReady, showArchived, faId]);
 
   // Derive unique categories within selected tier
@@ -602,7 +602,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
       {tiers.length > 1 && (
         <div className="flex items-center gap-1 mb-3" role="tablist" aria-label="Template tiers">
           {tiers.map((tier) => {
-            const count = templates.filter((t) => !t.archived && (t.tier || "essentials") === tier).length;
+            const count = templates.filter((t) => !t.archived && (t.tier || "essentials") === tier && (faMode !== "fa" || t.validated)).length;
             return (
               <button
                 key={tier}
@@ -631,7 +631,7 @@ export default function TemplateGallery({ onCreateDemo, loadKey }: TemplateGalle
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50 border border-transparent"
               }`}
           >
-            My Templates ({templates.filter((t) => !t.archived && (t as any).source === "user" && (!faId || !t.saved_by || t.saved_by === faId)).length})
+            My Templates ({templates.filter((t) => !t.archived && (t as any).source === "user" && (faMode === "fa" && faId ? t.saved_by === faId : (!faId || !t.saved_by || t.saved_by === faId))).length})
           </button>
           {faMode === "dev" && (
             <button

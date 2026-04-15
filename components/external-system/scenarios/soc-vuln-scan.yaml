@@ -1,0 +1,132 @@
+scenario:
+  id: soc-vuln-scan
+  name: "SOC Vulnerability Scan"
+  description: "Enterprise vulnerability scan results from Qualys/Nessus — hosts, CVEs, CVSS scores, business units, and remediation status."
+  category: cybersecurity
+
+display:
+  default_name: "Vulnerability Scanner"
+  default_subtitle: "Qualys / Nessus"
+
+datasets:
+  - id: vulnerability_scan
+    target: table
+    namespace: soc
+    table_name: vulnerability_scan
+    format: parquet
+    partition_by: [severity]
+
+    schema:
+      - {name: vuln_id,             type: string,  nullable: false, generator: uuid}
+      - {name: host_ip,             type: string,  generator: ip_address,
+         params: {ranges: ["10.0.0.0/8","10.10.0.0/16","10.20.0.0/16"]}}
+      - {name: hostname,            type: string,  generator: pattern,
+         params: {format: "host-{category}-{seq:04d}",
+                  categories: [web, db, app, dc, bastion, worker, cache],
+                  seq_start: 1}}
+      - {name: business_unit,       type: string,  generator: weighted_choice,
+         params: {choices: {Finance: 0.18, Engineering: 0.32, Sales: 0.14, HR: 0.08, IT: 0.16, Operations: 0.12}}}
+      - {name: cve_id,              type: string,  generator: pattern,
+         params: {format: "CVE-{year}-{seq:05d}", seq_start: 1}}
+      - {name: cvss_score,          type: double,  generator: distribution,
+         params: {type: uniform, min: 0.0, max: 10.0, precision: 1}}
+      - {name: severity,            type: string,  generator: weighted_choice,
+         params: {choices: {critical: 0.08, high: 0.22, medium: 0.40, low: 0.25, info: 0.05}}}
+      - {name: plugin_name,         type: string,  generator: faker,
+         params: {method: bs}}
+      - {name: description,         type: string,  generator: text_block,
+         params: {min_words: 8, max_words: 24}}
+      - {name: remediation_status,  type: string,  generator: weighted_choice,
+         params: {choices: {open: 0.60, in_progress: 0.25, resolved: 0.15}}}
+      - {name: scan_timestamp,      type: timestamp, generator: timestamp,
+         params: {pattern: realistic}}
+      - {name: port,                type: integer, generator: weighted_choice,
+         params: {choices: {22: 10, 80: 25, 443: 30, 3306: 6, 5432: 6, 3389: 8, 445: 8, 8080: 7}}}
+      - {name: protocol,            type: string,  generator: weighted_choice,
+         params: {choices: {TCP: 0.92, UDP: 0.08}}}
+      - {name: service,             type: string,  generator: weighted_choice,
+         params: {choices: {http: 0.22, https: 0.28, ssh: 0.10, smb: 0.08, rdp: 0.08, mysql: 0.06, postgres: 0.06, redis: 0.04, mongodb: 0.04, unknown: 0.04}}}
+
+    generation:
+      mode: batch
+      seed_rows: 15000
+
+dashboards:
+  - id: vuln-posture
+    title: "Vulnerability Posture"
+    layout: "3-column"
+    charts:
+      - id: severity_pie
+        title: "Severity distribution"
+        type: pie
+        query: |
+          SELECT severity, COUNT(*) AS c
+          FROM iceberg.soc.vulnerability_scan
+          GROUP BY severity
+        position: {row: 0, col: 0, width: 6, height: 5}
+      - id: top_cves
+        title: "Top CVEs by hits"
+        type: table
+        query: |
+          SELECT cve_id, severity, COUNT(*) AS hosts_affected, AVG(cvss_score) AS avg_cvss
+          FROM iceberg.soc.vulnerability_scan
+          GROUP BY cve_id, severity
+          ORDER BY hosts_affected DESC
+          LIMIT 30
+        position: {row: 0, col: 6, width: 12, height: 5}
+      - id: bu_bar
+        title: "Vulnerabilities by business unit"
+        type: bar
+        query: |
+          SELECT business_unit, COUNT(*) AS vulns
+          FROM iceberg.soc.vulnerability_scan
+          GROUP BY business_unit
+          ORDER BY vulns DESC
+        position: {row: 5, col: 0, width: 9, height: 5}
+        settings: {x_axis: business_unit, y_axis: vulns}
+      - id: remediation_pie
+        title: "Remediation status"
+        type: pie
+        query: |
+          SELECT remediation_status, COUNT(*) AS c
+          FROM iceberg.soc.vulnerability_scan
+          GROUP BY remediation_status
+        position: {row: 5, col: 9, width: 9, height: 5}
+      - id: cvss_dist
+        title: "CVSS score distribution"
+        type: bar
+        query: |
+          SELECT CAST(FLOOR(cvss_score) AS INTEGER) AS bucket, COUNT(*) AS c
+          FROM iceberg.soc.vulnerability_scan
+          GROUP BY 1 ORDER BY 1
+        position: {row: 10, col: 0, width: 18, height: 5}
+        settings: {x_axis: bucket, y_axis: c}
+
+saved_queries:
+  collection: "CPX Demo Queries"
+  queries:
+    - id: vuln-total
+      title: "Total vulnerabilities"
+      order: 1
+      visualization: number
+      query: "SELECT COUNT(*) AS total FROM iceberg.soc.vulnerability_scan"
+    - id: vuln-critical-hosts
+      title: "Hosts with critical vulns"
+      order: 2
+      visualization: table
+      query: |
+        SELECT hostname, host_ip, COUNT(*) AS critical_vulns
+        FROM iceberg.soc.vulnerability_scan
+        WHERE severity = 'critical'
+        GROUP BY hostname, host_ip
+        ORDER BY critical_vulns DESC
+        LIMIT 50
+    - id: vuln-bu-risk
+      title: "Business unit risk score"
+      order: 3
+      visualization: bar
+      query: |
+        SELECT business_unit, AVG(cvss_score) AS avg_cvss, COUNT(*) AS vulns
+        FROM iceberg.soc.vulnerability_scan
+        GROUP BY business_unit
+        ORDER BY avg_cvss DESC

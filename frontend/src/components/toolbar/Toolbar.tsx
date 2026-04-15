@@ -20,14 +20,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, Eye } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth } = useDemoStore();
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -101,6 +101,7 @@ export default function Toolbar() {
     const componentNodes = nodes.filter((n) => n.type !== "group");
     await saveDiagram(activeDemoId, [...componentNodes, ...groups], edges).catch(() => {});
     useDiagramStore.getState().setDirty(false);
+    setShowFaNotes(false);
     updateDemoStatus(activeDemoId, "deploying");
     try {
       const res = await deployDemo(activeDemoId);
@@ -154,6 +155,7 @@ export default function Toolbar() {
           setLoading(null);
           if (success) {
             updateDemoStatus(activeDemoId, "stopped");
+            setShowFaNotes(true);
             debugStore.addEntry("info", "Deploy", "Demo stopped");
             toast.success("Demo stopped");
           } else {
@@ -223,14 +225,17 @@ export default function Toolbar() {
           setLoading(null);
           if (success) {
             updateDemoStatus(activeDemoId, "not_deployed");
+            setShowFaNotes(true);
             toast.success("Demo destroyed");
           } else {
+            updateDemoStatus(activeDemoId, "error");
             toast.error("Failed to destroy demo", { description: error });
           }
           fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
         });
       } else {
         updateDemoStatus(activeDemoId, "not_deployed");
+        setShowFaNotes(true);
         toast.success("Demo destroyed");
         setLoading(null);
         fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
@@ -539,6 +544,20 @@ export default function Toolbar() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={(e) => { e.stopPropagation(); setShowFaNotes(!showFaNotes); }}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 px-2 flex items-center gap-1 text-xs ${showFaNotes ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>FA notes</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Toggle FA internal notes</p></TooltipContent>
             </Tooltip>
             <Button
               onClick={(e) => { e.stopPropagation(); toggleCockpit(); }}

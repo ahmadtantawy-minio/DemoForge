@@ -610,7 +610,91 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if node.component == "data-generator" and "TRINO_HOST" not in env:
             trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
             if trino_node:
-                env["TRINO_HOST"] = f"{project_name}-{trino_node.id}"
+                env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
+
+        # external-system: inject env vars from connected edges
+        if node.component == "external-system":
+            # Inject ES_SCENARIO and ES_STARTUP_DELAY from node config
+            if "ES_SCENARIO" not in env and node.config.get("ES_SCENARIO"):
+                env["ES_SCENARIO"] = node.config["ES_SCENARIO"]
+            if "ES_STARTUP_DELAY" not in env and node.config.get("ES_STARTUP_DELAY"):
+                env["ES_STARTUP_DELAY"] = node.config["ES_STARTUP_DELAY"]
+
+            # Inject S3/AIStor env vars from s3 or aistor-tables edges to a MinIO node
+            es_s3_edge_types = ("s3", "aistor-tables")
+            for edge in demo.edges:
+                if edge.connection_type not in es_s3_edge_types:
+                    continue
+                if edge.source == node.id:
+                    peer_id = edge.target
+                elif edge.target == node.id:
+                    peer_id = edge.source
+                else:
+                    continue
+                # Resolve peer as cluster or standalone node
+                peer_cluster = next((c for c in demo.clusters if c.id == peer_id), None)
+                peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+                is_cluster_lb = peer_id.endswith("-lb")
+                if is_cluster_lb:
+                    cluster_id_from_lb = peer_id[:-3]
+                    peer_cluster = next((c for c in demo.clusters if c.id == cluster_id_from_lb), None)
+
+                if peer_cluster:
+                    svc = f"{project_name}-{peer_cluster.id}-lb"
+                    port = 80
+                elif is_cluster_lb:
+                    svc = f"{project_name}-{peer_id}"
+                    port = 80
+                elif peer_node_obj and peer_node_obj.component == "minio":
+                    svc = f"{project_name}-{peer_id}"
+                    port = 9000
+                else:
+                    continue
+
+                env["S3_ENDPOINT"] = f"http://{svc}:{port}"
+                if peer_cluster:
+                    env["S3_ACCESS_KEY"] = peer_cluster.credentials.get("root_user", "minioadmin")
+                    env["S3_SECRET_KEY"] = peer_cluster.credentials.get("root_password", "minioadmin")
+                elif peer_node_obj:
+                    env["S3_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
+                    env["S3_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+
+                # aistor-tables edge: inject Iceberg catalog URI
+                if edge.connection_type == "aistor-tables":
+                    env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
+                    env["ICEBERG_SIGV4"] = "true"
+                elif "ICEBERG_CATALOG_URI" not in env or not env["ICEBERG_CATALOG_URI"]:
+                    # s3 edge to AIStor standalone node: check edition
+                    if peer_node_obj:
+                        node_cfg = peer_node_obj.config or {}
+                        if node_cfg.get("MINIO_EDITION", "ce") == "aistor":
+                            env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
+                            env["ICEBERG_SIGV4"] = "true"
+                    elif peer_cluster and getattr(peer_cluster, "aistor_tables_enabled", False):
+                        env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
+                        env["ICEBERG_SIGV4"] = "true"
+                break
+
+            # Inject TRINO_HOST if a Trino node exists
+            if "TRINO_HOST" not in env or not env["TRINO_HOST"]:
+                trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
+                if trino_node:
+                    env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
+
+            # Inject METABASE_URL from dashboard-provision edges
+            for edge in demo.edges:
+                if edge.connection_type != "dashboard-provision":
+                    continue
+                if edge.source == node.id:
+                    peer_id = edge.target
+                elif edge.target == node.id:
+                    peer_id = edge.source
+                else:
+                    continue
+                peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+                if peer_node_obj and peer_node_obj.component == "metabase":
+                    env["METABASE_URL"] = f"http://{project_name}-{peer_id}:3000"
+                break
 
         # Auto-resolve LLM API endpoint from llm-api edges
         for edge in demo.edges:
@@ -1183,7 +1267,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if getattr(cluster, 'aistor_tables_enabled', False):
                 alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
                 # Use direct node access (not LB) for mc table commands since LB may not proxy SigV4
-                node_id = f"{cluster.id}-node-1"
+                node_id = f"{cluster.id}-pool1-node-1"
                 node_url = f"http://{project_name}-{node_id}:9000"
                 cred_user = cluster.credentials.get("root_user", "minioadmin")
                 cred_pass = cluster.credentials.get("root_password", "minioadmin")
@@ -1297,7 +1381,16 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         trino_node = next((n for n in demo.nodes if trino_edge and n.id == trino_edge.source), None)
         metabase_host = f"{project_name}-{metabase_node.id}"
         trino_host = f"{project_name}-{trino_node.id}" if trino_node else ""
-        catalog = trino_edge.connection_config.get("catalog", "iceberg") if trino_edge else "iceberg"
+        catalog_override = trino_edge.connection_config.get("catalog", "") if trino_edge else ""
+        if catalog_override:
+            catalog = catalog_override
+        elif trino_node and any(
+            e.target == trino_node.id and e.connection_type == "aistor-tables"
+            for e in demo.edges
+        ):
+            catalog = "aistor"
+        else:
+            catalog = "iceberg"
         schema = trino_edge.connection_config.get("schema", "analytics") if trino_edge else "analytics"
 
         components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")

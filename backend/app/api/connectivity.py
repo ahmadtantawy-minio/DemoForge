@@ -253,6 +253,11 @@ async def _check_template_sync() -> dict:
     from ..engine.template_sync import HUB_URL, FA_API_KEY, GATEWAY_API_KEY, TEMPLATES_URL
     steps = []
 
+    if not HUB_URL:
+        steps.append(_step("Template sync", False,
+            "DEMOFORGE_HUB_URL not set — add it to .env.local or run `make fa-setup`."))
+        return {"ok": False, "steps": steps}
+
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(

@@ -144,7 +144,7 @@ def _get_lock(demo_id: str) -> asyncio.Lock:
 
 async def _compose_down(compose_path: str, project_name: str, timeout: int = COMPOSE_TIMEOUT, remove_volumes: bool = True):
     """Run docker compose down with timeout. Returns True if successful."""
-    cmd = ["docker", "compose", "-f", compose_path, "-p", project_name, "down", "--remove-orphans"]
+    cmd = ["docker", "compose", "-f", compose_path, "-p", project_name, "down", "--remove-orphans", "--timeout", "30"]
     if remove_volumes:
         cmd.append("-v")
     proc = await asyncio.create_subprocess_exec(

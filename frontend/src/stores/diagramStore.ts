@@ -126,6 +126,39 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     const sourceComponentId = (sourceNode.data as any)?.componentId;
     const targetComponentId = (targetNode.data as any)?.componentId;
 
+    // --- External System / Data Generator → MinIO Node or Cluster ---
+    const SOURCE_ES_DG = ["external-system", "data-generator"];
+    if (
+      SOURCE_ES_DG.includes(sourceComponentId || "") &&
+      (targetNode.type === "cluster" || targetComponentId === "minio")
+    ) {
+      const aistorEnabled = (targetNode.data as any).aistorTablesEnabled === true;
+
+      if (aistorEnabled) {
+        set({
+          pendingConnection: {
+            connection,
+            validTypes: ["s3", "aistor-tables"],
+            directedOptions: [
+              { type: "s3", direction: "forward", label: "S3 → MinIO" },
+              { type: "aistor-tables", direction: "forward", label: "AIStor Tables (Iceberg)" },
+            ],
+            sourcePos: sourceNode.position,
+            targetPos: targetNode.position,
+          },
+        });
+      } else {
+        // Auto-complete with s3 — add edge directly without showing picker
+        set({
+          edges: addEdge(
+            { ...connection, type: "animated", data: { connectionType: "s3", network: "default", label: "", status: "idle" } },
+            state.edges
+          ),
+        });
+      }
+      return;
+    }
+
     // If no manifest data available, fall back to "data" type
     const sourceConnections = sourceComponentId ? state.componentManifests[sourceComponentId] : null;
     const targetConnections = targetComponentId ? state.componentManifests[targetComponentId] : null;

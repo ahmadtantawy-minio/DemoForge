@@ -529,9 +529,6 @@ function StatsTabContent({
           const totalObjects = cluster.buckets.reduce((sum, b) => sum + b.objects, 0);
           const rxRate = cluster.throughput.rx_bytes_per_sec || 0;
           const txRate = cluster.throughput.tx_bytes_per_sec || 0;
-          const putOps = cluster.throughput.put_ops_per_sec ?? -1;
-          const getOps = cluster.throughput.get_ops_per_sec ?? -1;
-          const hasOpsStats = putOps >= 0 && getOps >= 0;
 
           return (
             <div key={cluster.alias} className="mb-3 last:mb-0">
@@ -549,41 +546,11 @@ function StatsTabContent({
                   <div className="text-muted-foreground col-span-2">No buckets</div>
                 )}
                 <div className="col-span-2 mt-1 pt-1 border-t border-border/50">
-                  {hasOpsStats ? (
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-green-400">
-                          ↑ PUT: {putOps.toFixed(1)}/s
-                        </span>
-                        {txRate > 0 && (
-                          <span className="text-muted-foreground text-[10px]">({formatRate(txRate)})</span>
-                        )}
-                        <span className="text-muted-foreground ml-auto">
-                          {totalObjects.toLocaleString()} total
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-blue-400">
-                          ↓ GET: {getOps.toFixed(1)}/s
-                        </span>
-                        {rxRate > 0 && (
-                          <span className="text-muted-foreground text-[10px]">({formatRate(rxRate)})</span>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex gap-3">
-                      <span className="text-green-400">
-                        ↑ {formatRate(txRate)}
-                      </span>
-                      <span className="text-blue-400">
-                        ↓ {formatRate(rxRate)}
-                      </span>
-                      <span className="text-muted-foreground ml-auto">
-                        {totalObjects.toLocaleString()} total
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex gap-3">
+                    <span className="text-green-400">↑ {formatRate(txRate)}</span>
+                    <span className="text-blue-400">↓ {formatRate(rxRate)}</span>
+                    <span className="text-muted-foreground ml-auto">{totalObjects.toLocaleString()} total</span>
+                  </div>
                 </div>
               </div>
             </div>

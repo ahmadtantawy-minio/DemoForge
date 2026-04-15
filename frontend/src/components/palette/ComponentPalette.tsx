@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
 
 interface LicenseEntry {
   license_id: string;
@@ -101,6 +102,12 @@ export default function ComponentPalette() {
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const onCanvasImageDragStart = (e: React.DragEvent, presetId: string) => {
+    e.dataTransfer.setData("isCanvasImage", "true");
+    e.dataTransfer.setData("canvasImageId", presetId);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <TooltipProvider delayDuration={400}>
       <div className="w-full h-full overflow-y-auto bg-card border-r border-border p-2">
@@ -151,6 +158,29 @@ export default function ComponentPalette() {
             <MessageSquareDashed className="w-5 h-5 text-blue-400 shrink-0" />
             <span className="font-medium text-foreground truncate flex-1">Annotation</span>
           </div>
+        </div>}
+        {!loading && <div className="mb-3">
+          <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">
+            visuals
+          </div>
+          {CANVAS_IMAGE_PRESETS.map(preset => (
+            <div
+              key={preset.id}
+              draggable
+              onDragStart={(e) => onCanvasImageDragStart(e, preset.id)}
+              className="flex items-center gap-2 px-2 py-2 mb-1 bg-background border border-border rounded cursor-grab hover:border-primary/50 hover:shadow-sm transition-all text-sm"
+              title={preset.description}
+            >
+              <div className="w-10 h-6 flex items-center justify-center shrink-0 overflow-hidden">
+                <img
+                  src={`/canvas-images/${preset.svgPath}.svg`}
+                  alt={preset.label}
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
+              <span className="font-medium text-foreground truncate flex-1">{preset.label}</span>
+            </div>
+          ))}
         </div>}
         {sortedCategories.map((category) => { const items = grouped[category]; return (
           <div key={category} className="mb-3">

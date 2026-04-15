@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import HealthBadge from "../control-plane/HealthBadge";
-import { proxyUrl, fetchComponents, getGeneratorStatus, startGenerator, stopGenerator, execCommand } from "../../api/client";
+import { proxyUrl, fetchComponents, getGeneratorStatus, startGenerator, stopGenerator, execCommand, saveDiagram } from "../../api/client";
 import type { ComponentNodeData, ComponentSummary, ComponentEdgeData, ConnectionType, ConnectionConfigField, MinioServerPool } from "../../types";
 import ClusterPropertiesPanel from "./cluster/ClusterPropertiesPanel";
 import PoolPropertiesPanel from "./cluster/PoolPropertiesPanel";
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ConfigSchemaForm from "./ConfigSchemaForm";
+import ScenarioPicker from "./ScenarioPicker";
 import { getConnectionColor, getConnectionLabel } from "../../lib/connectionMeta";
 import { Eye, EyeOff } from "lucide-react";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
@@ -944,8 +945,34 @@ export default function PropertiesPanel() {
           />
         </div>
         <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Visibility</label>
+          <div className="flex rounded-md border border-input overflow-hidden">
+            {(["customer", "internal"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => {
+                  if (v === "internal") {
+                    updateSticky({ visibility: "internal", color: "#EF9F27" });
+                  } else {
+                    updateSticky({ visibility: "customer" });
+                  }
+                }}
+                className={`flex-1 py-1 text-xs transition-colors ${
+                  (sData.visibility || "customer") === v
+                    ? v === "internal"
+                      ? "bg-amber-500/20 text-amber-400 font-medium"
+                      : "bg-primary/20 text-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                {v === "customer" ? "Customer" : "FA internal"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Color</label>
-          <div className="flex gap-2">
+          <div className={`flex gap-2 ${sData.visibility === "internal" ? "opacity-40 pointer-events-none" : ""}`}>
             {["#eab308", "#22c55e", "#3b82f6", "#ef4444", "#a855f7", "#f97316"].map((c) => (
               <button
                 key={c}
@@ -955,6 +982,101 @@ export default function PropertiesPanel() {
               />
             ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Canvas image properties ---
+  if (selectedNode.type === "canvas-image") {
+    const imgData = selectedNode.data as any;
+    const updateImage = (patch: Record<string, any>) => {
+      setNodes(nodes.map((n) => {
+        if (n.id !== selectedNodeId) return n;
+        const extra = patch.locked !== undefined ? { draggable: !patch.locked } : {};
+        return { ...n, ...extra, data: { ...n.data, ...patch } };
+      }));
+    };
+    const handleDelete = () => {
+      const newNodes = nodes.filter((n) => n.id !== selectedNodeId);
+      _setNodes(newNodes);
+      setDirty(true);
+      if (activeDemoId) {
+        saveDiagram(activeDemoId, newNodes, edges).catch(() => {});
+      }
+    };
+    return (
+      <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Image</div>
+
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Image</label>
+          <div className="text-sm text-foreground font-mono bg-muted px-2 py-1 rounded">{imgData.image_id ?? ""}</div>
+        </div>
+
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Label</label>
+          <Input
+            type="text"
+            value={imgData.label ?? ""}
+            onChange={(e) => updateImage({ label: e.target.value })}
+            className="h-8 text-sm"
+            placeholder="Image label"
+          />
+        </div>
+
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">
+            Opacity — {Math.round((imgData.opacity ?? 1) * 100)}%
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round((imgData.opacity ?? 1) * 100)}
+            onChange={(e) => updateImage({ opacity: parseInt(e.target.value) / 100 })}
+            className="w-full accent-primary"
+          />
+        </div>
+
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Layer</label>
+          <div className="flex gap-1">
+            {(["background", "foreground"] as const).map((layer) => (
+              <button
+                key={layer}
+                onClick={() => updateImage({ layer })}
+                className={`flex-1 py-1 text-xs rounded border transition-colors ${
+                  (imgData.layer ?? "background") === layer
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:bg-accent"
+                }`}
+              >
+                {layer.charAt(0).toUpperCase() + layer.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={imgData.locked ?? false}
+              onChange={(e) => updateImage({ locked: e.target.checked })}
+              className="rounded border-border"
+            />
+            <span className="text-xs text-foreground">Lock position</span>
+          </label>
+        </div>
+
+        <div className="pt-3 border-t border-border">
+          <button
+            onClick={handleDelete}
+            className="w-full py-1.5 text-xs font-medium rounded border border-destructive/50 text-destructive bg-destructive/5 hover:bg-destructive/10 transition-colors"
+          >
+            Delete Image
+          </button>
         </div>
       </div>
     );
@@ -1007,7 +1129,10 @@ export default function PropertiesPanel() {
         <div className="text-sm font-medium text-foreground">{componentDef?.name || data.label}</div>
         {data.componentId === "minio" && !isExperience ? (
           <>
-            <Select value={data.config?.MINIO_EDITION || "ce"} onValueChange={(v) => updateConfig("MINIO_EDITION", v)}>
+            <Select value={data.config?.MINIO_EDITION || "ce"} onValueChange={(v) => {
+              updateConfig("MINIO_EDITION", v);
+              if (v !== "aistor") updateData({ aistorTablesEnabled: false, mcpEnabled: false });
+            }}>
               <SelectTrigger className="w-full h-8 text-sm mt-1">
                 <SelectValue />
               </SelectTrigger>
@@ -1019,6 +1144,28 @@ export default function PropertiesPanel() {
             <div className="text-xs text-muted-foreground mt-1 font-mono bg-muted px-1.5 py-0.5 rounded inline-block">
               {(data.config?.MINIO_EDITION || "ce") === "aistor" ? "quay.io/minio/aistor/minio:latest" : "minio/minio:latest"}
             </div>
+            {(data.config?.MINIO_EDITION || "ce") === "aistor" && (
+              <div className="mt-2 space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={!!data.aistorTablesEnabled}
+                    onChange={(e) => updateData({ aistorTablesEnabled: e.target.checked })}
+                  />
+                  <span className="text-xs text-foreground">AIStor Tables (Iceberg REST)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={!!data.mcpEnabled}
+                    onChange={(e) => updateData({ mcpEnabled: e.target.checked })}
+                  />
+                  <span className="text-xs text-foreground">MCP Server</span>
+                </label>
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -1056,6 +1203,37 @@ export default function PropertiesPanel() {
         )}
       </div>
 
+
+      {/* Scenario picker — only for external-system */}
+      {data.componentId === "external-system" && !isExperience && (
+        <ScenarioPicker
+          currentScenario={data.config?.ES_SCENARIO ?? ""}
+          onScenarioChange={(scenarioId, scenario) => {
+            const currentDisplayName = data.displayName ?? "";
+            const needsNameUpdate =
+              !currentDisplayName ||
+              currentDisplayName === "External System" ||
+              currentDisplayName === (data.label ?? "");
+            updateData({
+              config: { ...data.config, ES_SCENARIO: scenarioId },
+              ...(needsNameUpdate ? { displayName: scenario.default_name } : {}),
+            });
+            // Update edge labels on outgoing edges with data format info
+            if (scenario.format || scenario.primary_table) {
+              const currentEdges = useDiagramStore.getState().edges;
+              setEdges(
+                currentEdges.map((e) => {
+                  if (e.source !== selectedNodeId) return e;
+                  const ct = (e.data as any)?.connectionType as string | undefined;
+                  const prefix = ct === "aistor-tables" ? "Iceberg" : ct === "s3" ? "S3" : null;
+                  const parts = [prefix, scenario.format, scenario.primary_table].filter(Boolean);
+                  return { ...e, data: { ...e.data, label: parts.join(" · ") } };
+                })
+              );
+            }
+          }}
+        />
+      )}
 
       {(componentDef?.properties?.length ?? 0) > 0 && (
         <div className="mb-3">

@@ -268,8 +268,8 @@ function buildFaDiagram(result: ConnectivityResult): {
   const nodes: NodeDef[] = [
     { id: "fa_pc",   label: "FA Laptop",        sublabel: "your machine",       x: 80,  y: 120, status: "ok" },
     { id: "gateway", label: "GCP Gateway",       sublabel: "Cloud Run",          x: 300, y: 120, status: gatewayStatus, tooltip: steps?.[1]?.detail },
-    { id: "hub_api", label: "Hub API",           sublabel: ":8000 on VM",        x: 520, y: 55,  status: hubApiStatus },
-    { id: "minio",   label: "MinIO / Registry",  sublabel: "VM storage",         x: 520, y: 175, status: minioStatus },
+    { id: "hub_api", label: "Hub API",           sublabel: "Cloud Run",          x: 520, y: 55,  status: hubApiStatus },
+    { id: "minio",   label: "MinIO / Registry",  sublabel: "object storage",     x: 520, y: 175, status: minioStatus },
     { id: "fa_auth", label: "FA Auth",           sublabel: faAuth?.fa_name || "identity check", x: 520, y: 270, status: faAuthStatus, tooltip: faAuth?.error || faAuth?.description },
   ];
 

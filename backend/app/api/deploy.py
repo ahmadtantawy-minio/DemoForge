@@ -174,7 +174,11 @@ async def destroy(demo_id: str):
         running.status = "stopping"
 
     async def _do_destroy():
-        await stop_demo(demo_id, remove_volumes=True)
+        try:
+            await stop_demo(demo_id, remove_volumes=True)
+        finally:
+            # Ensure demo is removed from state even if cleanup was cancelled or failed
+            state.remove_demo(demo_id)
         logger.info(f"Demo {demo_id} destroyed and cleaned up")
 
     task = await task_manager.submit_task(demo_id, "destroy", _do_destroy())

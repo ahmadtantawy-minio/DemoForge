@@ -36,6 +36,7 @@ export const connectionColors: Record<string, string> = {
   "inference-api": "#76b900",
   "nginx-backend": "#f97316",
   "external-api": "#64748b",
+  "dashboard-provision": "#7c3aed",
 };
 
 export function getConnectionColor(type: string): string {
@@ -84,4 +85,5 @@ export const connectionLabels: Record<string, string> = {
   "inference-api": "Inference API",
   "nginx-backend": "Backend",
   "external-api": "External API",
+  "dashboard-provision": "Dashboard Provisioning",
 };

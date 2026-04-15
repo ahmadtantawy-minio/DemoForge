@@ -20,6 +20,8 @@ class DemoNode(BaseModel):
     display_name: str = ""          # User-editable label
     labels: dict[str, str] = {}     # Key-value annotations
     group_id: str | None = None     # References a DemoGroup.id
+    aistor_tables_enabled: bool = False  # Enable AIStor Tables (direct Trino connection)
+    mcp_enabled: bool = False            # Deploy MCP sidecar for AI tool access
 
 class DemoEdge(BaseModel):
     id: str
@@ -53,7 +55,7 @@ class DemoServerPool(BaseModel):
     node_count: int = 4
     drives_per_node: int = 4
     disk_size_tb: int = 1
-    disk_type: str = "ssd"              # "nvme" | "ssd" | "hdd" — display only
+    disk_type: str = "nvme"             # "nvme" | "ssd" | "hdd" — display only
     ec_parity: int = 3
     ec_parity_upgrade_policy: str = "upgrade"
     volume_path: str = "/data"
@@ -96,9 +98,22 @@ class DemoStickyNote(BaseModel):
     id: str
     text: str = ""
     color: str = "#eab308"
+    title: str = ""
+    visibility: str = "customer"  # "customer" | "internal"
     position: NodePosition
     width: float = 200
     height: float = 120
+
+class DemoCanvasImage(BaseModel):
+    id: str
+    image_id: str
+    position: NodePosition
+    width: int = 200
+    height: int = 60
+    opacity: float = 0.8
+    layer: str = "foreground"
+    label: str = ""
+    locked: bool = False
 
 class SchematicChild(BaseModel):
     id: str
@@ -157,6 +172,7 @@ class DemoDefinition(BaseModel):
     annotations: list[DemoAnnotation] = []
     schematics: list[DemoSchematicNode] = []
     clusters: list[DemoCluster] = []
+    canvas_images: list[DemoCanvasImage] = []
     resources: DemoResourceSettings = DemoResourceSettings()
     deploy_timeout_seconds: int | None = None  # None = use global default (180s)
     created_at: str | None = None   # ISO-8601 UTC — set once on create

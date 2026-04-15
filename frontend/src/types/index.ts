@@ -1,5 +1,5 @@
 // --- Connection types ---
-export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query" | "s3-queue" | "spark-submit" | "hdfs" | "failover" | "llm-api" | "vector-db" | "mlflow-tracking" | "labeling-api" | "vector-db-milvus" | "etcd" | "workflow-api" | "llm-gateway" | "structured-data" | "kafka" | "kafka-connect" | "dremio-sql" | "dremio-flight" | "schema-registry" | "aistor-tables" | "inference-api" | "nginx-backend" | "external-api";
+export type ConnectionType = "s3" | "http" | "metrics" | "replication" | "site-replication" | "load-balance" | "data" | "metrics-query" | "tiering" | "file-push" | "cluster-replication" | "cluster-site-replication" | "cluster-tiering" | "iceberg-catalog" | "sql-query" | "s3-queue" | "spark-submit" | "hdfs" | "failover" | "llm-api" | "vector-db" | "mlflow-tracking" | "labeling-api" | "vector-db-milvus" | "etcd" | "workflow-api" | "llm-gateway" | "structured-data" | "kafka" | "kafka-connect" | "dremio-sql" | "dremio-flight" | "schema-registry" | "aistor-tables" | "inference-api" | "nginx-backend" | "external-api" | "dashboard-provision";
 
 // --- Edge data ---
 export interface ComponentEdgeData {
@@ -171,9 +171,23 @@ export interface ComponentNodeData {
   displayName?: string;
   labels?: Record<string, string>;
   groupId?: string | null;
+  aistorTablesEnabled?: boolean;
+  mcpEnabled?: boolean;
 }
 
 export type DiskType = "nvme" | "ssd" | "hdd";
+
+export interface CanvasImage {
+  id: string;
+  image_id: string;
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+  opacity: number;
+  layer: "background" | "foreground";
+  label: string;
+  locked: boolean;
+}
 
 export interface MinioServerPool {
   id: string;
@@ -202,6 +216,18 @@ export interface ClusterNodeData {
   ecParity?: number;
   ecParityUpgradePolicy?: string;
   diskSizeTb?: number;
+}
+
+export interface ScenarioOption {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  default_name: string;
+  default_subtitle: string;
+  format?: string;
+  primary_table?: string;
 }
 
 export interface DemoGroup {

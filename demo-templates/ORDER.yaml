@@ -4,6 +4,7 @@
 # Edit in dev mode via the gallery UI, or update this file directly.
 
 order:
+- sovereign-cyber-data-lake
 - site-replication
 - active-active-replication
 - site-replication-failover
@@ -12,7 +13,6 @@ order:
 - template-smart-tiering
 - multi-cluster-replication
 - experience-stx-inference
-- sovereign-cyber-data-lake
 - complete-analytics
 - template-customer-360
 - automated-ml-pipeline

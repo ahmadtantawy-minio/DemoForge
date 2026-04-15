@@ -4,6 +4,57 @@
 
 ---
 
+## Backlog
+
+- [x] **Enhancement: Smart connection type picker when linking External System / Data Generator → MinIO Node or Cluster**
+  - When the user draws an edge from an External System or Data Generator component to a MinIO Node or MinIO Cluster, the connection type picker should offer two options: **S3** (standard) and **AIStor Tables (SigV4 Iceberg)**.
+  - The AIStor Tables option should only appear when the target Node or Cluster has AIStor Tables enabled in its config.
+  - If only one type is valid (e.g. AIStor Tables not enabled), skip the picker and default to S3.
+
+- [x] **Enhancement: MinIO Node — AIStor Tables & MCP Server feature toggles**
+  - The MinIO Node (single-node component) currently has no AIStor Tables or MCP Server config options, unlike the MinIO Cluster which exposes these in its properties panel.
+  - Add feature toggle fields to the Node component manifest and its PropertiesPanel section: `aistor_tables_enabled` (bool, default false) and `mcp_enabled` (bool, default false), mirroring what the Cluster config already supports.
+  - These toggles should drive container env vars and init scripts the same way cluster-level toggles do.
+
+- [x] **Change: Sovereign Cyber Data Lake template — replace MinIO Node with a 4×4 MinIO Cluster**
+  - Update `demo-templates/sovereign-cyber-data-lake.yaml` to use a MinIO Cluster node (4 nodes × 4 drives, 1 TB per disk) instead of the current MinIO Node.
+  - AIStor Tables enabled; MCP Server disabled.
+  - Adjust edges, layout positions, and any init scripts that reference the old node ID.
+
+- [x] **Change: Cyber Lake template — Metabase dashboard provisioning as startup procedure, not an edge**
+  - The current template has a `dashboard-provision` edge from External System → Metabase. This is architecturally wrong: dashboard provisioning is a one-time init action, not a runtime data connection.
+  - Remove the `dashboard-provision` edge from the template. Move provisioning into the External System container's startup/init script (already done at runtime via `metabase_client.py`) and remove the `dashboard-provision` connection type from the External System manifest's `provides` list if it is only used for this template.
+  - The Metabase node should remain in the template but connected only via a standard service/web-ui relationship, not a data edge.
+
+- [x] **Enhancement: Edge label on External System → MinIO link shows scenario data type and format**
+  - When an External System node is connected to a MinIO Node or Cluster and a scenario is selected (e.g. "SOC Firewall Events"), the edge between them should display a short label indicating both what is being generated and its format (e.g. "Iceberg · Parquet · firewall-events").
+  - Source of truth: the scenario YAML — combine `output.format` (e.g. Parquet, JSON) and `output.table` or `description` into the label.
+  - The label should update reactively when the scenario changes in PropertiesPanel.
+  - Keep the label concise (≤ 40 chars); use the existing AnimatedDataEdge label slot.
+
+- [x] **Enhancement: External System — update icon and palette category**
+  - The External System component currently uses a cloud icon and is grouped with infrastructure components. It should use an icon that represents a generic external system / enterprise application (e.g. a building/server/globe icon), and its palette category should be aligned with Data Generators so they appear together in the designer sidebar.
+
+- [x] **Investigation + Fix: Throughput tab in Cockpit shows no metrics**
+  - Root cause: `mc admin bandwidth --json` is a continuous monitoring tool — a single-shot call returns 0 or hangs, blocking every cockpit request. Removed it entirely.
+  - Fix: Prometheus counter-diff (`_get_throughput_from_prometheus`) is now the unconditional primary source. Added 8-sample rolling window (`_rolling_throughput`) that averages non-zero samples, smoothing out the initial zero from the first poll.
+  - Best practice used: rolling average over last 8 samples (non-zero only) rather than instantaneous rate.
+
+- [x] **BUG: FA mode designer shows all components in palette — should only show FA-ready/validated ones**
+  - Fixed: `backend/app/api/registry.py` already filters to `fa_ready` components when `DEMOFORGE_MODE` is `fa` or `dev` (lines 14-19). The `/api/registry/components` endpoint applies the filter; `ComponentPalette` in the frontend fetches from this endpoint and renders only what the backend returns. No frontend change required.
+
+- [x] **Enhancement: External System component — scenario picker + auto-connect (like data-generator)**
+  - Full scenario engine implemented: Python container (`components/external-system/`), 3 SOC scenario YAMLs (soc-firewall-events, soc-threat-intel, soc-vuln-scan), Metabase dashboard + saved_queries provisioning
+  - Scenario picker: `GET /api/registry/components/external-system/scenarios` endpoint; `ScenarioPicker.tsx` dropdown in PropertiesPanel for external-system nodes; selecting a scenario sets `ES_SCENARIO` config
+  - Template: `demo-templates/sovereign-cyber-data-lake.yaml` — 6 nodes, 6 edges, AIStor Tables logo backdrop, FA Guide + SE guide
+  - Demo script: `demo-templates/guides/cpx-demo-script.md` — 25-minute script, 13 scenes
+
+- [x] **BUG: FA mode shows all templates including non-FA ones in tier tabs and My Templates**
+  - Fixed in `TemplateGallery.tsx`: tier tab filter and count now apply `faMode !== "fa" || t.validated` so only fa_ready templates appear in Essentials/Advanced/Experiences when in FA mode
+  - Fixed My Templates filter and count: in FA mode with faId set, restricts to `saved_by === faId` (only this FA's own published templates)
+
+---
+
 ## In Progress
 
 - [x] **Proper Health Reporting in Cockpit**: When a cluster is not deployed or unreachable, the Health tab shows "0/0 online" and "0 B / 0 B" instead of a meaningful state.

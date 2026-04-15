@@ -1,0 +1,279 @@
+scenario:
+  id: soc-firewall-events
+  name: "SOC Firewall Events"
+  description: "Enterprise perimeter IDS/IPS event stream — realistic mix of allow/deny, severity, MITRE mapping, and IOC correlation."
+  category: cybersecurity
+
+display:
+  default_name: "Perimeter Firewall"
+  default_subtitle: "Enterprise IDS/IPS"
+
+reference_data:
+  - id: known_c2_ips
+    description: "Known command-and-control IPs used to correlate firewall hits with threat intel."
+    format: inline
+    columns: [ip, actor, weight]
+    rows:
+      - ["203.0.113.14",  "APT29",             5]
+      - ["203.0.113.77",  "FIN7",              4]
+      - ["198.51.100.9",  "Lazarus",           4]
+      - ["198.51.100.33", "Sandworm",          3]
+      - ["45.33.18.50",   "TA505",             3]
+      - ["45.33.19.22",   "Carbanak",          2]
+      - ["185.220.100.7", "Turla",             2]
+      - ["185.220.101.8", "APT41",             3]
+      - ["91.219.236.18", "MuddyWater",        2]
+      - ["91.219.237.55", "Kimsuky",           2]
+
+  - id: mitre_tactics
+    description: "MITRE ATT&CK tactics referenced by firewall rules."
+    format: inline
+    columns: [tactic, technique_id, weight]
+    rows:
+      - ["Reconnaissance",       "T1595", 4]
+      - ["Initial Access",       "T1190", 5]
+      - ["Execution",            "T1059", 3]
+      - ["Persistence",          "T1098", 2]
+      - ["Credential Access",    "T1110", 3]
+      - ["Lateral Movement",     "T1021", 2]
+      - ["Command and Control",  "T1071", 5]
+      - ["Exfiltration",         "T1041", 2]
+
+datasets:
+  - id: firewall_events
+    target: table
+    namespace: soc
+    table_name: firewall_events
+    format: parquet
+    partition_by: [event_date]
+
+    schema:
+      - {name: event_id,           type: string,    nullable: false, generator: uuid}
+      - {name: event_timestamp,    type: timestamp, nullable: false, generator: timestamp,
+         params: {pattern: realistic}}
+      - {name: event_date,         type: date,      nullable: false, generator: date,
+         params: {from_field: event_timestamp}}
+      - {name: src_ip,             type: string,    generator: ip_address,
+         params: {ranges: ["203.0.113.0/24","198.51.100.0/24","45.33.0.0/16","185.220.0.0/16","91.219.236.0/23","8.8.0.0/16"], known_bad_ratio: 0.12}}
+      - {name: src_port,           type: integer,   generator: distribution,
+         params: {type: uniform, min: 1024, max: 65535}}
+      - {name: dst_ip,             type: string,    generator: ip_address,
+         params: {ranges: ["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]}}
+      - {name: dst_port,           type: integer,   generator: weighted_choice,
+         params: {choices: {80: 25, 443: 40, 22: 5, 3389: 5, 445: 8, 3306: 3, 5432: 3, 53: 6, 8080: 5}}}
+      - {name: protocol,           type: string,    generator: weighted_choice,
+         params: {choices: {TCP: 0.75, UDP: 0.22, ICMP: 0.03}}}
+      - {name: action,             type: string,    generator: weighted_choice,
+         params: {choices: {allow: 0.65, deny: 0.25, drop: 0.08, reset: 0.02}}}
+      - {name: severity,           type: string,    generator: weighted_choice,
+         params: {choices: {informational: 0.45, low: 0.30, medium: 0.15, high: 0.07, critical: 0.03}}}
+      - {name: rule_id,            type: string,    generator: pattern,
+         params: {format: "FW-{seq:05d}", seq_start: 1}}
+      - {name: bytes_sent,         type: long,      generator: distribution,
+         params: {type: lognormal, mean: 6.0, sigma: 1.8, min: 0, max: 50000000}}
+      - {name: bytes_received,     type: long,      generator: distribution,
+         params: {type: lognormal, mean: 7.0, sigma: 2.0, min: 0, max: 100000000}}
+      - {name: session_duration_ms, type: long,     generator: distribution,
+         params: {type: lognormal, mean: 5.5, sigma: 1.4, min: 1, max: 3600000}}
+      - {name: mitre_tactic,       type: string,    generator: ref_lookup,
+         params: {ref: mitre_tactics, column: tactic, distribution: weighted}}
+      - {name: mitre_technique_id, type: string,    generator: ref_lookup,
+         params: {ref: mitre_tactics, column: technique_id, match_field: tactic, match_value_from: mitre_tactic}}
+      - {name: geo_country,        type: string,    generator: weighted_choice,
+         params: {choices: {US: 0.32, CN: 0.14, RU: 0.11, DE: 0.07, GB: 0.06, BR: 0.05, IN: 0.06, KP: 0.03, IR: 0.04, NL: 0.04, FR: 0.04, Other: 0.04}}}
+      - {name: device_hostname,    type: string,    generator: pattern,
+         params: {format: "fw-edge-{seq:02d}", seq_start: 1}}
+
+    generation:
+      mode: batch_then_stream
+      seed_rows: 500000
+      stream_rate: "25/s"
+      stream_duration: forever
+
+correlations:
+  - name: firewall_hits_known_c2
+    source_dataset: threat_iocs
+    source_field: indicator
+    target_dataset: firewall_events
+    target_field: src_ip
+    ratio: 0.12
+
+dashboards:
+  - id: soc-overview
+    title: "SOC Overview"
+    layout: "3-column"
+    charts:
+      - id: events_over_time
+        title: "Event volume (per minute)"
+        type: time_series
+        query: |
+          SELECT date_trunc('minute', event_timestamp) AS minute,
+                 COUNT(*) AS events
+          FROM iceberg.soc.firewall_events
+          WHERE event_timestamp > current_timestamp - interval '60' minute
+          GROUP BY 1
+          ORDER BY 1
+        position: {row: 0, col: 0, width: 12, height: 5}
+        settings: {x_axis: minute, y_axis: events}
+      - id: severity_pie
+        title: "Severity distribution"
+        type: pie
+        query: |
+          SELECT severity, COUNT(*) AS c
+          FROM iceberg.soc.firewall_events
+          GROUP BY severity
+        position: {row: 0, col: 12, width: 6, height: 5}
+        settings: {x_axis: severity, y_axis: c}
+      - id: mitre_bar
+        title: "MITRE tactic breakdown"
+        type: bar
+        query: |
+          SELECT mitre_tactic, COUNT(*) AS events
+          FROM iceberg.soc.firewall_events
+          GROUP BY mitre_tactic
+          ORDER BY events DESC
+        position: {row: 5, col: 0, width: 9, height: 5}
+        settings: {x_axis: mitre_tactic, y_axis: events}
+      - id: geo_bar
+        title: "Events by country"
+        type: bar
+        query: |
+          SELECT geo_country, COUNT(*) AS events
+          FROM iceberg.soc.firewall_events
+          GROUP BY geo_country
+          ORDER BY events DESC
+          LIMIT 15
+        position: {row: 5, col: 9, width: 9, height: 5}
+        settings: {x_axis: geo_country, y_axis: events}
+      - id: top_blocked_ips
+        title: "Top blocked source IPs"
+        type: table
+        query: |
+          SELECT src_ip, COUNT(*) AS hits, MAX(severity) AS max_severity
+          FROM iceberg.soc.firewall_events
+          WHERE action IN ('deny','drop','reset')
+          GROUP BY src_ip
+          ORDER BY hits DESC
+          LIMIT 25
+        position: {row: 10, col: 0, width: 12, height: 6}
+      - id: protocol_dist
+        title: "Protocol distribution"
+        type: bar
+        query: |
+          SELECT protocol, COUNT(*) AS events
+          FROM iceberg.soc.firewall_events
+          GROUP BY protocol
+        position: {row: 10, col: 12, width: 6, height: 6}
+        settings: {x_axis: protocol, y_axis: events}
+
+saved_queries:
+  collection: "CPX Demo Queries"
+  queries:
+    - id: q-event-count
+      title: "Total firewall events"
+      description: "Simple row count across the firewall_events table."
+      order: 1
+      visualization: number
+      query: |
+        SELECT COUNT(*) AS total_events FROM iceberg.soc.firewall_events
+    - id: q-all-tables
+      title: "All SOC tables"
+      description: "List every table in the soc schema."
+      order: 2
+      visualization: table
+      query: |
+        SELECT table_name FROM iceberg.information_schema.tables
+        WHERE table_schema = 'soc'
+        ORDER BY table_name
+    - id: q-ioc-hits
+      title: "Firewall hits against known IOCs"
+      description: "Join firewall events against threat_iocs to surface hits on confirmed indicators."
+      order: 3
+      visualization: table
+      query: |
+        SELECT f.src_ip, t.threat_actor, COUNT(*) AS hits
+        FROM iceberg.soc.firewall_events f
+        JOIN iceberg.soc.threat_iocs t
+          ON t.indicator = f.src_ip AND t.ioc_type = 'ipv4'
+        GROUP BY f.src_ip, t.threat_actor
+        ORDER BY hits DESC
+        LIMIT 50
+    - id: q-actor-activity
+      title: "Activity by threat actor"
+      description: "Which named actors are hitting the perimeter, and how often?"
+      order: 4
+      visualization: bar
+      query: |
+        SELECT t.threat_actor, COUNT(*) AS events
+        FROM iceberg.soc.firewall_events f
+        JOIN iceberg.soc.threat_iocs t ON t.indicator = f.src_ip
+        GROUP BY t.threat_actor
+        ORDER BY events DESC
+    - id: q-mitre
+      title: "MITRE ATT&CK tactic distribution"
+      description: "Event count grouped by MITRE tactic."
+      order: 5
+      visualization: bar
+      query: |
+        SELECT mitre_tactic, COUNT(*) AS events
+        FROM iceberg.soc.firewall_events
+        GROUP BY mitre_tactic ORDER BY events DESC
+    - id: q-exposed-hosts
+      title: "Exposed hosts (firewall x vuln scan)"
+      description: "Inbound hits against hosts with open high/critical vulnerabilities."
+      order: 6
+      visualization: table
+      query: |
+        SELECT f.dst_ip, v.cve_id, v.severity, COUNT(*) AS hits
+        FROM iceberg.soc.firewall_events f
+        JOIN iceberg.soc.vulnerability_scan v
+          ON v.host_ip = f.dst_ip
+        WHERE v.severity IN ('high','critical')
+        GROUP BY f.dst_ip, v.cve_id, v.severity
+        ORDER BY hits DESC
+        LIMIT 50
+    - id: q-lateral
+      title: "Possible lateral movement"
+      description: "Internal-to-internal firewall events on common lateral-movement ports."
+      order: 7
+      visualization: table
+      query: |
+        SELECT src_ip, dst_ip, dst_port, COUNT(*) AS events
+        FROM iceberg.soc.firewall_events
+        WHERE dst_port IN (445, 3389, 22)
+          AND src_ip LIKE '10.%'
+          AND dst_ip LIKE '10.%'
+        GROUP BY src_ip, dst_ip, dst_port
+        ORDER BY events DESC
+        LIMIT 50
+    - id: q-malware
+      title: "Malware metadata (from object mirror)"
+      description: "Metadata extracted from the malware-vault MinIO bucket tags."
+      order: 8
+      visualization: table
+      query: |
+        SELECT sandbox_verdict, threat_actor, COUNT(*) AS samples
+        FROM iceberg.soc.malware_metadata
+        GROUP BY sandbox_verdict, threat_actor
+        ORDER BY samples DESC
+    - id: q-intel-freshness
+      title: "Threat intel freshness"
+      description: "IOC coverage by source feed and most recent first_seen."
+      order: 9
+      visualization: table
+      query: |
+        SELECT source_feed, COUNT(*) AS iocs, MAX(last_seen) AS most_recent
+        FROM iceberg.soc.threat_iocs
+        GROUP BY source_feed
+        ORDER BY iocs DESC
+    - id: q-streaming
+      title: "Streaming events (last 5 min)"
+      description: "Live tail of firewall events — demonstrates low-latency Iceberg reads."
+      order: 10
+      visualization: line
+      query: |
+        SELECT date_trunc('minute', event_timestamp) AS minute, COUNT(*) AS events
+        FROM iceberg.soc.firewall_events
+        WHERE event_timestamp > current_timestamp - interval '5' minute
+        GROUP BY 1
+        ORDER BY 1

@@ -799,7 +799,7 @@ async def get_container_logs(demo_id: str, node_id: str, tail: int = 200, since:
     container_name = running.containers[node_id].container_name
     try:
         def _fetch():
-            c = docker_client().containers.get(container_name)
+            c = docker_client.containers.get(container_name)
             kwargs: dict = {"tail": tail, "timestamps": True, "stream": False}
             if since:
                 # Accept "60s", "5m", or raw int seconds

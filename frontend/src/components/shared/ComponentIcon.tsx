@@ -560,10 +560,18 @@ function ExternalSystemIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect width="32" height="32" rx="4" fill="#475569" />
-      {/* Cloud shape */}
-      <path d="M8 20a4 4 0 01-.5-7.95A5.5 5.5 0 0118 11a4 4 0 014 4h1a3 3 0 010 6H8z" fill="white" opacity="0.9" />
-      {/* Arrow pointing right (external / outbound) */}
-      <path d="M13 20v4m0 0l-2-2m2 2l2-2" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Building outline */}
+      <rect x="7" y="10" width="18" height="16" rx="1" stroke="white" strokeWidth="1.5" fill="none" />
+      {/* Roof / top bar */}
+      <rect x="7" y="10" width="18" height="3" rx="1" fill="white" opacity="0.9" />
+      {/* Windows row 1 */}
+      <rect x="10" y="16" width="3" height="3" rx="0.5" fill="white" opacity="0.85" />
+      <rect x="14.5" y="16" width="3" height="3" rx="0.5" fill="white" opacity="0.85" />
+      <rect x="19" y="16" width="3" height="3" rx="0.5" fill="white" opacity="0.85" />
+      {/* Windows row 2 */}
+      <rect x="10" y="21" width="3" height="3" rx="0.5" fill="white" opacity="0.6" />
+      <rect x="14.5" y="21" width="3" height="3" rx="0.5" fill="white" opacity="0.6" />
+      <rect x="19" y="21" width="3" height="3" rx="0.5" fill="white" opacity="0.6" />
     </svg>
   );
 }

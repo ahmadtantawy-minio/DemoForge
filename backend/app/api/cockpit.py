@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+from collections import deque
 from fastapi import APIRouter, HTTPException
 from ..state.store import state
 from ..engine.docker_manager import exec_in_container, docker_client
@@ -18,6 +19,10 @@ _HOST_STATS_TTL = 5.0  # seconds
 
 # In-memory cache for prometheus counter snapshots: {(demo_id, alias): (timestamp, counters_dict)}
 _prom_snapshot: dict[tuple[str, str], tuple[float, dict]] = {}
+
+# Rolling window for throughput smoothing: {(demo_id, alias): deque of rate dicts}
+_rolling_throughput: dict[tuple[str, str], deque] = {}
+_ROLLING_WINDOW_SIZE = 8
 
 
 async def _get_throughput_from_prometheus(mc_shell: str, alias: str, demo_id: str) -> dict:
@@ -294,7 +299,7 @@ async def get_cockpit_data(demo_id: str):
                 alias_name = obj.get("alias", "")
                 url = obj.get("URL", "")
                 skip_aliases = {"play", "local", "gcs", "s3"}
-                if alias_name and "demoforge" in url and alias_name not in skip_aliases:
+                if alias_name and "demoforge" in url and alias_name not in skip_aliases and not alias_name.endswith("_direct"):
                     aliases.append(alias_name)
             except json.JSONDecodeError:
                 continue
@@ -352,43 +357,31 @@ async def get_cockpit_data(demo_id: str):
         except Exception as e:
             logger.warning(f"Failed to get bucket stats for {alias}: {e}")
 
-        # Get throughput via mc admin bandwidth --json (returns instantaneous rates)
-        try:
-            exit_code, stdout, _ = await exec_in_container(
-                mc_shell,
-                f"mc admin bandwidth {alias} --json 2>/dev/null"
-            )
-            rx_sum = 0.0
-            tx_sum = 0.0
-            if exit_code == 0 and stdout.strip():
-                for line in stdout.strip().split("\n"):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        # Response may be {"bandwidth": [...]} or a direct object per server
-                        entries = obj.get("bandwidth") if isinstance(obj, dict) and "bandwidth" in obj else [obj]
-                        for entry in (entries or []):
-                            if isinstance(entry, dict):
-                                rx_sum += entry.get("rx", 0) or 0
-                                tx_sum += entry.get("tx", 0) or 0
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-            if rx_sum > 0 or tx_sum > 0:
-                # bandwidth returns bytes/sec rates directly — expose them as-is
-                result["throughput"]["rx_bytes_per_sec"] = rx_sum
-                result["throughput"]["tx_bytes_per_sec"] = tx_sum
-            else:
-                logger.debug(f"mc admin bandwidth returned no data for {alias} (exit={exit_code})")
-        except Exception as e:
-            logger.warning(f"Failed to get throughput for {alias}: {e}")
+        # Skip mc admin bandwidth — it's a continuous monitor tool, not a one-shot query.
+        # Use prometheus counter diff as primary source.
+        prom = await _get_throughput_from_prometheus(mc_shell, alias, demo_id)
+        if prom:
+            result["throughput"].update(prom)
 
-        # If bandwidth gave no data, try prometheus metrics for ops/s rates
-        if result["throughput"]["rx_bytes_per_sec"] == 0 and result["throughput"]["tx_bytes_per_sec"] == 0:
-            prom = await _get_throughput_from_prometheus(mc_shell, alias, demo_id)
-            if prom:
-                result["throughput"].update(prom)
+        # Store in rolling window and return average
+        key = (demo_id, alias)
+        if key not in _rolling_throughput:
+            _rolling_throughput[key] = deque(maxlen=_ROLLING_WINDOW_SIZE)
+        current = result["throughput"]
+        _rolling_throughput[key].append({
+            "put_ops_per_sec": current.get("put_ops_per_sec", 0),
+            "get_ops_per_sec": current.get("get_ops_per_sec", 0),
+            "rx_bytes_per_sec": current.get("rx_bytes_per_sec", 0),
+            "tx_bytes_per_sec": current.get("tx_bytes_per_sec", 0),
+        })
+        # Average non-zero samples only
+        window = _rolling_throughput[key]
+        if window:
+            avg = {}
+            for field in ["put_ops_per_sec", "get_ops_per_sec", "rx_bytes_per_sec", "tx_bytes_per_sec"]:
+                vals = [s[field] for s in window if s[field] > 0]
+                avg[field] = round(sum(vals) / len(vals), 2) if vals else 0.0
+            result["throughput"].update(avg)
 
         # Gather nginx edge stats + direct MinIO Prometheus metrics in parallel
         cluster_id = alias_to_cluster_id.get(alias, alias)
@@ -448,7 +441,7 @@ async def get_cockpit_health(demo_id: str):
                 alias_name = obj.get("alias", "")
                 url = obj.get("URL", "")
                 skip_aliases = {"play", "local", "gcs", "s3"}
-                if alias_name and "demoforge" in url and alias_name not in skip_aliases:
+                if alias_name and "demoforge" in url and alias_name not in skip_aliases and not alias_name.endswith("_direct"):
                     aliases.append(alias_name)
             except json.JSONDecodeError:
                 continue

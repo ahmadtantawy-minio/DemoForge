@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 TIMEOUTS = {
     "deploy": 600,   # 10 min — image pulls + init scripts can be slow
     "stop": 60,      # 1 min
-    "destroy": 120,  # 2 min — compose down + force remove + network cleanup
+    "destroy": 300,  # 5 min — compose down (large clusters take ~90s) + force remove + network cleanup
     "start": 60,     # 1 min
 }
 

@@ -4,7 +4,7 @@ import yaml
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
-from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, NodePosition
+from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, DemoStickyNote, NodePosition
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
@@ -109,6 +109,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     demo.groups = []
     demo.sticky_notes = []
     demo.clusters = []
+    demo.canvas_images = []
     for rf_node in req.nodes:
         # Annotation and schematic nodes are preserved from the template, not from the frontend
         if rf_node.get("type") in ("annotation", "schematic"):
@@ -117,15 +118,35 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
         # Sticky note nodes are stored separately
         if rf_node.get("type") == "sticky":
             s_data = rf_node.get("data", {})
-            from ..models.demo import DemoStickyNote
+            s_style = rf_node.get("style") if isinstance(rf_node.get("style"), dict) else {}
             demo.sticky_notes.append(DemoStickyNote(
                 id=rf_node["id"],
                 text=s_data.get("text", ""),
                 color=s_data.get("color", "#eab308"),
+                title=s_data.get("title", ""),
+                visibility=s_data.get("visibility", "customer"),
                 position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
                                        y=rf_node.get("position", {}).get("y", 0)),
-                width=rf_node.get("style", {}).get("width", rf_node.get("width", 200)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 200),
-                height=rf_node.get("style", {}).get("height", rf_node.get("height", 120)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 120),
+                width=s_style.get("width", rf_node.get("width", 200)),
+                height=s_style.get("height", rf_node.get("height", 120)),
+            ))
+            continue
+
+        # Canvas image nodes are stored separately
+        if rf_node.get("type") == "canvas-image":
+            from ..models.demo import DemoCanvasImage
+            ci_data = rf_node.get("data", {})
+            demo.canvas_images.append(DemoCanvasImage(
+                id=rf_node["id"],
+                image_id=ci_data.get("image_id", ""),
+                position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
+                                      y=rf_node.get("position", {}).get("y", 0)),
+                width=int(rf_node.get("style", {}).get("width", 200) or 200),
+                height=int(rf_node.get("style", {}).get("height", 60) or 60),
+                opacity=ci_data.get("opacity", 0.8),
+                layer=ci_data.get("layer", "foreground"),
+                label=ci_data.get("label", ""),
+                locked=ci_data.get("locked", False),
             ))
             continue
 

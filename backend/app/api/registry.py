@@ -1,4 +1,6 @@
 import os
+import glob as glob_module
+import yaml
 from fastapi import APIRouter, HTTPException
 from ..registry.loader import get_registry
 from ..models.api_models import RegistryResponse, ComponentSummary
@@ -39,6 +41,44 @@ async def list_components():
             for m in manifests
         ]
     )
+
+@router.get("/api/registry/components/{component_id}/scenarios")
+async def list_component_scenarios(component_id: str):
+    """List available scenarios for a scenario-based component."""
+    components_dir = os.getenv("DEMOFORGE_COMPONENTS_DIR",
+                               os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "components")))
+    base_dir = os.path.join(components_dir, component_id, "scenarios")
+
+    if not os.path.isdir(base_dir):
+        return {"scenarios": [], "component_id": component_id}
+
+    scenarios = []
+    for yaml_path in sorted(glob_module.glob(os.path.join(base_dir, "*.yaml"))):
+        filename = os.path.basename(yaml_path)
+        if filename.startswith("_"):
+            continue
+        try:
+            with open(yaml_path) as f:
+                data = yaml.safe_load(f)
+            scen = data.get("scenario", {})
+            disp = data.get("display", {})
+            first_ds = next(iter(data.get("datasets", [])), {})
+            scenarios.append({
+                "id": scen.get("id", filename.replace(".yaml", "")),
+                "name": scen.get("name", scen.get("id", filename)),
+                "description": scen.get("description", ""),
+                "category": scen.get("category", ""),
+                "icon": scen.get("icon", ""),
+                "default_name": disp.get("default_name", ""),
+                "default_subtitle": disp.get("default_subtitle", ""),
+                "format": first_ds.get("format"),
+                "primary_table": first_ds.get("table_name"),
+            })
+        except Exception as e:
+            print(f"[registry] Failed to load scenario {yaml_path}: {e}")
+
+    return {"scenarios": scenarios, "component_id": component_id}
+
 
 @router.get("/api/registry/components/{component_id}")
 async def get_component(component_id: str):

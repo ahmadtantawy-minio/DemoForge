@@ -1,0 +1,187 @@
+scenario:
+  id: soc-threat-intel
+  name: "SOC Threat Intelligence"
+  description: "Threat intelligence feeds: STIX/TAXII + OSINT — Iceberg IOC table, STIX JSON bundles, and a malware sample vault mirrored to Iceberg."
+  category: cybersecurity
+
+display:
+  default_name: "Threat Intel Feeds"
+  default_subtitle: "STIX/TAXII + OSINT"
+
+datasets:
+  # 1. Structured IOC table ---------------------------------------------------
+  - id: threat_iocs
+    target: table
+    namespace: soc
+    table_name: threat_iocs
+    format: parquet
+    partition_by: [ioc_type]
+
+    schema:
+      - {name: ioc_id,         type: string,    nullable: false, generator: uuid}
+      - {name: ioc_type,       type: string,    generator: weighted_choice,
+         params: {choices: {ipv4: 0.35, domain: 0.30, sha256: 0.20, md5: 0.10, url: 0.05}}}
+      - {name: indicator,      type: string,    generator: ioc,
+         params: {type_field: ioc_type}}
+      - {name: confidence,     type: integer,   generator: distribution,
+         params: {type: uniform, min: 40, max: 100}}
+      - {name: threat_actor,   type: string,    generator: weighted_choice,
+         params: {choices: {APT29: 6, FIN7: 5, Lazarus: 5, Sandworm: 4, TA505: 4, Carbanak: 3, Turla: 3, APT41: 5, MuddyWater: 3, Kimsuky: 3, Unknown: 8}}}
+      - {name: severity_score, type: double,    generator: distribution,
+         params: {type: normal, mean: 6.5, sigma: 2.0, min: 0, max: 10, precision: 2}}
+      - {name: first_seen,     type: timestamp, generator: timestamp,
+         params: {pattern: uniform}}
+      - {name: last_seen,      type: timestamp, generator: timestamp,
+         params: {pattern: realistic}}
+      - {name: source_feed,    type: string,    generator: weighted_choice,
+         params: {choices: {MISP: 0.25, AlienVaultOTX: 0.20, AbuseCH: 0.18, MandiantAPI: 0.12, RecordedFuture: 0.10, CISA: 0.08, InternalSOC: 0.07}}}
+      - name: tags
+        type: string
+        generator: json_object
+        params:
+          fields:
+            - name: active
+              generator: weighted_choice
+              params:
+                choices: {"true": 0.80, "false": 0.20}
+            - name: category
+              generator: uniform_choice
+              params:
+                values: [malware, c2, phishing, exploit, scanner]
+      - {name: description,    type: string,    generator: text_block,
+         params: {min_words: 6, max_words: 18}}
+
+    generation:
+      mode: batch
+      seed_rows: 8000
+
+  # 2. STIX bundle objects ----------------------------------------------------
+  - id: threat_feeds_raw
+    target: object
+    bucket: threat-intel
+    prefix: "feeds/stix/"
+    object_format: json
+
+    schema:
+      - {name: object_id,   type: string, generator: uuid}
+      - {name: ioc_type,    type: string, generator: weighted_choice,
+         params: {choices: {ipv4: 0.3, domain: 0.3, sha256: 0.25, url: 0.15}}}
+      - {name: indicator,   type: string, generator: ioc,
+         params: {type_field: ioc_type}}
+      - {name: confidence,  type: integer, generator: distribution,
+         params: {type: uniform, min: 40, max: 100}}
+      - {name: tags,        type: string, generator: uniform_choice,
+         params: {values: [malicious-activity, benign, suspicious, c2, phishing]}}
+      - {name: description, type: string, generator: text_block,
+         params: {min_words: 8, max_words: 20}}
+
+    generation:
+      mode: batch
+      seed_count: 500
+
+  # 3. Malware sample vault ---------------------------------------------------
+  - id: malware_samples
+    target: object
+    bucket: malware-vault
+    prefix: "samples/"
+    object_format: binary
+    object_size_min: 10240
+    object_size_max: 524288
+
+    mirror_to_table:
+      namespace: soc
+      table_name: malware_metadata
+      fields: [sha256, file_type, sandbox_verdict, threat_actor, file_size_bytes]
+
+    schema:
+      - {name: object_id,        type: string, generator: uuid}
+      - {name: sha256,           type: string, generator: ioc,
+         params: {ioc_type: sha256}}
+      - {name: file_type,        type: string, generator: weighted_choice,
+         params: {choices: {PE32: 0.35, ELF: 0.20, Macho: 0.10, DOCX: 0.15, XLSX: 0.10, JS: 0.05, PDF: 0.05}}}
+      - {name: sandbox_verdict,  type: string, generator: weighted_choice,
+         params: {choices: {benign: 0.3, suspicious: 0.4, malicious: 0.3}}}
+      - {name: threat_actor,     type: string, generator: weighted_choice,
+         params: {choices: {APT29: 4, FIN7: 4, Lazarus: 3, Sandworm: 3, TA505: 2, APT41: 3, Carbanak: 2, Turla: 2, Unknown: 8}}}
+      - {name: file_size_bytes,  type: long,   generator: distribution,
+         params: {type: lognormal, mean: 10.8, sigma: 2.0, min: 1024, max: 10000000}}
+
+    generation:
+      mode: batch
+      seed_count: 200
+
+dashboards:
+  - id: threat-intel-overview
+    title: "Threat Intelligence"
+    layout: "3-column"
+    charts:
+      - id: actor_breakdown
+        title: "IOCs by threat actor"
+        type: bar
+        query: |
+          SELECT threat_actor, COUNT(*) AS iocs
+          FROM iceberg.soc.threat_iocs
+          GROUP BY threat_actor ORDER BY iocs DESC
+        position: {row: 0, col: 0, width: 9, height: 5}
+        settings: {x_axis: threat_actor, y_axis: iocs}
+      - id: ioc_type_pie
+        title: "IOC type distribution"
+        type: pie
+        query: |
+          SELECT ioc_type, COUNT(*) AS c
+          FROM iceberg.soc.threat_iocs GROUP BY ioc_type
+        position: {row: 0, col: 9, width: 9, height: 5}
+      - id: source_feed_table
+        title: "Source feeds"
+        type: table
+        query: |
+          SELECT source_feed, COUNT(*) AS iocs, AVG(confidence) AS avg_confidence
+          FROM iceberg.soc.threat_iocs
+          GROUP BY source_feed ORDER BY iocs DESC
+        position: {row: 5, col: 0, width: 9, height: 6}
+      - id: severity_dist
+        title: "Severity score distribution"
+        type: bar
+        query: |
+          SELECT CAST(FLOOR(severity_score) AS INTEGER) AS bucket, COUNT(*) AS c
+          FROM iceberg.soc.threat_iocs
+          GROUP BY 1 ORDER BY 1
+        position: {row: 5, col: 9, width: 9, height: 6}
+        settings: {x_axis: bucket, y_axis: c}
+      - id: mitre_tactic_bar
+        title: "Actors by IOC volume (top 10)"
+        type: bar
+        query: |
+          SELECT threat_actor, COUNT(*) AS iocs
+          FROM iceberg.soc.threat_iocs
+          WHERE threat_actor != 'Unknown'
+          GROUP BY threat_actor
+          ORDER BY iocs DESC LIMIT 10
+        position: {row: 11, col: 0, width: 18, height: 5}
+        settings: {x_axis: threat_actor, y_axis: iocs}
+
+saved_queries:
+  collection: "CPX Demo Queries"
+  queries:
+    - id: ti-total-iocs
+      title: "Total IOCs"
+      order: 1
+      visualization: number
+      query: "SELECT COUNT(*) AS total FROM iceberg.soc.threat_iocs"
+    - id: ti-actor-top10
+      title: "Top 10 threat actors"
+      order: 2
+      visualization: bar
+      query: |
+        SELECT threat_actor, COUNT(*) AS iocs
+        FROM iceberg.soc.threat_iocs
+        WHERE threat_actor != 'Unknown'
+        GROUP BY threat_actor ORDER BY iocs DESC LIMIT 10
+    - id: ti-malware-verdicts
+      title: "Malware sandbox verdicts"
+      order: 3
+      visualization: bar
+      query: |
+        SELECT sandbox_verdict, COUNT(*) AS samples
+        FROM iceberg.soc.malware_metadata
+        GROUP BY sandbox_verdict

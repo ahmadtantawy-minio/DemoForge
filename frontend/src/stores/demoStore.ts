@@ -24,6 +24,8 @@ interface DemoState {
   currentPage: PageKey;
   cockpitEnabled: boolean;
   walkthroughOpen: boolean;
+  showFaNotes: boolean;
+  setShowFaNotes: (v: boolean) => void;
   resilienceProbes: ResilienceProbe[];
   faId: string;
   faIdentified: boolean;
@@ -88,6 +90,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   currentPage: initial.page,
   cockpitEnabled: false,
   walkthroughOpen: false,
+  showFaNotes: true,
+  setShowFaNotes: (v) => set({ showFaNotes: v }),
   resilienceProbes: [],
   faId: "",
   faIdentified: false,

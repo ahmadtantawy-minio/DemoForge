@@ -315,6 +315,7 @@ async def get_template(template_id: str):
     summary["annotations"] = raw.get("annotations", [])
     summary["schematics"] = raw.get("schematics", [])
     summary["sticky_notes"] = raw.get("sticky_notes", [])
+    summary["canvas_images"] = raw.get("canvas_images", [])
     return summary
 
 
@@ -483,7 +484,7 @@ async def save_as_template(req: SaveAsTemplateRequest):
     template_raw = {"_template": template_meta}
     for key in ["name", "description", "mode", "networks", "nodes", "edges",
                  "groups", "sticky_notes", "annotations", "schematics",
-                 "clusters", "resources"]:
+                 "clusters", "resources", "canvas_images"]:
         if key in demo_raw:
             template_raw[key] = demo_raw[key]
 

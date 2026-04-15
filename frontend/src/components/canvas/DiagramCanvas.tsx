@@ -21,6 +21,8 @@ import StickyNoteNode from "./nodes/StickyNoteNode";
 import ClusterNode from "./nodes/ClusterNode";
 import AnnotationNode from "./nodes/AnnotationNode";
 import SchematicNode from "./nodes/SchematicNode";
+import CanvasImageNode from "./nodes/CanvasImageNode";
+import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
 import AnimatedDataEdge from "./edges/AnimatedDataEdge";
 import AnnotationPointerEdge from "./edges/AnnotationPointerEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
@@ -36,7 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MousePointerClick, Group, Save, Check, X, Loader2, Copy, Clipboard } from "lucide-react";
 
-const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode };
+const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode, "canvas-image": CanvasImageNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
 
 let nodeCounter = 0;
@@ -56,7 +58,7 @@ interface DiagramCanvasProps {
 
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests, setDirty, clipboard, setClipboard } = useDiagramStore();
-  const { activeDemoId, instances, demos, faMode } = useDemoStore();
+  const { activeDemoId, instances, demos, faMode, showFaNotes } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
   // In dev mode, experience templates are fully editable (no readonly restrictions)
@@ -175,8 +177,27 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: s.id,
         type: "sticky",
         position: s.position || { x: 0, y: 0 },
+        width: s.width || 200,
+        height: s.height || 120,
         style: { width: s.width || 200, height: s.height || 120 },
-        data: { text: s.text || "", color: s.color || "#eab308" },
+        data: { text: s.text || "", color: s.color || "#eab308", title: s.title || "", visibility: s.visibility || "customer" },
+      }));
+      const rfCanvasImages = (demo.canvas_images || []).map((ci: any) => ({
+        id: ci.id,
+        type: "canvas-image",
+        position: ci.position || { x: 0, y: 0 },
+        style: { width: ci.width || 200, height: ci.height || 60 },
+        draggable: !ci.locked,
+        selectable: true,
+        deletable: true,
+        zIndex: ci.layer === "background" ? -1 : 10,
+        data: {
+          image_id: ci.image_id || "",
+          opacity: ci.opacity ?? 0.8,
+          layer: ci.layer || "foreground",
+          label: ci.label || "",
+          locked: ci.locked || false,
+        },
       }));
       const isExp = demo.mode === "experience";
       const rfAnnotations = (demo.annotations || []).map((a: any) => ({
@@ -303,7 +324,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         }
         return node;
       });
-      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfAnnotations, ...rfSchematics, ...migratedNodes]);
+      setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfCanvasImages, ...rfAnnotations, ...rfSchematics, ...migratedNodes]);
       setEdges([...migratedEdges, ...rfAnnotationEdges]);
       setDirty(false);
     }).catch(() => {});
@@ -420,11 +441,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       const isSticky = e.dataTransfer.getData("isSticky") === "true";
       const isAnnotation = e.dataTransfer.getData("isAnnotation") === "true";
       const isCluster = e.dataTransfer.getData("isCluster") === "true";
+      const isCanvasImage = e.dataTransfer.getData("isCanvasImage") === "true";
+      const canvasImageId = e.dataTransfer.getData("canvasImageId");
       const componentId = e.dataTransfer.getData("componentId");
       const variant = e.dataTransfer.getData("variant") || "single";
       const label = e.dataTransfer.getData("label") || componentId;
 
-      if (!componentId && !isGroup && !isSticky && !isCluster && !isAnnotation) return;
+      if (!componentId && !isGroup && !isSticky && !isCluster && !isAnnotation && !isCanvasImage) return;
 
       const bounds = (e.target as HTMLDivElement).closest(".react-flow")?.getBoundingClientRect();
       const x = bounds ? e.clientX - bounds.left - 70 : e.clientX;
@@ -462,6 +485,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           data: {
             text: "",
             color: "#eab308",
+            title: "",
+            visibility: "customer",
           },
         };
         addNode(newSticky);
@@ -489,6 +514,24 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         if (activeDemoId) {
           const state = useDiagramStore.getState();
           saveDiagram(activeDemoId, [...state.nodes, newAnnotation], state.edges).then(() => setDirty(false)).catch(() => {});
+        }
+        return;
+      }
+
+      if (isCanvasImage && canvasImageId) {
+        const preset = CANVAS_IMAGE_PRESETS.find(p => p.id === canvasImageId);
+        const newImg: Node = {
+          id: `canvas-img-${Date.now()}`,
+          type: "canvas-image",
+          position: { x, y },
+          style: { width: preset?.defaultWidth || 200, height: preset?.defaultHeight || 60 },
+          zIndex: 10,
+          data: { image_id: canvasImageId, opacity: 0.8, layer: "foreground", label: "", locked: false },
+        };
+        addNode(newImg);
+        if (activeDemoId) {
+          const state = useDiagramStore.getState();
+          saveDiagram(activeDemoId, [...state.nodes, newImg], state.edges).then(() => setDirty(false)).catch(() => {});
         }
         return;
       }
@@ -847,13 +890,20 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   }, []);
 
   // Filter nodes/edges by visibility toggles in experience mode
-  const visibleNodes = isExperience
-    ? nodes.filter((n) => {
-        if (n.type === "annotation" && !showAnnotations) return false;
-        if (n.type === "schematic" && !showSchematics) return false;
-        return true;
-      })
-    : nodes;
+  // Also make hidden FA-internal stickies non-selectable/non-draggable without touching the store
+  const visibleNodes = nodes
+    .filter((n) => {
+      if (!isExperience) return true;
+      if (n.type === "annotation" && !showAnnotations) return false;
+      if (n.type === "schematic" && !showSchematics) return false;
+      return true;
+    })
+    .map((n) => {
+      if (n.type === "sticky" && (n.data as any).visibility === "internal" && !showFaNotes) {
+        return { ...n, selectable: false, draggable: false };
+      }
+      return n;
+    });
   const hiddenAnnotationIds = new Set(
     nodes.filter((n) => n.type === "annotation" && !showAnnotations).map((n) => n.id)
   );
@@ -1250,6 +1300,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           onClose={() => setLogViewer(null)}
         />
       )}
+
     </div>
   );
 }

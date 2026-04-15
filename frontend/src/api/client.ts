@@ -48,6 +48,11 @@ export const fetchComponents = () =>
 export const fetchComponentManifest = (componentId: string) =>
   apiFetch<any>(`/api/registry/components/${componentId}`);
 
+export const fetchComponentScenarios = (componentId: string) =>
+  apiFetch<{ scenarios: import("../types").ScenarioOption[]; component_id: string }>(
+    `/api/registry/components/${componentId}/scenarios`
+  );
+
 // Demos
 export const fetchDemos = () =>
   apiFetch<{ demos: import("../types").DemoSummary[] }>("/api/demos");

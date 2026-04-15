@@ -17,6 +17,7 @@ import CockpitOverlay from "./components/cockpit/CockpitOverlay";
 import WalkthroughPanel from "./components/walkthrough/WalkthroughPanel";
 import { getWalkthrough, WalkthroughStep } from "./api/client";
 import AppNav from "./components/nav/AppNav";
+import DeployStatusBar from "./components/deploy/DeployStatusBar";
 import { HomePage } from "./pages/HomePage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { ImagesPage } from "./pages/ImagesPage";
@@ -289,6 +290,9 @@ export default function App() {
         <div style={{ display: currentPage === "designer" ? "contents" : "none" }} className="flex flex-col h-full">
           {/* Top bar */}
           <Toolbar />
+
+          {/* Deployment status bar — shown below toolbar when deploying/stopping/running-flash */}
+          {activeDemoId && <DeployStatusBar demoId={activeDemoId} />}
 
           {/* Main area */}
           <div className="flex flex-1 min-h-0">
