@@ -59,18 +59,43 @@ HUB_URL="$DEFAULT_HUB_URL"
 _FA_VALID=0
 
 if [[ -z "$FA_KEY" ]]; then
-  warn "No FA key found in .env.local — skipping connectivity check."
-  warn "Run 'make fa-setup' first if this is a fresh install."
+  warn "FA key: not found in .env.local"
+  warn "  Run 'make fa-setup' to configure your FA credentials."
+  warn "  Template sync and license caching will be skipped."
+  echo ""
 else
-  # ── Step 2: Verify hub connectivity ───────────────────────────────────────
+  ok "FA key: found"
+  echo ""
+
+  # ── Step 2a: Hub connectivity (unauthenticated) ────────────────────────────
   log "Checking hub connectivity..."
   _HEALTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" \
     "${HUB_URL}/health" 2>/dev/null || echo "000")
   if [[ "$_HEALTH_HTTP" != "200" ]]; then
-    fail "Hub gateway unreachable (HTTP $_HEALTH_HTTP at ${HUB_URL}/health). Check your network connection."
+    fail "Hub gateway unreachable (HTTP $_HEALTH_HTTP). Check your network connection."
   fi
   ok "Hub reachable"
-  _FA_VALID=1
+
+  # ── Step 2b: Identity validation (authenticated) ──────────────────────────
+  log "Validating FA key with hub..."
+  _AUTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" \
+    "${HUB_URL}/api/hub/templates/" \
+    -H "X-Api-Key: ${FA_KEY}" \
+    -H "X-Fa-Api-Key: ${FA_KEY}" 2>/dev/null || echo "000")
+  if [[ "$_AUTH_HTTP" == "200" ]]; then
+    ok "FA key accepted"
+    _FA_VALID=1
+  elif [[ "$_AUTH_HTTP" == "401" ]]; then
+    warn "FA key rejected by hub (HTTP 401 Unauthorized)"
+    warn "  Your FA key may be invalid or expired. Run 'make fa-setup' to re-enter it."
+    warn "  Template sync and license caching will be skipped."
+  elif [[ "$_AUTH_HTTP" == "403" ]]; then
+    warn "FA key not authorized (HTTP 403 Forbidden)"
+    warn "  Contact your DemoForge admin to check your FA permissions."
+    warn "  Template sync and license caching will be skipped."
+  else
+    warn "Could not validate FA key (HTTP ${_AUTH_HTTP}) — skipping sync"
+  fi
   echo ""
 
   # ── Step 3: Version check ──────────────────────────────────────────────────
@@ -140,14 +165,16 @@ if [ "$_BACKEND_READY" -eq 1 ] && [ "$_FA_VALID" -eq 1 ]; then
   # ── Step 8: Sync templates from hub ─────────────────────────────────────────
   log "Syncing templates from hub..."
   _SYNCED=0
-  _SYNC_STATUS=""
+  _SYNC_ERRORED=0
   for i in $(seq 1 4); do
     _spinner_start "Contacting hub (attempt ${i}/4)..."
     _SYNC_RESP=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
       --connect-timeout 5 --max-time 30 2>/dev/null || true)
     _spinner_stop
 
+    # Parse response — handle {"status":"..."} and FastAPI {"detail":"..."} formats
     _SYNC_STATUS=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+    _SYNC_DETAIL=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('detail',''))" 2>/dev/null || echo "")
 
     if [[ "$_SYNC_STATUS" == "ok" ]]; then
       _DL=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('downloaded',0))" 2>/dev/null || echo "?")
@@ -160,9 +187,16 @@ if [ "$_BACKEND_READY" -eq 1 ] && [ "$_FA_VALID" -eq 1 ]; then
     elif [[ "$_SYNC_STATUS" == "error" ]]; then
       _SYNC_MSG=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','(no detail)'))" 2>/dev/null || echo "$_SYNC_RESP")
       warn "Template sync failed: ${_SYNC_MSG}"
-      break  # error response won't change on retry
+      _SYNC_ERRORED=1
+      break
+    elif [[ -n "$_SYNC_DETAIL" ]]; then
+      # FastAPI HTTP exception format: {"detail":"..."}
+      warn "Template sync failed: ${_SYNC_DETAIL}"
+      _SYNC_ERRORED=1
+      break
     elif [[ -n "$_SYNC_RESP" ]]; then
-      warn "Template sync: unexpected response — ${_SYNC_RESP}"
+      warn "Template sync failed: ${_SYNC_RESP}"
+      _SYNC_ERRORED=1
       break
     fi
 
@@ -173,7 +207,7 @@ if [ "$_BACKEND_READY" -eq 1 ] && [ "$_FA_VALID" -eq 1 ]; then
       _spinner_stop
     fi
   done
-  [ "$_SYNCED" -eq 0 ] && [[ "$_SYNC_STATUS" != "error" ]] && warn "Template sync timed out — will retry on next fa-update"
+  [ "$_SYNCED" -eq 0 ] && [ "$_SYNC_ERRORED" -eq 0 ] && warn "Template sync timed out — will retry on next fa-update"
   echo ""
 
   # ── Step 9: Cache license keys locally ──────────────────────────────────────
