@@ -31,7 +31,7 @@ export default function CanvasImageNode({ id, data, selected }: NodeProps) {
       >
         {preset ? (
           <img
-            src={`/canvas-images/${preset.svgPath}.svg`}
+            src={preset.svgUrl}
             alt={preset.label}
             className="w-full h-full object-contain"
             draggable={false}

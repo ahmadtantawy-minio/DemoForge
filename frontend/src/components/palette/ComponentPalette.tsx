@@ -166,7 +166,7 @@ export default function ComponentPalette() {
           >
             <div className="w-5 h-5 flex items-center justify-center shrink-0 overflow-hidden">
               <img
-                src={`/canvas-images/${CANVAS_IMAGE_PRESETS[0].svgPath}.svg`}
+                src={CANVAS_IMAGE_PRESETS[0].svgUrl}
                 alt="Visual"
                 className="max-w-full max-h-full object-contain"
               />
