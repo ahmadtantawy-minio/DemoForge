@@ -566,13 +566,29 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
             # randomize size per object
             import random as _r
             body = os.urandom(_r.randint(size_min, size_max))
-            key = key_name if "." in os.path.basename(key_name) else f"{key_name}.bin"
+            sha256_val = row.get("sha256")
+            if sha256_val:
+                key = f"{prefix}{sha256_val}.bin"
+            else:
+                key = key_name if "." in os.path.basename(key_name) else f"{key_name}.bin"
         else:  # text
             body = (row.get("content") or "lorem ipsum").encode("utf-8")
             key = key_name if key_name.endswith(".txt") else f"{key_name}.txt"
 
         put_kwargs = {"Bucket": bucket, "Key": key, "Body": body}
         client.put_object(**put_kwargs)
+
+        # Write JSON report sidecar for binary objects with sha256
+        also_report = dataset.get("also_write_report")
+        if also_report and fmt == "binary" and row.get("sha256"):
+            report_prefix = also_report.get("prefix", "reports/")
+            report_key = f"{report_prefix}{row['sha256']}.json"
+            report_data = {k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                           for k, v in row.items()}
+            report_body = json.dumps(report_data, indent=2).encode("utf-8")
+            client.put_object(Bucket=bucket, Key=report_key, Body=report_body,
+                              ContentType="application/json",
+                              ContentLength=len(report_body))
 
         # Tag objects with schema-derived metadata (used for mirror_to_table)
         if mirror_fields_spec:
@@ -654,7 +670,32 @@ def _parse_duration(d: str) -> float:
     return n * mul
 
 
-def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str):
+def _write_csv_to_s3(client, bucket: str, key: str, rows: list, schema: list):
+    import csv
+    import io
+    import datetime as _dt
+    buf = io.StringIO()
+    col_names = [c["name"] for c in schema]
+    writer = csv.writer(buf)
+    writer.writerow(col_names)
+    for row in rows:
+        out_row = []
+        for c in schema:
+            v = row.get(c["name"])
+            if isinstance(v, _dt.datetime):
+                v = v.isoformat()
+            elif isinstance(v, _dt.date):
+                v = str(v)
+            elif v is None:
+                v = ""
+            out_row.append(v)
+        writer.writerow(out_row)
+    data = buf.getvalue().encode("utf-8")
+    client.put_object(Bucket=bucket, Key=key, Body=data,
+                      ContentType="text/csv", ContentLength=len(data))
+
+
+def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str, client=None):
     ds_id = dataset["id"]
     ns = dataset.get("namespace", "default")
     tn = dataset["table_name"]
@@ -675,6 +716,18 @@ def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str)
         print(f"[{ds_id}] ensure_table failed: {exc}")
         return None
 
+    raw_landing = dataset.get("raw_landing")
+    rl_client = client if raw_landing and client else None
+    rl_bucket = rl_prefix = None
+    rl_batch_size = 5000
+    csv_buf = []
+    csv_file_num = 0
+    if rl_client and raw_landing:
+        rl_bucket = raw_landing.get("bucket", "raw-logs")
+        rl_prefix = raw_landing.get("prefix", "")
+        rl_batch_size = int(raw_landing.get("batch_size", 5000))
+        ensure_bucket(rl_client, rl_bucket)
+
     if mode in ("batch", "batch_then_stream"):
         total = int(gen_cfg.get("seed_rows", 1000))
         CHUNK = 2000
@@ -692,10 +745,29 @@ def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str)
             done = " — DONE" if written == total else ""
             print(f"[{ds_id}] Seeding: {written}/{total} rows ({pct}%){done}")
 
+            # CSV raw landing
+            if rl_client:
+                csv_buf.extend(rows)
+                while len(csv_buf) >= rl_batch_size:
+                    csv_file_num += 1
+                    batch = csv_buf[:rl_batch_size]
+                    csv_buf = csv_buf[rl_batch_size:]
+                    key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
+                    _write_csv_to_s3(rl_client, rl_bucket, key, batch, schema)
+                    print(f"[{ds_id}] CSV: {len(batch)} rows → s3://{rl_bucket}/{key}")
+
+        # Flush remainder
+        if rl_client and csv_buf:
+            csv_file_num += 1
+            key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
+            _write_csv_to_s3(rl_client, rl_bucket, key, csv_buf, schema)
+            print(f"[{ds_id}] CSV: {len(csv_buf)} rows (remainder) → s3://{rl_bucket}/{key}")
+            csv_buf = []
+
     return {"dataset": dataset, "schema": schema, "namespace": ns, "table_name": tn}
 
 
-def run_streams(stream_datasets: list, table_writer, ctx: dict):
+def run_streams(stream_datasets: list, table_writer, ctx: dict, client=None):
     """Round-robin stream generation for batch_then_stream / stream datasets."""
     if not stream_datasets:
         return
@@ -717,6 +789,23 @@ def run_streams(stream_datasets: list, table_writer, ctx: dict):
             "rate": rate,
         })
         print(f"[{ds['id']}] Streaming: {rate:g} rows/s")
+
+    # Build per-dataset CSV state for raw landing
+    for s in scheds:
+        ds = s["meta"]["dataset"]
+        rl = ds.get("raw_landing")
+        if rl and client:
+            rl_bucket = rl.get("bucket", "raw-logs")
+            ensure_bucket(client, rl_bucket)
+            s["csv_state"] = {
+                "buf": [],
+                "file_num": 0,
+                "bucket": rl_bucket,
+                "prefix": rl.get("prefix", ""),
+                "batch_size": 200,
+            }
+        else:
+            s["csv_state"] = None
 
     # Combined loop
     while True:
@@ -740,6 +829,17 @@ def run_streams(stream_datasets: list, table_writer, ctx: dict):
                         print(f"[{ds['id']}] streamed={s['rows_sent']} rate={s['rate']:g}/s")
                 except Exception as exc:
                     print(f"[{ds['id']}] stream append failed: {exc}")
+                if s.get("csv_state") and client:
+                    import datetime as _dt
+                    cs = s["csv_state"]
+                    cs["buf"].append(row)
+                    if len(cs["buf"]) >= cs["batch_size"]:
+                        cs["file_num"] += 1
+                        ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+                        key = f"{cs['prefix']}{ds['id']}_stream_{ts}_{cs['file_num']:05d}.csv"
+                        _write_csv_to_s3(client, cs["bucket"], key, cs["buf"], schema)
+                        print(f"[{ds['id']}] CSV stream: {len(cs['buf'])} rows → s3://{cs['bucket']}/{key}")
+                        cs["buf"] = []
                 s["next_fire"] += s["interval"]
         # Sleep until next event
         next_fire = min(s["next_fire"] for s in active)
@@ -926,7 +1026,7 @@ def main():
         if target == "object":
             write_object_dataset(client, ds, ctx, table_writer, table_kind)
         elif target == "table":
-            meta = write_table_dataset(ds, ctx, table_writer, table_kind)
+            meta = write_table_dataset(ds, ctx, table_writer, table_kind, client=client)
             mode = ds.get("generation", {}).get("mode", "batch")
             if meta and mode in ("stream", "batch_then_stream"):
                 stream_metas.append(meta)
@@ -941,7 +1041,7 @@ def main():
 
     # Stream phase
     if stream_metas and table_writer:
-        run_streams(stream_metas, table_writer, ctx)
+        run_streams(stream_metas, table_writer, ctx, client=client)
     else:
         print("[external-system] No streaming datasets — engine idling.")
         # Keep container alive

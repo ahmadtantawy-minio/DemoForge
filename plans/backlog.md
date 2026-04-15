@@ -6,21 +6,119 @@
 
 ## Backlog
 
-- [ ] **Bug: Integration logs not tracked in dedicated log tab**
+> **Execution order**: Sprint 1 → Sprint 2 (parallel) → Sprint 3 → Sprint 4 → Sprint 5 (doc only) → Sprint 6 → Sprint 7
+> Sprint 5 gates Sprint 6. All other sprints are sequential by priority.
+
+---
+
+### Sprint 1 — Quick Wins (S · no deps · ship immediately)
+
+- [ ] **Change: Remove last 2 tabs from Cyber Data Lake pre-defined SQL editor** `sprint:1`
+  - The SQL Editor in the Sovereign Cyber Data Lake template currently has too many tabs. Remove the last 2 tabs (rightmost) from the pre-built query set.
+
+- [ ] **Enhancement: Update ScenarioPicker dataset properties to reflect recent external-system changes** `sprint:1`
+  - The dataset cards shown in the ScenarioPicker (stream_rate, seed_rows) are stale after the recent data size reductions and raw_landing additions (firewall: 50k/5s, vuln-scan: 3k, threat-intel: 2k/100/50).
+  - Also surface `raw_landing` presence as a badge or indicator on the dataset card so users can see which datasets write to raw storage in addition to Iceberg.
+
+- [ ] **Validation: Cockpit throughput visible with raw file writes (Playwright MCP)** `sprint:1`
+  - Now that the external-system engine writes raw CSV files to MinIO (firewall and vuln-scan landing), validate via Playwright MCP that the Cockpit Throughput tab shows non-zero ops/s and bandwidth while the demo is running with the Sovereign Cyber Data Lake template.
+  - Test: deploy the template, wait for seeding to start, open Cockpit → Throughput tab, confirm metrics are non-zero.
+
+---
+
+### Sprint 2 — Bug Fixes (M · run in parallel · fix before building further)
+
+- [ ] **Bug: Metabase dashboards not pushed / not accessible after deploy** `sprint:2`
+  - Metabase is deployed as part of certain demo templates but dashboards are not being provisioned or are not accessible after the deploy completes. Investigate the provisioning flow: dashboard push mechanism, Metabase startup timing, and any connection or auth issues preventing dashboard access.
+  - Check: Metabase component init scripts, the provisioning step, and whether the dashboard URLs are correctly exposed via the control plane.
+  - Log-driven investigation first — read container logs to identify failure point before designing the fix.
+
+- [ ] **Bug: Integration logs not tracked in dedicated log tab** `sprint:2`
   - When a deployed demo runs integrations (e.g. external system data generator, init scripts), the logs from those integrations should appear in the dedicated "Logs" tab in the control plane. Investigate why log entries are missing or not being streamed to the frontend.
   - Check: backend log collection path for integration/init containers, the log streaming endpoint, and the frontend log tab component to identify where the gap is.
 
-- [ ] **Bug: Metabase dashboards not pushed / not accessible after deploy**
-  - Metabase is deployed as part of certain demo templates but dashboards are not being provisioned or are not accessible after the deploy completes. Investigate the provisioning flow: dashboard push mechanism, Metabase startup timing, and any connection or auth issues preventing dashboard access.
-  - Check: Metabase component init scripts, the provisioning step, and whether the dashboard URLs are correctly exposed via the control plane.
+---
 
-- [ ] **Fix: Update AIStor & Iceberg logos to use bundled assets — works offline on FA PCs**
+### Sprint 3 — FA Offline-First Epic (L · strategic · highest FA field value)
+
+- [ ] **Epic: FA Offline-First Mode — sync on demand, run fully offline** `sprint:3`
+
+  **Goal**: FAs sync explicitly via `fa-update`, cache everything locally, then run fully offline. Cloud unavailability must never block usage.
+
+  **fa-update responsibilities** (pull from hub, cache locally):
+  - Pull and cache latest platform images (MinIO, Trino, Metabase, etc.) and custom component images
+  - Pull latest template YAMLs from hub and write to `synced-templates/`
+  - Pull and cache all license keys for all known FA IDs (not just self) — stored locally so the app never needs to reach the hub for validation at runtime
+  - FA key validation happens **only** in `fa-setup` and `fa-update` — not during normal app operation
+  - Version check: if the FA machine has connectivity at update time, check for a newer DemoForge version and warn if one is available
+
+  **Runtime behavior** (after sync):
+  - App boots from locally cached templates and license keys — no hub calls on startup or during normal use
+  - If hub is unreachable at runtime, app runs normally with cached data; no warning/error shown to the user
+  - Sync is **not triggered from the UI** — remove or disable any "Sync from Hub" button in FA mode; sync is a CLI-only action via `fa-update`
+  - License key validation at runtime uses cached keys only — no outbound call to hub
+
+  **Connectivity-aware version check**:
+  - During normal app operation, if the FA machine is connected to the internet, a lightweight background version check is still performed (non-blocking, e.g. on the Settings page) and surfaces a notice if a newer version is available
+  - This check must not block or degrade app performance when offline
+
+  **Files likely involved**: `demoforge.sh` (`fa-update`, `fa-setup` functions), `backend/app/config/license_store.py`, `backend/app/api/fa_admin.py`, `frontend/src/components/templates/TemplateGallery.tsx` (remove sync button in FA mode), `backend/app/engine/template_sync.py`
+
+---
+
+### Sprint 4 — SQL Editor UX (M · confirm font before starting)
+
+- [ ] **Enhancement: SQL Editor — wider default width, syntax highlighting, font** `sprint:4`
+  - The SQL Editor modal is too narrow by default. Increase the default modal width so more SQL is visible without scrolling.
+  - Apply SQL syntax highlighting using CodeMirror 6 (lighter bundle than Monaco) with SQL mode for keyword coloring (SELECT, FROM, WHERE, GROUP BY, etc.), string literals, and comments.
+  - **Font**: Times New Roman was requested but is a serif font — will misalign SQL indentation. Confirm with requester before this sprint opens; suggest `JetBrains Mono` or `Fira Code` as monospace alternatives.
+
+---
+
+### Sprint 5 — Add Pool Architect Doc (M · doc only · gates Sprint 6)
+
+- [ ] **Architect doc: MinIO Cluster — "Add Pool" impact assessment** `sprint:5` `doc-only`
+  - No implementation code this sprint. Spawn architect agent to produce `plans/architect-add-pool.md` covering:
+    1. How MinIO pool expansion works at the API/CLI level (online vs. restart-required)
+    2. How the new pool's containers are named, networked, and added to the compose file (`compose_generator` impact)
+    3. How `demo_state` tracks pool count and drive/node counts so the canvas node re-renders correctly
+    4. Whether the existing `_force_remove_containers` / decommission flow needs to handle variable pool counts on destroy
+    5. How the decommission/commission state model (Sprint 6) shares infrastructure with Add Pool
+  - Sprint 6 is blocked until this doc is approved.
+
+---
+
+### Sprint 6 — MinIO Pool Lifecycle (L · requires Sprint 5 doc approved · docker-expert + minio-expert review)
+
+- [ ] **Enhancement: MinIO Cluster — pool decommission/commission lifecycle with state tracking** `sprint:6`
+  - When a cluster has more than 1 pool running, expose a "Decommission Pool" action in the per-pool context menu (pool header or pool row in the Instances/Cockpit panel). Decommissioning initiates `mc admin decommission start` and tracks progress via polling.
+  - Track decommission state per-pool in the demo's running state: `idle | decommissioning | decommissioned`. Surface state in the Cockpit and in the canvas cluster node (badge per pool).
+  - A decommissioned pool can be re-commissioned ("Commission Pool" action appears when pool state is `decommissioned`). Commission should call `mc admin decommission cancel` or re-add the pool, whichever is appropriate for the MinIO version in use.
+  - Decommission/commission state must survive page refresh (persisted in backend demo state, not just in-memory).
+
+- [ ] **Enhancement: MinIO Cluster — "Add Pool" from context menu at runtime** `sprint:6` `blocked-by:sprint-5`
+  - When a cluster is running, expose "Add Pool" in the cluster context menu. Implementation follows the design in `plans/architect-add-pool.md`.
+  - Adding a pool provisions new containers (new `pool{N}` set of drives + nodes) and integrates with the pool state model built for decommission above.
+
+---
+
+### Sprint 7 — Webhook Receiver Component (XL · isolated · largest scope)
+
+- [ ] **Enhancement: MinIO Bucket Webhook edge + Webhook Receiver component** `sprint:7`
+  - Add a new connection type `bucket-webhook` that can originate from a MinIO Node or Cluster. The edge should have a configurable property: `bucket_name` (string, set in the edge properties panel). The edge label displays the bucket name.
+  - The edge must terminate on a new **Webhook Receiver** component. This is a lightweight service (simple HTTP server) that accepts incoming MinIO bucket-notification webhooks and stores them in memory (ring buffer, 500 events max).
+  - The Webhook Receiver component includes a built-in UI (served on its own port, accessible via the control plane or a direct link in the Instances panel) that shows received webhooks latest-first, with expandable detail (event type, object key, bucket, timestamp, full JSON payload). MVP: no auth, no search, no export.
+  - On deploy: `compose_generator` wires the MinIO `notify_webhook` config for the specified bucket pointing to the receiver container's HTTP endpoint. The receiver container auto-starts and registers itself.
+  - The component should appear in the palette under a "Integrations" or "Receivers" category.
+  - Requires `minio-expert` review (MinIO notify_webhook config) and `frontend-designer` (receiver UI).
+
+- [x] **Fix: Update AIStor & Iceberg logos to use bundled assets — works offline on FA PCs**
   - The AIStor Tables and Apache Iceberg canvas images currently reference SVG files served from `/canvas-images/` at runtime. On FA (Field Accelerator) PCs deployed without internet access, these may not load if the path resolution differs from development.
   - Audit how `CanvasImageNode` loads SVG files — check whether they are inlined as imports or fetched from a public URL at runtime.
   - Update the SVG loading to import them directly from `frontend/src/assets/canvas-images/` so they are bundled into the Vite build output and work fully offline. Apply to all presets in `canvasImagePresets.ts`.
   - Verify the fix works in both dev mode and production build (`npm run build`).
 
-- [ ] **Enhancement: Consolidate visual components — single component with type picker in Layout category**
+- [x] **Enhancement: Consolidate visual components — single component with type picker in Layout category**
   - The canvas currently has separate draggable items for each visual preset (logos, zone badges, etc.) in the palette. Consolidate into a single "Visual" palette item in the **Layout** category where the user selects the visual type from the properties panel after dropping it on the canvas.
   - The properties panel shows a "Visual Type" selector (dropdown of all available presets). Changing the type re-renders the component accordingly.
   - No functional changes to how visuals behave — only the palette/selection UX changes. The new "Visual" item should appear in the existing Layout category alongside group/annotation/sticky note.

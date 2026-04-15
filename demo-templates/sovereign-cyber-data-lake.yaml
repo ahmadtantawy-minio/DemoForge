@@ -473,14 +473,14 @@ sticky_notes:
 annotations:
 - id: annotation-1
   position:
-    x: 85.0
-    y: -265.75
-  width: 680
-  height: 261
+    x: 54.22606884933862
+    y: -222.76094159729607
+  width: 820
+  height: null
   title: Cyber Data Lake
   body: A sovereign security data lake powered by **MinIO AIStor Tables** — **structured
-    firewall logs**, **semi-structured threat intelligence feeds**, and **unstructured**
-    malware samples unified in a single high-performance Iceberg-native data store.
+    firewall logs**, **semi-structured threat intelligence feeds**, and **unstructured
+    malware samples** unified in a single high-performance Iceberg-native data store.
     One platform for tables and objects, **one built-in catalog**, one security model
     — queryable across all data types with standard SQL through Trino and visualized
     in real-time with Metabase.
@@ -488,7 +488,7 @@ annotations:
   step_number: null
   pointer_target: null
   collapsed: false
-  font_size: lg
+  font_size: xl
 schematics: []
 clusters:
 - id: aistor-1
@@ -521,16 +521,38 @@ clusters:
     ec_parity_upgrade_policy: upgrade
     volume_path: /data
 canvas_images:
-- id: ci-aistor-logo
+- id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: 304.0
-    y: 175.0
-  width: 260
-  height: 76
-  opacity: 0.9
-  layer: background
-  label: ""
+    x: -209.0
+    y: -225.5
+  width: 240
+  height: 70
+  opacity: 0.8
+  layer: foreground
+  label: ''
+  locked: false
+- id: canvas-img-1776252006401
+  image_id: minio-aistor-tables-logo
+  position:
+    x: -209.0
+    y: -225.5
+  width: 240
+  height: 70
+  opacity: 0.8
+  layer: foreground
+  label: ''
+  locked: false
+- id: canvas-img-1776256028144
+  image_id: apache-iceberg-logo
+  position:
+    x: -183.0
+    y: -123.0
+  width: 180
+  height: 55
+  opacity: 0.8
+  layer: foreground
+  label: ''
   locked: false
 resources:
   default_memory: 512m
@@ -541,5 +563,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-15T10:54:00.160889+00:00'
+updated_at: '2026-04-15T12:27:24.145574+00:00'
 source_template_id: sovereign-cyber-data-lake

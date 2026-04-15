@@ -1,4 +1,5 @@
 import { Home, LayoutDashboard, FileText, HardDrive, ShieldCheck, Users, Wifi, Settings, Sun, Moon } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useDemoStore, type PageKey } from "../../stores/demoStore";
 
 const baseTopItems: { key: PageKey; icon: typeof Home; label: string }[] = [
@@ -18,6 +19,14 @@ export default function AppNav() {
   const setCurrentPage = useDemoStore((s) => s.setCurrentPage);
   const faMode = useDemoStore((s) => s.faMode);
   const hubLocal = useDemoStore((s) => s.hubLocal);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/version")
+      .then((r) => r.json())
+      .then((d) => setAppVersion(d.version ?? null))
+      .catch(() => {});
+  }, []);
 
   const modeLabel = faMode !== "dev" ? "FA" : hubLocal ? "D-LOC" : "D-GCP";
   const modeLabelClass = faMode !== "dev"
@@ -40,9 +49,14 @@ export default function AppNav() {
       <div className="w-7 h-7 rounded-md bg-[#C72C48] flex items-center justify-center mb-1">
         <span className="text-white font-bold text-xs">DF</span>
       </div>
-      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded mb-2 leading-none ${modeLabelClass}`}>
+      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded leading-none ${modeLabelClass} ${faMode !== "dev" && appVersion ? "mb-0.5" : "mb-2"}`}>
         {modeLabel}
       </span>
+      {faMode !== "dev" && appVersion && (
+        <span className="text-[7px] text-zinc-600 leading-none mb-2 px-1 text-center" title={appVersion}>
+          {appVersion}
+        </span>
+      )}
 
       {/* Top nav items */}
       <div className="flex flex-col items-center gap-1 flex-1">

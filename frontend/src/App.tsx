@@ -34,6 +34,7 @@ export default function App() {
   const prevInstances = useRef<Record<string, { health: string; init_status: string }>>({});
   const prevDemoStatuses = useRef<Record<string, string>>({});
   const provisionEmitted = useRef<Set<string>>(new Set());
+  const initResultsEmitted = useRef<Set<string>>(new Set());
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(200);
@@ -98,8 +99,11 @@ export default function App() {
         if (prev !== undefined && prev !== d.status) {
           const level = d.status === "error" ? "error" : "info";
           addDebugEntry(level, "Lifecycle", `Demo "${d.id}": ${prev} → ${d.status}`);
-          // Reset provision emit guard on new deploy so the edge-watch effect re-emits
-          if (d.status === "deploying") provisionEmitted.current.delete(d.id);
+          // Reset emit guards on new deploy so they re-fire for the fresh run
+          if (d.status === "deploying") {
+            provisionEmitted.current.delete(d.id);
+            initResultsEmitted.current.delete(d.id);
+          }
         }
         prevDemoStatuses.current[d.id] = d.status;
       }
@@ -218,6 +222,15 @@ export default function App() {
           });
           if (updated.some((e, i) => e !== edges[i])) {
             setEdges(updated);
+          }
+        }
+        // Emit init script results to the Integrations tab (once per deploy)
+        if (res.init_results && res.init_results.length > 0 && !initResultsEmitted.current.has(activeDemoId)) {
+          initResultsEmitted.current.add(activeDemoId);
+          for (const result of res.init_results) {
+            const level = result.exit_code === 0 ? "info" : "error";
+            const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+            addDebugEntry(level, "Provision", `${result.node_id}: init (exit ${result.exit_code})`, output || undefined);
           }
         }
         // Update failover edge status

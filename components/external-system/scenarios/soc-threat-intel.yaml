@@ -53,7 +53,7 @@ datasets:
 
     generation:
       mode: batch
-      seed_rows: 8000
+      seed_rows: 2000
 
   # 2. STIX bundle objects ----------------------------------------------------
   - id: threat_feeds_raw
@@ -77,9 +77,9 @@ datasets:
 
     generation:
       mode: batch
-      seed_count: 500
+      seed_count: 100
 
-  # 3. Malware sample vault ---------------------------------------------------
+  # 3. Malware sample vault — binary + JSON report + Iceberg metadata -----------------------------------
   - id: malware_samples
     target: object
     bucket: malware-vault
@@ -88,27 +88,74 @@ datasets:
     object_size_min: 10240
     object_size_max: 524288
 
+    # Write JSON sandbox analysis report alongside each binary
+    also_write_report:
+      prefix: "reports/"
+
     mirror_to_table:
       namespace: soc
       table_name: malware_metadata
-      fields: [sha256, file_type, sandbox_verdict, threat_actor, file_size_bytes]
+      fields: [sha256, file_type, sandbox_verdict, threat_actor, file_size_bytes,
+               malware_family, analysis_timestamp, sandbox_engine, analysis_duration_seconds]
 
     schema:
-      - {name: object_id,        type: string, generator: uuid}
-      - {name: sha256,           type: string, generator: ioc,
+      - {name: object_id,       type: string, generator: uuid}
+      - {name: sha256,          type: string, generator: ioc,
          params: {ioc_type: sha256}}
-      - {name: file_type,        type: string, generator: weighted_choice,
+      - {name: file_type,       type: string, generator: weighted_choice,
          params: {choices: {PE32: 0.35, ELF: 0.20, Macho: 0.10, DOCX: 0.15, XLSX: 0.10, JS: 0.05, PDF: 0.05}}}
-      - {name: sandbox_verdict,  type: string, generator: weighted_choice,
+      - {name: sandbox_verdict, type: string, generator: weighted_choice,
          params: {choices: {benign: 0.3, suspicious: 0.4, malicious: 0.3}}}
-      - {name: threat_actor,     type: string, generator: weighted_choice,
+      - {name: threat_actor,    type: string, generator: weighted_choice,
          params: {choices: {APT29: 4, FIN7: 4, Lazarus: 3, Sandworm: 3, TA505: 2, APT41: 3, Carbanak: 2, Turla: 2, Unknown: 8}}}
-      - {name: file_size_bytes,  type: long,   generator: distribution,
+      - {name: file_size_bytes, type: long,   generator: distribution,
          params: {type: lognormal, mean: 10.8, sigma: 2.0, min: 1024, max: 10000000}}
+      - {name: malware_family,  type: string, generator: weighted_choice,
+         params: {choices: {Shamoon: 0.10, Triton: 0.07, LockerGoga: 0.15, BlackCat: 0.10, Emotet: 0.08, Cobalt Strike: 0.12, unknown: 0.38}}}
+      - name: behavioral_indicators
+        type: string
+        generator: json_object
+        params:
+          type: array
+          sample_from:
+            - creates_mutex
+            - modifies_registry
+            - contacts_c2_domain
+            - attempts_privilege_escalation
+            - disables_security_tools
+            - encrypts_files
+            - exfiltrates_data
+            - installs_backdoor
+            - keylogger_activity
+            - lateral_movement_attempt
+          min_items: 2
+          max_items: 6
+      - name: mitre_techniques
+        type: string
+        generator: json_object
+        params:
+          type: array
+          sample_from:
+            - "T1059.001"
+            - "T1547.001"
+            - "T1071.001"
+            - "T1486"
+            - "T1021.002"
+            - "T1110.001"
+            - "T1055"
+            - "T1027"
+          min_items: 1
+          max_items: 4
+      - {name: analysis_timestamp, type: timestamp, generator: time_series,
+         params: {start: "2025-06-01T00:00:00Z", end: "2026-04-14T00:00:00Z"}}
+      - {name: sandbox_engine,     type: string, generator: weighted_choice,
+         params: {choices: {"CrowdStrike Falcon Sandbox": 0.40, "Joe Sandbox": 0.30, "Cuckoo Sandbox": 0.20, "ANY.RUN": 0.10}}}
+      - {name: analysis_duration_seconds, type: integer, generator: distribution,
+         params: {type: uniform, min: 60, max: 300}}
 
     generation:
       mode: batch
-      seed_count: 200
+      seed_count: 50
 
 dashboards:
   - id: threat-intel-overview
@@ -182,6 +229,7 @@ saved_queries:
       order: 3
       visualization: bar
       query: |
-        SELECT sandbox_verdict, COUNT(*) AS samples
+        SELECT sandbox_verdict, malware_family, COUNT(*) AS samples
         FROM iceberg.soc.malware_metadata
-        GROUP BY sandbox_verdict
+        GROUP BY sandbox_verdict, malware_family
+        ORDER BY samples DESC

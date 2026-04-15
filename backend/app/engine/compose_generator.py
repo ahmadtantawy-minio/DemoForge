@@ -1431,40 +1431,35 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         setup_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "setup-metabase.sh")
         provision_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "provision.py")
 
-        # Build MB_PROVISION_SPEC from any dashboard-provision edges pointing to Metabase
+        # Build MB_PROVISION_SPEC from any external-system node with ES_SCENARIO config.
+        # No dashboard-provision edge required — provisioning is a startup procedure.
         provision_spec = ""
+        import yaml as _yaml
+        import json as _json
         for es_node in [n for n in demo.nodes if n.component == "external-system"]:
-            for edge in demo.edges:
-                if edge.connection_type != "dashboard-provision":
-                    continue
-                if not ((edge.source == es_node.id and edge.target == metabase_node.id) or
-                        (edge.target == es_node.id and edge.source == metabase_node.id)):
-                    continue
-                scenario_id = (es_node.config or {}).get("ES_SCENARIO", "")
-                if not scenario_id:
-                    continue
-                scenario_path = os.path.join(
-                    os.path.abspath(components_dir), "external-system", "scenarios",
-                    f"{scenario_id}.yaml"
-                )
-                if not os.path.exists(scenario_path):
-                    logger.warning(f"Scenario YAML not found: {scenario_path}")
-                    continue
-                import yaml as _yaml
-                with open(scenario_path) as _f:
-                    scenario_data = _yaml.safe_load(_f)
-                spec = {
-                    "dashboards": scenario_data.get("dashboards", []),
-                    "saved_queries": scenario_data.get("saved_queries", {}),
-                }
-                import json as _json
-                # Substitute default 'iceberg.' catalog with the actual catalog name
-                spec_str = _json.dumps(spec)
-                if catalog and catalog != "iceberg":
-                    spec_str = spec_str.replace('"iceberg.', f'"{catalog}.')
-                provision_spec = spec_str
-                logger.info(f"Injecting MB_PROVISION_SPEC for scenario '{scenario_id}' (catalog={catalog})")
-                break
+            scenario_id = (es_node.config or {}).get("ES_SCENARIO", "")
+            if not scenario_id:
+                continue
+            scenario_path = os.path.join(
+                os.path.abspath(components_dir), "external-system", "scenarios",
+                f"{scenario_id}.yaml"
+            )
+            if not os.path.exists(scenario_path):
+                logger.warning(f"Scenario YAML not found: {scenario_path}")
+                continue
+            with open(scenario_path) as _f:
+                scenario_data = _yaml.safe_load(_f)
+            dashboards = scenario_data.get("dashboards", [])
+            saved_queries = scenario_data.get("saved_queries", {})
+            if not dashboards and not saved_queries:
+                continue
+            spec_str = _json.dumps({"dashboards": dashboards, "saved_queries": saved_queries})
+            # Substitute default 'iceberg.' catalog with the actual catalog name
+            if catalog and catalog != "iceberg":
+                spec_str = spec_str.replace('"iceberg.', f'"{catalog}.')
+            provision_spec = spec_str
+            logger.info(f"Injecting MB_PROVISION_SPEC for scenario '{scenario_id}' (catalog={catalog})")
+            break
 
         if os.path.exists(setup_script):
             setup_host_path = _to_host_path(setup_script, "components")

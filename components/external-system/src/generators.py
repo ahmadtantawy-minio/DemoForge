@@ -372,6 +372,12 @@ def gen_nullable(params, row, ctx):
 
 
 def gen_json_object(params, row, ctx):
+    if params.get("type") == "array":
+        items = params.get("sample_from", [])
+        mn = int(params.get("min_items", 1))
+        mx = int(params.get("max_items", len(items)))
+        k = random.randint(mn, min(mx, len(items)))
+        return json.dumps(random.sample(items, k))
     fields = params.get("fields", [])
     obj = {}
     for f in fields:

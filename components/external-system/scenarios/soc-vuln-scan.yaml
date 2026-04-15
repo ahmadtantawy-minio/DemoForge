@@ -16,6 +16,12 @@ datasets:
     format: parquet
     partition_by: [severity]
 
+    raw_landing:
+      bucket: raw-logs
+      prefix: "vuln-scan/"
+      batch_size: 5000
+      include_header: true
+
     schema:
       - {name: vuln_id,             type: string,  nullable: false, generator: uuid}
       - {name: host_ip,             type: string,  generator: ip_address,
@@ -49,7 +55,7 @@ datasets:
 
     generation:
       mode: batch
-      seed_rows: 15000
+      seed_rows: 3000
 
 dashboards:
   - id: vuln-posture

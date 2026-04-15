@@ -47,6 +47,12 @@ datasets:
     format: parquet
     partition_by: [event_date]
 
+    raw_landing:
+      bucket: raw-logs
+      prefix: "firewall/"
+      batch_size: 5000
+      include_header: true
+
     schema:
       - {name: event_id,           type: string,    nullable: false, generator: uuid}
       - {name: event_timestamp,    type: timestamp, nullable: false, generator: timestamp,
@@ -86,8 +92,8 @@ datasets:
 
     generation:
       mode: batch_then_stream
-      seed_rows: 500000
-      stream_rate: "25/s"
+      seed_rows: 50000
+      stream_rate: "5/s"
       stream_duration: forever
 
 correlations:
@@ -151,7 +157,7 @@ dashboards:
             'Parquet → Iceberg' AS format,
             (SELECT count(*) FROM iceberg.soc.firewall_events) AS row_count,
             (SELECT max(event_timestamp) FROM iceberg.soc.firewall_events) AS latest_record,
-            'Streaming (25/s)' AS ingestion_mode
+            'Streaming (5/s)' AS ingestion_mode
           UNION ALL
           SELECT
             'threat_iocs',
@@ -172,10 +178,10 @@ dashboards:
           SELECT
             'malware_metadata',
             'Unstructured origin (mirror)',
-            'Binary objects → Iceberg metadata',
+            'Binary → JSON report → Iceberg metadata',
             (SELECT count(*) FROM iceberg.soc.malware_metadata),
             CAST(NULL AS timestamp),
-            'Batch (mirror of raw objects)'
+            'Batch (binary → report → table)'
         position: {row: 1, col: 0, width: 24, height: 10}
 
       - id: stat-data-type-split
@@ -191,7 +197,7 @@ dashboards:
           SELECT 'Semi-structured (IOCs w/ JSON)',
                  (SELECT count(*) FROM iceberg.soc.threat_iocs)
           UNION ALL
-          SELECT 'Unstructured origin (malware)',
+          SELECT 'Unstructured origin (sandbox reports)',
                  (SELECT count(*) FROM iceberg.soc.malware_metadata)
         position: {row: 2, col: 0, width: 10, height: 8}
 
@@ -368,7 +374,7 @@ saved_queries:
           'Parquet → Iceberg' AS format,
           (SELECT count(*) FROM iceberg.soc.firewall_events) AS row_count,
           (SELECT max(event_timestamp) FROM iceberg.soc.firewall_events) AS latest_record,
-          'Streaming (25/s)' AS ingestion
+          'Streaming (5/s)' AS ingestion
         UNION ALL
         SELECT 'threat_iocs', 'Structured + Semi-structured (JSON)', 'Parquet → Iceberg',
           (SELECT count(*) FROM iceberg.soc.threat_iocs),
@@ -380,10 +386,10 @@ saved_queries:
           (SELECT max(scan_timestamp) FROM iceberg.soc.vulnerability_scan),
           'Batch'
         UNION ALL
-        SELECT 'malware_metadata', 'Unstructured origin (mirror)', 'Binary → Iceberg metadata',
+        SELECT 'malware_metadata', 'Unstructured origin (sandbox reports)', 'Binary → JSON report → Iceberg metadata',
           (SELECT count(*) FROM iceberg.soc.malware_metadata),
           CAST(NULL AS timestamp),
-          'Batch (mirror)'
+          'Batch (binary → report → table)'
 
     - id: q-streaming-rate
       tab: overview
@@ -429,6 +435,32 @@ saved_queries:
              FROM iceberg.soc.firewall_events f
              JOIN iceberg.soc.vulnerability_scan v ON f.src_ip = v.host_ip)
             / NULLIF((SELECT count(DISTINCT src_ip) FROM iceberg.soc.firewall_events), 0), 2)
+
+    - id: q-raw-inventory
+      tab: overview
+      title: "Raw data inventory"
+      description: "All raw data landing zones with format, destination table, and ingestion mode"
+      order: 4
+      visualization: table
+      query: |
+        SELECT
+          'raw-logs/firewall/' AS storage_path,
+          'CSV' AS raw_format,
+          'Firewall event logs' AS description,
+          '→ iceberg.soc.firewall_events' AS iceberg_table,
+          'Streaming (5/s)' AS mode
+        UNION ALL
+        SELECT 'raw-logs/vuln-scan/', 'CSV', 'Vulnerability scan exports',
+          '→ iceberg.soc.vulnerability_scan', 'Batch'
+        UNION ALL
+        SELECT 'threat-intel/feeds/stix/', 'JSON (STIX 2.1)', 'Threat intelligence bundles',
+          '→ iceberg.soc.threat_iocs', 'Batch'
+        UNION ALL
+        SELECT 'malware-vault/samples/', 'Binary', 'Raw malware samples (opaque bytes)',
+          '(not directly queryable)', 'Batch'
+        UNION ALL
+        SELECT 'malware-vault/reports/', 'JSON', 'Sandbox analysis reports',
+          '→ iceberg.soc.malware_metadata', 'Batch'
 
     - id: q-event-count
       tab: structured
@@ -526,23 +558,25 @@ saved_queries:
       tab: unstructured
       subcollection: sc-unstructured
       title: "Q6. Malware samples by verdict and threat actor"
-      description: "Queries soc.malware_metadata — an Iceberg table mirrored from raw binary objects. The original files are opaque binaries; this table contains extracted metadata."
+      description: "Queries soc.malware_metadata — extracted from sandbox JSON reports. Provenance: raw binary → sandbox analysis → JSON report → this Iceberg table."
       order: 6
       visualization: bar
       query: |
-        -- soc.malware_metadata is a mirror table
-        -- Source: raw binary files in the malware-vault S3 bucket
-        -- Each file is opaque binary data (PE, ELF, script, document)
-        -- Metadata (sha256, file_type, verdict) was extracted during ingestion
-        -- and written as an Iceberg table for queryability
+        -- soc.malware_metadata: structured records extracted from sandbox analysis reports.
+        -- Provenance: raw binary (malware-vault/samples/{sha256}.bin)
+        --   → sandbox analysis
+        --   → JSON report (malware-vault/reports/{sha256}.json)
+        --   → this Iceberg table (rows extracted from report fields)
+        -- The binary is opaque. The report is semi-structured JSON. This table is structured output.
         SELECT
           threat_actor,
           sandbox_verdict,
+          malware_family,
           count(*) AS samples,
           round(avg(file_size_bytes) / 1024, 1) AS avg_size_kb
         FROM iceberg.soc.malware_metadata
-        GROUP BY 1, 2
-        ORDER BY 3 DESC
+        GROUP BY 1, 2, 3
+        ORDER BY 4 DESC
 
     - id: q-malware-filetypes
       tab: unstructured
@@ -552,15 +586,18 @@ saved_queries:
       order: 7
       visualization: bar
       query: |
-        -- What types of malicious files are we seeing?
-        -- These were raw binaries — now queryable as structured data
+        -- Source chain: binary sample → sandbox analysis → JSON report → Iceberg table.
+        -- The file_type and analysis_duration come from the sandbox report, not the raw binary.
+        -- Raw binaries are stored in malware-vault/samples/{sha256}.bin (opaque bytes).
+        -- Sandbox reports are in malware-vault/reports/{sha256}.json (semi-structured JSON).
         SELECT
           file_type,
           sandbox_verdict,
           count(*) AS sample_count,
           round(min(file_size_bytes) / 1024, 1) AS min_kb,
           round(avg(file_size_bytes) / 1024, 1) AS avg_kb,
-          round(max(file_size_bytes) / 1024, 1) AS max_kb
+          round(max(file_size_bytes) / 1024, 1) AS max_kb,
+          round(avg(analysis_duration_seconds), 0) AS avg_analysis_secs
         FROM iceberg.soc.malware_metadata
         GROUP BY 1, 2
         ORDER BY 3 DESC
@@ -573,13 +610,14 @@ saved_queries:
       order: 8
       visualization: table
       query: |
-        -- This query spans TWO data types:
-        --   Structured:           iceberg.soc.firewall_events (Iceberg table from Parquet)
-        --   Structured:           iceberg.soc.threat_iocs (Iceberg table from Parquet)
-        --   Unstructured-origin:  iceberg.soc.malware_metadata (mirror of raw binaries)
+        -- Three tables, three original formats:
+        --   soc.firewall_events  ← ingested from CSV logs (raw-logs/firewall/*.csv)
+        --   soc.threat_iocs      ← extracted from STIX JSON feeds (threat-intel/feeds/stix/*.json)
+        --   soc.malware_metadata ← extracted from sandbox JSON reports (malware-vault/reports/*.json)
         SELECT
           m.threat_actor,
           m.sandbox_verdict,
+          m.malware_family,
           count(DISTINCT m.sha256) AS malware_variants,
           count(DISTINCT f.src_ip) AS source_ips_seen,
           count(*) AS total_firewall_hits,
@@ -590,8 +628,8 @@ saved_queries:
           AND t.ioc_type = 'ipv4'
         JOIN iceberg.soc.firewall_events f
           ON f.src_ip = t.indicator
-        GROUP BY 1, 2
-        ORDER BY 5 DESC
+        GROUP BY 1, 2, 3
+        ORDER BY 6 DESC
 
     - id: q-full-threat-picture
       tab: unified
@@ -602,19 +640,22 @@ saved_queries:
       visualization: table
       query: |
         -- ALL THREE DATA TYPES IN ONE QUERY:
-        --   Structured:           iceberg.soc.firewall_events (Iceberg, from Parquet)
-        --   Semi-structured:      iceberg.soc.threat_iocs.tags (JSON field, json_extract_scalar)
-        --   Unstructured-origin:  iceberg.soc.malware_metadata (mirror of raw binary objects)
+        --   Structured (originally CSV):
+        --     soc.firewall_events — raw CSV logs in raw-logs/firewall/, ingested into Iceberg
+        --   Semi-structured (JSON fields):
+        --     soc.threat_iocs.tags — JSON column parsed via json_extract_scalar
+        --     Source: STIX 2.1 JSON bundles in threat-intel/feeds/stix/
+        --   Unstructured origin (from sandbox analysis of raw binaries):
+        --     soc.malware_metadata — extracted from sandbox JSON reports
+        --     Raw binaries in malware-vault/samples/ are opaque bytes
+        --     Sandbox reports in malware-vault/reports/ are semi-structured JSON
+        --     Structured fields extracted from reports into this Iceberg table
         SELECT
           t.threat_actor,
           count(DISTINCT f.src_ip) AS source_ips,
           count(DISTINCT f.dst_ip) AS internal_hosts_affected,
           count(DISTINCT m.sha256) AS malware_variants,
           round(avg(t.confidence), 0) AS avg_ioc_confidence,
-          sum(CASE
-            WHEN json_extract_scalar(t.tags, '$.reviewed') = 'true'
-            THEN 1 ELSE 0
-          END) AS reviewed_iocs,
           sum(CASE
             WHEN json_extract_scalar(t.tags, '$.active') = 'true'
             THEN 1 ELSE 0

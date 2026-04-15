@@ -238,7 +238,7 @@ export default function DebugPanel() {
               const integrationEntries = [...entries].filter((e) => e.source === "Provision").reverse();
               return integrationEntries.length === 0 ? (
                 <div className="flex items-center justify-center h-32 text-muted-foreground">
-                  No integration events yet. Deploy a demo with integration edges (e.g. dashboard-provision) to see advertisements here.
+                  No integration events yet. Deploy a demo with external-system or data-generator nodes to see init script results here.
                 </div>
               ) : (
                 integrationEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)
