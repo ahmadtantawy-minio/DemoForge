@@ -103,7 +103,7 @@ dashboards:
         settings: {x_axis: bucket, y_axis: c}
 
 saved_queries:
-  collection: "CPX Demo Queries"
+  collection: "SOC Demo Queries"
   queries:
     - id: vuln-total
       title: "Total vulnerabilities"

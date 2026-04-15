@@ -4,7 +4,7 @@ import { AlertTriangle } from "lucide-react";
 import type { ComponentNodeData } from "../../../types";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { proxyUrl, execCommand } from "../../../api/client";
+import { proxyUrl, execCommand, getGeneratorStatus } from "../../../api/client";
 import ComponentIcon from "../../shared/ComponentIcon";
 
 export default function ComponentNode({ id, data }: NodeProps) {
@@ -14,29 +14,46 @@ export default function ComponentNode({ id, data }: NodeProps) {
   const { instances, activeDemoId, demos, resilienceProbes } = useDemoStore();
 
   const isResilienceTester = nodeData.componentId === "resilience-tester";
-  const isGenerator = nodeData.componentId === "file-generator" || nodeData.componentId === "data-generator";
+  const isDataGenerator = nodeData.componentId === "data-generator";
+  const isGenerator = nodeData.componentId === "file-generator" || isDataGenerator;
   const isRagApp = nodeData.componentId === "rag-app";
   const isOllama = nodeData.componentId === "ollama";
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
+  const isDeploying = activeDemo?.status === "deploying";
 
   // Poll generator process status
   const [genRunning, setGenRunning] = useState<boolean | null>(null);
+  const [genStats, setGenStats] = useState<{ rows_per_sec: number; rows_generated: number; batches_sent: number } | null>(null);
   const genTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (!activeDemoId || !isGenerator || !isRunning) {
       setGenRunning(null);
+      setGenStats(null);
       return;
     }
     const poll = () => {
-      execCommand(activeDemoId, id, "sh -c '[ -f /tmp/gen.pid ] && kill -0 $(cat /tmp/gen.pid) 2>/dev/null && echo RUNNING || echo IDLE'")
-        .then((res) => setGenRunning(res.stdout.trim() === "RUNNING"))
-        .catch(() => setGenRunning(null));
+      if (isDataGenerator) {
+        getGeneratorStatus(activeDemoId, id)
+          .then((s) => {
+            setGenRunning(s.state !== "idle");
+            setGenStats({
+              rows_per_sec: s.rows_per_sec ?? 0,
+              rows_generated: s.rows_generated ?? 0,
+              batches_sent: s.batches_sent ?? 0,
+            });
+          })
+          .catch(() => { setGenRunning(null); setGenStats(null); });
+      } else {
+        execCommand(activeDemoId, id, "sh -c '[ -f /tmp/gen.pid ] && kill -0 $(cat /tmp/gen.pid) 2>/dev/null && echo RUNNING || echo IDLE'")
+          .then((res) => setGenRunning(res.stdout.trim() === "RUNNING"))
+          .catch(() => setGenRunning(null));
+      }
     };
     poll();
     genTimerRef.current = setInterval(poll, 5000);
     return () => { if (genTimerRef.current) clearInterval(genTimerRef.current); };
-  }, [activeDemoId, id, isGenerator, isRunning]);
+  }, [activeDemoId, id, isGenerator, isDataGenerator, isRunning]);
 
   // Animate outgoing edges while generation is active
   useEffect(() => {
@@ -150,20 +167,25 @@ export default function ComponentNode({ id, data }: NodeProps) {
             </div>
           )}
         </div>
-        {isRunning && nodeData.health && (
+        {(isRunning || isDeploying) && (
           nodeData.health === "degraded" ? (
             <span className="ml-auto shrink-0" title="Tables not ready — start data generation to create them">
               <AlertTriangle className="w-4 h-4 text-orange-400" />
             </span>
-          ) : (
+          ) : nodeData.health ? (
             <span
-              className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" ? "animate-pulse" : ""}`}
+              className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" || isDeploying && nodeData.health !== "healthy" ? "animate-pulse" : ""}`}
               title={nodeData.health}
             />
-          )
+          ) : isDeploying ? (
+            <span
+              className="ml-auto w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse"
+              title="starting"
+            />
+          ) : null
         )}
       </div>
-      {isRunning && nodeIp && (
+      {(isRunning || isDeploying) && nodeIp && (
         <div className="mt-1.5 flex justify-center">
           <span className="font-mono text-[10px] text-muted-foreground bg-muted/50 border border-border/50 rounded px-1.5 py-0.5 leading-none">
             {nodeIp}
@@ -207,20 +229,31 @@ export default function ComponentNode({ id, data }: NodeProps) {
         </div>
       )}
 
-      {/* Generator status badge — live process check */}
+      {/* Generator status badge — live process check + rate metrics */}
       {isGenerator && isRunning && genRunning !== null && (
-        <div className="mt-2 flex justify-center">
+        <div className="mt-2 flex flex-col items-center gap-1">
           {genRunning ? (
-            <span className="text-xs font-semibold text-green-300 bg-green-950/60 border border-green-700/60 rounded-md px-2 py-1 leading-tight flex items-center gap-1.5 animate-pulse"
+            <span className="text-xs font-semibold text-green-300 bg-green-950/60 border border-green-700/60 rounded-md px-2 py-1 leading-tight flex items-center gap-1.5"
               title="Generating data — right-click to stop">
-              <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
-              Generating...
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
+              {genStats && genStats.rows_per_sec > 0
+                ? `${genStats.rows_per_sec >= 1000 ? `${(genStats.rows_per_sec / 1000).toFixed(1)}k` : genStats.rows_per_sec.toFixed(0)} rows/s`
+                : "Generating..."}
             </span>
           ) : (
             <span className="text-xs font-semibold text-zinc-400 bg-zinc-900/60 border border-zinc-700/60 rounded-md px-2 py-1 leading-tight flex items-center gap-1.5"
               title="Idle — right-click to start generating">
               <span className="w-2 h-2 rounded-full bg-zinc-500 shrink-0" />
               Idle
+            </span>
+          )}
+          {genStats && genStats.rows_generated > 0 && (
+            <span className="text-[10px] text-muted-foreground font-mono">
+              {genStats.rows_generated >= 1_000_000
+                ? `${(genStats.rows_generated / 1_000_000).toFixed(1)}M`
+                : genStats.rows_generated >= 1000
+                ? `${(genStats.rows_generated / 1000).toFixed(1)}k`
+                : genStats.rows_generated} rows total
             </span>
           )}
         </div>

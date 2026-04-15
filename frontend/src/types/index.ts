@@ -128,6 +128,8 @@ export interface AnnotationNodeData {
   style: "info" | "callout" | "warning" | "step";
   stepNumber?: number;
   width?: number;
+  height?: number;
+  fontSize?: "sm" | "base" | "lg" | "xl";
   pointerTarget?: string;
 }
 

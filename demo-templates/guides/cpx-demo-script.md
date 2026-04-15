@@ -6,7 +6,7 @@
 - [ ] All 6 containers healthy (3 ES + MinIO + Trino + Metabase)
 - [ ] MinIO Console accessible
 - [ ] Metabase accessible (dashboards pre-loaded)
-- [ ] CPX Demo Queries collection visible in Metabase
+- [ ] SOC Demo Queries collection visible in Metabase
 
 ---
 
@@ -44,7 +44,7 @@
 **Talking point:** "Your CISO's board report. Severity distribution, top CVEs, remediation status by business unit. All from the same data lake. No separate vulnerability management platform."
 
 ### Scene 8 — Demo Query 3: IOC Correlation (11:30–14:00)
-**Action:** Navigate to CPX Demo Queries collection → click "3. Connections to known C2 infrastructure"  
+**Action:** Navigate to SOC Demo Queries collection → click "3. Connections to known C2 infrastructure"  
 **Talking point:** "This is the money shot. Firewall logs joined with threat intelligence — right now, in SQL. Every row is a connection to a known command-and-control server. Threat actor, confidence score, which MITRE tactic, whether it was blocked."  
 **Q: "How long does this query take in your current SIEM?"** *[pause]* "This runs in under 2 seconds. On commodity hardware."
 

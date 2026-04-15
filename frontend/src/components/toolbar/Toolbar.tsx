@@ -155,7 +155,6 @@ export default function Toolbar() {
           setLoading(null);
           if (success) {
             updateDemoStatus(activeDemoId, "stopped");
-            setShowFaNotes(true);
             debugStore.addEntry("info", "Deploy", "Demo stopped");
             toast.success("Demo stopped");
           } else {
@@ -225,7 +224,6 @@ export default function Toolbar() {
           setLoading(null);
           if (success) {
             updateDemoStatus(activeDemoId, "not_deployed");
-            setShowFaNotes(true);
             toast.success("Demo destroyed");
           } else {
             updateDemoStatus(activeDemoId, "error");
@@ -235,7 +233,6 @@ export default function Toolbar() {
         });
       } else {
         updateDemoStatus(activeDemoId, "not_deployed");
-        setShowFaNotes(true);
         toast.success("Demo destroyed");
         setLoading(null);
         fetchDemos().then((r) => setDemos(r.demos)).catch(() => {});
@@ -450,8 +447,8 @@ export default function Toolbar() {
               </Button>
             )}
 
-            {/* Sync — when running */}
-            {activeDemo?.status === "running" && (
+            {/* Sync — when running, deploying, stopping, or destroying */}
+            {(activeDemo?.status === "running" || activeDemo?.status === "deploying" || activeDemo?.status === "stopping") && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

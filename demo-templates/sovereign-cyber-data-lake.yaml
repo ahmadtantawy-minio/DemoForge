@@ -133,7 +133,7 @@ nodes:
     y: 318.88942216908583
   config:
     ES_SCENARIO: soc-threat-intel
-    ES_STARTUP_DELAY: '0'
+    ES_STARTUP_DELAY: '10'
   networks: {}
   display_name: Threat Intel Feeds
   labels: {}
@@ -148,7 +148,7 @@ nodes:
     y: 494.89749276448146
   config:
     ES_SCENARIO: soc-vuln-scan
-    ES_STARTUP_DELAY: '0'
+    ES_STARTUP_DELAY: '10'
   networks: {}
   display_name: Vulnerability Scanner
   labels: {}
@@ -172,8 +172,8 @@ nodes:
   component: metabase
   variant: default
   position:
-    x: 1078.6724137931035
-    y: 181.96206896551723
+    x: 1110.6724137931035
+    y: 185.96206896551723
   config: {}
   networks: {}
   display_name: Metabase Analytics
@@ -187,9 +187,10 @@ edges:
   target: aistor-1
   connection_type: aistor-tables
   network: default
-  connection_config: {}
+  connection_config:
+    catalog_name: iceberg
   auto_configure: true
-  label: Firewall Events
+  label: Firewall Events (parquet / streaming)
   protocol: ''
   latency: ''
   bandwidth: ''
@@ -200,9 +201,10 @@ edges:
   target: aistor-1
   connection_type: aistor-tables
   network: default
-  connection_config: {}
+  connection_config:
+    catalog_name: iceberg
   auto_configure: true
-  label: Threat IOCs
+  label: Threat IOCs (parquet + JSON)
   protocol: ''
   latency: ''
   bandwidth: ''
@@ -213,9 +215,10 @@ edges:
   target: aistor-1
   connection_type: aistor-tables
   network: default
-  connection_config: {}
+  connection_config:
+    catalog_name: iceberg
   auto_configure: true
-  label: Vuln Scan
+  label: Vuln Scan (parquet batch)
   protocol: ''
   latency: ''
   bandwidth: ''
@@ -227,7 +230,7 @@ edges:
   connection_type: sql-query
   network: default
   connection_config:
-    catalog: aistor
+    catalog: iceberg
     schema: soc
   auto_configure: true
   label: SQL
@@ -241,7 +244,8 @@ edges:
   target: trino-1
   connection_type: aistor-tables
   network: default
-  connection_config: {}
+  connection_config:
+    catalog_name: iceberg
   auto_configure: true
   label: ''
   protocol: ''
@@ -466,7 +470,25 @@ sticky_notes:
     y: 496.62846899660417
   width: 344.0
   height: 212.0
-annotations: []
+annotations:
+- id: annotation-1
+  position:
+    x: 85.0
+    y: -265.75
+  width: 680
+  height: 261
+  title: Cyber Data Lake
+  body: A sovereign security data lake powered by **MinIO AIStor Tables** — **structured
+    firewall logs**, **semi-structured threat intelligence feeds**, and **unstructured**
+    malware samples unified in a single high-performance Iceberg-native data store.
+    One platform for tables and objects, **one built-in catalog**, one security model
+    — queryable across all data types with standard SQL through Trino and visualized
+    in real-time with Metabase.
+  style: step
+  step_number: null
+  pointer_target: null
+  collapsed: false
+  font_size: lg
 schematics: []
 clusters:
 - id: aistor-1
@@ -498,7 +520,18 @@ clusters:
     ec_parity: 3
     ec_parity_upgrade_policy: upgrade
     volume_path: /data
-canvas_images: []
+canvas_images:
+- id: ci-aistor-logo
+  image_id: minio-aistor-tables-logo
+  position:
+    x: 304.0
+    y: 175.0
+  width: 260
+  height: 76
+  opacity: 0.9
+  layer: background
+  label: ""
+  locked: false
 resources:
   default_memory: 512m
   default_cpu: 0.5
@@ -508,5 +541,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-15T06:08:14.525630+00:00'
+updated_at: '2026-04-15T10:54:00.160889+00:00'
 source_template_id: sovereign-cyber-data-lake

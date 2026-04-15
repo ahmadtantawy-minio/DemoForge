@@ -533,6 +533,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "flush_size": "S3_FLUSH_SIZE",
                     "source_name": "DREMIO_SOURCE_NAME",
                     "topic": "KAFKA_TOPIC",
+                    "catalog_name": "TRINO_CATALOG",
+                    "namespace": "TRINO_SCHEMA",
                 }
                 for cfg_key, env_key in _edge_env_map.items():
                     if cfg_key in edge_cfg and edge_cfg[cfg_key]:
@@ -607,10 +609,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                             env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{iceberg_node.id}:8181"
 
         # Auto-inject TRINO_HOST for data generators if a Trino node exists in the demo
-        if node.component == "data-generator" and "TRINO_HOST" not in env:
+        if node.component == "data-generator":
             trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
             if trino_node:
-                env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
+                if "TRINO_HOST" not in env:
+                    env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
+                # Inject TRINO_CATALOG from the MinIO↔Trino edge catalog_name if not already set
+                if "TRINO_CATALOG" not in env:
+                    for e in demo.edges:
+                        if e.target == trino_node.id and e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+                            cat = (e.connection_config or {}).get("catalog_name")
+                            if cat:
+                                env["TRINO_CATALOG"] = cat
+                                break
 
         # external-system: inject env vars from connected edges
         if node.component == "external-system":
@@ -681,11 +692,28 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         env["ICEBERG_WAREHOUSE"] = peer_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
                 break
 
-            # Inject TRINO_HOST if a Trino node exists
-            if "TRINO_HOST" not in env or not env["TRINO_HOST"]:
-                trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
-                if trino_node:
+            # Inject TRINO_HOST and TRINO_CATALOG if a Trino node exists
+            trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
+            if trino_node:
+                if "TRINO_HOST" not in env or not env["TRINO_HOST"]:
                     env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
+                if "TRINO_CATALOG" not in env:
+                    # Check edges on any s3/aistor-tables edge from this node (catalog_name set there)
+                    for e in demo.edges:
+                        if e.source == node.id or e.target == node.id:
+                            cat = (e.connection_config or {}).get("catalog_name")
+                            if cat:
+                                env["TRINO_CATALOG"] = cat
+                                break
+                    # Fallback: check edges connected to Trino node
+                    if "TRINO_CATALOG" not in env:
+                        for e in demo.edges:
+                            if e.source == trino_node.id or e.target == trino_node.id:
+                                if e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+                                    cat = (e.connection_config or {}).get("catalog_name")
+                                    if cat:
+                                        env["TRINO_CATALOG"] = cat
+                                        break
 
             # Inject METABASE_URL from dashboard-provision edges
             for edge in demo.edges:
@@ -1387,7 +1415,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         trino_node = next((n for n in demo.nodes if trino_edge and n.id == trino_edge.source), None)
         metabase_host = f"{project_name}-{metabase_node.id}"
         trino_host = f"{project_name}-{trino_node.id}" if trino_node else ""
-        catalog_override = trino_edge.connection_config.get("catalog", "") if trino_edge else ""
+        catalog_override = trino_edge.connection_config.get("catalog_name", "") if trino_edge else ""
         if catalog_override:
             catalog = catalog_override
         elif trino_node and any(
@@ -1401,21 +1429,75 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
         setup_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "setup-metabase.sh")
+        provision_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "provision.py")
+
+        # Build MB_PROVISION_SPEC from any dashboard-provision edges pointing to Metabase
+        provision_spec = ""
+        for es_node in [n for n in demo.nodes if n.component == "external-system"]:
+            for edge in demo.edges:
+                if edge.connection_type != "dashboard-provision":
+                    continue
+                if not ((edge.source == es_node.id and edge.target == metabase_node.id) or
+                        (edge.target == es_node.id and edge.source == metabase_node.id)):
+                    continue
+                scenario_id = (es_node.config or {}).get("ES_SCENARIO", "")
+                if not scenario_id:
+                    continue
+                scenario_path = os.path.join(
+                    os.path.abspath(components_dir), "external-system", "scenarios",
+                    f"{scenario_id}.yaml"
+                )
+                if not os.path.exists(scenario_path):
+                    logger.warning(f"Scenario YAML not found: {scenario_path}")
+                    continue
+                import yaml as _yaml
+                with open(scenario_path) as _f:
+                    scenario_data = _yaml.safe_load(_f)
+                spec = {
+                    "dashboards": scenario_data.get("dashboards", []),
+                    "saved_queries": scenario_data.get("saved_queries", {}),
+                }
+                import json as _json
+                # Substitute default 'iceberg.' catalog with the actual catalog name
+                spec_str = _json.dumps(spec)
+                if catalog and catalog != "iceberg":
+                    spec_str = spec_str.replace('"iceberg.', f'"{catalog}.')
+                provision_spec = spec_str
+                logger.info(f"Injecting MB_PROVISION_SPEC for scenario '{scenario_id}' (catalog={catalog})")
+                break
+
         if os.path.exists(setup_script):
             setup_host_path = _to_host_path(setup_script, "components")
             init_networks = {docker_net_name: None for docker_net_name in network_map.values()}
 
+            has_provision = bool(provision_spec) and os.path.exists(provision_script)
+            sidecar_image = "python:3.11-alpine" if has_provision else "alpine:3.19"
+            if has_provision:
+                provision_host_path = _to_host_path(provision_script, "components")
+                entrypoint_cmd = "/bin/sh /setup/setup-metabase.sh && pip install requests -q && python3 /setup/provision.py"
+                sidecar_entrypoint = ["/bin/sh", "-c", entrypoint_cmd]
+            else:
+                sidecar_entrypoint = ["/bin/sh", "/setup/setup-metabase.sh"]
+
+            sidecar_env = {
+                "METABASE_HOST": metabase_host,
+                "TRINO_HOST": trino_host,
+                "TRINO_CATALOG": catalog,
+                "TRINO_SCHEMA": schema,
+            }
+            if provision_spec:
+                sidecar_env["MB_PROVISION_SPEC"] = provision_spec
+
+            sidecar_volumes = [f"{setup_host_path}:/setup/setup-metabase.sh:ro"]
+            if has_provision:
+                sidecar_volumes.append(f"{provision_host_path}:/setup/provision.py:ro")
+
             services["metabase-init"] = {
-                "image": "alpine:3.19",
+                "image": sidecar_image,
                 "container_name": f"{project_name}-metabase-init",
-                "entrypoint": ["/bin/sh", "/setup/setup-metabase.sh"],
-                "environment": {
-                    "METABASE_HOST": metabase_host,
-                    "TRINO_HOST": trino_host,
-                    "TRINO_CATALOG": catalog,
-                    "TRINO_SCHEMA": schema,
-                },
-                "mem_limit": "64m",
+                "entrypoint": sidecar_entrypoint,
+                "environment": sidecar_env,
+                "mem_limit": "128m" if has_provision else "64m",
                 "cpus": 0.1,
                 "labels": {
                     "demoforge.demo": demo.id,
@@ -1424,11 +1506,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "demoforge.sidecar": "true",
                 },
                 "networks": init_networks,
-                "volumes": [f"{setup_host_path}:/setup/setup-metabase.sh:ro"],
+                "volumes": sidecar_volumes,
                 "restart": "no",
                 "depends_on": [metabase_node.id],
             }
-            logger.info(f"Added metabase-init sidecar for demo {demo.id}")
+            logger.info(f"Added metabase-init sidecar for demo {demo.id} (provision={'yes' if has_provision else 'no'})")
 
     # --- mcp-server: one MCP sidecar per MinIO cluster for AI tool access ---
     if demo.clusters:

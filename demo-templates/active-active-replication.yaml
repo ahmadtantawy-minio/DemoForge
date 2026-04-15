@@ -117,7 +117,7 @@ _template:
       context: Raw metrics including replication latency and queue depth.
   saved_by: ahmad.tantawy@min.io
   fa_ready: true
-  updated_at: "2026-04-13"
+  updated_at: '2026-04-13'
 id: active-active-replication
 name: Active-Active Replication
 description: Two MinIO instances with bidirectional replication, load-balanced by
@@ -289,7 +289,7 @@ schematics: []
 clusters:
 - id: minio-cluster-4
   component: minio
-  label: MinIO Cluster
+  label: Cluster 1
   position:
     x: -9.926317870055769
     y: -212.14620062844327
@@ -317,7 +317,7 @@ clusters:
     volume_path: /data
 - id: minio-cluster-5
   component: minio
-  label: MinIO Cluster
+  label: Cluster 2
   position:
     x: -9.795908622496995
     y: 167.51637319660708
@@ -351,3 +351,6 @@ resources:
   total_memory: ''
   total_cpu: 0.0
 deploy_timeout_seconds: null
+created_at: null
+updated_at: '2026-04-14T16:50:05.677500+00:00'
+source_template_id: active-active-replication

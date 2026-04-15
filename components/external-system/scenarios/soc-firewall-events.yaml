@@ -99,6 +99,157 @@ correlations:
     ratio: 0.12
 
 dashboards:
+  - id: data-lake-overview
+    title: "Data Lake Overview"
+    description: "Table inventory, row counts, freshness, data types, and correlation health — pre-flight check before the demo"
+    layout: auto
+    charts:
+      - id: stat-total-tables
+        title: "Iceberg tables"
+        type: number
+        query: |
+          SELECT count(*) AS tables
+          FROM iceberg.information_schema.tables
+          WHERE table_schema = 'soc'
+        position: {row: 0, col: 0, width: 6, height: 4}
+
+      - id: stat-total-rows
+        title: "Total rows (all tables)"
+        type: number
+        query: |
+          SELECT
+            (SELECT count(*) FROM iceberg.soc.firewall_events) +
+            (SELECT count(*) FROM iceberg.soc.threat_iocs) +
+            (SELECT count(*) FROM iceberg.soc.vulnerability_scan) +
+            (SELECT count(*) FROM iceberg.soc.malware_metadata) AS total_rows
+        position: {row: 0, col: 6, width: 6, height: 4}
+
+      - id: stat-latest-event
+        title: "Latest firewall event"
+        type: number
+        query: |
+          SELECT max(event_timestamp) AS latest
+          FROM iceberg.soc.firewall_events
+        position: {row: 0, col: 12, width: 6, height: 4}
+
+      - id: stat-streaming-rate
+        title: "Events / minute (last 5 min)"
+        type: number
+        query: |
+          SELECT round(count(*) / 5.0, 0) AS events_per_minute
+          FROM iceberg.soc.firewall_events
+          WHERE event_timestamp > current_timestamp - interval '5' minute
+        position: {row: 0, col: 18, width: 6, height: 4}
+
+      - id: stat-table-inventory
+        title: "Table inventory"
+        type: table
+        query: |
+          SELECT
+            'firewall_events' AS table_name,
+            'Structured' AS data_type,
+            'Parquet → Iceberg' AS format,
+            (SELECT count(*) FROM iceberg.soc.firewall_events) AS row_count,
+            (SELECT max(event_timestamp) FROM iceberg.soc.firewall_events) AS latest_record,
+            'Streaming (25/s)' AS ingestion_mode
+          UNION ALL
+          SELECT
+            'threat_iocs',
+            'Structured + Semi-structured (JSON)',
+            'Parquet → Iceberg',
+            (SELECT count(*) FROM iceberg.soc.threat_iocs),
+            (SELECT max(last_seen) FROM iceberg.soc.threat_iocs),
+            'Batch (one-time seed)'
+          UNION ALL
+          SELECT
+            'vulnerability_scan',
+            'Structured',
+            'Parquet → Iceberg',
+            (SELECT count(*) FROM iceberg.soc.vulnerability_scan),
+            (SELECT max(scan_timestamp) FROM iceberg.soc.vulnerability_scan),
+            'Batch (periodic scans)'
+          UNION ALL
+          SELECT
+            'malware_metadata',
+            'Unstructured origin (mirror)',
+            'Binary objects → Iceberg metadata',
+            (SELECT count(*) FROM iceberg.soc.malware_metadata),
+            CAST(NULL AS timestamp),
+            'Batch (mirror of raw objects)'
+        position: {row: 1, col: 0, width: 24, height: 10}
+
+      - id: stat-data-type-split
+        title: "Rows by data type"
+        type: pie
+        query: |
+          SELECT 'Structured (firewall)' AS data_type,
+                 (SELECT count(*) FROM iceberg.soc.firewall_events) AS rows
+          UNION ALL
+          SELECT 'Structured (vulnerability scan)',
+                 (SELECT count(*) FROM iceberg.soc.vulnerability_scan)
+          UNION ALL
+          SELECT 'Semi-structured (IOCs w/ JSON)',
+                 (SELECT count(*) FROM iceberg.soc.threat_iocs)
+          UNION ALL
+          SELECT 'Unstructured origin (malware)',
+                 (SELECT count(*) FROM iceberg.soc.malware_metadata)
+        position: {row: 2, col: 0, width: 10, height: 8}
+
+      - id: stat-event-timeline
+        title: "Event ingestion timeline (last hour)"
+        type: time_series
+        query: |
+          SELECT
+            date_trunc('minute', event_timestamp) AS minute,
+            count(*) AS events
+          FROM iceberg.soc.firewall_events
+          WHERE event_timestamp > current_timestamp - interval '1' hour
+          GROUP BY 1
+          ORDER BY 1
+        position: {row: 2, col: 10, width: 14, height: 8}
+        settings: {x_axis: minute, y_axis: events}
+
+      - id: stat-correlation-health
+        title: "Cross-table correlation status"
+        type: table
+        query: |
+          SELECT
+            'Firewall → IOC (src_ip = indicator)' AS correlation,
+            count(DISTINCT f.src_ip) AS matched_ips,
+            count(*) AS total_matched_events,
+            round(
+              100.0 * count(*) / NULLIF((SELECT count(*) FROM iceberg.soc.firewall_events), 0),
+              2
+            ) AS match_rate_pct
+          FROM iceberg.soc.firewall_events f
+          JOIN iceberg.soc.threat_iocs t
+            ON f.src_ip = t.indicator AND t.ioc_type = 'ipv4'
+          UNION ALL
+          SELECT
+            'Firewall → Vuln (dst_ip = host_ip)',
+            count(DISTINCT f.dst_ip),
+            count(*),
+            round(
+              100.0 * count(DISTINCT f.dst_ip) /
+              NULLIF((SELECT count(DISTINCT dst_ip) FROM iceberg.soc.firewall_events), 0),
+              2
+            )
+          FROM iceberg.soc.firewall_events f
+          JOIN iceberg.soc.vulnerability_scan v ON f.dst_ip = v.host_ip
+          UNION ALL
+          SELECT
+            'Malware → IOC (threat_actor match)',
+            count(DISTINCT m.sha256),
+            count(*),
+            round(
+              100.0 * count(DISTINCT m.sha256) /
+              NULLIF((SELECT count(*) FROM iceberg.soc.malware_metadata), 0),
+              2
+            )
+          FROM iceberg.soc.malware_metadata m
+          JOIN iceberg.soc.threat_iocs t ON m.threat_actor = t.threat_actor
+        position: {row: 3, col: 0, width: 24, height: 8}
+
   - id: soc-overview
     title: "SOC Overview"
     layout: "3-column"
@@ -167,113 +318,331 @@ dashboards:
         settings: {x_axis: protocol, y_axis: events}
 
 saved_queries:
-  collection: "CPX Demo Queries"
-  queries:
-    - id: q-event-count
-      title: "Total firewall events"
-      description: "Simple row count across the firewall_events table."
+  collection: "SOC Demo Queries"
+
+  tabs:
+    - id: overview
+      label: "Overview"
       order: 1
-      visualization: number
-      query: |
-        SELECT COUNT(*) AS total_events FROM iceberg.soc.firewall_events
-    - id: q-all-tables
-      title: "All SOC tables"
-      description: "List every table in the soc schema."
+    - id: structured
+      label: "Structured"
       order: 2
+    - id: semi-structured
+      label: "Semi-structured"
+      order: 3
+    - id: unstructured
+      label: "Unstructured"
+      order: 4
+    - id: unified
+      label: "Unified"
+      order: 5
+
+  subcollections:
+    - id: sc-structured
+      name: "1 — Structured (Iceberg tables)"
+      description: "Standard SQL against Parquet-backed Iceberg tables"
+
+    - id: sc-semi
+      name: "2 — Semi-structured (JSON fields)"
+      description: "JSON extraction functions on fields stored within Iceberg tables"
+
+    - id: sc-unstructured
+      name: "3 — Unstructured origin (mirror tables)"
+      description: "Querying metadata extracted from raw S3 objects (binaries, files)"
+
+    - id: sc-unified
+      name: "4 — Unified (cross-type joins)"
+      description: "Single queries spanning structured tables, JSON fields, and object-origin metadata"
+
+  queries:
+    - id: q-table-inventory
+      tab: overview
+      title: "Table inventory"
+      description: "All tables in the data lake with row counts, data types, and ingestion method"
+      order: 1
       visualization: table
       query: |
-        SELECT table_name FROM iceberg.information_schema.tables
-        WHERE table_schema = 'soc'
-        ORDER BY table_name
-    - id: q-ioc-hits
-      title: "Firewall hits against known IOCs"
-      description: "Join firewall events against threat_iocs to surface hits on confirmed indicators."
+        SELECT
+          'firewall_events' AS table_name,
+          'Structured' AS data_type,
+          'Parquet → Iceberg' AS format,
+          (SELECT count(*) FROM iceberg.soc.firewall_events) AS row_count,
+          (SELECT max(event_timestamp) FROM iceberg.soc.firewall_events) AS latest_record,
+          'Streaming (25/s)' AS ingestion
+        UNION ALL
+        SELECT 'threat_iocs', 'Structured + Semi-structured (JSON)', 'Parquet → Iceberg',
+          (SELECT count(*) FROM iceberg.soc.threat_iocs),
+          (SELECT max(last_seen) FROM iceberg.soc.threat_iocs),
+          'Batch'
+        UNION ALL
+        SELECT 'vulnerability_scan', 'Structured', 'Parquet → Iceberg',
+          (SELECT count(*) FROM iceberg.soc.vulnerability_scan),
+          (SELECT max(scan_timestamp) FROM iceberg.soc.vulnerability_scan),
+          'Batch'
+        UNION ALL
+        SELECT 'malware_metadata', 'Unstructured origin (mirror)', 'Binary → Iceberg metadata',
+          (SELECT count(*) FROM iceberg.soc.malware_metadata),
+          CAST(NULL AS timestamp),
+          'Batch (mirror)'
+
+    - id: q-streaming-rate
+      tab: overview
+      title: "Streaming rate (last 5 min)"
+      description: "Events arriving in the last 5 minutes — proves live ingestion is active"
+      order: 2
+      visualization: number
+      query: |
+        SELECT
+          round(count(*) / 5.0, 0) AS events_per_minute,
+          count(*) AS events_last_5min,
+          max(event_timestamp) AS latest_event
+        FROM iceberg.soc.firewall_events
+        WHERE event_timestamp > current_timestamp - interval '5' minute
+
+    - id: q-correlation-health
+      tab: overview
+      title: "Correlation health"
+      description: "Cross-table match rates — shows how the three datasets correlate with each other"
       order: 3
       visualization: table
       query: |
-        SELECT f.src_ip, t.threat_actor, COUNT(*) AS hits
+        SELECT
+          'Firewall → IOC (dst_ip = indicator)' AS correlation,
+          (SELECT count(DISTINCT f.dst_ip)
+           FROM iceberg.soc.firewall_events f
+           JOIN iceberg.soc.threat_iocs t ON f.dst_ip = t.indicator
+           WHERE t.ioc_type = 'ipv4') AS matching_values,
+          round(100.0 *
+            (SELECT count(*)
+             FROM iceberg.soc.firewall_events f
+             JOIN iceberg.soc.threat_iocs t ON f.dst_ip = t.indicator
+             WHERE t.ioc_type = 'ipv4')
+            / NULLIF((SELECT count(*) FROM iceberg.soc.firewall_events), 0), 2) AS match_rate_pct
+        UNION ALL
+        SELECT
+          'Firewall → Vuln (src_ip = host_ip)',
+          (SELECT count(DISTINCT f.src_ip)
+           FROM iceberg.soc.firewall_events f
+           JOIN iceberg.soc.vulnerability_scan v ON f.src_ip = v.host_ip),
+          round(100.0 *
+            (SELECT count(DISTINCT f.src_ip)
+             FROM iceberg.soc.firewall_events f
+             JOIN iceberg.soc.vulnerability_scan v ON f.src_ip = v.host_ip)
+            / NULLIF((SELECT count(DISTINCT src_ip) FROM iceberg.soc.firewall_events), 0), 2)
+
+    - id: q-event-count
+      tab: structured
+      subcollection: sc-structured
+      title: "Q1. Total firewall events ingested"
+      description: "Pure structured query — count rows in a Parquet-backed Iceberg table"
+      order: 1
+      visualization: number
+      query: |
+        SELECT count(*) AS total_events
+        FROM iceberg.soc.firewall_events
+
+    - id: q-all-tables
+      tab: structured
+      subcollection: sc-structured
+      title: "Q2. All tables in the data lake"
+      description: "Lists every Iceberg table registered in the catalog"
+      order: 2
+      visualization: table
+      query: |
+        SELECT table_schema AS namespace,
+               table_name,
+               table_type
+        FROM iceberg.information_schema.tables
+        WHERE table_schema = 'soc'
+        ORDER BY table_name
+
+    - id: q-c2-hits
+      tab: structured
+      subcollection: sc-structured
+      title: "Q3. Inbound connections from known C2 infrastructure"
+      description: "JOINs two structured Iceberg tables — firewall logs with threat IOCs — to surface confirmed adversary traffic"
+      order: 3
+      visualization: table
+      query: |
+        SELECT
+          f.event_timestamp,
+          f.src_ip,
+          f.dst_ip,
+          t.threat_actor,
+          t.confidence,
+          f.action,
+          f.severity,
+          f.mitre_tactic
         FROM iceberg.soc.firewall_events f
         JOIN iceberg.soc.threat_iocs t
-          ON t.indicator = f.src_ip AND t.ioc_type = 'ipv4'
-        GROUP BY f.src_ip, t.threat_actor
-        ORDER BY hits DESC
+          ON f.src_ip = t.indicator
+          AND t.ioc_type = 'ipv4'
+        WHERE t.confidence > 60
+        ORDER BY f.event_timestamp DESC
         LIMIT 50
-    - id: q-actor-activity
-      title: "Activity by threat actor"
-      description: "Which named actors are hitting the perimeter, and how often?"
+
+    - id: q-active-iocs-json
+      tab: semi-structured
+      subcollection: sc-semi
+      title: "Q4. Active IOCs by threat actor (JSON filter)"
+      description: "Filters on a JSON field inside an Iceberg table using json_extract_scalar — the tags column stores {active, reviewed} as JSON"
       order: 4
       visualization: bar
       query: |
-        SELECT t.threat_actor, COUNT(*) AS events
-        FROM iceberg.soc.firewall_events f
-        JOIN iceberg.soc.threat_iocs t ON t.indicator = f.src_ip
-        GROUP BY t.threat_actor
-        ORDER BY events DESC
-    - id: q-mitre
-      title: "MITRE ATT&CK tactic distribution"
-      description: "Event count grouped by MITRE tactic."
+        -- The 'tags' column is a JSON string: {"active": true, "reviewed": false}
+        -- json_extract_scalar parses it at query time — no pre-processing needed
+        SELECT
+          threat_actor,
+          count(*) AS active_iocs,
+          round(avg(confidence), 0) AS avg_confidence,
+          round(avg(severity_score), 1) AS avg_severity
+        FROM iceberg.soc.threat_iocs
+        WHERE json_extract_scalar(tags, '$.active') = 'true'
+        GROUP BY 1
+        ORDER BY 2 DESC
+
+    - id: q-review-status-json
+      tab: semi-structured
+      subcollection: sc-semi
+      title: "Q5. IOC review status breakdown (JSON aggregation)"
+      description: "Aggregates over two JSON fields — demonstrates semi-structured analytics across IOC records"
       order: 5
+      visualization: table
+      query: |
+        -- Extracting multiple fields from the same JSON column
+        -- and using them as GROUP BY dimensions
+        SELECT
+          json_extract_scalar(tags, '$.active') AS is_active,
+          json_extract_scalar(tags, '$.reviewed') AS is_reviewed,
+          count(*) AS ioc_count,
+          round(avg(confidence), 0) AS avg_confidence,
+          count(DISTINCT threat_actor) AS distinct_actors,
+          count(DISTINCT source_feed) AS distinct_feeds
+        FROM iceberg.soc.threat_iocs
+        GROUP BY 1, 2
+        ORDER BY 3 DESC
+
+    - id: q-malware-verdict
+      tab: unstructured
+      subcollection: sc-unstructured
+      title: "Q6. Malware samples by verdict and threat actor"
+      description: "Queries soc.malware_metadata — an Iceberg table mirrored from raw binary objects. The original files are opaque binaries; this table contains extracted metadata."
+      order: 6
       visualization: bar
       query: |
-        SELECT mitre_tactic, COUNT(*) AS events
-        FROM iceberg.soc.firewall_events
-        GROUP BY mitre_tactic ORDER BY events DESC
-    - id: q-exposed-hosts
-      title: "Exposed hosts (firewall x vuln scan)"
-      description: "Inbound hits against hosts with open high/critical vulnerabilities."
-      order: 6
-      visualization: table
-      query: |
-        SELECT f.dst_ip, v.cve_id, v.severity, COUNT(*) AS hits
-        FROM iceberg.soc.firewall_events f
-        JOIN iceberg.soc.vulnerability_scan v
-          ON v.host_ip = f.dst_ip
-        WHERE v.severity IN ('high','critical')
-        GROUP BY f.dst_ip, v.cve_id, v.severity
-        ORDER BY hits DESC
-        LIMIT 50
-    - id: q-lateral
-      title: "Possible lateral movement"
-      description: "Internal-to-internal firewall events on common lateral-movement ports."
+        -- soc.malware_metadata is a mirror table
+        -- Source: raw binary files in the malware-vault S3 bucket
+        -- Each file is opaque binary data (PE, ELF, script, document)
+        -- Metadata (sha256, file_type, verdict) was extracted during ingestion
+        -- and written as an Iceberg table for queryability
+        SELECT
+          threat_actor,
+          sandbox_verdict,
+          count(*) AS samples,
+          round(avg(file_size_bytes) / 1024, 1) AS avg_size_kb
+        FROM iceberg.soc.malware_metadata
+        GROUP BY 1, 2
+        ORDER BY 3 DESC
+
+    - id: q-malware-filetypes
+      tab: unstructured
+      subcollection: sc-unstructured
+      title: "Q7. Malware file type distribution"
+      description: "File format analysis from binary object metadata — shows how unstructured binaries become queryable through mirror tables"
       order: 7
-      visualization: table
+      visualization: bar
       query: |
-        SELECT src_ip, dst_ip, dst_port, COUNT(*) AS events
-        FROM iceberg.soc.firewall_events
-        WHERE dst_port IN (445, 3389, 22)
-          AND src_ip LIKE '10.%'
-          AND dst_ip LIKE '10.%'
-        GROUP BY src_ip, dst_ip, dst_port
-        ORDER BY events DESC
-        LIMIT 50
-    - id: q-malware
-      title: "Malware metadata (from object mirror)"
-      description: "Metadata extracted from the malware-vault MinIO bucket tags."
+        -- What types of malicious files are we seeing?
+        -- These were raw binaries — now queryable as structured data
+        SELECT
+          file_type,
+          sandbox_verdict,
+          count(*) AS sample_count,
+          round(min(file_size_bytes) / 1024, 1) AS min_kb,
+          round(avg(file_size_bytes) / 1024, 1) AS avg_kb,
+          round(max(file_size_bytes) / 1024, 1) AS max_kb
+        FROM iceberg.soc.malware_metadata
+        GROUP BY 1, 2
+        ORDER BY 3 DESC
+
+    - id: q-malware-firewall-link
+      tab: unified
+      subcollection: sc-unified
+      title: "Q8. Malware linked to firewall threat actors"
+      description: "JOINs structured firewall logs → structured IOCs → unstructured-origin malware metadata. Three tables, two data types, one SQL query."
       order: 8
       visualization: table
       query: |
-        SELECT sandbox_verdict, threat_actor, COUNT(*) AS samples
-        FROM iceberg.soc.malware_metadata
-        GROUP BY sandbox_verdict, threat_actor
-        ORDER BY samples DESC
-    - id: q-intel-freshness
-      title: "Threat intel freshness"
-      description: "IOC coverage by source feed and most recent first_seen."
+        -- This query spans TWO data types:
+        --   Structured:           iceberg.soc.firewall_events (Iceberg table from Parquet)
+        --   Structured:           iceberg.soc.threat_iocs (Iceberg table from Parquet)
+        --   Unstructured-origin:  iceberg.soc.malware_metadata (mirror of raw binaries)
+        SELECT
+          m.threat_actor,
+          m.sandbox_verdict,
+          count(DISTINCT m.sha256) AS malware_variants,
+          count(DISTINCT f.src_ip) AS source_ips_seen,
+          count(*) AS total_firewall_hits,
+          sum(CASE WHEN f.action IN ('deny','drop','reset') THEN 1 ELSE 0 END) AS blocked
+        FROM iceberg.soc.malware_metadata m
+        JOIN iceberg.soc.threat_iocs t
+          ON m.threat_actor = t.threat_actor
+          AND t.ioc_type = 'ipv4'
+        JOIN iceberg.soc.firewall_events f
+          ON f.src_ip = t.indicator
+        GROUP BY 1, 2
+        ORDER BY 5 DESC
+
+    - id: q-full-threat-picture
+      tab: unified
+      subcollection: sc-unified
+      title: "Q9. Full threat picture — all three data types in one query"
+      description: "Structured firewall logs + semi-structured JSON fields (json_extract_scalar) + unstructured-origin malware metadata. One query, all three data types, one platform."
       order: 9
       visualization: table
       query: |
-        SELECT source_feed, COUNT(*) AS iocs, MAX(last_seen) AS most_recent
-        FROM iceberg.soc.threat_iocs
-        GROUP BY source_feed
-        ORDER BY iocs DESC
-    - id: q-streaming
-      title: "Streaming events (last 5 min)"
-      description: "Live tail of firewall events — demonstrates low-latency Iceberg reads."
-      order: 10
-      visualization: line
-      query: |
-        SELECT date_trunc('minute', event_timestamp) AS minute, COUNT(*) AS events
-        FROM iceberg.soc.firewall_events
-        WHERE event_timestamp > current_timestamp - interval '5' minute
+        -- ALL THREE DATA TYPES IN ONE QUERY:
+        --   Structured:           iceberg.soc.firewall_events (Iceberg, from Parquet)
+        --   Semi-structured:      iceberg.soc.threat_iocs.tags (JSON field, json_extract_scalar)
+        --   Unstructured-origin:  iceberg.soc.malware_metadata (mirror of raw binary objects)
+        SELECT
+          t.threat_actor,
+          count(DISTINCT f.src_ip) AS source_ips,
+          count(DISTINCT f.dst_ip) AS internal_hosts_affected,
+          count(DISTINCT m.sha256) AS malware_variants,
+          round(avg(t.confidence), 0) AS avg_ioc_confidence,
+          sum(CASE
+            WHEN json_extract_scalar(t.tags, '$.reviewed') = 'true'
+            THEN 1 ELSE 0
+          END) AS reviewed_iocs,
+          sum(CASE
+            WHEN json_extract_scalar(t.tags, '$.active') = 'true'
+            THEN 1 ELSE 0
+          END) AS active_iocs,
+          sum(CASE
+            WHEN f.action IN ('deny','drop','reset')
+            THEN 1 ELSE 0
+          END) AS blocked_connections
+        FROM iceberg.soc.threat_iocs t
+        JOIN iceberg.soc.firewall_events f
+          ON f.src_ip = t.indicator
+          AND t.ioc_type = 'ipv4'
+        LEFT JOIN iceberg.soc.malware_metadata m
+          ON t.threat_actor = m.threat_actor
         GROUP BY 1
-        ORDER BY 1
+        ORDER BY 2 DESC
+
+    - id: q-streaming
+      tab: unified
+      title: "Q10. Live data — run twice to prove streaming"
+      description: "Count increases between runs — proves continuous ingestion is active"
+      order: 10
+      visualization: number
+      query: |
+        SELECT
+          count(*) AS total_events,
+          max(event_timestamp) AS latest_event,
+          date_diff('second',
+            min(event_timestamp),
+            max(event_timestamp)) AS time_span_seconds
+        FROM iceberg.soc.firewall_events

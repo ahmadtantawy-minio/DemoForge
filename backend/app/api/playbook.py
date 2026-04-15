@@ -84,6 +84,15 @@ def _resolve_catalog_namespace(demo_id: str, scenario_id: str) -> tuple[str, str
     if wm == "raw":
         return ("hive", "raw")
 
+    # Prefer catalog_name from the MinIO↔Trino edge if defined
+    trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
+    if trino_node:
+        for edge in demo.edges:
+            if edge.target == trino_node.id and edge.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+                cat = (edge.connection_config or {}).get("catalog_name")
+                if cat:
+                    return (cat, "demo")
+
     # Check if this generator targets an AIStor cluster via an edge
     for edge in demo.edges:
         if edge.source == dg_node.id and edge.connection_type in ("structured-data", "s3"):

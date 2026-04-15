@@ -6,6 +6,27 @@
 
 ## Backlog
 
+- [ ] **Fix: Update AIStor & Iceberg logos to use bundled assets — works offline on FA PCs**
+  - The AIStor Tables and Apache Iceberg canvas images currently reference SVG files served from `/canvas-images/` at runtime. On FA (Field Accelerator) PCs deployed without internet access, these may not load if the path resolution differs from development.
+  - Audit how `CanvasImageNode` loads SVG files — check whether they are inlined as imports or fetched from a public URL at runtime.
+  - Update the SVG loading to import them directly from `frontend/src/assets/canvas-images/` so they are bundled into the Vite build output and work fully offline. Apply to all presets in `canvasImagePresets.ts`.
+  - Verify the fix works in both dev mode and production build (`npm run build`).
+
+- [ ] **Enhancement: Consolidate visual components — single component with type picker in Layout category**
+  - The canvas currently has separate draggable items for each visual preset (logos, zone badges, etc.) in the palette. Consolidate into a single "Visual" palette item in the **Layout** category where the user selects the visual type from the properties panel after dropping it on the canvas.
+  - The properties panel shows a "Visual Type" selector (dropdown of all available presets). Changing the type re-renders the component accordingly.
+  - No functional changes to how visuals behave — only the palette/selection UX changes. The new "Visual" item should appear in the existing Layout category alongside group/annotation/sticky note.
+
+- [x] **Enhancement: Annotation component — extra large font size**
+  - Add an "XL" (extra large) option to the annotation font size control, alongside the existing Small / Medium / Large options.
+  - Maps to `text-xl` Tailwind class. Persists in node config as `fontSize: "xl"`. No other style changes.
+
+- [x] **Enhancement: Annotation component — font size, bold markdown, and resizable**
+  - Add a font size control to the annotation component properties panel (small / medium / large, or a numeric px input). The selected size should persist in the node config and re-render the annotation text accordingly.
+  - Support inline bold via standard markdown syntax: wrapping text in `**double asterisks**` renders as bold. No full markdown parser needed — just bold. The raw markdown should be stored in the config and rendered client-side.
+  - Add resize handles to the annotation node so users can drag to adjust its width and height, matching the UX of other resizable canvas components (sticky notes, canvas images). The size should persist in the node data alongside position.
+  - No changes to the annotation's visual style (border, background, font family) — only size control, bold rendering, and resize support.
+
 - [x] **Enhancement: Smart connection type picker when linking External System / Data Generator → MinIO Node or Cluster**
   - When the user draws an edge from an External System or Data Generator component to a MinIO Node or MinIO Cluster, the connection type picker should offer two options: **S3** (standard) and **AIStor Tables (SigV4 Iceberg)**.
   - The AIStor Tables option should only appear when the target Node or Cluster has AIStor Tables enabled in its config.

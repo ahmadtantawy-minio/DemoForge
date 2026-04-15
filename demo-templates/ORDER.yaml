@@ -5,14 +5,14 @@
 
 order:
 - sovereign-cyber-data-lake
-- site-replication
+- experience-stx-inference
 - active-active-replication
+- site-replication
 - site-replication-failover
 - multi-site-replication-3way
 - bi-dashboard-aistor-tables
 - template-smart-tiering
 - multi-cluster-replication
-- experience-stx-inference
 - complete-analytics
 - template-customer-360
 - automated-ml-pipeline

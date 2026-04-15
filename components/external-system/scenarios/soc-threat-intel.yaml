@@ -161,7 +161,7 @@ dashboards:
         settings: {x_axis: threat_actor, y_axis: iocs}
 
 saved_queries:
-  collection: "CPX Demo Queries"
+  collection: "SOC Demo Queries"
   queries:
     - id: ti-total-iocs
       title: "Total IOCs"

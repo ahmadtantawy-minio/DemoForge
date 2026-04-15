@@ -4,7 +4,7 @@ import yaml
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
-from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, DemoStickyNote, NodePosition
+from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, DemoStickyNote, DemoAnnotation, NodePosition
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
@@ -110,9 +110,28 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     demo.sticky_notes = []
     demo.clusters = []
     demo.canvas_images = []
+    demo.annotations = []
     for rf_node in req.nodes:
-        # Annotation and schematic nodes are preserved from the template, not from the frontend
-        if rf_node.get("type") in ("annotation", "schematic"):
+        # Schematic nodes are read-only, preserved from template
+        if rf_node.get("type") == "schematic":
+            continue
+
+        # Annotation nodes are saved (position, size, and content)
+        if rf_node.get("type") == "annotation":
+            ann_data = rf_node.get("data", {})
+            ann = DemoAnnotation(
+                id=rf_node["id"],
+                position=NodePosition(**rf_node.get("position", {"x": 0, "y": 0})),
+                width=rf_node.get("width") or ann_data.get("width") or 260,
+                height=rf_node.get("height") or ann_data.get("height"),
+                title=ann_data.get("title", ""),
+                body=ann_data.get("body", ""),
+                style=ann_data.get("style", "info"),
+                step_number=ann_data.get("stepNumber"),
+                pointer_target=ann_data.get("pointerTarget"),
+                font_size=ann_data.get("fontSize", "sm"),
+            )
+            demo.annotations.append(ann)
             continue
 
         # Sticky note nodes are stored separately

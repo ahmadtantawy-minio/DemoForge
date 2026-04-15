@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from ..models.api_models import DeployResponse, ErrorDetail, TaskStatusResponse
 from ..engine.docker_manager import deploy_demo, stop_demo, pause_demo, resume_demo
+from ..engine.task_manager import cancel_running_task as _cancel_running_task
 from ..engine import task_manager
 from ..state.store import state, DeployProgress
 from ..config.license_store import license_store
@@ -166,8 +167,10 @@ async def stop(demo_id: str):
 @router.post("/api/demos/{demo_id}/destroy", response_model=DeployResponse)
 async def destroy(demo_id: str):
     """Destroy containers and volumes. Full teardown."""
+    # Cancel any in-progress deploy/stop task before proceeding — destroy must always work.
     if task_manager.is_operation_running(demo_id):
-        raise HTTPException(409, "An operation is already in progress for this demo")
+        logger.info(f"Cancelling in-progress task for demo {demo_id} before destroy")
+        await _cancel_running_task(demo_id)
     logger.info(f"Destroying demo {demo_id}")
     running = state.get_demo(demo_id)
     if running:

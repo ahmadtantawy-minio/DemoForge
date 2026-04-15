@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { useDebugStore } from "../../stores/debugStore";
 
 interface DeployStep {
   step: string;
@@ -34,6 +35,9 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
   const [steps, setSteps] = useState<DeployStep[]>([]);
   const [finished, setFinished] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const addEntry = useDebugStore((s) => s.addEntry);
+  const prevStepStatuses = useRef<Record<string, string>>({});
+  const lastHeartbeat = useRef<Record<string, number>>({});
   // Guard: ensure onDone fires exactly once regardless of how many paths reach it
   const calledRef = useRef(false);
   const safeOnDone = (success: boolean) => {
@@ -54,6 +58,28 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
         const data = await res.json();
         if (data.steps && data.steps.length > 0) {
           setSteps(data.steps);
+          for (const s of data.steps as DeployStep[]) {
+            const prev = prevStepStatuses.current[s.step];
+            if (prev !== s.status) {
+              prevStepStatuses.current[s.step] = s.status;
+              if (s.status === "done" || s.status === "error" || s.status === "warning") {
+                const level = s.status === "error" ? "error" : s.status === "warning" ? "warn" : "info";
+                const label = STEP_LABELS[s.step] ?? s.step;
+                addEntry(level, "Deploy", `${label}: ${s.status}`, s.detail || undefined);
+              } else if (s.status === "running" && !prev) {
+                addEntry("info", "Deploy", `${STEP_LABELS[s.step] ?? s.step}: started`, s.detail || undefined);
+                lastHeartbeat.current[s.step] = Date.now();
+              }
+              // Heartbeat: log every 8s while a step stays in "running"
+              if (s.status === "running") {
+                const last = lastHeartbeat.current[s.step] ?? 0;
+                if (Date.now() - last >= 8000) {
+                  lastHeartbeat.current[s.step] = Date.now();
+                  addEntry("info", "Deploy", `${STEP_LABELS[s.step] ?? s.step}: still running\u2026`, s.detail || undefined);
+                }
+              }
+            }
+          }
         }
         if (data.finished) {
           const hasError = data.steps.some((s: DeployStep) => s.step === "error" || s.step === "rollback");

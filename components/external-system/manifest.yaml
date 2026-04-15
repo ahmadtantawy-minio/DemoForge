@@ -51,6 +51,12 @@ connections:
           env_var: S3_ACCESS_KEY
         - config_key: S3_SECRET_KEY
           env_var: S3_SECRET_KEY
+      config_schema:
+        - key: catalog_name
+          label: Trino Catalog Name
+          type: string
+          default: aistor
+          description: "Trino catalog name used when creating and querying Iceberg tables (must match the catalog configured in Trino)"
   accepts: []
 
 terminal:

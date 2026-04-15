@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
-import { GripHorizontal, X } from "lucide-react";
+import { GripHorizontal, X, RefreshCw } from "lucide-react";
 import ClusterHealthPanel from "./ClusterHealthPanel";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
@@ -126,6 +126,40 @@ export default function CockpitOverlay() {
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
 
+  const toggleCockpit = useDemoStore((s) => s.toggleCockpit);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Declare fetch callbacks before effects so they're in scope
+  const fetchCockpitNow = useCallback(async () => {
+    if (!enabled || !activeDemoId || !isRunning) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setData({ clusters: [], error: err.detail || `HTTP ${res.status}` } as any);
+        return;
+      }
+      setData(await res.json());
+    } catch { /* silently fail */ }
+  }, [enabled, activeDemoId, isRunning]);
+
+  const fetchHealthNow = useCallback(async () => {
+    if (!enabled || !activeDemoId || !isRunning) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit/health`);
+      if (!res.ok) return;
+      setHealthData(await res.json());
+    } catch { /* silently fail */ }
+  }, [enabled, activeDemoId, isRunning]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchCockpitNow();
+    fetchHealthNow();
+    setTimeout(() => setRefreshing(false), 800);
+  }, [fetchCockpitNow, fetchHealthNow]);
+
   // Fetch full demo definition once when active demo changes to get cluster IDs
   useEffect(() => {
     if (!activeDemoId) {
@@ -150,27 +184,10 @@ export default function CockpitOverlay() {
       setData(null);
       return;
     }
-
-    const fetchCockpit = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit`);
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          setData({ clusters: [], error: err.detail || `HTTP ${res.status}` } as any);
-          return;
-        }
-        const json: CockpitData = await res.json();
-        // Backend provides rx_bytes_per_sec / tx_bytes_per_sec directly from mc admin bandwidth
-        setData(json);
-      } catch {
-        // Silently fail — cockpit is non-critical
-      }
-    };
-
-    fetchCockpit();
-    const interval = setInterval(fetchCockpit, activeTab === "throughput" ? 1000 : 4000);
+    fetchCockpitNow();
+    const interval = setInterval(fetchCockpitNow, activeTab === "throughput" ? 1000 : 4000);
     return () => clearInterval(interval);
-  }, [enabled, activeDemoId, isRunning, activeTab]);
+  }, [enabled, activeDemoId, isRunning, activeTab, fetchCockpitNow]);
 
   // Fetch health data (mc admin info) every 8 seconds
   useEffect(() => {
@@ -178,24 +195,10 @@ export default function CockpitOverlay() {
       setHealthData(null);
       return;
     }
-
-    const fetchHealth = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit/health`);
-        if (!res.ok) return;
-        const json: CockpitHealthData = await res.json();
-        setHealthData(json);
-      } catch {
-        // Silently fail
-      }
-    };
-
-    fetchHealth();
-    const interval = setInterval(fetchHealth, 8000);
+    fetchHealthNow();
+    const interval = setInterval(fetchHealthNow, 8000);
     return () => clearInterval(interval);
-  }, [enabled, activeDemoId, isRunning]);
-
-  const toggleCockpit = useDemoStore((s) => s.toggleCockpit);
+  }, [enabled, activeDemoId, isRunning, fetchHealthNow]);
 
   // Draggable position
   const [pos, setPos] = useState({ x: window.innerWidth - 420, y: 60 });
@@ -262,12 +265,21 @@ export default function CockpitOverlay() {
           <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Cockpit</span>
         </div>
-        <button
-          className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-accent transition-colors"
-          onClick={toggleCockpit}
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-accent transition-colors"
+            onClick={handleRefresh}
+            title="Refresh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            className="text-muted-foreground hover:text-foreground p-0.5 rounded hover:bg-accent transition-colors"
+            onClick={toggleCockpit}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Tab bar */}

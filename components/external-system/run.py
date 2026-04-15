@@ -59,7 +59,7 @@ ICEBERG_SIGV4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "ye
 TRINO_HOST = os.environ.get("TRINO_HOST", "")
 TRINO_CATALOG = os.environ.get("TRINO_CATALOG", "aistor" if ICEBERG_SIGV4 else "iceberg")
 
-METABASE_URL = os.environ.get("METABASE_URL", "http://metabase:3000")
+METABASE_URL = os.environ.get("METABASE_URL", "")  # only set when dashboard-provision edge exists
 METABASE_USER = os.environ.get("METABASE_USER", mc.DEFAULT_USER)
 METABASE_PASSWORD = os.environ.get("METABASE_PASSWORD", mc.DEFAULT_PASSWORD)
 
@@ -265,6 +265,7 @@ class IcebergTableWriter:
         full = f"{namespace}.{table_name}"
         try:
             catalog.load_table(full)
+            print(f"[iceberg] table exists: {full}", flush=True)
             return
         except Exception:
             pass
@@ -280,10 +281,18 @@ class IcebergTableWriter:
                 )
             )
         try:
+            print(f"[iceberg] create_namespace: {namespace}", flush=True)
             catalog.create_namespace(namespace)
-        except Exception:
-            pass
-        catalog.create_table(identifier=full, schema=Schema(*fields))
+            print(f"[iceberg] namespace ok: {namespace}", flush=True)
+        except Exception as exc:
+            print(f"[iceberg] namespace already exists or failed: {namespace}: {exc}", flush=True)
+        print(f"[iceberg] create_table: {full}", flush=True)
+        try:
+            catalog.create_table(identifier=full, schema=Schema(*fields))
+            print(f"[iceberg] table created: {full}", flush=True)
+        except Exception as exc:
+            print(f"[iceberg] create_table failed: {full}: {exc}", flush=True)
+            raise
 
     def append(self, namespace: str, table_name: str, rows: list, schema: list) -> int:
         if not rows:
@@ -353,19 +362,73 @@ class TrinoTableWriter:
             "date": "DATE",
         }.get(t, "VARCHAR")
 
+    def _wait_for_trino(self, max_wait: int = 300, interval: int = 10):
+        """Block until Trino responds, up to max_wait seconds."""
+        import requests, time
+        host = self.host if self.host.startswith("http") else f"http://{self.host}"
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            try:
+                r = requests.get(f"{host}/v1/info", timeout=5)
+                if r.ok and r.json().get("starting") is False:
+                    return
+            except Exception:
+                pass
+            remaining = int(deadline - time.time())
+            print(f"[trino] server not ready, retrying in {interval}s (up to {remaining}s remaining)…", flush=True)
+            time.sleep(interval)
+        raise RuntimeError(f"Trino at {self.host} did not become ready within {max_wait}s")
+
     def ensure_table(self, namespace: str, table_name: str, schema: list,
                      partition_by: list = None):
         cols = ", ".join(f'"{c["name"]}" {self._trino_type(c.get("type", "string"))}' for c in schema)
-        self._post_query(f'CREATE SCHEMA IF NOT EXISTS "{self.catalog}"."{namespace}"')
+        schema_fqn = f'"{self.catalog}"."{namespace}"'
+        print(f"[schema] CREATE SCHEMA IF NOT EXISTS {schema_fqn}", flush=True)
+        try:
+            self._post_query(f'CREATE SCHEMA IF NOT EXISTS {schema_fqn}')
+            print(f"[schema] ok: {schema_fqn}", flush=True)
+        except Exception as exc:
+            if "SERVER_STARTING_UP" in str(exc) or "still initializing" in str(exc):
+                print(f"[schema] Trino still initializing — waiting for ready…", flush=True)
+                self._wait_for_trino()
+                self._post_query(f'CREATE SCHEMA IF NOT EXISTS {schema_fqn}')
+                print(f"[schema] ok (after wait): {schema_fqn}", flush=True)
+            else:
+                print(f"[schema] failed: {schema_fqn}: {exc}", flush=True)
+                raise
         with_clause = ""
         if partition_by:
             parts = ", ".join(f"'{p}'" for p in partition_by)
             with_clause = f" WITH (partitioning = ARRAY[{parts}])"
-        sql = (
-            f'CREATE TABLE IF NOT EXISTS "{self.catalog}"."{namespace}"."{table_name}" '
-            f"({cols}){with_clause}"
-        )
-        self._post_query(sql)
+        table_fqn = f'"{self.catalog}"."{namespace}"."{table_name}"'
+        print(f"[table] CREATE TABLE IF NOT EXISTS {table_fqn}", flush=True)
+        sql = f'CREATE TABLE IF NOT EXISTS {table_fqn} ({cols}){with_clause}'
+        try:
+            self._post_query(sql)
+            print(f"[table] ok: {table_fqn}", flush=True)
+        except Exception as exc:
+            err_str = str(exc)
+            # Trino still booting — wait and retry the full sequence
+            if "SERVER_STARTING_UP" in err_str or "still initializing" in err_str:
+                print(f"[table] Trino still initializing — waiting…", flush=True)
+                self._wait_for_trino()
+                self._post_query(sql)
+                print(f"[table] ok (after wait): {table_fqn}", flush=True)
+                return
+            # Some catalogs (Hive, non-Iceberg) don't support the partitioning property.
+            # Retry without it so table creation still succeeds.
+            if with_clause and "partitioning" in err_str and "does not exist" in err_str:
+                print(f"[table] partitioning not supported by catalog, retrying without: {table_fqn}", flush=True)
+                sql_no_part = f'CREATE TABLE IF NOT EXISTS {table_fqn} ({cols})'
+                try:
+                    self._post_query(sql_no_part)
+                    print(f"[table] ok (no partitioning): {table_fqn}", flush=True)
+                    return
+                except Exception as exc2:
+                    print(f"[table] failed (no partitioning): {table_fqn}: {exc2}", flush=True)
+                    raise exc2
+            print(f"[table] failed: {table_fqn}: {exc}", flush=True)
+            raise
 
     def _fmt_literal(self, val, col_type: str) -> str:
         if val is None:
@@ -870,8 +933,11 @@ def main():
         else:
             print(f"[external-system] Unknown dataset target '{target}' — skipping.")
 
-    # Provision Metabase (parallel to streaming would require threads; do before streaming)
-    provision_metabase(scenario)
+    # Provision Metabase only when a dashboard-provision edge injected METABASE_URL
+    if METABASE_URL:
+        provision_metabase(scenario)
+    else:
+        print("[external-system] No Metabase URL configured — skipping dashboard provisioning.")
 
     # Stream phase
     if stream_metas and table_writer:

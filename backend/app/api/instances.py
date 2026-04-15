@@ -1093,8 +1093,21 @@ async def get_scenario_queries(demo_id: str, scenario_id: str):
                             "name": q.get("title", q.get("name", "")),
                             "sql": sql.strip(),
                             "chart_type": q.get("visualization", ""),
+                            "tab": q.get("tab", ""),
                         })
-                    if ext_queries:
+                    tabs_def = saved_q.get("tabs", [])
+                    if tabs_def and ext_queries:
+                        # Expand into one ScenarioTab per tab, queries filtered by tab field
+                        for tab in sorted(tabs_def, key=lambda t: t.get("order", 0)):
+                            tab_id = tab.get("id", "")
+                            tab_queries = [q for q in ext_queries if q.get("tab") == tab_id]
+                            if tab_queries:
+                                scenarios.append({
+                                    "id": tab_id,
+                                    "name": tab.get("label", tab_id),
+                                    "queries": tab_queries,
+                                })
+                    elif ext_queries:
                         scenarios.append({
                             "id": scen.get("id", sid),
                             "name": scenario_name,
@@ -1249,11 +1262,13 @@ async def setup_tables(demo_id: str):
         "string": "VARCHAR", "int32": "INTEGER", "int64": "BIGINT",
         "float32": "REAL", "float64": "DOUBLE", "boolean": "BOOLEAN",
         "timestamp": "TIMESTAMP", "date": "DATE",
+        "long": "BIGINT", "integer": "INTEGER", "double": "DOUBLE",
     }
 
     # Ensure schema exists
     schema_cmd = f'trino --execute "CREATE SCHEMA IF NOT EXISTS {primary_catalog}.demo"'
     await exec_in_container(trino_container, schema_cmd)
+    created_schemas: set = {f"{primary_catalog}.demo"}
 
     if not _os.path.isdir(datasets_dir):
         return {"results": [{"table": "?", "status": "error", "detail": f"Datasets dir not found: {datasets_dir}"}]}
@@ -1297,6 +1312,77 @@ async def setup_tables(demo_id: str):
             results.append({"table": full_table, "status": "created"})
         else:
             results.append({"table": full_table, "status": "error", "detail": clean_err[:200]})
+
+    # Create tables for external-system scenarios (soc-firewall-events, soc-threat-intel, etc.)
+    if demo_def:
+        es_dir = _os.path.join(
+            _os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components"),
+            "external-system", "scenarios"
+        )
+        es_nodes = [n for n in demo_def.nodes if n.component == "external-system"]
+        for es_node in es_nodes:
+            es_scenario_id = es_node.config.get("ES_SCENARIO", "")
+            if not es_scenario_id:
+                continue
+            es_path = _os.path.join(es_dir, f"{es_scenario_id}.yaml")
+            if not _os.path.isfile(es_path):
+                continue
+            with open(es_path, "r") as f:
+                es_scenario = _yaml.safe_load(f)
+
+            for ds in es_scenario.get("datasets", []):
+                ns = ds.get("namespace", "soc")
+                schema_key = f"{primary_catalog}.{ns}"
+                if schema_key not in created_schemas:
+                    await exec_in_container(trino_container, f'trino --execute "CREATE SCHEMA IF NOT EXISTS {primary_catalog}.{ns}"')
+                    created_schemas.add(schema_key)
+
+                if ds.get("target") == "table":
+                    tname = ds.get("table_name", ds.get("id", "").replace("-", "_"))
+                    full = f"{primary_catalog}.{ns}.{tname}"
+                    ec, _, _ = await exec_in_container(trino_container, f'trino --execute "SELECT 1 FROM {full} LIMIT 1"')
+                    if ec == 0:
+                        results.append({"table": full, "status": "exists"})
+                        continue
+                    cols = ds.get("schema", [])
+                    if not cols:
+                        results.append({"table": full, "status": "skipped", "detail": "No columns"})
+                        continue
+                    col_defs = ", ".join(
+                        f"{c['name']} {type_map.get(c.get('type', 'string'), 'VARCHAR')}"
+                        for c in cols if 'name' in c
+                    )
+                    ec, _, stderr = await exec_in_container(trino_container, f'trino --execute "CREATE TABLE IF NOT EXISTS {full} ({col_defs}) WITH (format = \'PARQUET\')"')
+                    clean_err = "\n".join(l for l in (stderr or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
+                    results.append({"table": full, "status": "created" if ec == 0 or "already exists" in clean_err.lower() else "error", "detail": clean_err[:200] if ec != 0 else None})
+
+                elif ds.get("target") == "object" and ds.get("mirror_to_table"):
+                    mirror = ds["mirror_to_table"]
+                    m_ns = mirror.get("namespace", ns)
+                    m_tname = mirror.get("table_name", "")
+                    m_fields = mirror.get("fields", [])
+                    if not m_tname or not m_fields:
+                        continue
+                    m_schema_key = f"{primary_catalog}.{m_ns}"
+                    if m_schema_key not in created_schemas:
+                        await exec_in_container(trino_container, f'trino --execute "CREATE SCHEMA IF NOT EXISTS {primary_catalog}.{m_ns}"')
+                        created_schemas.add(m_schema_key)
+                    full_m = f"{primary_catalog}.{m_ns}.{m_tname}"
+                    ec, _, _ = await exec_in_container(trino_container, f'trino --execute "SELECT 1 FROM {full_m} LIMIT 1"')
+                    if ec == 0:
+                        results.append({"table": full_m, "status": "exists"})
+                        continue
+                    parent_schema = {c["name"]: c for c in ds.get("schema", []) if "name" in c}
+                    col_defs = ", ".join(
+                        f"{f} {type_map.get(parent_schema[f].get('type', 'string'), 'VARCHAR')}"
+                        for f in m_fields if f in parent_schema
+                    )
+                    if not col_defs:
+                        results.append({"table": full_m, "status": "skipped", "detail": "No matching mirror fields"})
+                        continue
+                    ec, _, stderr = await exec_in_container(trino_container, f'trino --execute "CREATE TABLE IF NOT EXISTS {full_m} ({col_defs}) WITH (format = \'PARQUET\')"')
+                    clean_err = "\n".join(l for l in (stderr or "").splitlines() if "jline" not in l and "WARNING" not in l).strip()
+                    results.append({"table": full_m, "status": "created" if ec == 0 or "already exists" in clean_err.lower() else "error", "detail": clean_err[:200] if ec != 0 else None})
 
     # Create Hive external tables for data generators in raw write mode
     try:

@@ -31,6 +31,9 @@ export default function App() {
   const debugOpen = useDebugStore((s) => s.isOpen);
   const addDebugEntry = useDebugStore((s) => s.addEntry);
   const prevClusterHealth = useRef<Record<string, string>>({});
+  const prevInstances = useRef<Record<string, { health: string; init_status: string }>>({});
+  const prevDemoStatuses = useRef<Record<string, string>>({});
+  const provisionEmitted = useRef<Set<string>>(new Set());
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(200);
@@ -38,6 +41,32 @@ export default function App() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(192);
   const [rightPanelWidth, setRightPanelWidth] = useState(288);
   const isDragging = useRef(false);
+
+  // Subscribe to diagram edges — emit Provision entries once edges are loaded for an active demo
+  const edges = useDiagramStore((s) => s.edges);
+  const nodes = useDiagramStore((s) => s.nodes);
+  useEffect(() => {
+    if (!activeDemoId) return;
+    if (provisionEmitted.current.has(activeDemoId)) return;
+    const activeDemo = useDemoStore.getState().demos.find((d) => d.id === activeDemoId);
+    if (!activeDemo || !["running", "deploying"].includes(activeDemo.status)) return;
+    const INTEGRATION_TYPES: Record<string, string> = {
+      "dashboard-provision": "requesting dashboard provisioning",
+      "data-provision": "requesting data provisioning",
+      "schema-provision": "requesting schema provisioning",
+    };
+    const integrationEdges = edges.filter((e) => INTEGRATION_TYPES[(e.data as any)?.connectionType]);
+    if (integrationEdges.length === 0) return;
+    provisionEmitted.current.add(activeDemoId);
+    for (const edge of integrationEdges) {
+      const edgeData = edge.data as any;
+      const srcNode = nodes.find((n) => n.id === edge.source);
+      const tgtNode = nodes.find((n) => n.id === edge.target);
+      const srcLabel = (srcNode?.data as any)?.displayName || (srcNode?.data as any)?.label || edge.source;
+      const tgtLabel = (tgtNode?.data as any)?.displayName || (tgtNode?.data as any)?.label || edge.target;
+      addDebugEntry("info", "Provision", `${srcLabel} → ${tgtLabel}: ${INTEGRATION_TYPES[edgeData.connectionType]}`, `Edge type: ${edgeData.connectionType}`);
+    }
+  }, [activeDemoId, edges]);
 
   // Fetch FA identity on mount
   useEffect(() => {
@@ -54,12 +83,26 @@ export default function App() {
       const current = useDemoStore.getState().demos;
       const merged = res.demos.map((d: any) => {
         const local = current.find((c) => c.id === d.id);
-        if (local && (local.status === "deploying" || local.status === "stopping")) {
+        // Preserve local transitional state only while the backend agrees it's still transitioning.
+        // Once the backend reports a stable state (running, stopped, error), let it through.
+        if (local && (local.status === "deploying" || local.status === "stopping")
+            && (d.status === "deploying" || d.status === "stopping")) {
           return { ...d, status: local.status };
         }
         return d;
       });
       setDemos(merged);
+      // Track demo status transitions for lifecycle log
+      for (const d of merged) {
+        const prev = prevDemoStatuses.current[d.id];
+        if (prev !== undefined && prev !== d.status) {
+          const level = d.status === "error" ? "error" : "info";
+          addDebugEntry(level, "Lifecycle", `Demo "${d.id}": ${prev} → ${d.status}`);
+          // Reset provision emit guard on new deploy so the edge-watch effect re-emits
+          if (d.status === "deploying") provisionEmitted.current.delete(d.id);
+        }
+        prevDemoStatuses.current[d.id] = d.status;
+      }
     }).catch(() => {});
     sync();
     const interval = setInterval(sync, 5000);
@@ -102,6 +145,34 @@ export default function App() {
           }
           prevClusterHealth.current = res.cluster_health;
         }
+        // Track container lifecycle transitions
+        const currentIds = new Set(res.instances.map((i: any) => i.node_id));
+        for (const inst of res.instances) {
+          const prev = prevInstances.current[inst.node_id];
+          const h = inst.health ?? "";
+          const init = inst.init_status ?? "";
+          if (prev) {
+            if (prev.health !== h && h) {
+              const level = h === "error" ? "error" : h === "healthy" ? "info" : "warn";
+              addDebugEntry(level, "Lifecycle", `${inst.node_id}: ${prev.health || "?"} → ${h}`, `Container: ${inst.container_name}`);
+            }
+            if (prev.init_status !== init && init && init !== prev.init_status) {
+              const level = init === "failed" ? "error" : "info";
+              addDebugEntry(level, "Lifecycle", `${inst.node_id} init ${init}`, `Container: ${inst.container_name}`);
+            }
+          } else if (h) {
+            addDebugEntry("info", "Lifecycle", `${inst.node_id} appeared (${h})`, `Container: ${inst.container_name}`);
+          }
+          prevInstances.current[inst.node_id] = { health: h, init_status: init };
+        }
+        // Detect removed containers
+        for (const nodeId of Object.keys(prevInstances.current)) {
+          if (!currentIds.has(nodeId)) {
+            addDebugEntry("info", "Lifecycle", `${nodeId}: container removed`);
+            delete prevInstances.current[nodeId];
+          }
+        }
+
         // Push health updates to diagram nodes
         const { updateNodeHealth } = useDiagramStore.getState();
         for (const inst of res.instances) {

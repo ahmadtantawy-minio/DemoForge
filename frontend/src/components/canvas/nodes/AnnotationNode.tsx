@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { type NodeProps, Handle, Position, useReactFlow } from "@xyflow/react";
+import { type NodeProps, Handle, Position, useReactFlow, NodeResizer } from "@xyflow/react";
 import type { AnnotationNodeData } from "../../../types";
 import { useDiagramStore } from "../../../stores/diagramStore";
 
@@ -28,7 +28,14 @@ function renderAnnotationBody(text: string) {
   ));
 }
 
-export default function AnnotationNode({ data, id }: NodeProps) {
+const fontSizeClass: Record<string, string> = {
+  sm: "text-sm",
+  base: "text-base",
+  lg: "text-lg",
+  xl: "text-xl",
+};
+
+export default function AnnotationNode({ data, id, selected }: NodeProps) {
   const d = data as unknown as AnnotationNodeData;
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
   const [isEditing, setIsEditing] = useState(false);
@@ -138,28 +145,38 @@ export default function AnnotationNode({ data, id }: NodeProps) {
     );
   }
 
+  const textSize = fontSizeClass[d.fontSize || "sm"];
+
   return (
-    <div
-      className={`rounded-lg border-0 px-4 py-3 cursor-grab active:cursor-grabbing ${styleClasses[d.style] || styleClasses.info}`}
-      style={{ width: d.width || 300 }}
-      onClick={() => setSelectedNode(id)}
-      onDoubleClick={startEdit}
-    >
-      {/* Hidden handles for annotation-pointer edges */}
-      <Handle type="source" position={Position.Bottom} className="!w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
-      {d.style === "step" && d.stepNumber != null && (
-        <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold mb-2">
-          {d.stepNumber}
-        </div>
-      )}
-      {d.title && (
-        <div className="text-sm font-semibold mb-1">{d.title}</div>
-      )}
-      {d.body && (
-        <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
-          {renderAnnotationBody(d.body)}
-        </div>
-      )}
-    </div>
+    <>
+      <NodeResizer
+        isVisible={selected}
+        minWidth={160}
+        minHeight={60}
+        lineClassName="!border-blue-400/40"
+        handleClassName="!w-2 !h-2 !bg-blue-400 !border-blue-400 !rounded-sm"
+      />
+      <div
+        className={`w-full h-full rounded-lg border-0 px-4 py-3 cursor-grab active:cursor-grabbing ${styleClasses[d.style] || styleClasses.info}`}
+        onClick={() => setSelectedNode(id)}
+        onDoubleClick={startEdit}
+      >
+        {/* Hidden handles for annotation-pointer edges */}
+        <Handle type="source" position={Position.Bottom} className="!w-0 !h-0 !border-0 !bg-transparent !min-w-0 !min-h-0" />
+        {d.style === "step" && d.stepNumber != null && (
+          <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold mb-2">
+            {d.stepNumber}
+          </div>
+        )}
+        {d.title && (
+          <div className={`${textSize} font-semibold mb-1`}>{d.title}</div>
+        )}
+        {d.body && (
+          <div className={`${textSize} text-muted-foreground leading-relaxed whitespace-pre-line`}>
+            {renderAnnotationBody(d.body)}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

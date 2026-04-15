@@ -14,7 +14,7 @@ const levelBg: Record<DebugEntry["level"], string> = {
   error: "bg-red-950/30",
 };
 
-type Tab = "logs" | "health";
+type Tab = "logs" | "health" | "lifecycle" | "integrations";
 
 function HealthPanel() {
   const [checks, setChecks] = useState<Record<string, any> | null>(null);
@@ -183,6 +183,18 @@ export default function DebugPanel() {
             >
               Logs
             </button>
+            <button
+              onClick={() => setTab("lifecycle")}
+              className={`px-2 py-0.5 rounded transition-colors ${tab === "lifecycle" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Lifecycle
+            </button>
+            <button
+              onClick={() => setTab("integrations")}
+              className={`px-2 py-0.5 rounded transition-colors ${tab === "integrations" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Integrations
+            </button>
           </div>
           {tab === "logs" && (
             <>
@@ -190,6 +202,12 @@ export default function DebugPanel() {
               {errorCount > 0 && <span className="text-red-400">{errorCount} errors</span>}
               {warnCount > 0 && <span className="text-yellow-400">{warnCount} warnings</span>}
             </>
+          )}
+          {tab === "lifecycle" && (
+            <span className="text-muted-foreground">{entries.filter((e) => e.source === "Lifecycle" || e.source === "Deploy").length} events</span>
+          )}
+          {tab === "integrations" && (
+            <span className="text-muted-foreground">{entries.filter((e) => e.source === "Provision").length} events</span>
           )}
         </div>
         {tab === "logs" && (
@@ -201,6 +219,32 @@ export default function DebugPanel() {
       <div className="flex-1 overflow-y-auto">
         {tab === "health" ? (
           <HealthPanel />
+        ) : tab === "lifecycle" ? (
+          <div className="font-mono text-xs p-1">
+            {(() => {
+              const lifecycleEntries = [...entries].filter((e) => e.source === "Lifecycle" || e.source === "Deploy").reverse();
+              return lifecycleEntries.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-muted-foreground">
+                  No lifecycle events yet. Deploy a demo to see container events here.
+                </div>
+              ) : (
+                lifecycleEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)
+              );
+            })()}
+          </div>
+        ) : tab === "integrations" ? (
+          <div className="font-mono text-xs p-1">
+            {(() => {
+              const integrationEntries = [...entries].filter((e) => e.source === "Provision").reverse();
+              return integrationEntries.length === 0 ? (
+                <div className="flex items-center justify-center h-32 text-muted-foreground">
+                  No integration events yet. Deploy a demo with integration edges (e.g. dashboard-provision) to see advertisements here.
+                </div>
+              ) : (
+                integrationEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)
+              );
+            })()}
+          </div>
         ) : (
           <div className="font-mono text-xs p-1">
             {sortedEntries.length === 0 ? (

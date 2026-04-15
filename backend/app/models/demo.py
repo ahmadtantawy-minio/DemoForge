@@ -136,12 +136,14 @@ class DemoAnnotation(BaseModel):
     id: str
     position: NodePosition
     width: int = 300
+    height: int | None = None
     title: str = ""
     body: str = ""
     style: str = "info"                      # "info" | "callout" | "warning" | "step"
     step_number: int | None = None
     pointer_target: str | None = None
     collapsed: bool = False
+    font_size: str = "sm"
 
 class DemoNetwork(BaseModel):
     name: str

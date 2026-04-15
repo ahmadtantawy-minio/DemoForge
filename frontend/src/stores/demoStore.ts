@@ -90,7 +90,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   currentPage: initial.page,
   cockpitEnabled: false,
   walkthroughOpen: false,
-  showFaNotes: true,
+  showFaNotes: false,
   setShowFaNotes: (v) => set({ showFaNotes: v }),
   resilienceProbes: [],
   faId: "",

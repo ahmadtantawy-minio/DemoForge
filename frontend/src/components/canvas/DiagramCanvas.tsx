@@ -61,6 +61,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const { activeDemoId, instances, demos, faMode, showFaNotes } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
+  const isDeploying = activeDemo?.status === "deploying";
   // In dev mode, experience templates are fully editable (no readonly restrictions)
   const isExperience = activeDemo?.mode === "experience" && faMode !== "dev";
 
@@ -204,6 +205,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: a.id,
         type: "annotation",
         position: a.position || { x: 0, y: 0 },
+        style: { width: a.width || 260, ...(a.height ? { height: a.height } : {}) },
         draggable: true,  // Always draggable — cosmetic repositioning
         selectable: true,
         deletable: !isExp,
@@ -212,8 +214,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           body: a.body || "",
           style: a.style || "info",
           stepNumber: a.step_number,
-          width: a.width || 300,
+          width: a.width || 260,
           pointerTarget: a.pointer_target,
+          fontSize: a.font_size || "sm",
         },
       }));
       // Create annotation pointer edges
@@ -503,11 +506,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           id: `annotation-${nodeCounter}`,
           type: "annotation",
           position: { x, y },
+          style: { width: 260 },
           data: {
             title: "Annotation",
             body: "Add your description here...",
             style: "info",
             width: 260,
+            fontSize: "sm",
           },
         };
         addNode(newAnnotation);
@@ -1061,7 +1066,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             onOpenMcpTools={isCluster ? () => setMcpPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "mcp-tools" }) : undefined}
             onOpenAiChat={isCluster ? () => setMcpPanel({ clusterId: contextMenu.nodeId, clusterLabel: (ctxNode?.data as any)?.label || contextMenu.nodeId, defaultTab: "ai-chat" }) : undefined}
             onOpenSqlEditor={(ctxNode?.data as any)?.componentId === "trino" ? () => setSqlEditorPanel({ scenarioId: "ecommerce-orders" }) : undefined}
-            isRunning={isRunning}
+            isRunning={isRunning || (isDeploying && instance?.health === "healthy")}
             onOpenTerminal={() => onOpenTerminal(terminalNodeId)}
             onDeleteNode={handleDeleteNode}
             onCopyNode={() => handleCopyNode(contextMenu.nodeId)}

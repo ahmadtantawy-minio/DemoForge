@@ -42,6 +42,8 @@ class OperationTask:
 
 # In-memory task registry: task_id → OperationTask
 _tasks: dict[str, OperationTask] = {}
+# asyncio task handles for cancellation: task_id → asyncio.Task
+_asyncio_handles: dict[str, asyncio.Task] = {}
 
 
 def get_task(task_id: str) -> OperationTask | None:
@@ -54,6 +56,23 @@ def is_operation_running(demo_id: str) -> bool:
         if task.demo_id == demo_id and task.status in ("queued", "running"):
             return True
     return False
+
+
+async def cancel_running_task(demo_id: str) -> None:
+    """Cancel any queued/running task for this demo and wait for it to finish."""
+    for task in list(_tasks.values()):
+        if task.demo_id == demo_id and task.status in ("queued", "running"):
+            handle = _asyncio_handles.get(task.task_id)
+            if handle and not handle.done():
+                handle.cancel()
+                try:
+                    await asyncio.wait_for(asyncio.shield(handle), timeout=5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            task.status = "cancelled"
+            task.error = "Cancelled by destroy"
+            task.progress.finished = True
+            logger.info(f"Task {task.task_id} ({task.operation} on {demo_id}) cancelled")
 
 
 async def submit_task(
@@ -89,6 +108,11 @@ async def submit_task(
             logger.warning(
                 f"Task {task_id} ({operation} on {demo_id}) timed out after {timeout}s"
             )
+        except asyncio.CancelledError:
+            task.status = "cancelled"
+            task.error = "Cancelled"
+            task.progress.finished = True
+            logger.info(f"Task {task_id} ({operation} on {demo_id}) was cancelled")
         except Exception as e:
             task.status = "error"
             task.error = str(e)
@@ -97,6 +121,9 @@ async def submit_task(
             logger.exception(
                 f"Task {task_id} ({operation} on {demo_id}) failed: {e}"
             )
+        finally:
+            _asyncio_handles.pop(task_id, None)
 
-    asyncio.create_task(_run())
+    handle = asyncio.create_task(_run())
+    _asyncio_handles[task_id] = handle
     return task
