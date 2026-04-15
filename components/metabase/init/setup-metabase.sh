@@ -1,11 +1,12 @@
 #!/bin/sh
+set -eu
 # Metabase auto-setup: creates admin user and adds Trino database connection
 # Runs inside alpine:3.19 sidecar (has wget, grep, sed)
 
 MB="http://${METABASE_HOST}:3000"
 
-echo "Waiting 30 seconds for Metabase to initialize..."
-sleep 30
+echo "Waiting 45 seconds for Metabase to initialize..."
+sleep 45
 
 # Helper: HTTP GET, returns body to stdout
 http_get() {
@@ -24,19 +25,21 @@ http_post() {
 
 # --- Step 1: Wait for Metabase health ---
 echo "Checking Metabase health..."
+HEALTHY=0
 for attempt in $(seq 1 20); do
   HEALTH=$(http_get "$MB/api/health")
   if echo "$HEALTH" | grep -q '"status":"ok"'; then
     echo "Metabase is healthy."
+    HEALTHY=1
     break
   fi
   echo "Metabase not ready yet (attempt $attempt/20)..."
   sleep 5
-  if [ "$attempt" = "20" ]; then
-    echo "ERROR: Metabase did not become healthy. Exiting."
-    exit 1
-  fi
 done
+if [ "$HEALTHY" = "0" ]; then
+  echo "ERROR: Metabase did not become healthy after 20 attempts. Exiting."
+  exit 1
+fi
 
 # --- Step 2: Check if setup is already complete ---
 echo "Checking setup status..."
@@ -95,7 +98,8 @@ else
     http_post "$MB/api/database/$DB_ID/sync_schema" "{}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
     echo "Schema sync triggered."
   else
-    echo "WARNING: Failed to add Trino database."
+    echo "ERROR: Failed to add Trino database. Response: $DB_RESULT"
+    exit 1
   fi
 fi
 
@@ -119,7 +123,8 @@ else
     DASH_ID=$(echo "$DASH_RESULT" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
 
     if [ -z "$DASH_ID" ]; then
-      echo "WARNING: Could not create dashboard."
+      echo "ERROR: Could not create dashboard. Response: $DASH_RESULT"
+      exit 1
     else
       echo "Dashboard created (id: $DASH_ID)."
 

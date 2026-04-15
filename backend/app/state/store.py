@@ -18,6 +18,7 @@ class RunningContainer:
     networks: list[str]               # Docker network names this container is on
     health: ContainerHealthStatus = ContainerHealthStatus.STARTING
     init_status: str = "pending"      # pending | running | completed | failed | timeout
+    is_sidecar: bool = False          # True for ephemeral sidecar containers (e.g. metabase-init)
 
 @dataclass
 class EdgeConfigResult:
@@ -116,6 +117,7 @@ class StateStore:
                 component_id=component_id,
                 container_name=c.name,
                 networks=container_nets,
+                is_sidecar=c.labels.get("demoforge.sidecar") == "true",
             )
             # Merge any new networks
             for n in container_nets:
@@ -205,6 +207,7 @@ class StateStore:
                             component_id=component_id,
                             container_name=c.name,
                             networks=container_nets,
+                            is_sidecar=c.labels.get("demoforge.sidecar") == "true",
                         )
 
             elif running.status == "running":
@@ -223,6 +226,7 @@ class StateStore:
                                 component_id=component_id,
                                 container_name=c.name,
                                 networks=container_nets,
+                                is_sidecar=c.labels.get("demoforge.sidecar") == "true",
                             )
                 # Remove containers that are completely gone (deleted, not just stopped)
                 for node_id in list(running.containers.keys()):
@@ -251,6 +255,7 @@ class StateStore:
                             component_id=component_id,
                             container_name=c.name,
                             networks=container_nets,
+                            is_sidecar=c.labels.get("demoforge.sidecar") == "true",
                         )
                     for n in demo_nets:
                         if n not in running.networks:

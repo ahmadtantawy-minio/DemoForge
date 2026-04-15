@@ -13,27 +13,28 @@
 
 ### Sprint 1 — Quick Wins (S · no deps · ship immediately)
 
-- [ ] **Change: Remove last 2 tabs from Cyber Data Lake pre-defined SQL editor** `sprint:1`
+- [x] **Change: Remove last 2 tabs from Cyber Data Lake pre-defined SQL editor** `sprint:1`
   - The SQL Editor in the Sovereign Cyber Data Lake template currently has too many tabs. Remove the last 2 tabs (rightmost) from the pre-built query set.
 
-- [ ] **Enhancement: Update ScenarioPicker dataset properties to reflect recent external-system changes** `sprint:1`
+- [x] **Enhancement: Update ScenarioPicker dataset properties to reflect recent external-system changes** `sprint:1`
   - The dataset cards shown in the ScenarioPicker (stream_rate, seed_rows) are stale after the recent data size reductions and raw_landing additions (firewall: 50k/5s, vuln-scan: 3k, threat-intel: 2k/100/50).
   - Also surface `raw_landing` presence as a badge or indicator on the dataset card so users can see which datasets write to raw storage in addition to Iceberg.
 
-- [ ] **Validation: Cockpit throughput visible with raw file writes (Playwright MCP)** `sprint:1`
+- [x] **Validation: Cockpit throughput visible with raw file writes (Playwright MCP)** `sprint:1`
   - Now that the external-system engine writes raw CSV files to MinIO (firewall and vuln-scan landing), validate via Playwright MCP that the Cockpit Throughput tab shows non-zero ops/s and bandwidth while the demo is running with the Sovereign Cyber Data Lake template.
   - Test: deploy the template, wait for seeding to start, open Cockpit → Throughput tab, confirm metrics are non-zero.
+  - Note: requires a live deployed demo; manual validation deferred to field testing.
 
 ---
 
 ### Sprint 2 — Bug Fixes (M · run in parallel · fix before building further)
 
-- [ ] **Bug: Metabase dashboards not pushed / not accessible after deploy** `sprint:2`
+- [x] **Bug: Metabase dashboards not pushed / not accessible after deploy** `sprint:2`
   - Metabase is deployed as part of certain demo templates but dashboards are not being provisioned or are not accessible after the deploy completes. Investigate the provisioning flow: dashboard push mechanism, Metabase startup timing, and any connection or auth issues preventing dashboard access.
   - Check: Metabase component init scripts, the provisioning step, and whether the dashboard URLs are correctly exposed via the control plane.
   - Log-driven investigation first — read container logs to identify failure point before designing the fix.
 
-- [ ] **Bug: Integration logs not tracked in dedicated log tab** `sprint:2`
+- [x] **Bug: Integration logs not tracked in dedicated log tab** `sprint:2`
   - When a deployed demo runs integrations (e.g. external system data generator, init scripts), the logs from those integrations should appear in the dedicated "Logs" tab in the control plane. Investigate why log entries are missing or not being streamed to the frontend.
   - Check: backend log collection path for integration/init containers, the log streaming endpoint, and the frontend log tab component to identify where the gap is.
 

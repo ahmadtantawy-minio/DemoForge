@@ -160,6 +160,7 @@ export interface ContainerInstance {
   credentials: CredentialInfo[];
   init_status: "pending" | "running" | "completed" | "failed" | "timeout";
   stopped_drives?: number[];
+  is_sidecar?: boolean;
 }
 
 // --- React Flow node data ---

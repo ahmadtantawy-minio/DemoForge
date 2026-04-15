@@ -10,6 +10,29 @@ warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
 fail() { echo -e "${RED}✗${NC} $*" >&2; exit 1; }
 
+# ── Spinner (TTY-only) ─────────────────────────────────────────────────────────
+_SPINNER_PID=""
+_spinner_start() {
+  [ -t 1 ] || return 0
+  local msg="${1:-Working...}"
+  (
+    local chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏' i=0
+    while true; do
+      printf '\r  \033[0;36m%s\033[0m %s' "${chars:$((i % 10)):1}" "$msg"
+      sleep 0.1
+      i=$((i + 1))
+    done
+  ) &
+  _SPINNER_PID=$!
+}
+_spinner_stop() {
+  [ -n "$_SPINNER_PID" ] || return 0
+  kill "$_SPINNER_PID" 2>/dev/null
+  wait "$_SPINNER_PID" 2>/dev/null || true
+  printf '\r\033[K'
+  _SPINNER_PID=""
+}
+
 cd "$PROJECT_ROOT"
 
 # Parse flags
@@ -114,8 +137,10 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
   log "Syncing templates from hub..."
   _SYNCED=0
   for i in $(seq 1 12); do
+    _spinner_start "Contacting hub (attempt ${i}/12)..."
     _SYNC_RESP=$(curl -s -X POST "http://localhost:${BACKEND_PORT}/api/templates/sync" \
-      --connect-timeout 3 2>/dev/null || true)
+      --connect-timeout 5 --max-time 30 2>/dev/null || true)
+    _spinner_stop
     if echo "$_SYNC_RESP" | grep -q '"status"'; then
       _DL=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('downloaded',0))" 2>/dev/null || echo "?")
       _UNCH=$(echo "$_SYNC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('unchanged',0))" 2>/dev/null || echo "?")
@@ -125,19 +150,31 @@ if [ "$_BACKEND_READY" -eq 1 ]; then
       _SYNCED=1
       break
     fi
-    sleep 5
+    if [ "$i" -lt 12 ]; then
+      _spinner_start "Retrying in 5s..."
+      sleep 5
+      _spinner_stop
+    fi
   done
   [ "$_SYNCED" -eq 0 ] && warn "Template sync timed out — will retry on next fa-update"
   echo ""
 
   # ── Step 9: Cache license keys locally ──────────────────────────────────────
   log "Caching license keys..."
-  _LIC_RESP=$(curl -s "http://localhost:${BACKEND_PORT}/api/fa/licenses/cache" --connect-timeout 5 2>/dev/null || echo "")
+  _spinner_start "Fetching from hub..."
+  _LIC_RESP=$(curl -s "http://localhost:${BACKEND_PORT}/api/fa/licenses/cache" --connect-timeout 5 --max-time 15 2>/dev/null || echo "")
+  _spinner_stop
   if echo "$_LIC_RESP" | grep -q '"status"'; then
     _LIC_CACHED=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('cached',0))" 2>/dev/null || echo "?")
     _LIC_FAILED=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('failed',[])))" 2>/dev/null || echo "0")
+    _LIC_ERR=$(echo "$_LIC_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); errs=d.get('errors',{}); items=list(errs.items()); print(items[0][1] if items else '')" 2>/dev/null || echo "")
     if [ "$_LIC_FAILED" != "0" ] && [ "$_LIC_FAILED" != "?" ]; then
-      warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable (will be fetched live from hub when needed)"
+      if [ -n "$_LIC_ERR" ]; then
+        warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable (${_LIC_ERR})"
+      else
+        warn "License keys: ${_LIC_CACHED} cached, ${_LIC_FAILED} unavailable"
+      fi
+      warn "  Licenses will be fetched live from hub when a demo is deployed."
     else
       ok "License keys cached (${_LIC_CACHED})"
     fi

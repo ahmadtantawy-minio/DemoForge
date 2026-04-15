@@ -399,17 +399,19 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         )
         service_containers = []
         for c in containers:
-            if c.labels.get("demoforge.sidecar") == "true":
-                continue  # ephemeral run-once sidecars (e.g. metabase-init) — not tracked
             node_id = c.labels.get("demoforge.node", "")
             component_id = c.labels.get("demoforge.component", "")
+            if not node_id:
+                continue
             running.containers[node_id] = RunningContainer(
                 node_id=node_id,
                 component_id=component_id,
                 container_name=c.name,
                 networks=network_names,
+                is_sidecar=c.labels.get("demoforge.sidecar") == "true",
             )
-            service_containers.append(c)
+            if not running.containers[node_id].is_sidecar:
+                service_containers.append(c)
         await progress("discovery", "done", f"Found {len(service_containers)} service container(s)")
 
         # Run init scripts after containers are discovered

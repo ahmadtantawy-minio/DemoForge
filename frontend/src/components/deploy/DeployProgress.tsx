@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, XCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Loader2, Terminal } from "lucide-react";
 import { useDebugStore } from "../../stores/debugStore";
+import { apiFetch } from "../../api/client";
 
 interface DeployStep {
   step: string;
@@ -38,6 +39,8 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
   const addEntry = useDebugStore((s) => s.addEntry);
   const prevStepStatuses = useRef<Record<string, string>>({});
   const lastHeartbeat = useRef<Record<string, number>>({});
+  const [initLogs, setInitLogs] = useState<string[] | null>(null);
+  const [initLogsLoading, setInitLogsLoading] = useState(false);
   // Guard: ensure onDone fires exactly once regardless of how many paths reach it
   const calledRef = useRef(false);
   const safeOnDone = (success: boolean) => {
@@ -45,6 +48,18 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
     calledRef.current = true;
     onDone(success);
   };
+
+  const loadInitLogs = useCallback(async () => {
+    setInitLogsLoading(true);
+    try {
+      const data = await apiFetch<{ lines: string[] }>(`/api/demos/${demoId}/instances/metabase-init/logs?tail=100`);
+      setInitLogs(data.lines ?? []);
+    } catch {
+      setInitLogs(["(could not fetch init logs)"]);
+    } finally {
+      setInitLogsLoading(false);
+    }
+  }, [demoId]);
 
   useEffect(() => {
     const poll = async () => {
@@ -142,30 +157,55 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
 
           <div className="space-y-1">
             {steps.map((s) => (
-              <div
-                key={s.step}
-                className={`flex items-start gap-3 px-3 py-2 rounded-md transition-colors ${
-                  s.status === "running" ? "bg-blue-500/5" :
-                  s.status === "error" ? "bg-red-500/5" :
-                  s.status === "warning" ? "bg-yellow-500/5" :
-                  "bg-transparent"
-                }`}
-              >
-                <div className="mt-0.5 flex-shrink-0">{statusIcon(s.status)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-foreground">
-                    {STEP_LABELS[s.step] ?? s.step}
-                  </div>
-                  {s.detail && (
-                    <div className={`text-xs mt-0.5 ${
-                      s.status === "error" ? "text-red-400" :
-                      s.status === "warning" ? "text-yellow-400" :
-                      "text-muted-foreground"
-                    } break-all`}>
-                      {s.detail}
+              <div key={s.step}>
+                <div
+                  className={`flex items-start gap-3 px-3 py-2 rounded-md transition-colors ${
+                    s.status === "running" ? "bg-blue-500/5" :
+                    s.status === "error" ? "bg-red-500/5" :
+                    s.status === "warning" ? "bg-yellow-500/5" :
+                    "bg-transparent"
+                  }`}
+                >
+                  <div className="mt-0.5 flex-shrink-0">{statusIcon(s.status)}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {STEP_LABELS[s.step] ?? s.step}
+                      </span>
+                      {s.step === "init_scripts" && (s.status === "done" || s.status === "error" || s.status === "warning") && (
+                        <button
+                          className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
+                          onClick={() => initLogs === null ? loadInitLogs() : setInitLogs(null)}
+                        >
+                          <Terminal className="w-3 h-3" />
+                          {initLogs !== null ? "hide" : "view logs"}
+                        </button>
+                      )}
                     </div>
-                  )}
+                    {s.detail && (
+                      <div className={`text-xs mt-0.5 ${
+                        s.status === "error" ? "text-red-400" :
+                        s.status === "warning" ? "text-yellow-400" :
+                        "text-muted-foreground"
+                      } break-all`}>
+                        {s.detail}
+                      </div>
+                    )}
+                  </div>
                 </div>
+                {s.step === "init_scripts" && initLogs !== null && (
+                  <div className="mx-3 mb-1 rounded border border-zinc-700 bg-zinc-900 p-2 max-h-40 overflow-auto">
+                    {initLogsLoading ? (
+                      <p className="text-xs text-zinc-500">Loading...</p>
+                    ) : initLogs.length === 0 ? (
+                      <p className="text-xs text-zinc-500">No log output yet.</p>
+                    ) : (
+                      <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap break-all leading-relaxed">
+                        {initLogs.join("\n")}
+                      </pre>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

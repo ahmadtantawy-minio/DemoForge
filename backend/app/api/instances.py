@@ -180,7 +180,7 @@ async def list_instances(demo_id: str):
 
     instances = []
     for node_id, container in running.containers.items():
-        manifest = get_component(container.component_id)
+        manifest = get_component(container.component_id) if not container.is_sidecar else None
         docker_health = await get_container_health(container.container_name)
         # Use cluster-level health override if available (cluster health endpoint is authoritative)
         health = cluster_node_health_override.get(node_id, docker_health)
@@ -264,6 +264,7 @@ async def list_instances(demo_id: str):
             credentials=credentials,
             init_status=container.init_status,
             stopped_drives=running.stopped_drives.get(node_id, []),
+            is_sidecar=container.is_sidecar,
         ))
 
     # Poll file-generator containers for per-edge status

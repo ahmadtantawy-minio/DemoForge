@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, RefreshCw, CornerDownRight } from "lucide-react";
-import { fetchContainerLogs, execContainerLog, fetchComponentManifest } from "../../api/client";
+import { fetchContainerLogs, execContainerLog, fetchComponentManifest, fetchInstances } from "../../api/client";
 
 const STORAGE_KEY = "demoforge:logViewer:bounds";
 const DEFAULT_WIDTH = 920;
@@ -86,6 +86,10 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
   const [lines, setLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastFetch, setLastFetch] = useState<string>("");
+  // Active container — starts as the passed nodeId, can switch to sidecars
+  const [activeNodeId, setActiveNodeId] = useState(nodeId);
+  // Sidecar containers associated with the same demo
+  const [sidecarNodes, setSidecarNodes] = useState<{ node_id: string; label: string }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [bounds, setBounds] = useState<PanelBounds>(() => loadStoredBounds());
@@ -111,7 +115,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
     startH: 0,
   });
 
-  // Load log_commands from manifest
+  // Load log_commands from manifest (only for main service containers, not sidecars)
   useEffect(() => {
     if (!componentId) return;
     fetchComponentManifest(componentId)
@@ -123,15 +127,35 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
       .catch(() => {});
   }, [componentId]);
 
+  // Fetch sidecar containers for this demo so they can be selected in the log viewer
+  useEffect(() => {
+    fetchInstances(demoId)
+      .then((resp) => {
+        const sidecars = (resp.instances ?? [])
+          .filter((i) => i.is_sidecar)
+          .map((i) => ({ node_id: i.node_id, label: i.node_id }));
+        setSidecarNodes(sidecars);
+      })
+      .catch(() => {});
+  }, [demoId]);
+
+  // When switching back to the main node, reset tabs to Docker Logs only
+  useEffect(() => {
+    if (activeNodeId !== nodeId) {
+      setTabs([DOCKER_TAB]);
+      setActiveTab(0);
+    }
+  }, [activeNodeId, nodeId]);
+
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const tab = tabs[activeTab];
       let result: { lines: string[] };
       if (!tab.command) {
-        result = await fetchContainerLogs(demoId, nodeId, 200, "60s");
+        result = await fetchContainerLogs(demoId, activeNodeId, 200, "60s");
       } else {
-        result = await execContainerLog(demoId, nodeId, tab.command);
+        result = await execContainerLog(demoId, activeNodeId, tab.command);
       }
       setLines(result.lines ?? []);
       setLastFetch(new Date().toLocaleTimeString());
@@ -140,7 +164,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
     } finally {
       setLoading(false);
     }
-  }, [demoId, nodeId, tabs, activeTab]);
+  }, [demoId, activeNodeId, tabs, activeTab]);
 
   // Initial fetch + 3s polling
   useEffect(() => {
@@ -263,8 +287,24 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
           className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0 cursor-move"
           onMouseDown={onHeaderMouseDown}
         >
-          <div className="text-sm font-semibold text-foreground truncate">
-            Logs — {nodeId}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-semibold text-foreground truncate">
+              Logs — {activeNodeId}
+            </span>
+            {sidecarNodes.length > 0 && (
+              <select
+                className="text-xs bg-accent/50 border border-border rounded px-1 py-0.5 text-foreground cursor-pointer shrink-0"
+                value={activeNodeId}
+                onChange={(e) => setActiveNodeId(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                title="Switch container"
+              >
+                <option value={nodeId}>{nodeId}</option>
+                {sidecarNodes.map((s) => (
+                  <option key={s.node_id} value={s.node_id}>{s.label}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-muted-foreground">{lastFetch && `Updated ${lastFetch}`}</span>

@@ -94,6 +94,7 @@ class ContainerInstance(BaseModel):
     credentials: list[CredentialInfo] = []
     init_status: str = "pending"
     stopped_drives: list[int] = []
+    is_sidecar: bool = False      # True for ephemeral sidecar containers (e.g. metabase-init)
 
 class EdgeConfigStatus(BaseModel):
     edge_id: str

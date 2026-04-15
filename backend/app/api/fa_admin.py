@@ -213,13 +213,15 @@ async def cache_licenses():
             if req.license_id:
                 license_ids.add(req.license_id)
 
-    cached, failed = 0, []
+    cached, failed, errors = 0, [], {}
     for lid in sorted(license_ids):
-        entry = license_store._http_get(lid)
+        entry, err = license_store._http_get_with_error(lid)
         if entry:
             license_store.set(entry)
             cached += 1
         else:
             failed.append(lid)
+            if err:
+                errors[lid] = err
 
-    return {"status": "ok", "cached": cached, "failed": failed, "discovered": sorted(license_ids)}
+    return {"status": "ok", "cached": cached, "failed": failed, "errors": errors, "discovered": sorted(license_ids)}

@@ -56,20 +56,33 @@ class LicenseStore:
     # --- HTTP read (via hub gateway — no S3 signing needed) ---
 
     def _http_get(self, license_id: str) -> LicenseEntry | None:
+        entry, _ = self._http_get_with_error(license_id)
+        return entry
+
+    def _http_get_with_error(self, license_id: str) -> tuple["LicenseEntry | None", str]:
+        """Fetch a license from hub. Returns (entry, "") on success or (None, reason) on failure."""
         # Read env vars at call time — not at import time — so container env is always current.
         hub_url = os.environ.get("DEMOFORGE_HUB_URL", "").rstrip("/")
         fa_key = os.environ.get("DEMOFORGE_API_KEY", "")
         if not hub_url or not fa_key:
-            return None
+            return None, "DEMOFORGE_HUB_URL or DEMOFORGE_API_KEY not configured"
         try:
             url = f"{hub_url}/api/hub/licenses/{license_id}.json"
             req = urllib.request.Request(url, method="GET", headers={"X-Api-Key": fa_key})
             resp = urllib.request.urlopen(req, timeout=5)
             data = json.loads(resp.read())
-            return LicenseEntry(**data)
+            return LicenseEntry(**data), ""
+        except urllib.error.HTTPError as e:
+            reason = f"HTTP {e.code} {e.reason}"
+            logger.warning("License HTTP fetch failed for %r: %s", license_id, reason)
+            return None, reason
+        except urllib.error.URLError as e:
+            reason = f"Connection error: {e.reason}"
+            logger.warning("License HTTP fetch failed for %r: %s", license_id, reason)
+            return None, reason
         except Exception as e:
             logger.debug("License HTTP fetch failed for %r: %s", license_id, e)
-            return None
+            return None, str(e)
 
     # --- Public API ---
 
