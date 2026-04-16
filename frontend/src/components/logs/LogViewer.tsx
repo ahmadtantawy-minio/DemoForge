@@ -66,9 +66,42 @@ function persistBounds(b: PanelBounds) {
   }
 }
 
-interface LogTab {
-  name: string;
-  command?: string; // undefined = docker logs
+type LogTab =
+  | { name: string; kind: "docker" }
+  | { name: string; kind: "exec"; command: string }
+  | { name: string; kind: "minio-config" };
+
+type InitResultRow = {
+  node_id: string;
+  script: string;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+};
+
+type EdgeConfigRow = {
+  edge_id: string;
+  connection_type: string;
+  status: string;
+  description: string;
+  error: string;
+};
+
+/** Init scripts likely tied to MinIO Day0/1 (mc, buckets, replication, webhooks, etc.). */
+function filterMinioRelatedInits(rows: InitResultRow[]): InitResultRow[] {
+  return rows.filter((r) => {
+    const idScript = `${r.node_id} ${r.script}`;
+    if (/minio|mc-shell|mc[_-]|event-processor|register-webhook/i.test(idScript)) return true;
+    const blob = `${r.script}\n${r.stdout}\n${r.stderr}`;
+    if (
+      /\b(mc|mcli|minio)\b|bucket|replicat|webhook|mirror|notify|site-replication|lambda|event[\s_-]?add|mb\s|rb\s|admin\s/i.test(
+        blob
+      )
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 interface Props {
@@ -78,12 +111,18 @@ interface Props {
   onClose: () => void;
 }
 
-const DOCKER_TAB: LogTab = { name: "Docker Logs" };
+const DOCKER_TAB: LogTab = { name: "Docker Logs", kind: "docker" };
+const MINIO_CONFIG_TAB: LogTab = { name: "MinIO config (Day0/1)", kind: "minio-config" };
 
 export default function LogViewer({ demoId, nodeId, componentId, onClose }: Props) {
-  const [tabs, setTabs] = useState<LogTab[]>([DOCKER_TAB]);
+  const [tabs, setTabs] = useState<LogTab[]>([DOCKER_TAB, MINIO_CONFIG_TAB]);
   const [activeTab, setActiveTab] = useState(0);
   const [lines, setLines] = useState<string[]>([]);
+  const [minioSnapshot, setMinioSnapshot] = useState<{
+    edge_configs: EdgeConfigRow[];
+    init_results: InitResultRow[];
+    error?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastFetch, setLastFetch] = useState<string>("");
   // Active container — starts as the passed nodeId, can switch to sidecars
@@ -117,14 +156,23 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
 
   // Load log_commands from manifest (only for main service containers, not sidecars)
   useEffect(() => {
-    if (!componentId) return;
+    if (!componentId) {
+      setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
+      return;
+    }
     fetchComponentManifest(componentId)
       .then((manifest: any) => {
-        if (manifest?.log_commands?.length) {
-          setTabs([DOCKER_TAB, ...manifest.log_commands.map((lc: any) => ({ name: lc.name, command: lc.command }))]);
-        }
+        const extra =
+          manifest?.log_commands?.map((lc: any) => ({
+            name: lc.name,
+            kind: "exec" as const,
+            command: lc.command,
+          })) ?? [];
+        setTabs([DOCKER_TAB, MINIO_CONFIG_TAB, ...extra]);
       })
-      .catch(() => {});
+      .catch(() => {
+        setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
+      });
   }, [componentId]);
 
   // Fetch sidecar containers for this demo so they can be selected in the log viewer
@@ -139,20 +187,49 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
       .catch(() => {});
   }, [demoId]);
 
-  // When switching back to the main node, reset tabs to Docker Logs only
+  // When viewing a sidecar, drop manifest exec tabs (they belong to the main container)
   useEffect(() => {
     if (activeNodeId !== nodeId) {
-      setTabs([DOCKER_TAB]);
+      setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
       setActiveTab(0);
     }
   }, [activeNodeId, nodeId]);
 
-  const fetchLogs = useCallback(async () => {
+  useEffect(() => {
+    if (activeTab >= tabs.length) setActiveTab(0);
+  }, [tabs, activeTab]);
+
+  const activeTabKind = tabs[activeTab]?.kind;
+
+  const refreshActiveTab = useCallback(async () => {
+    const tab = tabs[activeTab];
+    if (!tab) return;
+    if (tab.kind === "minio-config") {
+      setLoading(true);
+      try {
+        const resp = await fetchInstances(demoId);
+        const raw = resp.init_results ?? [];
+        setMinioSnapshot({
+          edge_configs: resp.edge_configs ?? [],
+          init_results: filterMinioRelatedInits(raw),
+        });
+        setLastFetch(new Date().toLocaleTimeString());
+      } catch (e: any) {
+        setMinioSnapshot({
+          edge_configs: [],
+          init_results: [],
+          error: e?.message ?? String(e),
+        });
+        setLastFetch(new Date().toLocaleTimeString());
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     setLoading(true);
     try {
-      const tab = tabs[activeTab];
       let result: { lines: string[] };
-      if (!tab.command) {
+      if (tab.kind === "docker") {
         result = await fetchContainerLogs(demoId, activeNodeId, 200, "60s");
       } else {
         result = await execContainerLog(demoId, activeNodeId, tab.command);
@@ -166,19 +243,23 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
     }
   }, [demoId, activeNodeId, tabs, activeTab]);
 
-  // Initial fetch + 3s polling
+  // Initial fetch + polling (lighter interval for demo-wide MinIO snapshot)
   useEffect(() => {
-    fetchLogs();
-    pollRef.current = setInterval(fetchLogs, 3000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchLogs]);
+    refreshActiveTab();
+    const intervalMs = activeTabKind === "minio-config" ? 5000 : 3000;
+    pollRef.current = setInterval(refreshActiveTab, intervalMs);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [refreshActiveTab, activeTabKind]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom (docker / exec tabs)
   useEffect(() => {
+    if (activeTabKind === "minio-config") return;
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [lines]);
+  }, [lines, activeTabKind]);
 
   // Keep panel in viewport when window resizes
   useEffect(() => {
@@ -288,8 +369,11 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
           onMouseDown={onHeaderMouseDown}
         >
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-semibold text-foreground truncate">
+            <span className="text-sm font-semibold text-foreground truncate" title={activeNodeId}>
               Logs — {activeNodeId}
+              {activeTabKind === "minio-config" && (
+                <span className="text-[10px] font-normal text-muted-foreground ml-1">(demo-wide)</span>
+              )}
             </span>
             {sidecarNodes.length > 0 && (
               <select
@@ -318,7 +402,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
             </button>
             <button
               type="button"
-              onClick={fetchLogs}
+              onClick={refreshActiveTab}
               className="p-1 rounded hover:bg-accent transition-colors"
               title="Refresh"
             >
@@ -339,7 +423,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
         <div className="flex gap-0.5 px-2 pt-1.5 border-b border-border shrink-0 overflow-x-auto">
           {tabs.map((tab, i) => (
             <button
-              key={tab.name}
+              key={`${tab.kind}-${i}-${tab.name}`}
               onClick={() => setActiveTab(i)}
               className={`text-xs px-2.5 py-1 rounded-t border-b-2 whitespace-nowrap transition-colors ${
                 activeTab === i
@@ -355,13 +439,102 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
         {/* Log output */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto p-2 pb-7 font-mono text-[11px] leading-relaxed text-green-400 bg-zinc-950 rounded-b-lg min-h-0"
+          className="flex-1 overflow-y-auto p-2 pb-7 font-mono text-[11px] leading-relaxed bg-zinc-950 rounded-b-lg min-h-0"
         >
-          {lines.length === 0 ? (
+          {activeTabKind === "minio-config" ? (
+            <div className="text-zinc-200 space-y-4">
+              {minioSnapshot?.error && (
+                <div className="text-red-400 whitespace-pre-wrap">Error: {minioSnapshot.error}</div>
+              )}
+              {!minioSnapshot && loading && (
+                <div className="text-muted-foreground text-center mt-8 text-xs">Loading MinIO config activity…</div>
+              )}
+              {minioSnapshot && !minioSnapshot.error && (
+                <>
+                  <section>
+                    <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">Edge automation (connections)</h3>
+                    {minioSnapshot.edge_configs.length === 0 ? (
+                      <div className="text-zinc-500 text-xs">No edge config records yet.</div>
+                    ) : (
+                      <ul className="space-y-2">
+                        {minioSnapshot.edge_configs.map((ec) => (
+                          <li
+                            key={ec.edge_id}
+                            className="border border-zinc-800 rounded p-2 bg-zinc-900/50"
+                          >
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-baseline">
+                              <span className="text-emerald-400/90">{ec.connection_type}</span>
+                              <span className="text-zinc-500 text-[10px]">{ec.edge_id}</span>
+                              <span
+                                className={`text-[10px] ${
+                                  ec.status === "ok" || ec.status === "active"
+                                    ? "text-emerald-500"
+                                    : ec.status === "pending" || ec.status === "paused"
+                                      ? "text-amber-500"
+                                      : "text-zinc-400"
+                                }`}
+                              >
+                                {ec.status}
+                              </span>
+                            </div>
+                            {ec.description ? (
+                              <div className="text-zinc-400 mt-1 whitespace-pre-wrap">{ec.description}</div>
+                            ) : null}
+                            {ec.error ? (
+                              <div className="text-red-400/90 mt-1 whitespace-pre-wrap text-[10px]">{ec.error}</div>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                  <section>
+                    <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">
+                      Init scripts (mc / MinIO tooling)
+                    </h3>
+                    {minioSnapshot.init_results.length === 0 ? (
+                      <div className="text-zinc-500 text-xs">
+                        No matching init scripts. (Heuristic: mc, buckets, replication, webhooks, MinIO nodes.)
+                      </div>
+                    ) : (
+                      <ul className="space-y-3">
+                        {minioSnapshot.init_results.map((r, idx) => (
+                          <li
+                            key={`${r.node_id}-${r.script}-${idx}`}
+                            className="border border-zinc-800 rounded p-2 bg-zinc-900/50"
+                          >
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-baseline text-[10px] text-zinc-500">
+                              <span className="text-cyan-400/90">{r.node_id}</span>
+                              <span className="truncate max-w-full" title={r.script}>
+                                {r.script}
+                              </span>
+                              <span className={r.exit_code === 0 ? "text-emerald-500" : "text-red-400"}>
+                                exit {r.exit_code}
+                              </span>
+                            </div>
+                            {r.stderr ? (
+                              <pre className="text-red-400/80 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-32 overflow-y-auto">
+                                {r.stderr}
+                              </pre>
+                            ) : null}
+                            {r.stdout ? (
+                              <pre className="text-green-400/70 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-48 overflow-y-auto">
+                                {r.stdout.length > 8000 ? `…(truncated)\n${r.stdout.slice(-8000)}` : r.stdout}
+                              </pre>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                </>
+              )}
+            </div>
+          ) : lines.length === 0 && !loading ? (
             <div className="text-muted-foreground text-center mt-8 text-xs">No output</div>
           ) : (
             lines.map((line, i) => (
-              <div key={i} className="whitespace-pre-wrap break-all">
+              <div key={i} className="whitespace-pre-wrap break-all text-green-400">
                 {line}
               </div>
             ))
@@ -370,7 +543,11 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
 
         {/* Line count — left side so it does not overlap the resize grip */}
         <div className="absolute bottom-2 left-3 text-[9px] text-muted-foreground pointer-events-none">
-          {lines.length} lines
+          {activeTabKind === "minio-config"
+            ? minioSnapshot
+              ? `${minioSnapshot.edge_configs.length} edges · ${minioSnapshot.init_results.length} inits`
+              : ""
+            : `${lines.length} lines`}
         </div>
 
         {/* Bottom-right resize handle */}

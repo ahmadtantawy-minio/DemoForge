@@ -1,0 +1,10 @@
+scenario:
+  id: process-pipeline
+  name: Downstream bucket writes (S3 & Iceberg)
+  description: "Run actions on matching events; results go to the S3 bucket and Iceberg warehouse configured on your outgoing edges."
+  category: tooling
+  version: "1.0"
+
+display:
+  default_name: "Downstream bucket writes"
+  default_subtitle: "Event Processor"

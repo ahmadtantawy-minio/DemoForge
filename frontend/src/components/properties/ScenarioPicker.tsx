@@ -15,9 +15,17 @@ interface ScenarioPickerProps {
   catalogName?: string;
   /** Registry component id for /api/registry/components/{id}/scenarios */
   componentId?: string;
+  /** Field label (default: Scenario) */
+  label?: string;
 }
 
-export default function ScenarioPicker({ currentScenario, onScenarioChange, catalogName, componentId = "external-system" }: ScenarioPickerProps) {
+export default function ScenarioPicker({
+  currentScenario,
+  onScenarioChange,
+  catalogName,
+  componentId = "external-system",
+  label = "Scenario",
+}: ScenarioPickerProps) {
   const [scenarios, setScenarios] = useState<ScenarioOption[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,7 +42,7 @@ export default function ScenarioPicker({ currentScenario, onScenarioChange, cata
   if (loading) {
     return (
       <div className="mb-3">
-        <label className="text-xs text-muted-foreground block mb-1">Scenario</label>
+        <label className="text-xs text-muted-foreground block mb-1">{label}</label>
         <div className="h-8 bg-muted rounded-md animate-pulse" />
       </div>
     );
@@ -43,7 +51,7 @@ export default function ScenarioPicker({ currentScenario, onScenarioChange, cata
   if (scenarios.length === 0) {
     return (
       <div className="mb-3">
-        <label className="text-xs text-muted-foreground block mb-1">Scenario</label>
+        <label className="text-xs text-muted-foreground block mb-1">{label}</label>
         <div className="text-xs text-muted-foreground">No scenarios available</div>
       </div>
     );
@@ -51,7 +59,7 @@ export default function ScenarioPicker({ currentScenario, onScenarioChange, cata
 
   return (
     <div className="mb-3">
-      <label className="text-xs text-muted-foreground block mb-1">Scenario</label>
+      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
       <Select
         value={currentScenario || ""}
         onValueChange={(v) => {

@@ -198,6 +198,13 @@ def _event_processor_s3_from_edges(demo: DemoDefinition, node: DemoNode, env: di
             env["S3_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
             env["S3_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
 
+        edge_cfg = edge.connection_config or {}
+        for cfg_key in ("target_bucket", "bucket", "sink_bucket"):
+            val = edge_cfg.get(cfg_key)
+            if val:
+                env["S3_BUCKET"] = str(val)
+                break
+
         if edge.connection_type == "aistor-tables":
             env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
             env["ICEBERG_SIGV4"] = "true"

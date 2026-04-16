@@ -14,6 +14,7 @@ import TerminalPanel from "./components/terminal/TerminalPanel";
 import DebugPanel from "./components/debug/DebugPanel";
 import WelcomeScreen from "./components/shared/WelcomeScreen";
 import CockpitOverlay from "./components/cockpit/CockpitOverlay";
+import DesignerWebUIOverlay from "./components/canvas/DesignerWebUIOverlay";
 import WalkthroughPanel from "./components/walkthrough/WalkthroughPanel";
 import { getWalkthrough, WalkthroughStep } from "./api/client";
 import AppNav from "./components/nav/AppNav";
@@ -46,6 +47,8 @@ export default function App() {
   // Subscribe to diagram edges — emit Provision entries once edges are loaded for an active demo
   const edges = useDiagramStore((s) => s.edges);
   const nodes = useDiagramStore((s) => s.nodes);
+  const designerWebUiOverlay = useDiagramStore((s) => s.designerWebUiOverlay);
+  const setDesignerWebUiOverlay = useDiagramStore((s) => s.setDesignerWebUiOverlay);
   useEffect(() => {
     if (!activeDemoId) return;
     if (provisionEmitted.current.has(activeDemoId)) return;
@@ -432,6 +435,14 @@ export default function App() {
 
           {/* Floating Cockpit overlay */}
           {cockpitEnabled && activeDemoId && <CockpitOverlay />}
+
+          {designerWebUiOverlay && (
+            <DesignerWebUIOverlay
+              proxyPath={designerWebUiOverlay.proxyPath}
+              title={designerWebUiOverlay.title}
+              onClose={() => setDesignerWebUiOverlay(null)}
+            />
+          )}
 
           {/* Bottom - Terminal / Logs panel (resizable) - only when demo selected */}
           {activeDemoId && (

@@ -41,6 +41,9 @@ import { MousePointerClick, Group, Save, Check, X, Loader2, Copy, Clipboard } fr
 const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode, "canvas-image": CanvasImageNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
 
+/** Tooling nodes (external-system, event-processor) sit above annotation callouts */
+const COMPONENT_ABOVE_ANNOTATIONS_Z = 20;
+
 let nodeCounter = 0;
 let groupCounter = 0;
 
@@ -251,6 +254,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: n.id,
         type: "component",
         position: n.position || { x: 0, y: 0 },
+        ...(n.component === "external-system" || n.component === "event-processor"
+          ? { zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z }
+          : {}),
         ...(n.group_id ? { parentId: n.group_id } : {}),
         data: {
           label: n.component,
@@ -583,6 +589,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: `${componentId}-${nodeCounter}`,
         type: "component",
         position: { x, y },
+        ...(componentId === "external-system" || componentId === "event-processor"
+          ? { zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z }
+          : {}),
         data: {
           label,
           componentId,
@@ -801,11 +810,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     const base = (clipboard.data as any)?.componentId || clipboard.id.replace(/-\d+$/, "");
     const newId = `${base}-${nodeCounter}`;
     const offset = 40;
+    const pastedCid = (clipboard.data as any)?.componentId || base;
     const newNode: Node = {
       ...clipboard,
       id: newId,
       position: { x: clipboard.position.x + offset, y: clipboard.position.y + offset },
       selected: false,
+      ...(pastedCid === "external-system" || pastedCid === "event-processor"
+        ? { zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z }
+        : {}),
       data: { ...((clipboard.data as any) || {}), componentId: base },
     };
     addNode(newNode);
@@ -907,6 +920,12 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     .map((n) => {
       if (n.type === "sticky" && (n.data as any).visibility === "internal" && !showFaNotes) {
         return { ...n, selectable: false, draggable: false };
+      }
+      if (n.type === "component") {
+        const cid = (n.data as any)?.componentId as string | undefined;
+        if ((cid === "external-system" || cid === "event-processor") && n.zIndex === undefined) {
+          return { ...n, zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z };
+        }
       }
       return n;
     });

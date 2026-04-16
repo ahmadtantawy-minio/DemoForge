@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import HealthBadge from "../control-plane/HealthBadge";
@@ -23,6 +23,34 @@ import SqlEditorPanel from "../sql/SqlEditorPanel";
 import SqlPlaybookPanel from "./SqlPlaybookPanel";
 import { migrateClusterData } from "../../lib/clusterMigration";
 import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
+
+/** Bucket routing from canvas edges (read-only); compose injects env from the same edge config. */
+function getEventProcessorConnectionRouting(
+  selectedNodeId: string,
+  edges: { source: string; target: string; data?: unknown }[]
+) {
+  let webhookBucket = "";
+  let webhookPrefix = "";
+  let webhookEvents = "";
+  let s3TargetBucket = "";
+  let icebergWarehouse = "";
+
+  for (const e of edges) {
+    const d = (e.data ?? {}) as { connectionType?: string; connectionConfig?: Record<string, unknown> };
+    const ct = d.connectionType;
+    const cfg = d.connectionConfig ?? {};
+    if (ct === "webhook" && (e.target === selectedNodeId || e.source === selectedNodeId)) {
+      webhookBucket = String(cfg.webhook_bucket ?? "");
+      webhookPrefix = String(cfg.webhook_prefix ?? "");
+      webhookEvents = String(cfg.webhook_events ?? "");
+    }
+    if ((ct === "s3" || ct === "aistor-tables") && e.source === selectedNodeId) {
+      s3TargetBucket = String(cfg.target_bucket || cfg.bucket || cfg.sink_bucket || "");
+      if (ct === "aistor-tables") icebergWarehouse = String(cfg.warehouse ?? "");
+    }
+  }
+  return { webhookBucket, webhookPrefix, webhookEvents, s3TargetBucket, icebergWarehouse };
+}
 
 // --- Data Generator scenario metadata ---
 const DG_SCENARIOS = [
@@ -514,7 +542,7 @@ const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
 };
 
 export default function PropertiesPanel() {
-  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes: _setNodes, setEdges, componentManifests, setDirty, selectedClusterElement } = useDiagramStore();
+  const { selectedNodeId, selectedEdgeId, nodes, edges, setNodes: _setNodes, setEdges, componentManifests, setDirty, selectedClusterElement, setDesignerWebUiOverlay } = useDiagramStore();
   // Wrap setNodes so every property-panel mutation marks the diagram dirty (enables the Save button)
   const setNodes = (ns: typeof nodes) => { _setNodes(ns); setDirty(true); };
   const { instances, activeDemoId, demos } = useDemoStore();
@@ -527,6 +555,14 @@ export default function PropertiesPanel() {
       .then((res) => setComponents(res.components))
       .catch(() => {});
   }, []);
+
+  const eventProcessorRouting = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const n = nodes.find((x) => x.id === selectedNodeId);
+    const cid = (n?.data as ComponentNodeData | undefined)?.componentId;
+    if (cid !== "event-processor") return null;
+    return getEventProcessorConnectionRouting(selectedNodeId, edges);
+  }, [selectedNodeId, nodes, edges]);
 
   // --- Edge properties view ---
   if (selectedEdgeId && !selectedNodeId) {
@@ -1283,6 +1319,7 @@ export default function PropertiesPanel() {
         <>
           <ScenarioPicker
             componentId="event-processor"
+            label="Action scenario"
             currentScenario={data.config?.EP_ACTION_SCENARIO ?? ""}
             onScenarioChange={(scenarioId, scenario) => {
               const currentDisplayName = data.displayName ?? "";
@@ -1298,16 +1335,65 @@ export default function PropertiesPanel() {
           />
           <div className="mb-3">
             <label className="text-xs text-muted-foreground block mb-1">Processing mode</label>
+            <p className="text-[10px] text-muted-foreground/90 mb-1.5 leading-snug">
+              Controls whether incoming events are only recorded (observe) or passed to scenario actions (process) when actions are enabled.
+            </p>
             <Select value={data.config?.EP_MODE ?? "process"} onValueChange={(v) => updateConfig("EP_MODE", v)}>
               <SelectTrigger className="w-full h-8 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="observe">observe (log only)</SelectItem>
-                <SelectItem value="process">process</SelectItem>
+                <SelectItem value="process">process (run scenario)</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {eventProcessorRouting && (
+            <div className="mb-3 rounded-md border border-border/70 bg-muted/25 px-2.5 py-2 space-y-2">
+              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Buckets (from edges)</div>
+              <div className="space-y-1 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Webhook filter bucket</span>
+                  <span className="float-right font-mono text-foreground max-w-[55%] text-right truncate" title={eventProcessorRouting.webhookBucket || "(all buckets)"}>
+                    {eventProcessorRouting.webhookBucket || "— (all buckets)"}
+                  </span>
+                </div>
+                {eventProcessorRouting.webhookPrefix ? (
+                  <div>
+                    <span className="text-muted-foreground">Key prefix</span>
+                    <span className="float-right font-mono text-foreground max-w-[55%] text-right truncate" title={eventProcessorRouting.webhookPrefix}>
+                      {eventProcessorRouting.webhookPrefix}
+                    </span>
+                  </div>
+                ) : null}
+                {eventProcessorRouting.webhookEvents ? (
+                  <div>
+                    <span className="text-muted-foreground">Events</span>
+                    <span className="float-right font-mono text-[10px] text-foreground max-w-[55%] text-right truncate" title={eventProcessorRouting.webhookEvents}>
+                      {eventProcessorRouting.webhookEvents}
+                    </span>
+                  </div>
+                ) : null}
+                <div>
+                  <span className="text-muted-foreground">S3 write target</span>
+                  <span className="float-right font-mono text-foreground max-w-[55%] text-right truncate" title={eventProcessorRouting.s3TargetBucket || "Connect S3 edge → MinIO"}>
+                    {eventProcessorRouting.s3TargetBucket || "— (set on S3 edge)"}
+                  </span>
+                </div>
+                {eventProcessorRouting.icebergWarehouse ? (
+                  <div>
+                    <span className="text-muted-foreground">Iceberg warehouse</span>
+                    <span className="float-right font-mono text-foreground max-w-[55%] text-right truncate">
+                      {eventProcessorRouting.icebergWarehouse}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-snug pt-0.5 border-t border-border/50">
+                Edit buckets on the <span className="text-foreground/90">webhook</span> and <span className="text-foreground/90">S3</span> edges, not here.
+              </p>
+            </div>
+          )}
         </>
       )}
 
@@ -1406,17 +1492,28 @@ export default function PropertiesPanel() {
           {instance.web_uis.length > 0 && (
             <div className="mb-2">
               <div className="text-xs text-muted-foreground mb-1">Web UIs</div>
-              {instance.web_uis.map((ui) => (
-                <a
-                  key={ui.name}
-                  href={proxyUrl(ui.proxy_url)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-xs text-primary hover:underline mb-1"
-                >
-                  {ui.name}
-                </a>
-              ))}
+              {instance.web_uis.map((ui) =>
+                data.componentId === "event-processor" ? (
+                  <button
+                    key={ui.name}
+                    type="button"
+                    className="block w-full text-left text-xs text-primary hover:underline mb-1"
+                    onClick={() => setDesignerWebUiOverlay({ proxyPath: ui.proxy_url, title: ui.name })}
+                  >
+                    {ui.name}
+                  </button>
+                ) : (
+                  <a
+                    key={ui.name}
+                    href={proxyUrl(ui.proxy_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-xs text-primary hover:underline mb-1"
+                  >
+                    {ui.name}
+                  </a>
+                )
+              )}
             </div>
           )}
           {data.componentId === "metabase" && (

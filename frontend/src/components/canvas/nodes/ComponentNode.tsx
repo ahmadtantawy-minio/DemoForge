@@ -113,6 +113,9 @@ export default function ComponentNode({ id, data }: NodeProps) {
 
   const resilienceProbe = isResilienceTester ? resilienceProbes.find((p) => p.node_id === id) : null;
 
+  const solidToolingCard =
+    nodeData.componentId === "external-system" || nodeData.componentId === "event-processor";
+
   const healthColors: Record<string, string> = {
     healthy: "bg-green-500",
     starting: "bg-yellow-400",
@@ -125,7 +128,12 @@ export default function ComponentNode({ id, data }: NodeProps) {
     if (!activeDemoId) return;
     const instance = instances.find((i) => i.node_id === id);
     if (instance && instance.web_uis.length > 0) {
-      window.open(proxyUrl(instance.web_uis[0].proxy_url), "_blank");
+      const ui = instance.web_uis[0];
+      if (nodeData.componentId === "event-processor") {
+        useDiagramStore.getState().setDesignerWebUiOverlay({ proxyPath: ui.proxy_url, title: ui.name });
+      } else {
+        window.open(proxyUrl(ui.proxy_url), "_blank");
+      }
     }
   };
 
@@ -135,7 +143,11 @@ export default function ComponentNode({ id, data }: NodeProps) {
 
   return (
     <div
-      className="bg-card border-2 border-border rounded-lg shadow-sm px-4 py-3 min-w-[140px] cursor-pointer hover:border-primary/50 transition-colors"
+      className={
+        solidToolingCard
+          ? "bg-white dark:bg-zinc-950 border-2 border-border rounded-lg shadow-md px-4 py-3 min-w-[140px] cursor-pointer hover:border-primary/50 transition-colors"
+          : "bg-card border-2 border-border rounded-lg shadow-sm px-4 py-3 min-w-[140px] cursor-pointer hover:border-primary/50 transition-colors"
+      }
       onClick={() => setSelectedNode(id)}
       onDoubleClick={handleDoubleClick}
     >

@@ -112,14 +112,6 @@ connections:
           - "s3:ObjectCreated:Put"
           - "s3:ObjectCreated:CompleteMultipartUpload"
         default: "s3:ObjectCreated:*"
-  - type: bucket-webhook
-    port: 9000
-    description: HTTP POST bucket notifications to a Webhook Receiver component
-    config_schema:
-      - key: bucket_name
-        label: Bucket name
-        type: string
-        default: "webhook-events"
   accepts:
   - type: load-balance
     config_schema: []

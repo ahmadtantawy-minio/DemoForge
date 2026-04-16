@@ -47,6 +47,9 @@ interface DiagramState {
   setDirty: (dirty: boolean) => void;
   clipboard: Node | null;
   setClipboard: (node: Node | null) => void;
+  /** In-canvas draggable web UI (e.g. Event Processor event viewer) */
+  designerWebUiOverlay: { proxyPath: string; title: string } | null;
+  setDesignerWebUiOverlay: (o: { proxyPath: string; title: string } | null) => void;
 }
 
 export const useDiagramStore = create<DiagramState>((set, get) => ({
@@ -277,6 +280,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
   clipboard: null,
   setClipboard: (node) => set({ clipboard: node }),
+
+  designerWebUiOverlay: null,
+  setDesignerWebUiOverlay: (o) => set({ designerWebUiOverlay: o }),
 
   setPendingConnection: (pending) => set({ pendingConnection: pending }),
 

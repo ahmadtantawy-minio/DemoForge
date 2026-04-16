@@ -3,6 +3,7 @@ import { Copy } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import type { ContainerInstance } from "../../../types";
 import { proxyUrl, restartInstance, execCommand, startGenerator, stopGenerator } from "../../../api/client";
+import { useDiagramStore } from "../../../stores/diagramStore";
 import { apiUrl } from "../../../lib/apiBase";
 
 interface Props {
@@ -39,7 +40,13 @@ export default function NodeContextMenu({
   const menuItems = [
     ...(instance?.web_uis ?? []).map((ui) => ({
       label: `Open ${ui.name}`,
-      action: () => window.open(proxyUrl(ui.proxy_url), "_blank"),
+      action: () => {
+        if (componentId === "event-processor") {
+          useDiagramStore.getState().setDesignerWebUiOverlay({ proxyPath: ui.proxy_url, title: ui.name });
+        } else {
+          window.open(proxyUrl(ui.proxy_url), "_blank");
+        }
+      },
       destructive: false,
     })),
     ...(instance?.has_terminal ? [{
