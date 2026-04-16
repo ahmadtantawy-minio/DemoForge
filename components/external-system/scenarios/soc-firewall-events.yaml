@@ -336,6 +336,12 @@ saved_queries:
     - id: semi-structured
       label: "Semi-structured"
       order: 3
+    - id: unstructured
+      label: "Unstructured"
+      order: 4
+    - id: unified
+      label: "Unified"
+      order: 5
   subcollections:
     - id: sc-structured
       name: "1 — Structured (Iceberg tables)"
@@ -598,86 +604,105 @@ saved_queries:
     - id: q-malware-firewall-link
       tab: unified
       subcollection: sc-unified
-      title: "Q8. Malware linked to firewall threat actors"
-      description: "JOINs structured firewall logs → structured IOCs → unstructured-origin malware metadata. Three tables, two data types, one SQL query."
+      title: "Q8. Malware actors in firewall traffic"
+      description: "3-table join: firewall × IOCs × malware metadata (correlates src_ip to IOC indicator, seeded ~12% overlap)"
       order: 8
       visualization: table
       query: |
-        -- Three tables, three original formats:
-        --   soc.firewall_events  ← ingested from CSV logs (raw-logs/firewall/*.csv)
-        --   soc.threat_iocs      ← extracted from STIX JSON feeds (threat-intel/feeds/stix/*.json)
-        --   soc.malware_metadata ← extracted from sandbox JSON reports (malware-vault/reports/*.json)
+        -- Q8: Malware actors active in our firewall traffic
+        -- Firewall × threat IOCs × malware metadata — plain SQL correlation (indicator column = IPv4 IOC value)
         SELECT
-          m.threat_actor,
-          m.sandbox_verdict,
+          f.event_timestamp,
+          f.src_ip,
+          f.dst_ip,
+          f.action,
+          f.severity,
+          t.indicator,
+          t.threat_actor,
+          t.confidence,
           m.malware_family,
-          count(DISTINCT m.sha256) AS malware_variants,
-          count(DISTINCT f.src_ip) AS source_ips_seen,
-          count(*) AS total_firewall_hits,
-          sum(CASE WHEN f.action IN ('deny','drop','reset') THEN 1 ELSE 0 END) AS blocked
-        FROM iceberg.soc.malware_metadata m
+          m.sandbox_verdict,
+          m.sha256
+        FROM iceberg.soc.firewall_events f
         JOIN iceberg.soc.threat_iocs t
-          ON m.threat_actor = t.threat_actor
-          AND t.ioc_type = 'ipv4'
-        JOIN iceberg.soc.firewall_events f
           ON f.src_ip = t.indicator
-        GROUP BY 1, 2, 3
-        ORDER BY 6 DESC
+          AND t.ioc_type = 'ipv4'
+        JOIN iceberg.soc.malware_metadata m
+          ON t.threat_actor = m.threat_actor
+        WHERE t.confidence > 70
+          AND m.sandbox_verdict = 'malicious'
+        ORDER BY f.event_timestamp DESC
+        LIMIT 50
 
     - id: q-full-threat-picture
       tab: unified
       subcollection: sc-unified
-      title: "Q9. Full threat picture — all three data types in one query"
-      description: "Structured firewall logs + semi-structured JSON fields (json_extract_scalar) + unstructured-origin malware metadata. One query, all three data types, one platform."
+      title: "Q9. Full threat picture (all data types)"
+      description: "Structured tables + JSON on IOC tags + mirrored sandbox JSON columns + vuln context + MinIO paths"
       order: 9
       visualization: table
       query: |
-        -- ALL THREE DATA TYPES IN ONE QUERY:
-        --   Structured (originally CSV):
-        --     soc.firewall_events — raw CSV logs in raw-logs/firewall/, ingested into Iceberg
-        --   Semi-structured (JSON fields):
-        --     soc.threat_iocs.tags — JSON column parsed via json_extract_scalar
-        --     Source: STIX 2.1 JSON bundles in threat-intel/feeds/stix/
-        --   Unstructured origin (from sandbox analysis of raw binaries):
-        --     soc.malware_metadata — extracted from sandbox JSON reports
-        --     Raw binaries in malware-vault/samples/ are opaque bytes
-        --     Sandbox reports in malware-vault/reports/ are semi-structured JSON
-        --     Structured fields extracted from reports into this Iceberg table
+        -- Q9: Full threat picture — unified across structured, semi-structured JSON, and object provenance
+        WITH active_threats AS (
+          SELECT
+            t.indicator,
+            t.threat_actor,
+            t.confidence,
+            cast(round(t.severity_score, 1) AS varchar) AS ioc_severity_band,
+            json_extract_scalar(t.tags, '$.category') AS ioc_category
+          FROM iceberg.soc.threat_iocs t
+          WHERE t.confidence > 60
+            AND t.ioc_type = 'ipv4'
+            AND json_extract_scalar(t.tags, '$.active') = 'true'
+        )
         SELECT
-          t.threat_actor,
-          count(DISTINCT f.src_ip) AS source_ips,
-          count(DISTINCT f.dst_ip) AS internal_hosts_affected,
-          count(DISTINCT m.sha256) AS malware_variants,
-          round(avg(t.confidence), 0) AS avg_ioc_confidence,
-          sum(CASE
-            WHEN json_extract_scalar(t.tags, '$.active') = 'true'
-            THEN 1 ELSE 0
-          END) AS active_iocs,
-          sum(CASE
-            WHEN f.action IN ('deny','drop','reset')
-            THEN 1 ELSE 0
-          END) AS blocked_connections
-        FROM iceberg.soc.threat_iocs t
-        JOIN iceberg.soc.firewall_events f
-          ON f.src_ip = t.indicator
-          AND t.ioc_type = 'ipv4'
+          f.event_timestamp,
+          f.src_ip,
+          f.dst_ip,
+          f.action,
+          at.threat_actor,
+          at.confidence,
+          at.ioc_severity_band,
+          at.ioc_category,
+          m.sha256,
+          m.malware_family,
+          m.sandbox_verdict,
+          m.sandbox_engine,
+          json_extract(json_parse(m.behavioral_indicators), '$') AS behaviors,
+          json_extract(json_parse(m.mitre_techniques), '$') AS mitre,
+          concat('s3://malware-vault/samples/', m.sha256, '.bin') AS binary_location,
+          concat('s3://malware-vault/reports/', m.sha256, '.json') AS report_location,
+          v.cve_id,
+          v.cvss_score,
+          v.remediation_status
+        FROM iceberg.soc.firewall_events f
+        JOIN active_threats at
+          ON f.src_ip = at.indicator
         LEFT JOIN iceberg.soc.malware_metadata m
-          ON t.threat_actor = m.threat_actor
-        GROUP BY 1
-        ORDER BY 2 DESC
+          ON at.threat_actor = m.threat_actor
+        LEFT JOIN iceberg.soc.vulnerability_scan v
+          ON f.src_ip = v.host_ip
+        WHERE f.event_timestamp > current_timestamp - interval '6' hour
+        ORDER BY at.confidence DESC, f.event_timestamp DESC
+        LIMIT 100
 
     - id: q-streaming
       tab: unified
-      title: "Q10. Live data — run twice to prove streaming"
-      description: "Count increases between runs — proves continuous ingestion is active"
+      subcollection: sc-unified
+      title: "Q10. Streaming proof (run twice)"
+      description: "Run twice with a 30–60s gap. total_events grows; proves live ingestion."
       order: 10
       visualization: number
       query: |
         SELECT
           count(*) AS total_events,
           max(event_timestamp) AS latest_event,
-          date_diff('second',
-            min(event_timestamp),
-            max(event_timestamp)) AS time_span_seconds
+          current_timestamp AS query_time,
+          date_diff('second', max(event_timestamp), current_timestamp) AS seconds_behind_live,
+          count(DISTINCT src_ip) AS unique_source_ips,
+          count(*) FILTER (WHERE severity = 'high') AS high_severity_count,
+          count(*) FILTER (
+            WHERE event_timestamp > current_timestamp - interval '1' minute
+          ) AS events_last_minute
         FROM iceberg.soc.firewall_events
 

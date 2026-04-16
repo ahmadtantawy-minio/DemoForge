@@ -4,6 +4,8 @@ import logging
 import os
 import re
 import shlex
+import time as time_module
+import uuid
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -26,6 +28,67 @@ from .demos import _load_demo, _save_demo
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _demo_integration_audit_path(demo_id: str) -> str:
+    demos_dir = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
+    return os.path.join(demos_dir, demo_id, "integration_audit.jsonl")
+
+
+def append_demo_integration_audit(
+    demo_id: str, level: str, kind: str, message: str, details: str = ""
+) -> None:
+    """Append-only local JSONL for data-generator Metabase setup (offline, no cloud)."""
+    path = _demo_integration_audit_path(demo_id)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        rec = {
+            "id": str(uuid.uuid4()),
+            "ts_ms": int(time_module.time() * 1000),
+            "level": level,
+            "kind": kind,
+            "message": message,
+            "details": details or "",
+            "source": "backend",
+            "node_id": "setup-metabase",
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _load_demo_integration_audit(demo_id: str, limit: int = 400) -> list[dict]:
+    path = _demo_integration_audit_path(demo_id)
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+        out: list[dict] = []
+        for line in lines[-limit:]:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                if isinstance(rec, dict):
+                    out.append(rec)
+            except json.JSONDecodeError:
+                continue
+        return out
+    except OSError:
+        return []
+
+
+def _metabase_dashboard_rows(body: object) -> list:
+    """Normalize GET /api/dashboard response (array or {data: [...]})."""
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        return body.get("data") or []
+    return []
+
 
 # Cache for live replication checks (avoid hammering mc on every poll)
 _repl_cache: dict[str, tuple[float, bool]] = {}
@@ -293,7 +356,7 @@ async def list_instances(demo_id: str):
             except Exception:
                 pass
 
-    # Event processor: webhook registration + runtime integration log (JSONL)
+    # Event processor + metabase-init: runtime integration logs (local JSONL, offline)
     integration_events: list[dict] = []
     if demo:
         ep_node_ids = [n.id for n in demo.nodes if n.component == "event-processor"]
@@ -321,6 +384,33 @@ async def list_instances(demo_id: str):
                         continue
             except Exception:
                 continue
+
+        # Metabase init sidecar (setup-metabase.sh + provision.py) — same JSONL path
+        if "metabase-init" in running.containers:
+            rc = running.containers["metabase-init"]
+            cname = rc.container_name
+            try:
+                exit_code, stdout, _stderr = await exec_in_container(
+                    cname,
+                    "sh -c 'test -f /tmp/demoforge_integration.jsonl && tail -n 500 /tmp/demoforge_integration.jsonl || true'",
+                )
+                if exit_code == 0 and (stdout or "").strip():
+                    for line in stdout.strip().splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                            if isinstance(rec, dict):
+                                rec.setdefault("node_id", "metabase-init")
+                                integration_events.append(rec)
+                        except json.JSONDecodeError:
+                            continue
+            except Exception:
+                pass
+
+        integration_events.extend(_load_demo_integration_audit(demo_id))
+
         integration_events.sort(key=lambda r: (r.get("ts_ms") or 0, r.get("id") or ""))
 
     # Build edge configs with live verification for site-replication
@@ -1552,27 +1642,47 @@ async def setup_metabase_dashboards(demo_id: str):
     # Actually, call Metabase API from the backend directly since we're on the same network
     results = []
 
-    # Find Metabase URL — resolve from container
+    # Find Metabase URL — resolve from container (same Docker network as backend; offline)
     metabase_url = f"http://{metabase_container}:3000"
+    append_demo_integration_audit(
+        demo_id, "info", "data_generator_dash", "setup-metabase started", metabase_url,
+    )
 
-    # Wait for Metabase to be ready
+    import asyncio
     import httpx
-    async with httpx.AsyncClient(timeout=10) as client:
-        for attempt in range(6):
-            try:
+
+    # Wait for Metabase with exponential backoff (handles slow JVM / Trino ordering)
+    delay = 2.0
+    healthy = False
+    for attempt in range(24):
+        try:
+            async with httpx.AsyncClient(timeout=12) as client:
                 r = await client.get(f"{metabase_url}/api/health")
                 if r.status_code == 200:
-                    break
-            except Exception:
-                pass
-            import asyncio
-            await asyncio.sleep(5)
-        else:
-            return {"results": [{"status": "error", "detail": "Metabase not ready"}]}
+                    body = r.json()
+                    st = body.get("status") if isinstance(body, dict) else None
+                    if st in (None, "ok"):
+                        healthy = True
+                        break
+        except Exception as exc:
+            append_demo_integration_audit(
+                demo_id,
+                "warn" if attempt > 4 else "info",
+                "data_generator_dash",
+                f"Metabase health check attempt {attempt + 1}",
+                str(exc)[:200],
+            )
+        await asyncio.sleep(min(45.0, delay))
+        delay = min(45.0, delay * 1.35)
+    if not healthy:
+        append_demo_integration_audit(demo_id, "error", "data_generator_dash", "Metabase not ready", "")
+        return {"results": [{"status": "error", "detail": "Metabase not ready"}]}
+
+    append_demo_integration_audit(demo_id, "info", "data_generator_dash", "Metabase healthy", "")
 
     # Authenticate
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             auth_resp = await client.post(
                 f"{metabase_url}/api/session",
                 json={"username": "admin@demoforge.local", "password": "DemoForge123!"},
@@ -1580,21 +1690,43 @@ async def setup_metabase_dashboards(demo_id: str):
             auth_resp.raise_for_status()
             mb_token = auth_resp.json()["id"]
     except Exception as exc:
+        append_demo_integration_audit(demo_id, "error", "data_generator_dash", "Metabase auth failed", str(exc)[:300])
         return {"results": [{"status": "error", "detail": f"Metabase auth failed: {exc}"}]}
 
     headers = {"X-Metabase-Session": mb_token, "Content-Type": "application/json"}
 
-    # Find Trino database ID
-    async with httpx.AsyncClient(timeout=15) as client:
-        db_resp = await client.get(f"{metabase_url}/api/database", headers=headers)
-        databases = db_resp.json().get("data", [])
-        trino_db_id = None
-        for db in databases:
-            if "trino" in db.get("name", "").lower():
-                trino_db_id = db["id"]
-                break
-        if not trino_db_id:
-            return {"results": [{"status": "error", "detail": f"No Trino database in Metabase. Available: {[d['name'] for d in databases]}"}]}
+    # Find Trino database ID (retry: metabase-init may still be adding DB)
+    trino_db_id = None
+    databases: list = []
+    for db_attempt in range(8):
+        async with httpx.AsyncClient(timeout=20) as client:
+            db_resp = await client.get(f"{metabase_url}/api/database", headers=headers)
+            raw = db_resp.json()
+            databases = raw.get("data", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
+            for db in databases:
+                if "trino" in db.get("name", "").lower():
+                    trino_db_id = db["id"]
+                    break
+        if trino_db_id:
+            break
+        append_demo_integration_audit(
+            demo_id, "warn", "data_generator_dash",
+            f"No Trino DB in Metabase yet (attempt {db_attempt + 1}/8)",
+            str([d.get("name") for d in databases]),
+        )
+        await asyncio.sleep(min(20.0, 3.0 * (db_attempt + 1)))
+
+    if not trino_db_id:
+        append_demo_integration_audit(
+            demo_id, "error", "data_generator_dash", "No Trino database in Metabase",
+            str([d.get("name") for d in databases]),
+        )
+        return {
+            "results": [{
+                "status": "error",
+                "detail": f"No Trino database in Metabase. Available: {[d.get('name') for d in databases]}",
+            }],
+        }
 
     # Process each active scenario
     for scenario_id, (catalog, namespace) in scenario_catalog.items():
@@ -1635,18 +1767,24 @@ async def setup_metabase_dashboards(demo_id: str):
 
             queries.append({**q, "sql": sql.strip()})
 
-        # Check if dashboard already exists
-        async with httpx.AsyncClient(timeout=15) as client:
-            dash_list = await client.get(f"{metabase_url}/api/dashboard", headers=headers)
-            existing = [d for d in dash_list.json() if d.get("name") == dashboard_cfg.get("name")]
+        # Check if dashboard already exists (API returns {data: [...]} or a bare list)
+        async with httpx.AsyncClient(timeout=20) as client:
+            dash_list_resp = await client.get(f"{metabase_url}/api/dashboard", headers=headers)
+            dash_rows = _metabase_dashboard_rows(dash_list_resp.json())
+            target_name = dashboard_cfg.get("name")
+            existing = [d for d in dash_rows if d.get("name") == target_name]
             if existing:
+                append_demo_integration_audit(
+                    demo_id, "info", "data_generator_dash",
+                    f"Dashboard exists: {target_name}", f"id={existing[0].get('id')}",
+                )
                 results.append({"scenario": scenario_id, "status": "exists", "dashboard_id": existing[0]["id"]})
                 continue
 
         # Create cards and dashboard
         try:
             card_ids = {}
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=45) as client:
                 for q in queries:
                     chart_type = q.get("chart_type", "table")
                     display, viz = _METABASE_CHART_MAP.get(chart_type, ("table", {}))
@@ -1660,9 +1798,32 @@ async def setup_metabase_dashboards(demo_id: str):
                             "database": trino_db_id,
                         },
                     }
-                    card_resp = await client.post(f"{metabase_url}/api/card", json=card_body, headers=headers)
-                    if card_resp.status_code in (200, 202):
-                        card_ids[q["id"]] = card_resp.json()["id"]
+                    cid = None
+                    card_resp = None
+                    for card_try in range(5):
+                        card_resp = await client.post(
+                            f"{metabase_url}/api/card", json=card_body, headers=headers,
+                        )
+                        if card_resp.status_code in (200, 202):
+                            cid = card_resp.json()["id"]
+                            break
+                        if card_resp.status_code in (502, 503, 504):
+                            await asyncio.sleep(min(8.0, 1.5 * (card_try + 1)))
+                            continue
+                        break
+                    if cid:
+                        card_ids[q["id"]] = cid
+                    else:
+                        _detail = ""
+                        try:
+                            _detail = (card_resp.text[:300] if card_resp else "") or ""
+                        except Exception:
+                            _detail = ""
+                        append_demo_integration_audit(
+                            demo_id, "warn", "data_generator_dash",
+                            f"Card create failed for query {q.get('id')}",
+                            _detail,
+                        )
 
                 # Create dashboard
                 dash_name = dashboard_cfg.get("name", f"{scenario.get('name')} Dashboard")
@@ -1671,6 +1832,7 @@ async def setup_metabase_dashboards(demo_id: str):
                     json={"name": dash_name, "description": dashboard_cfg.get("description", "")},
                     headers=headers,
                 )
+                dash_resp.raise_for_status()
                 dash_id = dash_resp.json()["id"]
 
                 # Add cards with layout
@@ -1693,6 +1855,10 @@ async def setup_metabase_dashboards(demo_id: str):
                     headers=headers,
                 )
 
+            append_demo_integration_audit(
+                demo_id, "info", "data_generator_dash",
+                f"Created dashboard {dash_name}", f"scenario={scenario_id} cards={len(card_ids)}",
+            )
             results.append({
                 "scenario": scenario_id,
                 "status": "created",
@@ -1700,6 +1866,9 @@ async def setup_metabase_dashboards(demo_id: str):
                 "cards": len(card_ids),
             })
         except Exception as exc:
+            append_demo_integration_audit(
+                demo_id, "error", "data_generator_dash", f"Scenario failed: {scenario_id}", str(exc)[:400],
+            )
             results.append({"scenario": scenario_id, "status": "error", "detail": str(exc)[:200]})
 
     return {"results": results}

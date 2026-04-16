@@ -96,7 +96,8 @@ datasets:
       namespace: soc
       table_name: malware_metadata
       fields: [sha256, file_type, sandbox_verdict, threat_actor, file_size_bytes,
-               malware_family, analysis_timestamp, sandbox_engine, analysis_duration_seconds]
+               malware_family, analysis_timestamp, sandbox_engine, analysis_duration_seconds,
+               behavioral_indicators, mitre_techniques]
 
     schema:
       - {name: object_id,       type: string, generator: uuid}

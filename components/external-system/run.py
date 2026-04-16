@@ -47,6 +47,8 @@ from src import metabase_client as mc
 ES_SCENARIO = os.environ.get("ES_SCENARIO", "")
 ES_SCENARIOS_DIR = os.environ.get("ES_SCENARIOS_DIR", "/app/scenarios")
 ES_STARTUP_DELAY = int(os.environ.get("ES_STARTUP_DELAY", "0") or 0)
+ES_ON_DEMAND_DIR = os.environ.get("ES_ON_DEMAND_DIR", "/tmp/es-on-demand")
+ES_ON_DEMAND_POLL_SEC = float(os.environ.get("ES_ON_DEMAND_POLL_SEC", "5") or 5)
 
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "minio:9000")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "minioadmin")
@@ -526,13 +528,22 @@ def _stix_bundle(row: dict) -> dict:
     }
 
 
-def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_kind: str):
+def write_object_batch(
+    client,
+    dataset: dict,
+    ctx: dict,
+    table_writer,
+    table_kind: str,
+    count: int,
+    phase_label: str = "Seeding",
+) -> None:
+    """Write `count` objects for one dataset (initial seed or on-demand burst)."""
+    if count <= 0:
+        return
     bucket = dataset["bucket"]
     prefix = dataset.get("prefix", "")
     fmt = dataset.get("object_format", "json")
     schema = dataset.get("schema", [])
-    gen_cfg = dataset.get("generation", {})
-    count = int(gen_cfg.get("seed_count", 100))
     ds_id = dataset["id"]
 
     ensure_bucket(client, bucket)
@@ -541,11 +552,12 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
     mirror_rows = []
     mirror_fields_spec = None
     if mirror:
-        # Build schema for the mirror table: pick fields from dataset.schema whose names are in mirror.fields
         names = set(mirror.get("fields", []))
         mirror_fields_spec = [f for f in schema if f["name"] in names]
 
-    print(f"[{ds_id}] Writing {count} objects to s3://{bucket}/{prefix} ({fmt})")
+    print(f"[{ds_id}] {phase_label}: {count} objects → s3://{bucket}/{prefix} ({fmt})")
+
+    import random as _r
 
     progress_every = max(1, count // 10)
     for i in range(count):
@@ -562,9 +574,6 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
         elif fmt == "binary":
             size_min = int(dataset.get("object_size_min", 10 * 1024))
             size_max = int(dataset.get("object_size_max", 500 * 1024))
-            body = os.urandom(min(size_max, max(size_min, size_min)))
-            # randomize size per object
-            import random as _r
             body = os.urandom(_r.randint(size_min, size_max))
             sha256_val = row.get("sha256")
             if sha256_val:
@@ -575,10 +584,8 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
             body = (row.get("content") or "lorem ipsum").encode("utf-8")
             key = key_name if key_name.endswith(".txt") else f"{key_name}.txt"
 
-        put_kwargs = {"Bucket": bucket, "Key": key, "Body": body}
-        client.put_object(**put_kwargs)
+        client.put_object(Bucket=bucket, Key=key, Body=body)
 
-        # Write JSON report sidecar for binary objects with sha256
         also_report = dataset.get("also_write_report")
         if also_report and fmt == "binary" and row.get("sha256"):
             report_prefix = also_report.get("prefix", "reports/")
@@ -590,7 +597,6 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
                               ContentType="application/json",
                               ContentLength=len(report_body))
 
-        # Tag objects with schema-derived metadata (used for mirror_to_table)
         if mirror_fields_spec:
             tags = []
             for f in mirror_fields_spec:
@@ -599,7 +605,6 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
                     continue
                 if hasattr(v, "isoformat"):
                     v = v.isoformat()
-                # S3 tag values have restrictions; clamp + sanitize
                 sv = str(v)[:256]
                 tags.append({"Key": f["name"], "Value": sv})
             if tags:
@@ -609,27 +614,28 @@ def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_k
                     )
                 except Exception as exc:
                     print(f"[{ds_id}] tagging failed for {key}: {exc}")
-            # Mirror row carries just the selected fields
             mirror_rows.append({f["name"]: row.get(f["name"]) for f in mirror_fields_spec})
 
         if (i + 1) % progress_every == 0 or (i + 1) == count:
             pct = int(100 * (i + 1) / count)
             done = " — DONE" if (i + 1) == count else ""
-            print(f"[{ds_id}] Seeding: {i + 1}/{count} objects ({pct}%){done}")
+            print(f"[{ds_id}] {phase_label}: {i + 1}/{count} objects ({pct}%){done}")
 
-    # Write mirror table
     if mirror and mirror_rows and table_writer:
         ns = mirror["namespace"]
         tn = mirror["table_name"]
         print(f"[{ds_id}] Mirroring {len(mirror_rows)} rows -> {ns}.{tn}")
         try:
-            if table_kind == "trino":
-                table_writer.ensure_table(ns, tn, mirror_fields_spec)
-            else:
-                table_writer.ensure_table(ns, tn, mirror_fields_spec)
+            table_writer.ensure_table(ns, tn, mirror_fields_spec)
             table_writer.append(ns, tn, mirror_rows, mirror_fields_spec)
         except Exception as exc:
             print(f"[{ds_id}] mirror table write failed: {exc}")
+
+
+def write_object_dataset(client, dataset: dict, ctx: dict, table_writer, table_kind: str):
+    gen_cfg = dataset.get("generation", {})
+    count = int(gen_cfg.get("seed_count", 100))
+    write_object_batch(client, dataset, ctx, table_writer, table_kind, count, phase_label="Seeding")
 
 
 # ---------------------------------------------------------------------------

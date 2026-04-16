@@ -129,8 +129,8 @@ nodes:
   component: external-system
   variant: default
   position:
-    x: -279.2453674477936
-    y: 318.88942216908583
+    x: -313.2453674477936
+    y: 496.88942216908583
   config:
     ES_SCENARIO: soc-threat-intel
     ES_STARTUP_DELAY: '10'
@@ -144,8 +144,8 @@ nodes:
   component: external-system
   variant: default
   position:
-    x: -290.7064497559892
-    y: 494.89749276448146
+    x: -316.7064497559892
+    y: 306.89749276448146
   config:
     ES_SCENARIO: soc-vuln-scan
     ES_STARTUP_DELAY: '10'
@@ -181,6 +181,21 @@ nodes:
   group_id: null
   aistor_tables_enabled: false
   mcp_enabled: false
+- id: event-processor-2
+  component: event-processor
+  variant: single
+  position:
+    x: -302.6817804469263
+    y: 640.7661958854691
+  config:
+    EP_ACTION_SCENARIO: process-pipeline
+    EP_MODE: observe
+  networks: {}
+  display_name: Sandbox Scanner
+  labels: {}
+  group_id: null
+  aistor_tables_enabled: false
+  mcp_enabled: false
 edges:
 - id: e-fw-aistor
   source: es-firewall
@@ -190,7 +205,7 @@ edges:
   connection_config:
     catalog_name: iceberg
   auto_configure: true
-  label: Firewall Events (parquet / streaming)
+  label: ''
   protocol: ''
   latency: ''
   bandwidth: ''
@@ -204,7 +219,7 @@ edges:
   connection_config:
     catalog_name: iceberg
   auto_configure: true
-  label: Threat IOCs (parquet + JSON)
+  label: ''
   protocol: ''
   latency: ''
   bandwidth: ''
@@ -218,7 +233,7 @@ edges:
   connection_config:
     catalog_name: iceberg
   auto_configure: true
-  label: Vuln Scan (parquet batch)
+  label: ''
   protocol: ''
   latency: ''
   bandwidth: ''
@@ -247,12 +262,40 @@ edges:
   connection_config:
     catalog_name: iceberg
   auto_configure: true
-  label: ''
+  label: Iceberg Catalog
   protocol: ''
   latency: ''
   bandwidth: ''
   source_handle: data-out
   target_handle: null
+- id: e-event-processor-2-aistor-1-s3-1776309789324
+  source: event-processor-2
+  target: aistor-1
+  connection_type: s3
+  network: default
+  connection_config:
+    target_bucket: malware-vault/reports/
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: null
+  target_handle: data-in
+- id: e-aistor-1-event-processor-2-webhook-1776309801238
+  source: aistor-1
+  target: event-processor-2
+  connection_type: webhook
+  network: default
+  connection_config:
+    webhook_bucket: malware-vault/samples/
+  auto_configure: true
+  label: ''
+  protocol: ''
+  latency: ''
+  bandwidth: ''
+  source_handle: cluster-out-bottom
+  target_handle: bottom-in
 groups: []
 sticky_notes:
 - id: sn-fw-data
@@ -263,10 +306,11 @@ sticky_notes:
   title: Firewall event stream
   visibility: customer
   position:
-    x: -584.0
+    x: -616.0
     y: 30.0
-  width: 327.0
-  height: 110.0
+  width: 359.0
+  height: 141.0
+  font_size: sm
 - id: sn-ti-data
   text: 'Structured: 8K IOC records as Iceberg table via catalog API. Semi-structured:
     500 STIX 2.1 JSON bundles as S3 objects. Unstructured: 200 malware binary samples
@@ -275,10 +319,11 @@ sticky_notes:
   title: Three data types, two write paths
   visibility: customer
   position:
-    x: -583.5867113193092
-    y: 206.67906229450784
-  width: 335.0
-  height: 144.0
+    x: -649.0076840325554
+    y: 404.10003500775395
+  width: 341.0
+  height: 163.0
+  font_size: sm
 - id: sn-vs-data
   text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
     business unit, OS. Batch import — scans are periodic.
@@ -286,10 +331,11 @@ sticky_notes:
   title: Vulnerability scan data
   visibility: customer
   position:
-    x: -566.0
-    y: 408.2657736138169
-  width: 299.0
-  height: 101.0
+    x: -633.0
+    y: 228.26577361381692
+  width: 334.0
+  height: 120.0
+  font_size: sm
 - id: sn-aistor-catalog
   text: No external metastore. No Polaris. No Hive. The catalog is embedded at /_iceberg
     on port 9000. Warehouse → Namespace → Table hierarchy. Structured Iceberg tables
@@ -298,10 +344,11 @@ sticky_notes:
   title: Built-in Iceberg V3 REST catalog
   visibility: customer
   position:
-    x: 212.92129369591873
-    y: 109.26112515185525
-  width: 399.0
-  height: 126.0
+    x: 232.2333945583335
+    y: 56.323648711284505
+  width: 452.0
+  height: 192.0
+  font_size: base
 - id: sn-trino-config
   text: Trino connects to AIStor’s Iceberg REST catalog. Any SQL query runs against
     all 4 tables. No proprietary query language — standard ANSI SQL.
@@ -309,10 +356,11 @@ sticky_notes:
   title: Standard SQL over Iceberg
   visibility: customer
   position:
-    x: 692.4615743938016
-    y: 163.52978652733267
+    x: 819.9216520433494
+    y: 389.93913498376617
   width: 299.0
   height: 129.0
+  font_size: sm
 - id: sn-metabase-info
   text: '3 dashboards created automatically: SOC Overview, Threat Intelligence, Vulnerability
     Posture. Plus 10 pre-configured analyst queries.'
@@ -324,18 +372,7 @@ sticky_notes:
     y: 50.0
   width: 281.0
   height: 124.0
-- id: sn-sovereignty
-  text: Everything runs on-prem. No cloud dependency. UAE PDPL compliant. Data never
-    leaves your infrastructure. Open standards — Iceberg + S3 API. Swap any component
-    without vendor lock-in.
-  color: '#0d9488'
-  title: Full data sovereignty
-  visibility: customer
-  position:
-    x: 210.94618681815973
-    y: 517.7486309086374
-  width: 414.0
-  height: 108.0
+  font_size: sm
 - id: sn-fw-fa
   text: Seeding takes ~30s. Show DemoForge log viewer during seeding — audience sees
     progress bar. After seed, open MinIO Console to show Parquet files landing. 3%
@@ -348,6 +385,7 @@ sticky_notes:
     y: 229.65256836768867
   width: 348.0
   height: 146.0
+  font_size: sm
 - id: sn-ti-fa
   text: Open MinIO Console → navigate to threat-intel/feeds/stix/ and click a JSON
     file. Show it’s a real STIX bundle. Then navigate to malware-vault/samples/ —
@@ -361,6 +399,7 @@ sticky_notes:
     y: 414.49749832607984
   width: 404.0
   height: 146.0
+  font_size: sm
 - id: sn-vs-fa
   text: 80% of firewall src_ips match vuln scan host_ips — so the cross-join in Query
     6 (exposed hosts) will return a meaningful prioritized remediation list. This
@@ -373,6 +412,7 @@ sticky_notes:
     y: 414.2872674822338
   width: 395.0
   height: 112.0
+  font_size: sm
 - id: sn-aistor-fa
   text: 'Say: ‘Every other Iceberg deployment requires a separate catalog service
     — Hive metastore, Nessie, Polaris. That’s another component to deploy, secure,
@@ -387,18 +427,7 @@ sticky_notes:
     y: 356.09186125591833
   width: 389.0
   height: 167.0
-- id: sn-cost-fa
-  text: 'Proprietary SIEM platforms charge $150-200/GB ingested. At 1TB/day that exceeds
-    $55M/year. AIStor + Trino + Metabase: pay only for storage, not per byte ingested.
-    Open-source query and visualisation layer — no license lock-in.'
-  color: '#eab308'
-  title: Total cost of ownership
-  visibility: customer
-  position:
-    x: 209.76939043223916
-    y: 637.4546401712519
-  width: 414.0
-  height: 123.0
+  font_size: sm
 - id: sn-queries-fa
   text: 'Open Metabase → CPX Demo Queries collection. Run in order:
 
@@ -425,6 +454,7 @@ sticky_notes:
     y: 534.8076384092977
   width: 400.0
   height: 233.0
+  font_size: sm
 - id: sn-metabase-fa
   text: 'Start with SOC Overview (big picture, time series). Move to Threat Intel
     (actor-specific). Then Vuln Posture (remediation angle). THEN switch to Demo Queries
@@ -441,6 +471,7 @@ sticky_notes:
     y: 276.4020013391362
   width: 350.0
   height: 182.0
+  font_size: sm
 - id: sn-opening-fa
   text: Show canvas first — narrate the topology. ‘Three source systems on the left
     — your firewalls, threat intel, vuln scanners. MinIO AIStor in the center — one
@@ -454,6 +485,7 @@ sticky_notes:
     y: 23.008639078865777
   width: 354.0
   height: 164.0
+  font_size: sm
 - id: sn-closing-fa
   text: 'Recap: ‘One platform. Structured tables + raw objects. Standard SQL + auto-provisioned
     dashboards. Sovereign. On-prem. A fraction of Splunk’s cost. And the same data
@@ -470,11 +502,36 @@ sticky_notes:
     y: 496.62846899660417
   width: 344.0
   height: 212.0
+  font_size: sm
+- id: sn-vs-data-3
+  text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
+    business unit, OS. Batch import — scans are periodic.
+  color: '#6b7280'
+  title: Vulnerability scan data
+  visibility: customer
+  position:
+    x: -627.6572589584517
+    y: 657.1842418667636
+  width: 341.0
+  height: 121.0
+  font_size: sm
+- id: sn-vs-data-3
+  text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
+    business unit, OS. Batch import — scans are periodic.
+  color: '#6b7280'
+  title: Vulnerability scan data
+  visibility: customer
+  position:
+    x: -627.6572589584517
+    y: 657.1842418667636
+  width: 341.0
+  height: 121.0
+  font_size: sm
 annotations:
 - id: annotation-1
   position:
-    x: 54.22606884933862
-    y: -222.76094159729607
+    x: 52.54896256447614
+    y: -271.39702385830776
   width: 820
   height: null
   title: Cyber Data Lake
@@ -489,6 +546,55 @@ annotations:
   pointer_target: null
   collapsed: false
   font_size: xl
+- id: annotation-5
+  position:
+    x: -83.24216191898043
+    y: 254.25866605742738
+  width: 237
+  height: null
+  title: Raw objects
+  body: 'raw-logs/firewall/ (CSV)
+
+    raw-logs/vuln-scan/ (CSV)
+
+    threat-intel/feeds/ (JSON)
+
+    **malware-vault/samples/ (bin)**'
+  style: info
+  step_number: null
+  pointer_target: null
+  collapsed: false
+  font_size: sm
+- id: annotation-6
+  position:
+    x: -20.247242566880914
+    y: 561.0520128683808
+  width: 260
+  height: null
+  title: Event-driven malware analysis
+  body: '**Malware sample (binary) in**
+
+    Mawlare reports (JSON) out'
+  style: callout
+  step_number: null
+  pointer_target: null
+  collapsed: false
+  font_size: sm
+- id: annotation-6
+  position:
+    x: -20.247242566880914
+    y: 561.0520128683808
+  width: 260
+  height: null
+  title: Event-driven malware analysis
+  body: '**Malware sample (binary) in**
+
+    Mawlare reports (JSON) out'
+  style: callout
+  step_number: null
+  pointer_target: null
+  collapsed: false
+  font_size: sm
 schematics: []
 clusters:
 - id: aistor-1
@@ -520,12 +626,13 @@ clusters:
     ec_parity: 3
     ec_parity_upgrade_policy: upgrade
     volume_path: /data
+  pool_lifecycle: {}
 canvas_images:
 - id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: -253.99229508682726
-    y: -197.55393439220921
+    x: -237.22123223820256
+    y: -261.2839732169831
   width: 240
   height: 70
   opacity: 0.8
@@ -535,8 +642,8 @@ canvas_images:
 - id: canvas-img-1776252006401
   image_id: minio-aistor-tables-logo
   position:
-    x: -253.99229508682726
-    y: -197.55393439220921
+    x: -237.22123223820256
+    y: -261.2839732169831
   width: 240
   height: 70
   opacity: 0.8
@@ -546,8 +653,8 @@ canvas_images:
 - id: canvas-img-1776256028144
   image_id: apache-iceberg-logo
   position:
-    x: -203.0
-    y: -107.03081965269098
+    x: -186.2289371513753
+    y: -138.89583906507792
   width: 180
   height: 55
   opacity: 0.8
@@ -563,5 +670,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-16T02:19:38.136316+00:00'
+updated_at: '2026-04-16T04:55:13.274997+00:00'
 source_template_id: sovereign-cyber-data-lake

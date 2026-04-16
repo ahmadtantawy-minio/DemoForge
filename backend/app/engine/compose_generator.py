@@ -1607,6 +1607,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
         setup_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "setup-metabase.sh")
         provision_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "provision.py")
+        integration_log_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "integration_log.py")
 
         if os.path.exists(setup_script):
             setup_host_path = _to_host_path(setup_script, "components")
@@ -1616,7 +1617,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             sidecar_image = "python:3.11-alpine" if has_provision else "alpine:3.19"
             if has_provision:
                 provision_host_path = _to_host_path(provision_script, "components")
-                entrypoint_cmd = "/bin/sh /setup/setup-metabase.sh && pip install requests -q && python3 /setup/provision.py"
+                # provision.py uses stdlib urllib only — no pip/network at container start (offline-safe)
+                entrypoint_cmd = "/bin/sh /setup/setup-metabase.sh && python3 /setup/provision.py"
                 sidecar_entrypoint = ["/bin/sh", "-c", entrypoint_cmd]
             else:
                 sidecar_entrypoint = ["/bin/sh", "/setup/setup-metabase.sh"]
@@ -1626,12 +1628,17 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "TRINO_HOST": trino_host,
                 "TRINO_CATALOG": catalog,
                 "TRINO_SCHEMA": schema,
+                "INTEGRATION_NODE_ID": "metabase-init",
+                "METABASE_INTEGRATION_LOG": "/tmp/demoforge_integration.jsonl",
             }
 
             mb_intents_vol = f"{project_name}-mb-intents"
             sidecar_volumes = [f"{setup_host_path}:/setup/setup-metabase.sh:ro"]
             if has_provision:
                 sidecar_volumes.append(f"{provision_host_path}:/setup/provision.py:ro")
+                if os.path.exists(integration_log_script):
+                    il_host_path = _to_host_path(integration_log_script, "components")
+                    sidecar_volumes.append(f"{il_host_path}:/setup/integration_log.py:ro")
                 sidecar_volumes.append(f"{mb_intents_vol}:/provision-intents")
 
             services["metabase-init"] = {

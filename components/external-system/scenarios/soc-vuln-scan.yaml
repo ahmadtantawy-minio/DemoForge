@@ -11,7 +11,6 @@ display:
 datasets:
   - id: vulnerability_scan
     target: table
-    landing_only: true
     namespace: soc
     table_name: vulnerability_scan
     format: parquet
