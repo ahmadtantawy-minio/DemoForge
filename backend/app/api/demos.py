@@ -163,6 +163,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                                        y=rf_node.get("position", {}).get("y", 0)),
                 width=rf_w if rf_w is not None else s_style.get("width", 200),
                 height=rf_h if rf_h is not None else s_style.get("height", 120),
+                font_size=s_data.get("fontSize", "sm"),
             ))
             continue
 

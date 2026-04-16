@@ -2,16 +2,17 @@ import { type NodeProps, NodeResizer } from "@xyflow/react";
 import { Eye } from "lucide-react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
+import type { StickyNoteNodeData } from "../../../types";
 
-interface StickyNoteData {
-  title?: string;
-  text: string;
-  color?: string;
-  visibility?: "customer" | "internal";
-}
+const fontSizeClass: Record<string, string> = {
+  sm: "text-sm",
+  base: "text-base",
+  lg: "text-lg",
+  xl: "text-xl",
+};
 
 export default function StickyNoteNode({ id, data, selected }: NodeProps) {
-  const nodeData = data as unknown as StickyNoteData;
+  const nodeData = data as unknown as StickyNoteNodeData;
   const color = nodeData.color || "#eab308";
   const setSelectedNode = useDiagramStore((s) => s.setSelectedNode);
   const showFaNotes = useDemoStore((s) => s.showFaNotes);
@@ -20,6 +21,7 @@ export default function StickyNoteNode({ id, data, selected }: NodeProps) {
 
   const borderColor = isInternal ? "#EF9F27" : `${color}80`;
   const bgColor = isInternal ? "#EF9F2718" : `${color}18`;
+  const textSize = fontSizeClass[nodeData.fontSize || "sm"];
 
   return (
     <>
@@ -53,11 +55,14 @@ export default function StickyNoteNode({ id, data, selected }: NodeProps) {
             </div>
           )}
           {nodeData.title && (
-            <div className="text-xs font-semibold text-foreground mb-1.5 truncate" style={{ color: isInternal ? "#EF9F27" : color }}>
+            <div
+              className={`${textSize} font-semibold text-foreground mb-1.5 truncate`}
+              style={{ color: isInternal ? "#EF9F27" : color }}
+            >
               {nodeData.title}
             </div>
           )}
-          <pre className="text-xs text-foreground whitespace-pre-wrap font-sans leading-relaxed m-0">
+          <pre className={`${textSize} text-foreground whitespace-pre-wrap font-sans leading-relaxed m-0`}>
             {nodeData.text || "Double-click to edit in properties panel"}
           </pre>
         </div>

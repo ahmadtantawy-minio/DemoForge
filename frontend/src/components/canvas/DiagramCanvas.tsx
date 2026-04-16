@@ -13,6 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { useDemoStore } from "../../stores/demoStore";
 import { toast } from "../../lib/toast";
+import { nonemptyTrim } from "../../lib/utils";
 import { saveDiagram, saveLayout, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
 import { migrateClusterData } from "../../lib/clusterMigration";
 import ComponentNode from "./nodes/ComponentNode";
@@ -185,7 +186,13 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         width: s.width || 200,
         height: s.height || 120,
         style: { width: s.width || 200, height: s.height || 120 },
-        data: { text: s.text || "", color: s.color || "#eab308", title: s.title || "", visibility: s.visibility || "customer" },
+        data: {
+          text: s.text || "",
+          color: s.color || "#eab308",
+          title: s.title || "",
+          visibility: s.visibility || "customer",
+          fontSize: s.font_size || "sm",
+        },
       }));
       const rfCanvasImages = (demo.canvas_images || []).map((ci: any) => ({
         id: ci.id,
@@ -497,6 +504,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             color: "#eab308",
             title: "",
             visibility: "customer",
+            fontSize: "sm",
           },
         };
         addNode(newSticky);
@@ -1122,7 +1130,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             }}
           >
             <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border">
-              {edgeData?.label || connType || "Connection"}
+              {nonemptyTrim(edgeData?.label) || connType || "Connection"}
               {configStatus && (
                 <span className={`ml-2 text-[10px] ${
                   configStatus === "applied" ? "text-green-400" :

@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, useStoreApi, type EdgeProps } from "@xyflow/react";
 import { X } from "lucide-react";
-import type { ComponentEdgeData, ConnectionType } from "../../../types";
-import { getConnectionColor, connectionLabels } from "../../../lib/connectionMeta";
+import type { ComponentEdgeData } from "../../../types";
+import { getConnectionColor } from "../../../lib/connectionMeta";
+import { nonemptyTrim } from "../../../lib/utils";
 import { useDemoStore } from "../../../stores/demoStore";
 
 
@@ -115,7 +116,22 @@ export default function AnimatedDataEdge({
     else nginxLabel = "Load Balance";
   }
 
-  const label = edgeData?.label || formatLabel || webhookEdgeLabel || nginxLabel || connectionLabels[connectionType] || "";
+  // Text shown in the pill: custom label and/or derived labels only — no default connection-type name (e.g. "S3").
+  const labelText =
+    nonemptyTrim(edgeData?.label) ?? formatLabel ?? webhookEdgeLabel ?? nginxLabel ?? "";
+
+  const hasInlineStatus =
+    configStatus === "applied" ||
+    configStatus === "failed" ||
+    configStatus === "pending" ||
+    configStatus === "paused" ||
+    isFailoverActive ||
+    isFailoverStandby ||
+    isNginxFailoverActive ||
+    isNginxFailoverStandby;
+
+  /** Hide the edge label pill when there is nothing to show (no text and no status badges). */
+  const showConnectionLabelPill = labelText.length > 0 || hasInlineStatus;
 
   const markerId = `arrow-${id}`;
   const markerStartId = `arrow-start-${id}`;
@@ -225,7 +241,7 @@ export default function AnimatedDataEdge({
         </>
       )}
       <EdgeLabelRenderer>
-        {label && (
+        {showConnectionLabelPill && (
           <div
             style={{
               position: "absolute",
@@ -263,7 +279,7 @@ export default function AnimatedDataEdge({
             {(isFailoverStandby || isNginxFailoverStandby) && (
               <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 shrink-0" title="Standby — ready for failover" />
             )}
-            {label}
+            {labelText}
           </div>
         )}
         {(protocol || edgeLatency || edgeBandwidth) && (

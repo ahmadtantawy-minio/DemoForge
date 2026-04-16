@@ -22,6 +22,7 @@ import { Eye, EyeOff } from "lucide-react";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
 import SqlPlaybookPanel from "./SqlPlaybookPanel";
 import { migrateClusterData } from "../../lib/clusterMigration";
+import { nonemptyTrim } from "../../lib/utils";
 import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
 
 /** Bucket routing from canvas edges (read-only); compose injects env from the same edge config. */
@@ -651,6 +652,15 @@ export default function PropertiesPanel() {
             type="text"
             value={edgeData.label ?? ""}
             onChange={(e) => updateEdgeData({ label: e.target.value })}
+            onBlur={() => {
+              const raw = edgeData.label;
+              const t = nonemptyTrim(raw);
+              if (t === null) {
+                if (raw !== undefined && String(raw).trim() === "") updateEdgeData({ label: undefined });
+              } else if (t !== raw) {
+                updateEdgeData({ label: t });
+              }
+            }}
             placeholder="Optional label"
             className="h-8 text-sm"
           />
@@ -983,6 +993,20 @@ export default function PropertiesPanel() {
             className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm min-h-[120px] resize-y focus:outline-none focus:ring-1 focus:ring-ring font-mono"
             placeholder="Add your notes here..."
           />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Font Size</label>
+          <Select value={sData.fontSize ?? "sm"} onValueChange={(v) => updateSticky({ fontSize: v })}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sm">Small</SelectItem>
+              <SelectItem value="base">Medium</SelectItem>
+              <SelectItem value="lg">Large</SelectItem>
+              <SelectItem value="xl">Extra Large</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="mb-3">
           <label className="text-xs text-muted-foreground block mb-1">Visibility</label>

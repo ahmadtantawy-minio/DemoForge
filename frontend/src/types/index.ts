@@ -133,6 +133,14 @@ export interface AnnotationNodeData {
   pointerTarget?: string;
 }
 
+export interface StickyNoteNodeData {
+  title?: string;
+  text: string;
+  color?: string;
+  visibility?: "customer" | "internal";
+  fontSize?: "sm" | "base" | "lg" | "xl";
+}
+
 // --- Instances ---
 export interface WebUILink {
   name: string;

@@ -105,6 +105,7 @@ class DemoStickyNote(BaseModel):
     position: NodePosition
     width: float = 200
     height: float = 120
+    font_size: str = "sm"  # sm | base | lg | xl — matches annotation callouts
 
 class DemoCanvasImage(BaseModel):
     id: str
