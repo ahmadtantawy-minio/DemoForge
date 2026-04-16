@@ -79,8 +79,8 @@ datasets:
       mode: batch
       seed_count: 100
 
-  # Empty Iceberg table DDL only (not MinIO “folders”). Rows = structured columns for Trino/SQL;
-  # raw analysis JSON lives as objects under malware-vault/reports/ (written by event-processor).
+  # Iceberg DDL for soc.malware_metadata (seed_rows: 0 here — rows come from malware_samples mirror_to_table
+  # and from event-processor on webhook). Raw analysis JSON objects: malware-vault/reports/ (event-processor).
   # format: parquet = Iceberg/warehouse file format for this table, not the format of those JSON report objects.
   - id: malware_metadata_empty
     target: table
@@ -146,7 +146,9 @@ datasets:
       mode: batch
       seed_rows: 0
 
-  # Raw binaries into malware-vault/samples/ — on-demand via context menu; no JSON reports from this engine
+  # Raw binaries into malware-vault/samples/ — seed an initial batch at startup; more via context-menu on_demand.
+  # mirror_to_table: same synthetic metadata rows as Iceberg soc.malware_metadata (MinIO tags + append).
+  # Event processor still adds rows when webhook fires on new samples (additive).
   - id: malware_samples
     target: object
     bucket: malware-vault
@@ -157,9 +159,26 @@ datasets:
 
     schema: *malware_meta_schema
 
+    mirror_to_table:
+      namespace: soc
+      table_name: malware_metadata
+      fields:
+        - object_id
+        - sha256
+        - file_type
+        - sandbox_verdict
+        - threat_actor
+        - file_size_bytes
+        - malware_family
+        - behavioral_indicators
+        - mitre_techniques
+        - analysis_timestamp
+        - sandbox_engine
+        - analysis_duration_seconds
+
     generation:
       mode: batch
-      seed_count: 0
+      seed_count: 200
       on_demand:
         enabled: true
         default_count: 2

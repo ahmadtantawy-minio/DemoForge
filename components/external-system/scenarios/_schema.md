@@ -154,5 +154,5 @@ After the initial batch/stream phase, datasets with `generation.on_demand.enable
 
 - `{}` — run `default_count` for **every** on-demand dataset.
 - `{"count": N}` — when exactly one dataset has `on_demand`, generate `N` objects (or `N` CSV files for `landing_only`).
-- `{"malware_scan_sim": 2}` — per-dataset counts by id.
-- `{"generate": [{"dataset": "malware_scan_sim", "count": 2}]}` — explicit list.
+- `{"malware_samples": 2}` — per-dataset counts by id (e.g. `soc-threat-intel`).
+- `{"generate": [{"dataset": "malware_samples", "count": 2}]}` — explicit list.

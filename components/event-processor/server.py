@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
 from collections import deque
+from contextlib import asynccontextmanager
 from typing import Any
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -18,11 +21,22 @@ from uvicorn import Config, Server
 from integration_log import append as integration_log_append
 from pipeline import load_processing_config, run_malware_pipeline
 
+logger = logging.getLogger(__name__)
+
 MAX_EVENTS = 500
 
 _ring: deque[dict[str, Any]] = deque(maxlen=MAX_EVENTS)
 
 _s3_client: Any | None = None
+
+# MinIO / AIStor behind LB: virtual-hosted bucket DNS often fails; path-style matches `mc` and avoids 403.
+_S3_BOTO_CONFIG = BotoConfig(
+    signature_version="s3v4",
+    s3={"addressing_style": "path"},
+)
+
+# Latest MinIO bucket-notification probe (startup + optional refresh)
+_notify_health: dict[str, Any] = {}
 
 
 def _now_ms() -> int:
@@ -63,8 +77,254 @@ def _get_s3_client():
         aws_access_key_id=key,
         aws_secret_access_key=sec,
         region_name="us-east-1",
+        config=_S3_BOTO_CONFIG,
     )
     return _s3_client
+
+
+def _client_error_full_text(exc: ClientError) -> str:
+    err = exc.response.get("Error") or {}
+    msg = err.get("Message") or ""
+    return f"{msg} {exc}".strip()
+
+
+def _is_ai_stor_license_denial(text: str) -> bool:
+    """AIStor returns AccessDenied with a license message when the term license has expired."""
+    t = text.lower()
+    if "license" not in t:
+        return False
+    return any(
+        p in t
+        for p in (
+            "expired",
+            "valid license",
+            "fully expired",
+            "restore service",
+            "install a valid",
+        )
+    )
+
+
+def _license_expired_user_message() -> str:
+    return (
+        "AIStor reports the storage license has expired or is invalid. The cluster rejects S3 calls "
+        "(including bucket checks and notification reads) until a valid license is installed. "
+        "This is not caused by Event Processor bucket/prefix settings or path-style addressing."
+    )
+
+
+def _probe_bucket_access(client: Any, bucket: str) -> tuple[bool, str | None]:
+    """
+    head_bucket is the usual check; some proxies return 403 for HEAD but allow GET list on the bucket.
+    Returns (ok, note_if_heuristic).
+    """
+    try:
+        client.head_bucket(Bucket=bucket)
+        return True, None
+    except ClientError as exc:
+        err = exc.response.get("Error") or {}
+        code = str(err.get("Code", "") or "")
+        status = (exc.response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+        err_txt = str(exc)
+        is_403 = (
+            status == 403
+            or code in ("403", "AccessDenied")
+            or "403" in err_txt
+        )
+        if is_403:
+            try:
+                client.list_objects_v2(Bucket=bucket, MaxKeys=1)
+                return True, "head_bucket returned 403/Forbidden; list_objects_v2 succeeded (common behind nginx/LB)"
+            except ClientError as exc2:
+                combined = f"{err_txt}; list_objects_v2: {_client_error_full_text(exc2)}"
+                return False, combined
+        return False, err_txt
+
+
+def _ep_webhook_env() -> dict[str, str]:
+    """Canvas webhook edge → compose → EP_* (what register-webhook.sh uses)."""
+    return {
+        "webhook_bucket": (os.environ.get("EP_WEBHOOK_BUCKET") or "").strip(),
+        "webhook_prefix": (os.environ.get("EP_WEBHOOK_PREFIX") or "").strip(),
+        "webhook_suffix": (os.environ.get("EP_WEBHOOK_SUFFIX") or "").strip(),
+        "webhook_events": (os.environ.get("EP_WEBHOOK_EVENTS") or "put").strip(),
+    }
+
+
+def _filter_prefix_from_rule(rule: dict[str, Any]) -> str | None:
+    """Extract prefix string from S3 notification Filter / legacy Prefix."""
+    if not isinstance(rule, dict):
+        return None
+    filt = rule.get("Filter") or {}
+    if isinstance(filt, dict):
+        key = filt.get("Key") or {}
+        if isinstance(key, dict):
+            for fr in key.get("FilterRules") or []:
+                if isinstance(fr, dict) and str(fr.get("Name", "")).lower() == "prefix":
+                    return str(fr.get("Value") or "")
+    legacy = rule.get("Filter") if isinstance(rule.get("Filter"), str) else None
+    if legacy:
+        return legacy
+    p = rule.get("Prefix")
+    return str(p) if p else None
+
+
+def _notification_rules_summary(ncfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten Queue/Lambda/Topic configs into comparable rows."""
+    rows: list[dict[str, Any]] = []
+    for group_key in (
+        "QueueConfigurations",
+        "TopicConfigurations",
+        "LambdaFunctionConfigurations",
+        "CloudFunctionConfigurations",
+    ):
+        for rule in ncfg.get(group_key) or []:
+            if not isinstance(rule, dict):
+                continue
+            ev = rule.get("Events") or rule.get("Event") or []
+            if isinstance(ev, str):
+                ev = [ev]
+            rows.append(
+                {
+                    "id": rule.get("Id"),
+                    "group": group_key,
+                    "events": ev,
+                    "prefix": _filter_prefix_from_rule(rule),
+                    "suffix": None,
+                    "destination": rule.get("QueueArn")
+                    or rule.get("TopicArn")
+                    or rule.get("CloudFunction")
+                    or rule.get("InvocationRole"),
+                }
+            )
+            # Suffix sometimes in FilterRules as "suffix"
+            filt = (rule.get("Filter") or {}).get("Key") or {}
+            for fr in filt.get("FilterRules") or []:
+                if isinstance(fr, dict) and str(fr.get("Name", "")).lower() == "suffix":
+                    rows[-1]["suffix"] = str(fr.get("Value") or "")
+    return rows
+
+
+def _prefix_matches_config(rows: list[dict[str, Any]], expected_prefix: str) -> bool:
+    if not expected_prefix:
+        return True
+    for r in rows:
+        p = (r.get("prefix") or "").strip()
+        if not p:
+            return True
+        if expected_prefix.startswith(p.rstrip("/")) or p.startswith(expected_prefix.rstrip("/")):
+            return True
+    return False
+
+
+def run_minio_notification_check() -> dict[str, Any]:
+    """
+    Verify S3 connectivity and that the webhook bucket has notification rules.
+    Uses GetBucketNotificationConfiguration (same rules mc event add applies server-side).
+    """
+    cfg = _ep_webhook_env()
+    bucket = cfg["webhook_bucket"]
+    out: dict[str, Any] = {
+        "configured": cfg,
+        "s3_endpoint": _s3_endpoint_url() or None,
+        "s3_client_available": False,
+        "bucket_exists": None,
+        "notification_rules": [],
+        "notification_rule_count": 0,
+        "prefix_matches": None,
+        "ready": False,
+        "issues": [],
+        "blocking_reason": None,
+    }
+    client = _get_s3_client()
+    if not client:
+        out["issues"].append("S3 client unavailable — set S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY")
+        return out
+    out["s3_client_available"] = True
+    if not bucket:
+        out["issues"].append(
+            "EP_WEBHOOK_BUCKET is empty — connect Event Processor to MinIO with a webhook edge (bucket/prefix/events)",
+        )
+        return out
+    ok_access, access_note = _probe_bucket_access(client, bucket)
+    out["bucket_access_probe_ok"] = ok_access
+    out["bucket_exists"] = ok_access
+    if access_note:
+        out["access_note"] = access_note
+    if access_note and _is_ai_stor_license_denial(access_note):
+        out["blocking_reason"] = "license_expired"
+        out["bucket_exists"] = False
+        out["issues"] = [_license_expired_user_message(), f"S3 detail: {access_note[:1200]}"]
+        return out
+    try:
+        raw = client.get_bucket_notification_configuration(Bucket=bucket)
+        raw.pop("ResponseMetadata", None)
+        out["bucket_exists"] = True
+        rows = _notification_rules_summary(raw)
+        out["notification_rules"] = rows
+        out["notification_rule_count"] = len(rows)
+        out["prefix_matches"] = _prefix_matches_config(rows, cfg["webhook_prefix"])
+        if not ok_access and access_note:
+            out.setdefault("warnings", []).append(access_note)
+        if not rows:
+            out["issues"].append(
+                "No notification rules on this bucket — init script (register-webhook.sh) may not have run yet "
+                "or failed; objects in the prefix will not call the webhook",
+            )
+        elif cfg["webhook_prefix"] and not out["prefix_matches"]:
+            out["issues"].append(
+                f"No rule filter covers EP_WEBHOOK_PREFIX={cfg['webhook_prefix']!r} — verify mc event add --prefix",
+            )
+        else:
+            out["ready"] = True
+    except ClientError as exc:
+        full = _client_error_full_text(exc)
+        if _is_ai_stor_license_denial(full):
+            out["blocking_reason"] = "license_expired"
+            out["bucket_exists"] = False
+            out["issues"] = [_license_expired_user_message(), f"S3 detail: {full[:1200]}"]
+            return out
+        out["issues"].append(f"get_bucket_notification_configuration failed: {exc}")
+        out["bucket_exists"] = ok_access
+        if not ok_access:
+            out["issues"].append(f"Bucket {bucket!r} not accessible (head/list): {access_note}")
+            if access_note and not _is_ai_stor_license_denial(access_note or ""):
+                out["issues"].append(
+                    "S3 client uses path-style addressing + SigV4 (same as MinIO mc). "
+                    "Virtual-hosted requests often get 403 behind an LB.",
+                )
+    return out
+
+
+async def _startup_notify_probe(*, log_to_integration: bool = True) -> None:
+    global _notify_health
+    try:
+        _notify_health = await asyncio.to_thread(run_minio_notification_check)
+        summary = (
+            f"bucket={_notify_health.get('configured', {}).get('webhook_bucket')!r} "
+            f"prefix={_notify_health.get('configured', {}).get('webhook_prefix')!r} "
+            f"suffix={_notify_health.get('configured', {}).get('webhook_suffix')!r} "
+            f"rules={_notify_health.get('notification_rule_count')} "
+            f"ready={_notify_health.get('ready')}"
+        )
+        if log_to_integration:
+            logger.info("MinIO notification check: %s", summary)
+            integration_log_append(
+                "info" if _notify_health.get("ready") else "warn",
+                "minio_notify_check",
+                summary,
+                json.dumps(_notify_health, default=str)[:8000],
+            )
+        else:
+            logger.debug("MinIO notification check (poll): %s", summary)
+    except Exception as exc:
+        logger.exception("MinIO notification check failed: %s", exc)
+        _notify_health = {
+            "configured": _ep_webhook_env(),
+            "issues": [str(exc)],
+            "ready": False,
+        }
+        integration_log_append("error", "minio_notify_check", "probe crashed", str(exc)[:500])
 
 
 def _reports_enabled() -> bool:
@@ -149,8 +409,14 @@ def _record_event(payload: dict[str, Any], content_type: str) -> dict[str, Any]:
     return rec
 
 
+@asynccontextmanager
+async def _webhook_lifespan(_: FastAPI):
+    await _startup_notify_probe()
+    yield
+
+
 def create_webhook_app() -> FastAPI:
-    app = FastAPI(title="DemoForge Event Processor (webhook)")
+    app = FastAPI(title="DemoForge Event Processor (webhook)", lifespan=_webhook_lifespan)
 
     @app.post("/webhook")
     async def receive_webhook(request: Request) -> JSONResponse:
@@ -239,8 +505,18 @@ def create_webhook_app() -> FastAPI:
         return JSONResponse(out)
 
     @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> dict[str, Any]:
+        """Liveness + cached MinIO bucket-notification probe (bucket / prefix / suffix from EP_WEBHOOK_*)."""
+        return {
+            "status": "ok",
+            "notify": _notify_health or {"ready": False, "message": "notification probe not run yet"},
+        }
+
+    @app.post("/health/notify/refresh")
+    async def refresh_notify_health() -> JSONResponse:
+        """Re-run GetBucketNotificationConfiguration against MinIO (e.g. after fixing init)."""
+        await _startup_notify_probe()
+        return JSONResponse(_notify_health)
 
     return app
 
@@ -251,6 +527,7 @@ def _stats() -> dict[str, Any]:
         "total_stored": len(events),
         "mode": os.environ.get("EP_MODE", "process"),
         "scenario": os.environ.get("EP_ACTION_SCENARIO", ""),
+        "minio_notify": _notify_health,
     }
 
 
@@ -273,6 +550,7 @@ def _html_ui() -> str:
 </style></head><body>
 <h1>Event Processor</h1>
 <p class="meta">Latest """ + str(MAX_EVENTS) + """ events · Webhook :8090 · UI/API :8091</p>
+<div class="meta" id="notify-banner" style="margin-bottom:12px;line-height:1.5;">Loading MinIO notification check…</div>
 <p class="meta" id="empty-hint" style="display:none;color:#fbbf24;">No events yet. Objects must land in a bucket covered by the <strong>webhook</strong> edge (bucket/prefix/events) and the init script must have registered MinIO notifications. Upload a test object to that bucket or POST to <code style="font-size:11px">:8090/webhook</code>.</p>
 <ul id="list"></ul>
 <script>
@@ -326,7 +604,45 @@ def _html_ui() -> str:
     }
   }
 
+  async function loadNotifyBanner() {
+    try {
+      var r = await fetch(apiUrl('api/notify-health'));
+      var n = await r.json();
+      var el = document.getElementById('notify-banner');
+      if (!el) return;
+      var cfg = n.configured || {};
+      var bucket = cfg.webhook_bucket || '—';
+      var pfx = cfg.webhook_prefix !== undefined && cfg.webhook_prefix !== '' ? cfg.webhook_prefix : '(any)';
+      var sfx = cfg.webhook_suffix !== undefined && cfg.webhook_suffix !== '' ? cfg.webhook_suffix : '(any)';
+      var evs = cfg.webhook_events || '—';
+      var ok = n.ready === true;
+      var st;
+      if (n.blocking_reason === 'license_expired') {
+        st = '<span style="color:#f87171">AIStor license expired or invalid — renew cluster license (S3 is disabled)</span>';
+      } else if (ok) {
+        st = '<span style="color:#4ade80">MinIO notifications OK</span> (' + (n.notification_rule_count || 0) + ' rule(s))';
+      } else {
+        st = '<span style="color:#fbbf24">MinIO notification check incomplete or issues</span>';
+      }
+      el.innerHTML =
+        '<strong>Webhook</strong> bucket <code>' + bucket + '</code> · prefix <code>' + pfx + '</code> · suffix <code>' + sfx + '</code> · events <code>' + evs + '</code><br/>' + st;
+      if (n.issues && n.issues.length) {
+        el.innerHTML += '<br/><span style="color:#f87171;font-size:11px">' + n.issues.join(' ') + '</span>';
+      }
+      if (n.warnings && n.warnings.length) {
+        el.innerHTML += '<br/><span style="color:#fbbf24;font-size:11px">' + n.warnings.join(' ') + '</span>';
+      }
+      if (n.s3_endpoint) {
+        el.innerHTML += '<br/><span style="color:#71717a;font-size:11px">S3 ' + String(n.s3_endpoint) + '</span>';
+      }
+    } catch (e) {
+      var el2 = document.getElementById('notify-banner');
+      if (el2) el2.textContent = 'Could not load notification health (' + e + ')';
+    }
+  }
+
   async function load() {
+    try {
     var r = await fetch(apiUrl('api/events'));
     var j = await r.json();
     var el = document.getElementById('list');
@@ -399,6 +715,9 @@ def _html_ui() -> str:
 
     prevIds = currSet;
     hadPoll = true;
+    } finally {
+      await loadNotifyBanner();
+    }
   }
 
   load();
@@ -414,6 +733,17 @@ def create_ui_app() -> FastAPI:
     @app.get("/api/events")
     async def list_events() -> JSONResponse:
         return JSONResponse({"events": list(_ring)})
+
+    @app.get("/api/notify-health")
+    async def notify_health_api() -> JSONResponse:
+        """Re-run S3 notification probe each call so the UI banner is not stuck on startup state."""
+        await _startup_notify_probe(log_to_integration=False)
+        return JSONResponse(_notify_health or {"ready": False, "message": "notification probe not run yet"})
+
+    @app.post("/api/notify-health/refresh")
+    async def notify_health_refresh() -> JSONResponse:
+        await _startup_notify_probe()
+        return JSONResponse(_notify_health)
 
     @app.get("/api/stats")
     async def stats() -> JSONResponse:

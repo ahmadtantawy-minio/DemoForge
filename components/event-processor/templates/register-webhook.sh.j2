@@ -1,6 +1,12 @@
 #!/bin/sh
 # Rendered by DemoForge compose generator for node {{ node.id }}
 # Logs to /tmp/demoforge_integration.jsonl for Dev Logs → Integrations tab.
+#
+# Webhook flow (AIStor/MinIO): MINIO_NOTIFY_WEBHOOK_* must be set on the server and the
+# process must have started with them — then the ARN arn:minio:sqs::<IDENTIFIER>:webhook exists.
+# mc event add --event only accepts put,get,delete (not s3:ObjectCreated:*). Flags belong before ALIAS/ARN.
+# If mc still says "Invalid arguments", the notify target may not be registered yet (race) or the
+# IDENTIFIER in the ARN does not match MINIO_NOTIFY_WEBHOOK_ENABLE_<IDENTIFIER> on MinIO.
 ILOG="python3 /app/integration_log.py"
 
 $ILOG info webhook_register_start "Starting MinIO webhook registration" ""
@@ -43,16 +49,87 @@ fi
 EVENT_BUCKET="${BUCKET_VAL:-*}"
 SFX="${EP_MINIO_NOTIFY_SUFFIX:-webhook}"
 
-if ! mc event add "minio/$EVENT_BUCKET" "arn:minio:sqs::${SFX}:webhook" \
-  ${PREFIX_VAL:+--prefix "$PREFIX_VAL"} \
-  ${EP_WEBHOOK_SUFFIX:+--suffix "$EP_WEBHOOK_SUFFIX"} \
-  --event "${EP_WEBHOOK_EVENTS:-s3:ObjectCreated:*}" 2>/tmp/mc_event.err
-then
-  err=$(cat /tmp/mc_event.err 2>/dev/null || echo unknown)
-  $ILOG error webhook_register_failed "mc event add failed (bucket notify)" "$err"
+# mc event add --event only accepts put,get,delete (comma-separated). Map legacy S3-style edge values.
+MC_EVENTS=$(EP_WEBHOOK_EVENTS="${EP_WEBHOOK_EVENTS:-put}" python3 -c "
+import os, re
+s = (os.environ.get('EP_WEBHOOK_EVENTS') or 'put').strip()
+allowed = ('put', 'get', 'delete')
+parts = [p.strip().lower() for p in s.split(',') if p.strip()]
+if parts and all(p in allowed for p in parts):
+    print(','.join(parts))
+else:
+    ev = []
+    if re.search(r'ObjectRemoved', s, re.I):
+        ev.append('delete')
+    if re.search(r'ObjectRestore|Reduced', s, re.I):
+        ev.append('get')
+    if re.search(r'ObjectCreated|Replication', s, re.I) or (s.startswith('s3:') and not ev):
+        ev.append('put')
+    if not ev:
+        ev.append('put')
+    seen = []
+    for e in ev:
+        if e not in seen:
+            seen.append(e)
+    print(','.join(seen))
+") || MC_EVENTS="put"
+
+# Exact argv for logs (no credentials). Flags before ALIAS/ARN per mc event add -h.
+MC_CMD_DISPLAY="mc event add"
+if [ -n "$PREFIX_VAL" ]; then
+  MC_CMD_DISPLAY="${MC_CMD_DISPLAY} --prefix ${PREFIX_VAL}"
+fi
+if [ -n "$EP_WEBHOOK_SUFFIX" ]; then
+  MC_CMD_DISPLAY="${MC_CMD_DISPLAY} --suffix ${EP_WEBHOOK_SUFFIX}"
+fi
+MC_CMD_DISPLAY="${MC_CMD_DISPLAY} --event ${MC_EVENTS} minio/${EVENT_BUCKET} arn:minio:sqs::${SFX}:webhook"
+
+# Wait until MinIO answers admin API (cluster/LB may come up after S3 alone).
+$ILOG info webhook_register_wait "Waiting for MinIO admin API (mc admin info)" ""
+n=0
+while [ "$n" -lt 60 ]; do
+  if mc admin info minio >/dev/null 2>&1; then
+    $ILOG info webhook_register_admin_ok "MinIO admin API reachable" ""
+    break
+  fi
+  n=$((n+1))
+  sleep 2
+done
+if ! mc admin info minio >/dev/null 2>&1; then
+  $ILOG error webhook_register_failed "mc admin info still failing after wait — MinIO not ready?" ""
   exit 1
 fi
 
-$ILOG info webhook_register_ok "MinIO bucket notification registered" "bucket=$EVENT_BUCKET prefix=$PREFIX_VAL events=${EP_WEBHOOK_EVENTS:-s3:ObjectCreated:*} arn_suffix=$SFX endpoint=${EP_WEBHOOK_ENDPOINT:-8090}"
+# Optional: mc ready (newer mc); ignore failure
+if mc ready --help >/dev/null 2>&1; then
+  mc ready minio >/dev/null 2>&1 || true
+fi
 
-echo "Webhook registered: bucket=$EVENT_BUCKET prefix=$PREFIX_VAL events=$EP_WEBHOOK_EVENTS arn_suffix=$SFX"
+# Retry: ARN arn:minio:sqs::${SFX}:webhook must exist server-side; first seconds after start can race.
+attempt=1
+max_attempts=25
+while [ "$attempt" -le "$max_attempts" ]; do
+  if mc event add \
+    ${PREFIX_VAL:+--prefix "$PREFIX_VAL"} \
+    ${EP_WEBHOOK_SUFFIX:+--suffix "$EP_WEBHOOK_SUFFIX"} \
+    --event "$MC_EVENTS" \
+    "minio/$EVENT_BUCKET" \
+    "arn:minio:sqs::${SFX}:webhook" 2>/tmp/mc_event.err
+  then
+    break
+  fi
+  err=$(cat /tmp/mc_event.err 2>/dev/null || echo unknown)
+  err_detail=$(printf '%s\ncommand: %s' "$err" "$MC_CMD_DISPLAY")
+  if [ "$attempt" -eq "$max_attempts" ]; then
+    $ILOG error webhook_register_failed "mc event add failed (bucket notify)" "$err_detail"
+    echo "Hint: Ensure MinIO has MINIO_NOTIFY_WEBHOOK_ENABLE_${SFX}=on and ENDPOINT_${SFX} pointing to ${EP_WEBHOOK_ENDPOINT:-8090/webhook}, then restart MinIO. ARN must use the same IDENTIFIER as the env suffix." >&2
+    exit 1
+  fi
+  $ILOG info webhook_register_retry "mc event add attempt $attempt/$max_attempts; will retry" "$err_detail"
+  sleep 4
+  attempt=$((attempt+1))
+done
+
+$ILOG info webhook_register_ok "MinIO bucket notification registered" "bucket=$EVENT_BUCKET prefix=$PREFIX_VAL events=$MC_EVENTS arn_suffix=$SFX endpoint=${EP_WEBHOOK_ENDPOINT:-8090}"
+
+echo "Webhook registered: bucket=$EVENT_BUCKET prefix=$PREFIX_VAL events=$MC_EVENTS arn_suffix=$SFX"

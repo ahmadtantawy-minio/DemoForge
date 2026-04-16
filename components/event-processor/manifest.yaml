@@ -106,12 +106,14 @@ connections:
         - key: webhook_events
           label: "Events"
           type: select
+          description: "mc event add --event (put/get/delete; maps legacy s3:* names at deploy)"
           options:
-            - "s3:ObjectCreated:*"
-            - "s3:ObjectRemoved:*"
-            - "s3:ObjectCreated:Put"
-            - "s3:ObjectCreated:CompleteMultipartUpload"
-          default: "s3:ObjectCreated:*"
+            - "put"
+            - "get"
+            - "delete"
+            - "put,delete"
+            - "put,get,delete"
+          default: "put"
 
 health_check:
   endpoint: /health

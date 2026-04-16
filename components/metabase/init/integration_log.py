@@ -28,6 +28,11 @@ def append(level: str, kind: str, message: str, details: str = "") -> dict[str, 
     try:
         with open(INTEGRATION_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(line)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
     except OSError:
         pass
     return rec

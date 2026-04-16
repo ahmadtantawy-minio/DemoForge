@@ -35,6 +35,9 @@ TRINO_CATALOG = os.environ.get("TRINO_CATALOG", "iceberg")
 TRINO_SCHEMA = os.environ.get("TRINO_SCHEMA", "")
 
 _LOGGED_TRINO_SEED_ENV = False
+_LOGGED_NO_TRINO_AND_NO_TRINO_HOST = False
+_LAST_REUSED_TRINO_DB_ID: int | None = None
+_LAST_INTENT_SKIP_LOG_MONO = 0.0
 
 
 class _MbHttpError(Exception):
@@ -161,9 +164,35 @@ def put(token: str, path: str, body: dict):
     return _urlopen_json("PUT", path, token=token, body=body, timeout=60)
 
 
+def _find_existing_trino_db_id(token: str) -> int | None:
+    """Reuse Trino/Presto connection already registered by setup-metabase.sh or the user."""
+    data = get(token, "/api/database")
+    dbs = data if isinstance(data, list) else data.get("data", [])
+    for db in dbs:
+        name = (db.get("name") or "").lower()
+        eng = (db.get("engine") or "").lower()
+        if "trino" in name or "presto" in name or eng in ("presto", "presto-jdbc", "starburst"):
+            return db["id"]
+    return None
+
+
 def ensure_trino_db(token: str) -> int | None:
-    global _LOGGED_TRINO_SEED_ENV
+    global _LOGGED_TRINO_SEED_ENV, _LOGGED_NO_TRINO_AND_NO_TRINO_HOST, _LAST_REUSED_TRINO_DB_ID
+    existing = _find_existing_trino_db_id(token)
+    if existing is not None:
+        if _LAST_REUSED_TRINO_DB_ID != existing:
+            _LAST_REUSED_TRINO_DB_ID = existing
+            log_integration("info", "metabase_provision", f"Using existing Trino/Presto DB id={existing}", "discovered via /api/database")
+        return existing
     if not TRINO_HOST:
+        if not _LOGGED_NO_TRINO_AND_NO_TRINO_HOST:
+            _LOGGED_NO_TRINO_AND_NO_TRINO_HOST = True
+            log_integration(
+                "warn",
+                "metabase_provision",
+                "No Trino DB in Metabase and TRINO_HOST unset — cannot auto-create connection",
+                "Add Trino + sql-query edge to Metabase, or run setup-metabase.sh with TRINO_HOST.",
+            )
         return None
     host, port = (TRINO_HOST.split(":", 1) + ["8080"])[:2]
     if not _LOGGED_TRINO_SEED_ENV:
@@ -174,12 +203,6 @@ def ensure_trino_db(token: str) -> int | None:
             "Provisioner: Trino↔Metabase env (same TRINO_* as setup-metabase.sh; from compose / diagram edges)",
             f"host={host} port={port} catalog={TRINO_CATALOG} TRINO_SCHEMA={TRINO_SCHEMA or '(unset)'}",
         )
-    data = get(token, "/api/database")
-    dbs = data if isinstance(data, list) else data.get("data", [])
-    for db in dbs:
-        if "trino" in db.get("name", "").lower() or "presto" in db.get("name", "").lower():
-            log_integration("info", "metabase_provision", f"Using existing Trino DB id={db['id']}", db.get("name", ""))
-            return db["id"]
     log_integration("info", "trino_metabase_seed", "Creating Trino DB via Metabase API (presto-jdbc)", f"host={host} catalog={TRINO_CATALOG}")
     body = {
         "name": "Trino (DemoForge)",
@@ -362,6 +385,7 @@ def mark_failed(path: str, reason: str) -> None:
 
 
 def main() -> None:
+    global _LAST_INTENT_SKIP_LOG_MONO
     log_integration("info", "metabase_provision", "Provisioner started", f"intents={INTENTS_DIR} poll≈{POLL_INTERVAL_BASE}s")
     os.makedirs(INTENTS_DIR, exist_ok=True)
     os.makedirs(DONE_DIR, exist_ok=True)
@@ -372,7 +396,7 @@ def main() -> None:
     while True:
         try:
             token = get_token()
-            db_id = ensure_trino_db(token) if TRINO_HOST else None
+            db_id = ensure_trino_db(token)
         except Exception as exc:
             log_integration("warn", "metabase_provision", "Auth/DB setup failed — retrying", str(exc)[:400])
             time.sleep(min(60.0, poll_delay))
@@ -381,12 +405,28 @@ def main() -> None:
 
         poll_delay = float(POLL_INTERVAL_BASE)
 
+        pending = list_pending()
         if not db_id:
-            log_integration("info", "metabase_provision", "No TRINO_HOST — idle until configured", "")
+            now_m = time.monotonic()
+            if pending and (now_m - _LAST_INTENT_SKIP_LOG_MONO >= 90.0 or _LAST_INTENT_SKIP_LOG_MONO == 0.0):
+                _LAST_INTENT_SKIP_LOG_MONO = now_m
+                names = ", ".join(os.path.basename(p) for p in pending[:8])
+                more = f" (+{len(pending) - 8} more)" if len(pending) > 8 else ""
+                log_integration(
+                    "warn",
+                    "dashboard_seed_result",
+                    f"Intent files waiting but no Trino database id — cannot run Metabase provisioning ({len(pending)} file(s))",
+                    f"pending={names}{more} fix=TRINO_HOST+edge or ensure setup-metabase registered Trino in Metabase",
+                )
+                log_integration(
+                    "warn",
+                    "metabase_provision",
+                    "Skipping intent processing until a Trino/Presto data source exists in Metabase",
+                    f"pending_intents={len(pending)}",
+                )
             time.sleep(int(poll_delay))
             continue
 
-        pending = list_pending()
         if not pending:
             time.sleep(int(poll_delay))
             continue

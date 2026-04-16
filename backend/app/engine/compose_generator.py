@@ -155,7 +155,7 @@ def _event_processor_webhook_and_suffix(demo: DemoDefinition, node: DemoNode, en
         env["EP_WEBHOOK_BUCKET"] = str(cfg.get("webhook_bucket", "") or "")
         env["EP_WEBHOOK_PREFIX"] = str(cfg.get("webhook_prefix", "") or "")
         env["EP_WEBHOOK_SUFFIX"] = str(cfg.get("webhook_suffix", "") or "")
-        env["EP_WEBHOOK_EVENTS"] = str(cfg.get("webhook_events", "s3:ObjectCreated:*") or "s3:ObjectCreated:*")
+        env["EP_WEBHOOK_EVENTS"] = str(cfg.get("webhook_events", "put") or "put")
         break
 
 
