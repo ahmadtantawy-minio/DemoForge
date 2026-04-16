@@ -21,13 +21,28 @@ export default function AppNav() {
   const faMode = useDemoStore((s) => s.faMode);
   const hubLocal = useDemoStore((s) => s.hubLocal);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  /** From backend env (DEMOFORGE_MODE) — avoids a wrong title while Zustand still has initial faMode. */
+  const [serverMode, setServerMode] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(apiUrl("/api/version"))
       .then((r) => r.json())
       .then((d) => setAppVersion(d.version ?? null))
       .catch(() => {});
+    fetch(apiUrl("/api/settings/mode"))
+      .then((r) => r.json())
+      .then((d) => setServerMode(typeof d.mode === "string" ? d.mode : "standard"))
+      .catch(() => setServerMode("standard"));
   }, []);
+
+  useEffect(() => {
+    if (serverMode === null) {
+      document.title = "DemoForge";
+      return;
+    }
+    const base = serverMode === "dev" ? "DemoForge (Dev)" : "DemoForge";
+    document.title = appVersion ? `${base} - ${appVersion}` : base;
+  }, [serverMode, appVersion]);
 
   const modeLabel = faMode !== "dev" ? "FA" : hubLocal ? "D-LOC" : "D-GCP";
   const modeLabelClass = faMode !== "dev"

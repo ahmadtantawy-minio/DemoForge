@@ -1,0 +1,50 @@
+id: webhook-receiver
+name: Webhook Receiver
+category: integrations
+icon: webhook-receiver
+version: "1.0"
+image: demoforge/webhook-receiver:latest
+build_context: "."
+description: "Accepts MinIO bucket notification webhooks, keeps the last 500 events in memory, and serves a simple viewer UI."
+
+resources:
+  memory: "128m"
+  cpu: 0.25
+
+ports:
+  - name: http
+    container: 8090
+    protocol: tcp
+
+environment:
+  WR_PORT: "8090"
+
+volumes: []
+
+health_check:
+  endpoint: /health
+  port: 8090
+  interval: 15s
+  timeout: 5s
+
+web_ui:
+  - name: events
+    port: 8090
+    path: "/"
+    description: "Received webhook events (latest first)"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Webhook Receiver — POST JSON to / or /webhook"
+  quick_actions:
+    - label: "Health"
+      command: "wget -qO- http://127.0.0.1:8090/health || true"
+
+connections:
+  provides: []
+  accepts:
+    - type: bucket-webhook
+      port: 8090
+      description: "Endpoint for MinIO notify_webhook (HTTP POST)"
+
+virtual: false

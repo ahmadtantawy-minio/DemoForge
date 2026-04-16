@@ -6,73 +6,9 @@
 
 ## Backlog
 
-> **Execution order**: Sprint 1 → Sprint 2 (parallel) → Sprint 3 → Sprint 4 → Sprint 5 (doc only) → Sprint 6 → Sprint 7
-> Sprint 5 gates Sprint 6. All other sprints are sequential by priority.
-
----
-
-### Sprint 1 — Quick Wins (S · no deps · ship immediately)
-
-- [x] **Change: Remove last 2 tabs from Cyber Data Lake pre-defined SQL editor** `sprint:1`
-  - The SQL Editor in the Sovereign Cyber Data Lake template currently has too many tabs. Remove the last 2 tabs (rightmost) from the pre-built query set.
-
-- [x] **Enhancement: Update ScenarioPicker dataset properties to reflect recent external-system changes** `sprint:1`
-  - The dataset cards shown in the ScenarioPicker (stream_rate, seed_rows) are stale after the recent data size reductions and raw_landing additions (firewall: 50k/5s, vuln-scan: 3k, threat-intel: 2k/100/50).
-  - Also surface `raw_landing` presence as a badge or indicator on the dataset card so users can see which datasets write to raw storage in addition to Iceberg.
-
-- [x] **Validation: Cockpit throughput visible with raw file writes (Playwright MCP)** `sprint:1`
-  - Now that the external-system engine writes raw CSV files to MinIO (firewall and vuln-scan landing), validate via Playwright MCP that the Cockpit Throughput tab shows non-zero ops/s and bandwidth while the demo is running with the Sovereign Cyber Data Lake template.
-  - Test: deploy the template, wait for seeding to start, open Cockpit → Throughput tab, confirm metrics are non-zero.
-  - Note: requires a live deployed demo; manual validation deferred to field testing.
-
----
-
-### Sprint 2 — Bug Fixes (M · run in parallel · fix before building further)
-
-- [x] **Bug: Metabase dashboards not pushed / not accessible after deploy** `sprint:2`
-  - Metabase is deployed as part of certain demo templates but dashboards are not being provisioned or are not accessible after the deploy completes. Investigate the provisioning flow: dashboard push mechanism, Metabase startup timing, and any connection or auth issues preventing dashboard access.
-  - Check: Metabase component init scripts, the provisioning step, and whether the dashboard URLs are correctly exposed via the control plane.
-  - Log-driven investigation first — read container logs to identify failure point before designing the fix.
-
-- [x] **Bug: Integration logs not tracked in dedicated log tab** `sprint:2`
-  - When a deployed demo runs integrations (e.g. external system data generator, init scripts), the logs from those integrations should appear in the dedicated "Logs" tab in the control plane. Investigate why log entries are missing or not being streamed to the frontend.
-  - Check: backend log collection path for integration/init containers, the log streaming endpoint, and the frontend log tab component to identify where the gap is.
-
----
-
-### Sprint 3 — FA Offline-First Epic (L · strategic · highest FA field value)
-
-- [ ] **Epic: FA Offline-First Mode — sync on demand, run fully offline** `sprint:3`
-
-  **Goal**: FAs sync explicitly via `fa-update`, cache everything locally, then run fully offline. Cloud unavailability must never block usage.
-
-  **fa-update responsibilities** (pull from hub, cache locally):
-  - Pull and cache latest platform images (MinIO, Trino, Metabase, etc.) and custom component images
-  - Pull latest template YAMLs from hub and write to `synced-templates/`
-  - Pull and cache all license keys for all known FA IDs (not just self) — stored locally so the app never needs to reach the hub for validation at runtime
-  - FA key validation happens **only** in `fa-setup` and `fa-update` — not during normal app operation
-  - Version check: if the FA machine has connectivity at update time, check for a newer DemoForge version and warn if one is available
-
-  **Runtime behavior** (after sync):
-  - App boots from locally cached templates and license keys — no hub calls on startup or during normal use
-  - If hub is unreachable at runtime, app runs normally with cached data; no warning/error shown to the user
-  - Sync is **not triggered from the UI** — remove or disable any "Sync from Hub" button in FA mode; sync is a CLI-only action via `fa-update`
-  - License key validation at runtime uses cached keys only — no outbound call to hub
-
-  **Connectivity-aware version check**:
-  - During normal app operation, if the FA machine is connected to the internet, a lightweight background version check is still performed (non-blocking, e.g. on the Settings page) and surfaces a notice if a newer version is available
-  - This check must not block or degrade app performance when offline
-
-  **Files likely involved**: `demoforge.sh` (`fa-update`, `fa-setup` functions), `backend/app/config/license_store.py`, `backend/app/api/fa_admin.py`, `frontend/src/components/templates/TemplateGallery.tsx` (remove sync button in FA mode), `backend/app/engine/template_sync.py`
-
----
-
-### Sprint 4 — SQL Editor UX (M · confirm font before starting)
-
-- [ ] **Enhancement: SQL Editor — wider default width, syntax highlighting, font** `sprint:4`
-  - The SQL Editor modal is too narrow by default. Increase the default modal width so more SQL is visible without scrolling.
-  - Apply SQL syntax highlighting using CodeMirror 6 (lighter bundle than Monaco) with SQL mode for keyword coloring (SELECT, FROM, WHERE, GROUP BY, etc.), string literals, and comments.
-  - **Font**: Times New Roman was requested but is a serif font — will misalign SQL indentation. Confirm with requester before this sprint opens; suggest `JetBrains Mono` or `Fira Code` as monospace alternatives.
+> **Execution order** (current plan): Sprint 5 (doc only) → Sprint 6 → Sprint 7
+> Sprint 5 gates Sprint 6. Sprints 5–7 are sequential by priority.
+> Sprints 1–4 are excluded from this plan for now.
 
 ---
 

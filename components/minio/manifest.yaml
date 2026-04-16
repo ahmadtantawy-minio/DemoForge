@@ -87,6 +87,14 @@ connections:
   - type: webhook
     port: 9000
     description: Bucket notification webhooks (SNS/webhook targets for event-driven pipelines)
+  - type: bucket-webhook
+    port: 9000
+    description: HTTP POST bucket notifications to a Webhook Receiver component
+    config_schema:
+      - key: bucket_name
+        label: Bucket name
+        type: string
+        default: "webhook-events"
   accepts:
   - type: load-balance
     config_schema: []

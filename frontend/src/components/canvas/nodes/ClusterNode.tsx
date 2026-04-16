@@ -201,6 +201,21 @@ export default function ClusterNode({ id, data }: NodeProps) {
     }
   };
 
+  // Hydrate from persisted demo YAML (pool_lifecycle)
+  const pl = nodeData.poolLifecycle;
+  useEffect(() => {
+    if (!pl || typeof pl !== "object") return;
+    setPoolDecommissionStatus((prev) => {
+      const next = { ...prev };
+      for (const [pid, st] of Object.entries(pl)) {
+        if (st === "decommissioning") next[pid] = "decommissioning";
+        else if (st === "decommissioned") next[pid] = "decommissioned";
+        else if (st === "idle") next[pid] = "active";
+      }
+      return next;
+    });
+  }, [activeDemoId, id, JSON.stringify(pl)]);
+
   // On startup (when demo becomes running), poll each pool once to restore ephemeral decommission state
   useEffect(() => {
     if (!isRunning || !activeDemoId || pools.length === 0) return;

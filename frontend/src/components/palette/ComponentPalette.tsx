@@ -52,7 +52,7 @@ export default function ComponentPalette() {
     return acc;
   }, {});
 
-  const categoryOrder = ["storage"];
+  const categoryOrder = ["storage", "integrations"];
   const sortedCategories = Object.keys(grouped).sort((a, b) => {
     const ai = categoryOrder.indexOf(a);
     const bi = categoryOrder.indexOf(b);
@@ -62,8 +62,12 @@ export default function ComponentPalette() {
     return a.localeCompare(b);
   });
 
-  const categoryLabel = (cat: string) =>
-    cat.toLowerCase() === "storage" ? "MINIO" : cat;
+  const categoryLabel = (cat: string) => {
+    const c = cat.toLowerCase();
+    if (c === "storage") return "MINIO";
+    if (c === "integrations") return "INTEGRATIONS";
+    return cat;
+  };
 
   // Returns the missing license label for a component, or null if all met
   const getMissingLicense = (componentId: string): LicenseEntry | null => {

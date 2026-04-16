@@ -20,7 +20,7 @@ from ..models.api_models import (
     ExecRequest, ExecResponse, NetworkMembership, CredentialInfo,
     EdgeConfigStatus, ExecLogRequest, LogResponse,
 )
-from .demos import _load_demo
+from .demos import _load_demo, _save_demo
 
 logger = logging.getLogger(__name__)
 
@@ -2049,6 +2049,21 @@ async def setup_superset_dashboards(demo_id: str):
 # Pool decommission endpoints
 # ---------------------------------------------------------------------------
 
+def _persist_pool_lifecycle(demo_id: str, cluster_id: str, pool_id: str, lifecycle: str) -> None:
+    """Persist per-pool lifecycle in the demo YAML (survives refresh / backend restart)."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        return
+    cl = next((c for c in demo.clusters if c.id == cluster_id), None)
+    if not cl:
+        return
+    if lifecycle == "idle":
+        cl.pool_lifecycle.pop(pool_id, None)
+    else:
+        cl.pool_lifecycle[pool_id] = lifecycle
+    _save_demo(demo)
+
+
 def _get_mc_shell_and_alias(demo_id: str, cluster_id: str, running):
     """Return (mc_shell_container_name, alias, cluster) for the given cluster.
 
@@ -2116,6 +2131,8 @@ async def start_pool_decommission(demo_id: str, cluster_id: str, pool_id: str):
     if exit_code != 0:
         raise HTTPException(500, f"mc admin decommission start failed: {stderr.strip() or stdout.strip()}")
 
+    _persist_pool_lifecycle(demo_id, cluster_id, pool_id, "decommissioning")
+
     return {"status": "started", "pool_id": pool_id, "output": stdout.strip()}
 
 
@@ -2143,6 +2160,9 @@ async def get_pool_decommission_status(demo_id: str, cluster_id: str, pool_id: s
     else:
         parsed_status = "active"
 
+    if parsed_status == "decommissioned":
+        _persist_pool_lifecycle(demo_id, cluster_id, pool_id, "decommissioned")
+
     return {"pool_id": pool_id, "raw": raw, "status": parsed_status}
 
 
@@ -2162,5 +2182,7 @@ async def cancel_pool_decommission(demo_id: str, cluster_id: str, pool_id: str):
     )
     if exit_code != 0:
         raise HTTPException(500, f"mc admin decommission cancel failed: {stderr.strip() or stdout.strip()}")
+
+    _persist_pool_lifecycle(demo_id, cluster_id, pool_id, "idle")
 
     return {"status": "cancelled", "pool_id": pool_id, "output": stdout.strip()}

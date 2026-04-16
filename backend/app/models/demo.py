@@ -78,6 +78,8 @@ class DemoCluster(BaseModel):
     ec_parity_upgrade_policy: str = "upgrade"  # "upgrade" or "ignore"
     disk_size_tb: int = 1                      # Planning display only, not used in containers
     server_pools: list[DemoServerPool] = []
+    # Runtime UX: per-pool lifecycle (idle | decommissioning | decommissioned), persisted in demo YAML
+    pool_lifecycle: dict[str, str] = {}
 
     def get_pools(self) -> list["DemoServerPool"]:
         """Return server_pools if set, otherwise wrap flat fields into a single pool (backward compat)."""

@@ -164,6 +164,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           ecParityUpgradePolicy: c.ec_parity_upgrade_policy ?? "upgrade",
           diskSizeTb: c.disk_size_tb ?? 1,
           serverPools: rawPools,
+          poolLifecycle: c.pool_lifecycle || {},
         };
         return {
           id: c.id,

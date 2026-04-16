@@ -114,6 +114,8 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
     if demo.mode == "experience" and os.getenv("DEMOFORGE_MODE") != "dev":
         return {"status": "saved"}
 
+    prior_pool_lifecycle = {c.id: dict(c.pool_lifecycle) for c in demo.clusters}
+
     # Convert React Flow nodes → DemoNodes (skip group/sticky/annotation-type nodes)
     demo.nodes = []
     demo.groups = []
@@ -230,6 +232,11 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                     ec_parity_upgrade_policy="upgrade",
                     volume_path="/data",
                 )]
+            plc = c_data.get("poolLifecycle")
+            if isinstance(plc, dict) and plc:
+                pool_lc = {str(k): str(v) for k, v in plc.items()}
+            else:
+                pool_lc = prior_pool_lifecycle.get(rf_node["id"], {})
             demo.clusters.append(DemoCluster(
                 id=rf_node["id"],
                 component=c_data.get("componentId", "minio"),
@@ -248,6 +255,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 ec_parity_upgrade_policy=c_data.get("ecParityUpgradePolicy", "upgrade"),
                 disk_size_tb=c_data.get("diskSizeTb", 8),
                 server_pools=server_pools,
+                pool_lifecycle=pool_lc,
             ))
             continue
 

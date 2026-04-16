@@ -459,8 +459,12 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         auto_activate = []
         if edge_scripts:
             for script in edge_scripts:
-                # Site replication should auto-activate on deploy
-                is_site_repl = script.connection_type in ("site-replication", "cluster-site-replication")
+                # Site replication and bucket webhooks should auto-activate on deploy
+                is_site_repl = script.connection_type in (
+                    "site-replication",
+                    "cluster-site-replication",
+                    "bucket-webhook",
+                )
                 running.edge_configs[script.edge_id] = EdgeConfigResult(
                     edge_id=script.edge_id,
                     connection_type=script.connection_type,
@@ -472,7 +476,7 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
             state.set_demo(running)
             await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) registered")
 
-        # Auto-activate site replication edges
+        # Auto-activate site replication and bucket-webhook edges
         for script in auto_activate:
             ec = running.edge_configs[script.edge_id]
             try:

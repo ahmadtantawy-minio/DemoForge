@@ -597,3 +597,88 @@ def _gen_cluster_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str
         wait_for_healthy=True,
         timeout=180,
     )]
+
+
+# ---------------------------------------------------------------------------
+# Generator: bucket-webhook (MinIO → Webhook Receiver)
+# ---------------------------------------------------------------------------
+@_register("bucket-webhook")
+def _gen_bucket_webhook(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    """Configure notify_webhook + bucket event on MinIO; POST to webhook-receiver service."""
+    import re as _re
+
+    wr = next(
+        (n for n in demo.nodes if n.id in (edge.source, edge.target) and n.component == "webhook-receiver"),
+        None,
+    )
+    if not wr:
+        logger.warning("bucket-webhook edge %s: no webhook-receiver node", edge.id)
+        return []
+
+    cluster: DemoCluster | None = None
+    minio_node: DemoNode | None = None
+    for nid in (edge.source, edge.target):
+        if nid == wr.id:
+            continue
+        if nid.endswith("-lb"):
+            cluster = _find_cluster(demo, nid[:-3])
+            if cluster:
+                break
+        cluster = _find_cluster(demo, nid)
+        if cluster:
+            break
+        n = next((x for x in demo.nodes if x.id == nid), None)
+        if n and n.component == "minio":
+            minio_node = n
+            break
+
+    if not cluster and not minio_node:
+        logger.warning("bucket-webhook edge %s: no MinIO cluster or standalone node", edge.id)
+        return []
+
+    cfg = edge.connection_config or {}
+    raw_bucket = cfg.get("bucket_name", "webhook-events")
+    bucket = str(raw_bucket).strip() or "webhook-events"
+    bucket_tok = _safe(bucket)
+
+    wh_key = _re.sub(r"[^a-zA-Z0-9_]", "_", f"wh_{edge.id}")
+    if len(wh_key) > 40:
+        wh_key = wh_key[:40]
+    wh_key = wh_key.lower()
+    if not wh_key or not wh_key[0].isalpha():
+        wh_key = "w" + _re.sub(r"[^a-z0-9_]", "", wh_key)[:39]
+
+    webhook_url = f"http://{project_name}-{wr.id}:8090/webhook"
+    url_tok = _safe(webhook_url)
+
+    if cluster:
+        alias = _re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+        desc = f"Bucket webhook: {cluster.label}/{bucket} → {wr.id}"
+        command = (
+            f"for i in $(seq 1 25); do mc admin info {alias} >/dev/null 2>&1 && break; sleep 3; done && "
+            f"mc mb {alias}/{bucket_tok} --ignore-existing 2>/dev/null; "
+            f"mc admin config set {alias} notify_webhook:{wh_key} endpoint={url_tok} && "
+            f"mc event add {alias}/{bucket_tok} arn:minio:sqs::{wh_key}:webhook --event put"
+        )
+    else:
+        if not minio_node:
+            return []
+        alias = _re.sub(r"[^a-zA-Z0-9_]", "_", minio_node.display_name) if minio_node.display_name else minio_node.id
+        desc = f"Bucket webhook: {minio_node.id}/{bucket} → {wr.id}"
+        command = (
+            f"for i in $(seq 1 25); do mc admin info {alias} >/dev/null 2>&1 && break; sleep 3; done && "
+            f"mc mb {alias}/{bucket_tok} --ignore-existing 2>/dev/null; "
+            f"mc admin config set {alias} notify_webhook:{wh_key} endpoint={url_tok} && "
+            f"mc event add {alias}/{bucket_tok} arn:minio:sqs::{wh_key}:webhook --event put"
+        )
+
+    return [EdgeInitScript(
+        edge_id=edge.id,
+        connection_type="bucket-webhook",
+        container_name=f"{project_name}-mc-shell",
+        command=command,
+        order=35,
+        description=desc,
+        wait_for_healthy=True,
+        timeout=180,
+    )]
