@@ -13,11 +13,13 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[hub-pull]${NC} $*"; }
 err()  { echo -e "${RED}[hub-pull]${NC} $*" >&2; }
 
-# Core images always pulled (components pull on-demand at deploy time)
+# Core images always pulled with fa-update / make hub-pull (FA day-to-day + deploy pre-cache)
 CRITICAL_IMAGES=(
   "demoforge/demoforge-frontend"
   "demoforge/demoforge-backend"
   "demoforge/data-generator"
+  "demoforge/event-processor"
+  "demoforge/external-system"
 )
 
 pull_image() {

@@ -58,6 +58,12 @@ export default function AnimatedDataEdge({
     bucketWebhookLabel = String(connConfig.bucket_name);
   }
 
+  let webhookEdgeLabel: string | null = null;
+  if (connectionType === "webhook") {
+    const parts = [connConfig?.webhook_bucket, connConfig?.webhook_events].filter(Boolean);
+    webhookEdgeLabel = parts.length > 0 ? parts.map(String).join(" · ") : null;
+  }
+
   const protocol = (edgeData as any)?.protocol as string | undefined;
   const edgeLatency = (edgeData as any)?.latency as string | undefined;
   const edgeBandwidth = (edgeData as any)?.bandwidth as string | undefined;
@@ -114,7 +120,7 @@ export default function AnimatedDataEdge({
     else nginxLabel = "Load Balance";
   }
 
-  const label = edgeData?.label || formatLabel || bucketWebhookLabel || nginxLabel || connectionLabels[connectionType] || "";
+  const label = edgeData?.label || formatLabel || bucketWebhookLabel || webhookEdgeLabel || nginxLabel || connectionLabels[connectionType] || "";
 
   const markerId = `arrow-${id}`;
   const markerStartId = `arrow-start-${id}`;

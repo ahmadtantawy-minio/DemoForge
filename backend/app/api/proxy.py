@@ -26,11 +26,25 @@ _SPA_RECOVERY_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 import asyncio
+import httpx
 import websockets
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from ..engine.proxy_gateway import forward_request, resolve_target
 
 router = APIRouter()
+
+
+async def _forward_or_error(request: Request, demo_id: str, node_id: str, ui_name: str, subpath: str):
+    try:
+        return await forward_request(request, demo_id, node_id, ui_name, subpath)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Component UI unreachable (is the demo running and is this backend on the demo Docker network?): {e}",
+        ) from e
+
 
 @router.api_route(
     "/proxy/{demo_id}/{node_id}/{ui_name}/{subpath:path}",
@@ -43,7 +57,7 @@ async def proxy_handler(
     ui_name: str,
     subpath: str = "",
 ):
-    return await forward_request(request, demo_id, node_id, ui_name, subpath)
+    return await _forward_or_error(request, demo_id, node_id, ui_name, subpath)
 
 # Also handle the root path (no subpath)
 @router.api_route(
@@ -56,7 +70,7 @@ async def proxy_handler_root(
     node_id: str,
     ui_name: str,
 ):
-    return await forward_request(request, demo_id, node_id, ui_name, "")
+    return await _forward_or_error(request, demo_id, node_id, ui_name, "")
 
 
 # WebSocket proxy — relay WS connections through to upstream containers

@@ -13,19 +13,21 @@ interface ScenarioPickerProps {
   currentScenario: string;
   onScenarioChange: (scenarioId: string, scenario: ScenarioOption) => void;
   catalogName?: string;
+  /** Registry component id for /api/registry/components/{id}/scenarios */
+  componentId?: string;
 }
 
-export default function ScenarioPicker({ currentScenario, onScenarioChange, catalogName }: ScenarioPickerProps) {
+export default function ScenarioPicker({ currentScenario, onScenarioChange, catalogName, componentId = "external-system" }: ScenarioPickerProps) {
   const [scenarios, setScenarios] = useState<ScenarioOption[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetchComponentScenarios("external-system")
+    fetchComponentScenarios(componentId)
       .then((res) => setScenarios(res.scenarios))
       .catch(() => setScenarios([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [componentId]);
 
   const selected = scenarios.find((s) => s.id === currentScenario);
 

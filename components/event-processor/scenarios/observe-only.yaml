@@ -1,0 +1,10 @@
+scenario:
+  id: observe-only
+  name: Observe only
+  description: "Log incoming bucket notification events without executing downstream actions (Phase 1 placeholder)."
+  category: tooling
+  version: "1.0"
+
+display:
+  default_name: "Event Processor"
+  default_subtitle: "Observe"

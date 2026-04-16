@@ -1,0 +1,133 @@
+id: event-processor
+name: Event Processor
+category: tooling
+icon: zap
+version: "1.0"
+image: demoforge/event-processor:latest
+build_context: .
+description: "Receives MinIO bucket webhooks and runs configurable action scenarios — observe events, generate data, transform content, write results back."
+
+resources:
+  memory: "256m"
+  cpu: 0.25
+
+ports:
+  - name: webhook
+    container: 8090
+    protocol: tcp
+  - name: web-ui
+    container: 8091
+    protocol: tcp
+
+environment:
+  S3_ENDPOINT: ""
+  S3_ACCESS_KEY: "${S3_ACCESS_KEY:-minioadmin}"
+  S3_SECRET_KEY: "${S3_SECRET_KEY:-minioadmin}"
+  ICEBERG_CATALOG_URI: ""
+  ICEBERG_WAREHOUSE: ""
+  EP_WEBHOOK_ENDPOINT: ""
+  EP_WEBHOOK_BUCKET: ""
+  EP_WEBHOOK_PREFIX: ""
+  EP_WEBHOOK_SUFFIX: ""
+  EP_WEBHOOK_EVENTS: ""
+  EP_MINIO_NOTIFY_SUFFIX: ""
+  EP_ACTION_SCENARIO: ""
+  EP_MODE: "process"
+
+secrets:
+  - key: S3_ACCESS_KEY
+    label: S3 Access Key
+    default: minioadmin
+  - key: S3_SECRET_KEY
+    label: S3 Secret Key
+    default: minioadmin
+
+web_ui:
+  - name: events
+    port: 8091
+    path: "/"
+    description: "Live event log — incoming webhooks and processing context"
+
+terminal:
+  shell: /bin/sh
+  welcome_message: "Event Processor — webhooks :8090, UI :8091"
+  quick_actions:
+    - label: "Recent events (UI API)"
+      command: "curl -s http://127.0.0.1:8091/api/events?limit=10 | python3 -m json.tool"
+    - label: "Health (webhook)"
+      command: "curl -s http://127.0.0.1:8090/health"
+    - label: "Event stats"
+      command: "curl -s http://127.0.0.1:8091/api/stats | python3 -m json.tool"
+
+connections:
+  provides:
+    - type: s3
+      port: 0
+      description: "Writes processing results to MinIO (S3 PUT)"
+      config_schema: []
+    - type: aistor-tables
+      port: 0
+      description: "Writes structured rows to Iceberg tables"
+      config_schema:
+        - key: warehouse
+          label: "Warehouse"
+          type: string
+          default: "analytics"
+  accepts:
+    - type: webhook
+      config_schema:
+        - key: webhook_bucket
+          label: "Bucket"
+          type: string
+          default: ""
+        - key: webhook_prefix
+          label: "Prefix"
+          type: string
+          default: ""
+        - key: webhook_suffix
+          label: "Suffix"
+          type: string
+          default: ""
+        - key: webhook_events
+          label: "Events"
+          type: select
+          options:
+            - "s3:ObjectCreated:*"
+            - "s3:ObjectRemoved:*"
+            - "s3:ObjectCreated:Put"
+            - "s3:ObjectCreated:CompleteMultipartUpload"
+          default: "s3:ObjectCreated:*"
+
+health_check:
+  endpoint: /health
+  port: 8090
+  interval: 10s
+  timeout: 5s
+
+volumes: []
+
+static_mounts:
+  - host_path: "./scenarios"
+    mount_path: "/app/scenarios"
+
+template_mounts:
+  - template: register-webhook.sh.j2
+    mount_path: /app/register-webhook.sh
+
+init_scripts:
+  - command: "sh /app/register-webhook.sh"
+    wait_for_healthy: true
+    timeout: 120
+    order: 10
+    description: "Register bucket notification with MinIO (mc)"
+
+log_commands:
+  - name: "Recent events"
+    command: "curl -s http://localhost:8091/api/events?limit=20 | python3 -m json.tool"
+    description: "Last processed events"
+  - name: "Event stats"
+    command: "curl -s http://localhost:8091/api/stats | python3 -m json.tool"
+    description: "Event ring stats"
+
+resource_weight: light
+properties: []

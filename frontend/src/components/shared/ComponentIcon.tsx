@@ -576,6 +576,20 @@ function ExternalSystemIcon({ size }: { size: number }) {
   );
 }
 
+function EventProcessorIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#18181b" />
+      <path
+        d="M19 3L7 17.5h7.5L12 29l13.5-15.5H18l1-10.5z"
+        fill="#EF9F27"
+        stroke="#fbbf77"
+        strokeWidth="0.5"
+      />
+    </svg>
+  );
+}
+
 function DefaultIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -628,6 +642,7 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("event-bridge") || id.includes("event_bridge")) return <EventBridgeIcon size={size} />;
     if (id.includes("event-producer") || id.includes("event_producer")) return <EventProducerIcon size={size} />;
     if (id.includes("webhook-receiver") || id.includes("webhook_receiver")) return <EventProducerIcon size={size} />;
+    if (id.includes("event-processor") || id.includes("event_processor")) return <EventProcessorIcon size={size} />;
     if (id.includes("external-system") || id.includes("external_system")) return <ExternalSystemIcon size={size} />;
     return <DefaultIcon size={size} />;
   })();

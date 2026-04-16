@@ -38,6 +38,7 @@ export const connectionColors: Record<string, string> = {
   "external-api": "#64748b",
   "dashboard-provision": "#7c3aed",
   "bucket-webhook": "#ec4899",
+  webhook: "#EF9F27",
 };
 
 export function getConnectionColor(type: string): string {
@@ -88,4 +89,5 @@ export const connectionLabels: Record<string, string> = {
   "external-api": "External API",
   "dashboard-provision": "Dashboard Provisioning",
   "bucket-webhook": "Bucket Webhook",
+  webhook: "Webhook",
 };

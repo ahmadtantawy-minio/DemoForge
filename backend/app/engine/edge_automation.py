@@ -682,3 +682,11 @@ def _gen_bucket_webhook(edge: DemoEdge, demo: DemoDefinition, project_name: str)
         wait_for_healthy=True,
         timeout=180,
     )]
+
+
+# ---------------------------------------------------------------------------
+# webhook (MinIO → Event Processor): compose injects MINIO_NOTIFY_*; EP runs register-webhook.sh
+# ---------------------------------------------------------------------------
+@_register("webhook")
+def _gen_webhook_event_processor(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []

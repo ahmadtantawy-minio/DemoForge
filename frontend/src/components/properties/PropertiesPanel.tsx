@@ -1279,6 +1279,38 @@ export default function PropertiesPanel() {
         />
       )}
 
+      {data.componentId === "event-processor" && !isExperience && (
+        <>
+          <ScenarioPicker
+            componentId="event-processor"
+            currentScenario={data.config?.EP_ACTION_SCENARIO ?? ""}
+            onScenarioChange={(scenarioId, scenario) => {
+              const currentDisplayName = data.displayName ?? "";
+              const needsNameUpdate =
+                !currentDisplayName ||
+                currentDisplayName === "Event Processor" ||
+                currentDisplayName === (data.label ?? "");
+              updateData({
+                config: { ...data.config, EP_ACTION_SCENARIO: scenarioId },
+                ...(needsNameUpdate ? { displayName: scenario.default_name || scenario.name } : {}),
+              });
+            }}
+          />
+          <div className="mb-3">
+            <label className="text-xs text-muted-foreground block mb-1">Processing mode</label>
+            <Select value={data.config?.EP_MODE ?? "process"} onValueChange={(v) => updateConfig("EP_MODE", v)}>
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="observe">observe (log only)</SelectItem>
+                <SelectItem value="process">process</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+
       {(componentDef?.properties?.length ?? 0) > 0 && (
         <div className="mb-3">
           <div className="text-xs text-muted-foreground mb-2">Configuration</div>
@@ -1301,10 +1333,24 @@ export default function PropertiesPanel() {
         </div>
       )}
 
-      {Object.keys(data.config).filter(k => k !== "MINIO_EDITION" && !(data.componentId === "nginx" && k === "mode")).length > 0 && (
+      {Object.keys(data.config).filter((k) => {
+        if (k === "MINIO_EDITION" || (data.componentId === "nginx" && k === "mode")) return false;
+        if (data.componentId === "event-processor") {
+          if (k === "EP_ACTION_SCENARIO" || k === "EP_MODE") return false;
+          if (k.startsWith("S3_") || k.startsWith("ICEBERG_") || k.startsWith("EP_WEBHOOK") || k === "EP_MINIO_NOTIFY_SUFFIX") return false;
+        }
+        return true;
+      }).length > 0 && (
         <div className="mb-3">
           <div className="text-xs text-muted-foreground mb-1">Environment{isExperience ? "" : " Overrides"}</div>
-          {Object.entries(data.config).filter(([key]) => key !== "MINIO_EDITION" && !(data.componentId === "nginx" && key === "mode")).map(([key, value]) => (
+          {Object.entries(data.config).filter(([key]) => {
+            if (key === "MINIO_EDITION" || (data.componentId === "nginx" && key === "mode")) return false;
+            if (data.componentId === "event-processor") {
+              if (key === "EP_ACTION_SCENARIO" || key === "EP_MODE") return false;
+              if (key.startsWith("S3_") || key.startsWith("ICEBERG_") || key.startsWith("EP_WEBHOOK") || key === "EP_MINIO_NOTIFY_SUFFIX") return false;
+            }
+            return true;
+          }).map(([key, value]) => (
             <div key={key} className="flex gap-1 mb-1">
               <div className="text-xs text-muted-foreground w-1/2 truncate pt-1">{key}</div>
               {isExperience ? (

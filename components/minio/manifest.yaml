@@ -86,7 +86,32 @@ connections:
     description: AIStor Tables — direct Trino connection (requires aistor_tables_enabled)
   - type: webhook
     port: 9000
-    description: Bucket notification webhooks (SNS/webhook targets for event-driven pipelines)
+    description: Bucket event notifications to Event Processor (webhook edge)
+    config_schema:
+      - key: webhook_bucket
+        label: Bucket
+        type: string
+        default: ""
+        description: "Bucket to watch (empty = all buckets)"
+      - key: webhook_prefix
+        label: Prefix
+        type: string
+        default: ""
+        description: Object key prefix filter
+      - key: webhook_suffix
+        label: Suffix
+        type: string
+        default: ""
+        description: Object key suffix filter
+      - key: webhook_events
+        label: Events
+        type: select
+        options:
+          - "s3:ObjectCreated:*"
+          - "s3:ObjectRemoved:*"
+          - "s3:ObjectCreated:Put"
+          - "s3:ObjectCreated:CompleteMultipartUpload"
+        default: "s3:ObjectCreated:*"
   - type: bucket-webhook
     port: 9000
     description: HTTP POST bucket notifications to a Webhook Receiver component

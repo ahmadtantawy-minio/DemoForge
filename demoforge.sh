@@ -87,20 +87,32 @@ stop_services() {
     # Stop compose services gracefully
     docker compose "${DC_FLAGS[@]}" down --remove-orphans 2>/dev/null || true
 
-    # Stop any orphaned demo containers (from deployed demos)
+    # Stop orphaned demo sandboxes only when no sibling FA stack is running — otherwise
+    # dev-start / dev-start-gcp would tear down demos deployed via the FA instance.
+    local fa_core_running=false
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qE '^demoforge-(backend|frontend)-[0-9]+$'; then
+        fa_core_running=true
+    fi
     local demo_containers
     demo_containers=$(docker ps -aq --filter "label=demoforge.demo" 2>/dev/null || true)
-    if [ -n "$demo_containers" ]; then
+    if [ -n "$demo_containers" ] && [ "$fa_core_running" != true ]; then
         warn "Cleaning up orphaned demo containers..."
         echo "$demo_containers" | xargs docker stop 2>/dev/null || true
         echo "$demo_containers" | xargs docker rm 2>/dev/null || true
+    elif [ -n "$demo_containers" ] && [ "$fa_core_running" = true ]; then
+        warn "Skipping demo container cleanup — FA DemoForge stack (ports 3000/9210) is running."
     fi
 
-    # Stop stale demoforge containers, but spare sibling stacks: FA local (demoforge-fa-*)
-    # and dev (demoforge-dev-*), which use different COMPOSE_PROJECT_NAME on the same host.
+    # Stop stale demoforge containers, but spare sibling stacks: FA local (demoforge-fa-*),
+    # dev (demoforge-dev-*), and FA mode primary compose (demoforge-backend-*, demoforge-frontend-*)
+    # so dev-start-gcp can run alongside make start.
     local stale
     stale=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null \
-        | awk '$2 ~ /^demoforge-/ && $2 !~ /^demoforge-fa-/ && $2 !~ /^demoforge-dev-/ {print $1}' || true)
+        | awk '$2 ~ /^demoforge-/ \
+            && $2 !~ /^demoforge-fa-/ \
+            && $2 !~ /^demoforge-dev-/ \
+            && $2 !~ /^demoforge-backend-/ \
+            && $2 !~ /^demoforge-frontend-/ {print $1}' || true)
     if [ -n "$stale" ]; then
         warn "Removing stale demoforge containers..."
         echo "$stale" | xargs docker stop 2>/dev/null || true
