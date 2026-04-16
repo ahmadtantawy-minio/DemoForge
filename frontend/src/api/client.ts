@@ -167,6 +167,15 @@ export const fetchInstances = (demoId: string) =>
     edge_configs?: { edge_id: string; connection_type: string; status: string; description: string; error: string }[];
     cluster_health?: Record<string, string>;
     init_results?: { node_id: string; script: string; exit_code: number; stdout: string; stderr: string }[];
+    integration_events?: {
+      id?: string;
+      ts_ms?: number;
+      node_id?: string;
+      level?: string;
+      kind?: string;
+      message?: string;
+      details?: string;
+    }[];
   }>(`/api/demos/${demoId}/instances`);
 
 export const activateEdgeConfig = (demoId: string, edgeId: string) =>
