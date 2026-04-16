@@ -5,24 +5,139 @@ import asyncio
 import json
 import os
 import time
+import uuid
 from collections import deque
 from typing import Any
 
+import boto3
+from botocore.exceptions import ClientError
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from uvicorn import Config, Server
 
+from integration_log import append as integration_log_append
+
 MAX_EVENTS = 500
 
 _ring: deque[dict[str, Any]] = deque(maxlen=MAX_EVENTS)
+
+_s3_client: Any | None = None
 
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _record_event(payload: dict[str, Any], content_type: str) -> None:
+def _s3_endpoint_url() -> str:
+    ep = (os.environ.get("S3_ENDPOINT") or "").strip()
+    if not ep:
+        return ""
+    return ep if ep.startswith("http") else f"http://{ep}"
+
+
+def _parse_s3_bucket(raw: str) -> tuple[str, str]:
+    """Split S3_BUCKET like `malware-vault/reports/` into bucket and key prefix."""
+    s = (raw or "").strip().strip("/")
+    if not s:
+        return "", ""
+    if "/" in s:
+        b, rest = s.split("/", 1)
+        p = rest.rstrip("/")
+        return b, (p + "/") if p else ""
+    return s, ""
+
+
+def _get_s3_client():
+    global _s3_client
+    if _s3_client is not None:
+        return _s3_client
+    url = _s3_endpoint_url()
+    key = os.environ.get("S3_ACCESS_KEY", "")
+    sec = os.environ.get("S3_SECRET_KEY", "")
+    if not url or not key or not sec:
+        return None
+    _s3_client = boto3.client(
+        "s3",
+        endpoint_url=url,
+        aws_access_key_id=key,
+        aws_secret_access_key=sec,
+        region_name="us-east-1",
+    )
+    return _s3_client
+
+
+def _reports_enabled() -> bool:
+    return os.environ.get("EP_WRITE_EVENT_REPORTS", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _ensure_bucket(client, bucket: str) -> None:
+    try:
+        client.head_bucket(Bucket=bucket)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in ("404", "NoSuchBucket"):
+            client.create_bucket(Bucket=bucket)
+        else:
+            raise
+
+
+def _write_event_report_sync(rec: dict[str, Any]) -> str | None:
+    """Write one JSON report per event to S3. Returns object key or None if skipped."""
+    if not _reports_enabled():
+        return None
+    raw_bucket = os.environ.get("S3_BUCKET", "")
+    bucket, prefix = _parse_s3_bucket(raw_bucket)
+    if not bucket:
+        return None
+    client = _get_s3_client()
+    if not client:
+        return None
+
+    extra = os.environ.get("EP_REPORTS_PREFIX")
+    if extra is None:
+        sub = "" if prefix else "reports/"
+    else:
+        sub = extra.strip()
+    if sub and not sub.endswith("/"):
+        sub += "/"
+
+    rid = uuid.uuid4().hex
+    key = f"{prefix}{sub}ep-event-{rec['received_at_ms']}-{rid[:8]}.json"
+    body = json.dumps(rec, default=str).encode("utf-8")
+    _ensure_bucket(client, bucket)
+    client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=body,
+        ContentType="application/json",
+    )
+    return key
+
+
+async def _write_event_report(rec: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Returns (s3_key, error_message)."""
+    try:
+        key = await asyncio.to_thread(_write_event_report_sync, rec)
+        return key, None
+    except Exception as exc:
+        return None, str(exc)[:500]
+
+
+def _payload_summary(payload: dict[str, Any]) -> str:
+    try:
+        s = json.dumps(payload, default=str)
+        return s[:2000] + ("…" if len(s) > 2000 else "")
+    except Exception:
+        return str(payload)[:800]
+
+
+def _record_event(payload: dict[str, Any], content_type: str) -> dict[str, Any]:
     rec = {
+        "event_id": str(uuid.uuid4()),
         "received_at_ms": _now_ms(),
         "content_type": content_type,
         "payload": payload,
@@ -30,6 +145,7 @@ def _record_event(payload: dict[str, Any], content_type: str) -> None:
         "scenario": os.environ.get("EP_ACTION_SCENARIO", ""),
     }
     _ring.appendleft(rec)
+    return rec
 
 
 def create_webhook_app() -> FastAPI:
@@ -42,8 +158,57 @@ def create_webhook_app() -> FastAPI:
             payload = json.loads(body.decode("utf-8") or "{}")
         except json.JSONDecodeError:
             payload = {"_raw": body.decode("utf-8", errors="replace")}
-        _record_event(payload, request.headers.get("content-type", ""))
-        return JSONResponse({"status": "ok", "stored": True})
+        rec = _record_event(payload, request.headers.get("content-type", ""))
+        ct = request.headers.get("content-type", "")
+        integration_log_append(
+            "info",
+            "webhook_received",
+            f"POST /webhook event_id={rec['event_id']} content_type={ct or '(none)'}",
+            _payload_summary(payload),
+        )
+        out: dict[str, Any] = {"status": "ok", "stored": True, "event_id": rec["event_id"]}
+        rkey, rerr = await _write_event_report(rec)
+        if rkey:
+            out["report_key"] = rkey
+            out["report_written"] = True
+            integration_log_append(
+                "info",
+                "webhook_report_written",
+                f"S3 report written for event_id={rec['event_id']}",
+                f"key={rkey}",
+            )
+        elif rerr:
+            out["report_written"] = False
+            out["report_error"] = rerr
+            integration_log_append(
+                "error",
+                "webhook_report_failed",
+                f"S3 report failed for event_id={rec['event_id']}",
+                rerr,
+            )
+        else:
+            if not _reports_enabled():
+                integration_log_append(
+                    "info",
+                    "webhook_processing_no_report",
+                    f"Reports disabled (EP_WRITE_EVENT_REPORTS) for event_id={rec['event_id']}",
+                    "",
+                )
+            elif not (os.environ.get("S3_BUCKET") or "").strip():
+                integration_log_append(
+                    "warn",
+                    "webhook_processing_no_report",
+                    f"S3_BUCKET not set — no per-event report for event_id={rec['event_id']}",
+                    "",
+                )
+            elif not _get_s3_client():
+                integration_log_append(
+                    "warn",
+                    "webhook_processing_no_report",
+                    f"S3 client unavailable (endpoint/credentials) for event_id={rec['event_id']}",
+                    "",
+                )
+        return JSONResponse(out)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

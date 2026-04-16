@@ -18,6 +18,13 @@ environment:
   MB_JETTY_PORT: '3000'
   JAVA_TIMEZONE: UTC
   JAVA_OPTS: -Xmx512m -Xms256m
+  # First-run UX: align with setup-metabase.sh (onboarding modals, tips, updates)
+  MB_SITE_NAME: DemoForge Analytics
+  MB_CHECK_FOR_UPDATES: "false"
+  MB_ANON_TRACKING_ENABLED: "false"
+  MB_SHOW_DATABASE_SYNCING_MODAL: "false"
+  MB_SETUP_LICENSE_ACTIVE_AT_SETUP: "true"
+  MB_SHOW_HOMEPAGE_XRAYS: "false"
 health_check:
   endpoint: /api/health
   port: 3000

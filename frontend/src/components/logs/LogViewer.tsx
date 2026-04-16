@@ -87,6 +87,16 @@ type EdgeConfigRow = {
   error: string;
 };
 
+type IntegrationEventRow = {
+  id?: string;
+  ts_ms?: number;
+  node_id?: string;
+  level?: string;
+  kind?: string;
+  message?: string;
+  details?: string;
+};
+
 /** Init scripts likely tied to MinIO Day0/1 (mc, buckets, replication, webhooks, etc.). */
 function filterMinioRelatedInits(rows: InitResultRow[]): InitResultRow[] {
   return rows.filter((r) => {
@@ -112,7 +122,7 @@ interface Props {
 }
 
 const DOCKER_TAB: LogTab = { name: "Docker Logs", kind: "docker" };
-const MINIO_CONFIG_TAB: LogTab = { name: "MinIO config (Day0/1)", kind: "minio-config" };
+const MINIO_CONFIG_TAB: LogTab = { name: "Integrations", kind: "minio-config" };
 
 export default function LogViewer({ demoId, nodeId, componentId, onClose }: Props) {
   const [tabs, setTabs] = useState<LogTab[]>([DOCKER_TAB, MINIO_CONFIG_TAB]);
@@ -121,6 +131,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
   const [minioSnapshot, setMinioSnapshot] = useState<{
     edge_configs: EdgeConfigRow[];
     init_results: InitResultRow[];
+    integration_events: IntegrationEventRow[];
     error?: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -209,15 +220,18 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
       try {
         const resp = await fetchInstances(demoId);
         const raw = resp.init_results ?? [];
+        const integ = resp.integration_events ?? [];
         setMinioSnapshot({
           edge_configs: resp.edge_configs ?? [],
           init_results: filterMinioRelatedInits(raw),
+          integration_events: integ,
         });
         setLastFetch(new Date().toLocaleTimeString());
       } catch (e: any) {
         setMinioSnapshot({
           edge_configs: [],
           init_results: [],
+          integration_events: [],
           error: e?.message ?? String(e),
         });
         setLastFetch(new Date().toLocaleTimeString());
@@ -372,7 +386,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
             <span className="text-sm font-semibold text-foreground truncate" title={activeNodeId}>
               Logs — {activeNodeId}
               {activeTabKind === "minio-config" && (
-                <span className="text-[10px] font-normal text-muted-foreground ml-1">(demo-wide)</span>
+                <span className="text-[10px] font-normal text-muted-foreground ml-1">(demo-wide: edges, init, webhooks)</span>
               )}
             </span>
             {sidecarNodes.length > 0 && (
@@ -447,7 +461,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
                 <div className="text-red-400 whitespace-pre-wrap">Error: {minioSnapshot.error}</div>
               )}
               {!minioSnapshot && loading && (
-                <div className="text-muted-foreground text-center mt-8 text-xs">Loading MinIO config activity…</div>
+                <div className="text-muted-foreground text-center mt-8 text-xs">Loading integrations…</div>
               )}
               {minioSnapshot && !minioSnapshot.error && (
                 <>
@@ -527,6 +541,42 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
                       </ul>
                     )}
                   </section>
+                  <section>
+                    <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">
+                      Webhook &amp; integration stream (event-processor)
+                    </h3>
+                    {minioSnapshot.integration_events.length === 0 ? (
+                      <div className="text-zinc-500 text-xs">
+                        No integration log entries yet. Registration runs on deploy; deliveries appear when MinIO notifies the
+                        processor.
+                      </div>
+                    ) : (
+                      <ul className="space-y-2">
+                        {minioSnapshot.integration_events.map((ev, idx) => {
+                          const lvl = ev.level === "error" ? "text-red-400" : ev.level === "warn" ? "text-amber-400" : "text-zinc-300";
+                          return (
+                            <li
+                              key={`${ev.id ?? idx}-${ev.ts_ms ?? idx}`}
+                              className="border border-zinc-800 rounded p-2 bg-zinc-900/50"
+                            >
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-baseline text-[10px] text-zinc-500">
+                                {ev.node_id ? (
+                                  <span className="text-cyan-400/90">{ev.node_id}</span>
+                                ) : null}
+                                {ev.kind ? <span className="text-violet-400/90">{ev.kind}</span> : null}
+                                <span className={lvl}>{ev.message ?? ""}</span>
+                              </div>
+                              {ev.details ? (
+                                <pre className="text-zinc-400/90 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-40 overflow-y-auto">
+                                  {ev.details}
+                                </pre>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </section>
                 </>
               )}
             </div>
@@ -545,7 +595,7 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
         <div className="absolute bottom-2 left-3 text-[9px] text-muted-foreground pointer-events-none">
           {activeTabKind === "minio-config"
             ? minioSnapshot
-              ? `${minioSnapshot.edge_configs.length} edges · ${minioSnapshot.init_results.length} inits`
+              ? `${minioSnapshot.edge_configs.length} edges · ${minioSnapshot.init_results.length} inits · ${minioSnapshot.integration_events.length} integration`
               : ""
             : `${lines.length} lines`}
         </div>

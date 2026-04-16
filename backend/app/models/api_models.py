@@ -110,6 +110,8 @@ class InstancesResponse(BaseModel):
     init_results: list[dict] = []
     edge_configs: list[EdgeConfigStatus] = []
     cluster_health: dict[str, str] = {}  # cluster_id → "healthy" | "degraded" | "unreachable"
+    # event-processor JSONL at /tmp/demoforge_integration.jsonl (webhook registration, receive, report)
+    integration_events: list[dict] = []
 
 # --- Errors ---
 class ErrorDetail(BaseModel):

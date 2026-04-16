@@ -1,34 +1,52 @@
 #!/bin/sh
 set -eu
-# Metabase auto-setup: creates admin user and adds Trino database connection
-# Runs inside alpine:3.19 sidecar (has wget, grep, sed)
+# Metabase auto-setup: creates admin user, Trino DB, pre-seeded dashboard, suppresses onboarding UI.
+# Sidecar: alpine:3.19 or python:3.11-alpine — install curl+jq for correct PUT /api/setting and JSON parsing.
 
 MB="http://${METABASE_HOST}:3000"
 
-echo "Waiting 45 seconds for Metabase to initialize..."
-sleep 45
+echo "Installing curl and jq for Metabase API (PUT settings, JSON parse)..."
+apk add --no-cache curl jq >/dev/null 2>&1 || true
+if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: curl and jq are required. apk add failed."
+  exit 1
+fi
 
-# Helper: HTTP GET, returns body to stdout
-http_get() {
-  wget -q -O - --header="$2" "$1" 2>/dev/null
-}
-
-# Helper: HTTP POST with JSON body, returns body to stdout
-http_post() {
-  local url="$1" data="$2" extra_header="$3"
-  if [ -n "$extra_header" ]; then
-    wget -q -O - --header="Content-Type: application/json" --header="$extra_header" --post-data="$data" "$url" 2>/dev/null
+# GET with optional session header: http_get_auth URL "X-Metabase-Session: sid"
+http_get_auth() {
+  if [ -n "${2:-}" ]; then
+    curl -sS -H "Content-Type: application/json" -H "$2" "$1" 2>/dev/null || true
   else
-    wget -q -O - --header="Content-Type: application/json" --post-data="$data" "$url" 2>/dev/null
+    curl -sS -H "Content-Type: application/json" "$1" 2>/dev/null || true
   fi
 }
+
+http_post() {
+  _url="$1"
+  _data="$2"
+  _hdr="${3-}"
+  if [ -n "$_hdr" ]; then
+    curl -sS -X POST -H "Content-Type: application/json" -H "$_hdr" --data "$_data" "$_url" 2>/dev/null || true
+  else
+    curl -sS -X POST -H "Content-Type: application/json" --data "$_data" "$_url" 2>/dev/null || true
+  fi
+}
+
+# Metabase expects PUT /api/setting/:key with body {"value": ...} (POST is ignored / wrong)
+http_put_setting() {
+  curl -sS -o /dev/null -w "%{http_code}" -X PUT -H "Content-Type: application/json" -H "X-Metabase-Session: $SESSION" \
+    --data "$2" "$MB/api/setting/$1" 2>/dev/null || echo "000"
+}
+
+echo "Waiting 45 seconds for Metabase to initialize..."
+sleep 45
 
 # --- Step 1: Wait for Metabase health ---
 echo "Checking Metabase health..."
 HEALTHY=0
 for attempt in $(seq 1 20); do
-  HEALTH=$(http_get "$MB/api/health")
-  if echo "$HEALTH" | grep -q '"status":"ok"'; then
+  HEALTH=$(http_get_auth "$MB/api/health")
+  if echo "$HEALTH" | jq -e '.status == "ok"' >/dev/null 2>&1; then
     echo "Metabase is healthy."
     HEALTHY=1
     break
@@ -43,29 +61,30 @@ fi
 
 # --- Step 2: Check if setup is already complete ---
 echo "Checking setup status..."
-PROPS=$(http_get "$MB/api/session/properties")
-SETUP_TOKEN=$(echo "$PROPS" | grep -o '"setup-token":"[^"]*"' | sed 's/"setup-token":"//;s/"//')
+PROPS=$(http_get_auth "$MB/api/session/properties")
+SETUP_TOKEN=$(echo "$PROPS" | jq -r '."setup-token" // empty' 2>/dev/null || true)
 
-if [ -z "$SETUP_TOKEN" ]; then
+if [ -z "$SETUP_TOKEN" ] || [ "$SETUP_TOKEN" = "null" ]; then
   echo "Setup already complete. Skipping first-run."
 else
   # --- Step 3: Complete first-run setup ---
   echo "Running first-run setup..."
   SETUP_BODY="{\"token\":\"${SETUP_TOKEN}\",\"user\":{\"email\":\"admin@demoforge.local\",\"password\":\"DemoForge123!\",\"first_name\":\"Demo\",\"last_name\":\"Admin\",\"site_name\":\"DemoForge Analytics\"},\"prefs\":{\"site_name\":\"DemoForge Analytics\",\"allow_tracking\":false}}"
   RESULT=$(http_post "$MB/api/setup" "$SETUP_BODY")
-  if echo "$RESULT" | grep -q '"id"'; then
+  if echo "$RESULT" | jq -e '.id' >/dev/null 2>&1; then
     echo "First-run setup completed."
   else
-    echo "WARNING: Setup may have failed or was already done."
+    echo "WARNING: Setup may have failed or was already done. Response: $(echo "$RESULT" | head -c 400)"
   fi
 fi
 
 # --- Step 4: Login ---
 echo "Logging in..."
+SESSION=""
 for attempt in $(seq 1 5); do
   LOGIN=$(http_post "$MB/api/session" "{\"username\":\"admin@demoforge.local\",\"password\":\"DemoForge123!\"}")
-  SESSION=$(echo "$LOGIN" | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//')
-  if [ -n "$SESSION" ]; then
+  SESSION=$(echo "$LOGIN" | jq -r '.id // empty' 2>/dev/null || true)
+  if [ -n "$SESSION" ] && [ "$SESSION" != "null" ]; then
     echo "Login successful."
     break
   fi
@@ -79,23 +98,26 @@ done
 
 # --- Step 5: Add Trino database ---
 echo "Checking for existing Trino connection..."
-DB_LIST=$(http_get "$MB/api/database" "X-Metabase-Session: $SESSION")
+DB_LIST=$(http_get_auth "$MB/api/database" "X-Metabase-Session: $SESSION")
 
-if echo "$DB_LIST" | grep -q "Trino"; then
-  echo "Trino connection already exists. Fetching DB id..."
-  DB_ID=$(echo "$DB_LIST" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-  echo "Trino DB id: $DB_ID"
+DB_ID=$(echo "$DB_LIST" | jq -r '
+  (if type == "array" then . elif .data then .data else [] end)
+  | map(select(.name | type == "string" and (test("trino|presto"; "i"))))
+  | .[0].id // empty
+' 2>/dev/null || true)
+
+if [ -n "$DB_ID" ] && [ "$DB_ID" != "null" ]; then
+  echo "Trino connection already exists. DB id: $DB_ID"
 else
   echo "Adding Trino database connection (host: $TRINO_HOST, catalog: ${TRINO_CATALOG:-iceberg})..."
   DB_BODY="{\"name\":\"Trino - MinIO Lakehouse\",\"engine\":\"presto\",\"details\":{\"host\":\"${TRINO_HOST}\",\"port\":8080,\"catalog\":\"${TRINO_CATALOG:-iceberg}\",\"schema-filters-type\":\"all\",\"user\":\"trino\",\"ssl\":false,\"tunnel-enabled\":false}}"
   DB_RESULT=$(http_post "$MB/api/database" "$DB_BODY" "X-Metabase-Session: $SESSION")
-  if echo "$DB_RESULT" | grep -q '"id"'; then
-    DB_ID=$(echo "$DB_RESULT" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+  if echo "$DB_RESULT" | jq -e '.id' >/dev/null 2>&1; then
+    DB_ID=$(echo "$DB_RESULT" | jq -r '.id')
     echo "Trino database added (id: $DB_ID)."
 
-    # Trigger sync
     echo "Triggering schema sync..."
-    http_post "$MB/api/database/$DB_ID/sync_schema" "{}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
+    http_post "$MB/api/database/$DB_ID/sync_schema" "{}" "X-Metabase-Session: $SESSION" >/dev/null 2>&1
     echo "Schema sync triggered."
   else
     echo "ERROR: Failed to add Trino database. Response: $DB_RESULT"
@@ -105,61 +127,69 @@ fi
 
 # --- Step 6: Create pre-seeded dashboard ---
 echo "Creating pre-seeded dashboard..."
+DASH_ID=""
 
-# Only proceed if we have a valid DB_ID
-if [ -z "$DB_ID" ]; then
+if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
   echo "WARNING: DB_ID not set, skipping dashboard creation."
 else
-  # Check if dashboard already exists
-  DASH_LIST=$(http_get "$MB/api/dashboard" "X-Metabase-Session: $SESSION")
-  if echo "$DASH_LIST" | grep -q "Live Orders Analytics"; then
-    echo "Dashboard 'Live Orders Analytics' already exists. Skipping."
+  DASH_LIST=$(http_get_auth "$MB/api/dashboard" "X-Metabase-Session: $SESSION")
+  DASH_ID=$(echo "$DASH_LIST" | jq -r '
+    (if type == "array" then . elif .data then .data else [] end)
+    | map(select(.name == "Live Orders Analytics"))
+    | .[0].id // empty
+  ' 2>/dev/null || true)
+
+  if [ -n "$DASH_ID" ] && [ "$DASH_ID" != "null" ]; then
+    echo "Dashboard 'Live Orders Analytics' already exists (id: $DASH_ID). Skipping card creation."
   else
-    # Wait for sync to settle
     sleep 10
 
-    # Create dashboard
     DASH_RESULT=$(http_post "$MB/api/dashboard" '{"name":"Live Orders Analytics","description":"Real-time analytics on MinIO data via Trino"}' "X-Metabase-Session: $SESSION")
-    DASH_ID=$(echo "$DASH_RESULT" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-
-    if [ -z "$DASH_ID" ]; then
+    if ! echo "$DASH_RESULT" | jq -e '.id' >/dev/null 2>&1; then
       echo "ERROR: Could not create dashboard. Response: $DASH_RESULT"
       exit 1
-    else
-      echo "Dashboard created (id: $DASH_ID)."
-
-      # Card 1: Table count (safe — works even with no data loaded yet)
-      CARD1=$(http_post "$MB/api/card" "{\"name\":\"Table Count\",\"display\":\"scalar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT count(*) AS table_count FROM system.information_schema.tables WHERE table_schema != 'information_schema'\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
-      C1ID=$(echo "$CARD1" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-
-      # Card 2: Tables per schema
-      CARD2=$(http_post "$MB/api/card" "{\"name\":\"Tables by Schema\",\"display\":\"bar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT table_schema, count(*) AS tables FROM system.information_schema.tables GROUP BY table_schema ORDER BY tables DESC\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
-      C2ID=$(echo "$CARD2" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-
-      # Card 3: All tables listing
-      CARD3=$(http_post "$MB/api/card" "{\"name\":\"All Tables\",\"display\":\"table\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT table_catalog, table_schema, table_name FROM system.information_schema.tables WHERE table_schema != 'information_schema' ORDER BY table_schema, table_name\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
-      C3ID=$(echo "$CARD3" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-
-      # Card 4: Trino version
-      CARD4=$(http_post "$MB/api/card" "{\"name\":\"Trino Version\",\"display\":\"scalar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT node_version FROM system.runtime.nodes LIMIT 1\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
-      C4ID=$(echo "$CARD4" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-
-      # Add cards to dashboard
-      for CID in $C1ID $C2ID $C3ID $C4ID; do
-        if [ -n "$CID" ]; then
-          http_post "$MB/api/dashboard/$DASH_ID/cards" "{\"cardId\":$CID}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
-        fi
-      done
-      echo "Dashboard cards created and added."
     fi
+    DASH_ID=$(echo "$DASH_RESULT" | jq -r '.id')
+    echo "Dashboard created (id: $DASH_ID)."
+
+    CARD1=$(http_post "$MB/api/card" "{\"name\":\"Table Count\",\"display\":\"scalar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT count(*) AS table_count FROM system.information_schema.tables WHERE table_schema != 'information_schema'\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+    C1ID=$(echo "$CARD1" | jq -r '.id // empty')
+
+    CARD2=$(http_post "$MB/api/card" "{\"name\":\"Tables by Schema\",\"display\":\"bar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT table_schema, count(*) AS tables FROM system.information_schema.tables GROUP BY table_schema ORDER BY tables DESC\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+    C2ID=$(echo "$CARD2" | jq -r '.id // empty')
+
+    CARD3=$(http_post "$MB/api/card" "{\"name\":\"All Tables\",\"display\":\"table\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT table_catalog, table_schema, table_name FROM system.information_schema.tables WHERE table_schema != 'information_schema' ORDER BY table_schema, table_name\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+    C3ID=$(echo "$CARD3" | jq -r '.id // empty')
+
+    CARD4=$(http_post "$MB/api/card" "{\"name\":\"Trino Version\",\"display\":\"scalar\",\"visualization_settings\":{},\"dataset_query\":{\"type\":\"native\",\"native\":{\"query\":\"SELECT node_version FROM system.runtime.nodes LIMIT 1\"},\"database\":$DB_ID}}" "X-Metabase-Session: $SESSION")
+    C4ID=$(echo "$CARD4" | jq -r '.id // empty')
+
+    for CID in $C1ID $C2ID $C3ID $C4ID; do
+      if [ -n "$CID" ] && [ "$CID" != "null" ]; then
+        http_post "$MB/api/dashboard/$DASH_ID/cards" "{\"cardId\":$CID}" "X-Metabase-Session: $SESSION" >/dev/null 2>&1
+      fi
+    done
+    echo "Dashboard cards created and added."
   fi
 fi
 
-# --- Step 7: Mark onboarding as complete ---
-echo "Marking onboarding as complete..."
-# Set site name and suppress welcome modals
-http_post "$MB/api/setting/site-name" "{\"value\":\"DemoForge Analytics\"}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
-http_post "$MB/api/setting/setup-license-active-at-setup" "{\"value\":true}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
-http_post "$MB/api/setting/show-database-syncing-modal" "{\"value\":false}" "X-Metabase-Session: $SESSION" > /dev/null 2>&1
+# --- Step 7: Pin demo dashboard as homepage (so it is obvious in the UI) ---
+if [ -n "$DASH_ID" ] && [ "$DASH_ID" != "null" ]; then
+  echo "Setting custom homepage to dashboard id $DASH_ID..."
+  http_put_setting "custom-homepage" "{\"value\":true}" >/dev/null
+  http_put_setting "custom-homepage-dashboard" "{\"value\":$DASH_ID}" >/dev/null
+fi
+
+# --- Step 8: Mark onboarding / modals suppressed (PUT required by Metabase API) ---
+echo "Applying settings to skip onboarding modals and product tips..."
+http_put_setting "site-name" "{\"value\":\"DemoForge Analytics\"}" >/dev/null
+http_put_setting "setup-license-active-at-setup" "{\"value\":true}" >/dev/null
+http_put_setting "show-database-syncing-modal" "{\"value\":false}" >/dev/null
+http_put_setting "show-homepage-xrays" "{\"value\":false}" >/dev/null
+http_put_setting "show-homepage-pin-message" "{\"value\":false}" >/dev/null
+http_put_setting "show-homepage-data" "{\"value\":true}" >/dev/null
+http_put_setting "embedding-homepage" "{\"value\":\"hidden\"}" >/dev/null
+http_put_setting "check-for-updates" "{\"value\":false}" >/dev/null
+http_put_setting "anon-tracking-enabled" "{\"value\":false}" >/dev/null
 
 echo "Metabase setup complete. Login: admin@demoforge.local / DemoForge123!"

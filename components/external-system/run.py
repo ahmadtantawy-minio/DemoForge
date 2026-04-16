@@ -695,8 +695,62 @@ def _write_csv_to_s3(client, bucket: str, key: str, rows: list, schema: list):
                       ContentType="text/csv", ContentLength=len(data))
 
 
+def _write_table_landing_only(dataset: dict, ctx: dict, client) -> None:
+    """CSV raw_landing only — no Iceberg / catalog writes (e.g. vuln scanner → EP builds reports)."""
+    ds_id = dataset["id"]
+    schema = dataset.get("schema", [])
+    gen_cfg = dataset.get("generation", {})
+    mode = gen_cfg.get("mode", "batch")
+    raw_landing = dataset.get("raw_landing")
+    if not raw_landing or not client:
+        print(f"[{ds_id}] landing_only requires raw_landing and S3 client — skipping.")
+        return None
+    if mode not in ("batch",):
+        print(f"[{ds_id}] landing_only supports mode=batch only (got {mode}) — skipping.")
+        return None
+
+    rl_bucket = raw_landing.get("bucket", "raw-logs")
+    rl_prefix = raw_landing.get("prefix", "")
+    rl_batch_size = int(raw_landing.get("batch_size", 5000))
+    ensure_bucket(client, rl_bucket)
+
+    total = int(gen_cfg.get("seed_rows", 1000))
+    CHUNK = 2000
+    written = 0
+    csv_buf = []
+    csv_file_num = 0
+    while written < total:
+        n = min(CHUNK, total - written)
+        rows = generate_batch(schema, n, ctx)
+        written += n
+        pct = int(100 * written / total)
+        done = " — DONE" if written == total else ""
+        print(f"[{ds_id}] Raw CSV seeding: {written}/{total} rows ({pct}%){done}")
+
+        csv_buf.extend(rows)
+        while len(csv_buf) >= rl_batch_size:
+            csv_file_num += 1
+            batch = csv_buf[:rl_batch_size]
+            csv_buf = csv_buf[rl_batch_size:]
+            key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
+            _write_csv_to_s3(client, rl_bucket, key, batch, schema)
+            print(f"[{ds_id}] CSV: {len(batch)} rows → s3://{rl_bucket}/{key}")
+
+    if csv_buf:
+        csv_file_num += 1
+        key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
+        _write_csv_to_s3(client, rl_bucket, key, csv_buf, schema)
+        print(f"[{ds_id}] CSV: {len(csv_buf)} rows (remainder) → s3://{rl_bucket}/{key}")
+
+    print(f"[{ds_id}] landing_only complete — no Iceberg table writes.")
+    return None
+
+
 def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str, client=None):
     ds_id = dataset["id"]
+    if dataset.get("landing_only"):
+        return _write_table_landing_only(dataset, ctx, client)
+
     ns = dataset.get("namespace", "default")
     tn = dataset["table_name"]
     schema = dataset.get("schema", [])
@@ -958,7 +1012,14 @@ def main():
     if table_writer:
         print(f"[external-system] Using table writer: {table_kind}")
     else:
-        print("[external-system] No table writer — table datasets will be skipped.")
+        has_landing_only = any(
+            d.get("target") == "table" and d.get("landing_only")
+            for d in scenario.get("datasets", [])
+        )
+        if has_landing_only:
+            print("[external-system] No Iceberg writer — landing_only datasets still write raw CSV to S3.")
+        else:
+            print("[external-system] No table writer — table datasets will be skipped.")
 
     # Cross-scenario correlation
     _load_correlation_ips(ctx, scenario)

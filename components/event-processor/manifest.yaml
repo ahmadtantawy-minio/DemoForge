@@ -34,6 +34,8 @@ environment:
   EP_MINIO_NOTIFY_SUFFIX: ""
   EP_ACTION_SCENARIO: ""
   EP_MODE: "process"
+  EP_WRITE_EVENT_REPORTS: "true"
+  EP_REPORTS_PREFIX: ""
 
 secrets:
   - key: S3_ACCESS_KEY

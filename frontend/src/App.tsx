@@ -36,6 +36,7 @@ export default function App() {
   const prevDemoStatuses = useRef<Record<string, string>>({});
   const provisionEmitted = useRef<Set<string>>(new Set());
   const initResultsEmitted = useRef<Set<string>>(new Set());
+  const integrationEventSeen = useRef<Map<string, Set<string>>>(new Map());
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(200);
@@ -106,6 +107,7 @@ export default function App() {
           if (d.status === "deploying") {
             provisionEmitted.current.delete(d.id);
             initResultsEmitted.current.delete(d.id);
+            integrationEventSeen.current.delete(d.id);
           }
         }
         prevDemoStatuses.current[d.id] = d.status;
@@ -234,6 +236,29 @@ export default function App() {
             const level = result.exit_code === 0 ? "info" : "error";
             const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
             addDebugEntry(level, "Provision", `${result.node_id}: init (exit ${result.exit_code})`, output || undefined);
+          }
+        }
+        // Webhook / event-processor integration log (deduped by event id)
+        const ie = res.integration_events;
+        if (ie && ie.length > 0) {
+          let seen = integrationEventSeen.current.get(activeDemoId);
+          if (!seen) {
+            seen = new Set<string>();
+            integrationEventSeen.current.set(activeDemoId, seen);
+          }
+          for (const ev of ie) {
+            const eid = typeof ev.id === "string" && ev.id ? ev.id : `${ev.ts_ms}-${ev.kind}-${ev.message}`;
+            if (seen.has(eid)) continue;
+            seen.add(eid);
+            const lvl = ev.level === "error" ? "error" : ev.level === "warn" ? "warn" : "info";
+            const node = typeof ev.node_id === "string" && ev.node_id ? `${ev.node_id}: ` : "";
+            const msg = typeof ev.message === "string" ? ev.message : String(ev.message ?? "");
+            const kind = typeof ev.kind === "string" && ev.kind ? `[${ev.kind}] ` : "";
+            const details =
+              typeof ev.details === "string" && ev.details.trim()
+                ? ev.details
+                : undefined;
+            addDebugEntry(lvl, "Integration", `${node}${kind}${msg}`, details);
           }
         }
         // Update failover edge status

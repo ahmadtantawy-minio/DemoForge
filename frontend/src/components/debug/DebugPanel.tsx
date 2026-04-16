@@ -121,12 +121,19 @@ function CopyButton({ text }: { text: string }) {
 
 function LogEntry({ entry }: { entry: DebugEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const isExpandable = entry.level === "error" && !!entry.details;
+  const isExpandable = !!entry.details && (entry.level === "error" || entry.source === "Integration");
   const copyText = [entry.timestamp, `[${entry.level.toUpperCase()}]`, `[${entry.source}]`, entry.message, entry.details].filter(Boolean).join(" ");
+
+  const expandHover =
+    isExpandable && entry.level === "error"
+      ? "cursor-pointer hover:bg-red-950/50"
+      : isExpandable
+        ? "cursor-pointer hover:bg-muted/50"
+        : "hover:bg-muted/50";
 
   return (
     <div
-      className={`group px-2 py-0.5 ${levelBg[entry.level]} ${isExpandable ? "cursor-pointer hover:bg-red-950/50" : "hover:bg-muted/50"}`}
+      className={`group px-2 py-0.5 ${levelBg[entry.level]} ${expandHover}`}
       onClick={isExpandable ? () => setExpanded((v) => !v) : undefined}
     >
       <div className="flex gap-2 items-start">
@@ -149,7 +156,13 @@ function LogEntry({ entry }: { entry: DebugEntry }) {
         )}
       </div>
       {expanded && entry.details && (
-        <div className="mt-1 ml-28 text-red-300 whitespace-pre-wrap break-all bg-red-950/40 rounded px-2 py-1 text-[11px] relative">
+        <div
+          className={`mt-1 ml-28 whitespace-pre-wrap break-all rounded px-2 py-1 text-[11px] relative ${
+            entry.level === "error"
+              ? "text-red-300 bg-red-950/40"
+              : "text-zinc-200 bg-zinc-900/80"
+          }`}
+        >
           <CopyButton text={entry.details} />
           {entry.details}
         </div>
@@ -207,7 +220,9 @@ export default function DebugPanel() {
             <span className="text-muted-foreground">{entries.filter((e) => e.source === "Lifecycle" || e.source === "Deploy").length} events</span>
           )}
           {tab === "integrations" && (
-            <span className="text-muted-foreground">{entries.filter((e) => e.source === "Provision").length} events</span>
+            <span className="text-muted-foreground">
+              {entries.filter((e) => e.source === "Provision" || e.source === "Integration").length} events
+            </span>
           )}
         </div>
         {tab === "logs" && (
@@ -235,10 +250,13 @@ export default function DebugPanel() {
         ) : tab === "integrations" ? (
           <div className="font-mono text-xs p-1">
             {(() => {
-              const integrationEntries = [...entries].filter((e) => e.source === "Provision").reverse();
+              const integrationEntries = [...entries]
+                .filter((e) => e.source === "Provision" || e.source === "Integration")
+                .reverse();
               return integrationEntries.length === 0 ? (
                 <div className="flex items-center justify-center h-32 text-muted-foreground">
-                  No integration events yet. Deploy a demo with external-system or data-generator nodes to see init script results here.
+                  No integration events yet. Deploy a demo with init scripts, edges, or an event-processor (webhook registration,
+                  deliveries, and per-event reports appear here).
                 </div>
               ) : (
                 integrationEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)

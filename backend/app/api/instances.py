@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -292,6 +293,36 @@ async def list_instances(demo_id: str):
             except Exception:
                 pass
 
+    # Event processor: webhook registration + runtime integration log (JSONL)
+    integration_events: list[dict] = []
+    if demo:
+        ep_node_ids = [n.id for n in demo.nodes if n.component == "event-processor"]
+        for ep_id in ep_node_ids:
+            if ep_id not in running.containers:
+                continue
+            cname = running.containers[ep_id].container_name
+            try:
+                exit_code, stdout, _stderr = await exec_in_container(
+                    cname,
+                    "sh -c 'test -f /tmp/demoforge_integration.jsonl && tail -n 500 /tmp/demoforge_integration.jsonl || true'",
+                )
+                if exit_code != 0 or not (stdout or "").strip():
+                    continue
+                for line in stdout.strip().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        if isinstance(rec, dict):
+                            rec["node_id"] = ep_id
+                            integration_events.append(rec)
+                    except json.JSONDecodeError:
+                        continue
+            except Exception:
+                continue
+        integration_events.sort(key=lambda r: (r.get("ts_ms") or 0, r.get("id") or ""))
+
     # Build edge configs with live verification for site-replication
     edge_configs = []
     for ec in running.edge_configs.values():
@@ -318,6 +349,7 @@ async def list_instances(demo_id: str):
         demo_id=demo_id, status=running.status, instances=instances,
         init_results=running.init_results, edge_configs=edge_configs,
         cluster_health=cluster_health,
+        integration_events=integration_events,
     )
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/restart")

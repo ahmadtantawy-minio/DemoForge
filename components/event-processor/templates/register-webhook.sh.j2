@@ -1,20 +1,58 @@
 #!/bin/sh
-set -e
 # Rendered by DemoForge compose generator for node {{ node.id }}
+# Logs to /tmp/demoforge_integration.jsonl for Dev Logs → Integrations tab.
+ILOG="python3 /app/integration_log.py"
+
+$ILOG info webhook_register_start "Starting MinIO webhook registration" ""
+
 MC_URL="https://dl.min.io/client/mc/release/linux-amd64/mc"
-curl -sL "$MC_URL" -o /usr/local/bin/mc && chmod +x /usr/local/bin/mc
+if ! curl -sL "$MC_URL" -o /usr/local/bin/mc; then
+  $ILOG error webhook_register_failed "curl failed to download mc client" ""
+  exit 1
+fi
+chmod +x /usr/local/bin/mc
 
-mc alias set minio "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --api S3v4
-
-if [ -n "$EP_WEBHOOK_BUCKET" ] && [ "$EP_WEBHOOK_BUCKET" != "*" ]; then
-  mc mb --ignore-existing "minio/$EP_WEBHOOK_BUCKET"
+if ! mc alias set minio "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --api S3v4 2>/tmp/mc_alias.err; then
+  err=$(cat /tmp/mc_alias.err 2>/dev/null || echo unknown)
+  $ILOG error webhook_register_failed "mc alias set failed" "$err"
+  exit 1
 fi
 
-BUCKET="${EP_WEBHOOK_BUCKET:-*}"
-SFX="${EP_MINIO_NOTIFY_SUFFIX:-webhook}"
-mc event add "minio/$BUCKET" "arn:minio:sqs::${SFX}:webhook" \
-  ${EP_WEBHOOK_PREFIX:+--prefix "$EP_WEBHOOK_PREFIX"} \
-  ${EP_WEBHOOK_SUFFIX:+--suffix "$EP_WEBHOOK_SUFFIX"} \
-  --event "${EP_WEBHOOK_EVENTS:-s3:ObjectCreated:*}"
+# Bucket vs prefix: the canvas may store "my-bucket/incoming/" entirely in webhook_bucket.
+# S3 bucket names cannot contain '/', so split when explicit webhook_prefix is unset.
+BUCKET_VAL="${EP_WEBHOOK_BUCKET:-*}"
+PREFIX_VAL="${EP_WEBHOOK_PREFIX:-}"
 
-echo "Webhook registered: bucket=$BUCKET prefix=$EP_WEBHOOK_PREFIX events=$EP_WEBHOOK_EVENTS arn_suffix=$SFX"
+if [ -z "$PREFIX_VAL" ] && [ -n "$BUCKET_VAL" ] && [ "$BUCKET_VAL" != "*" ]; then
+  case "$BUCKET_VAL" in
+    */*)
+      PREFIX_VAL="${BUCKET_VAL#*/}"
+      BUCKET_VAL="${BUCKET_VAL%%/*}"
+      ;;
+  esac
+fi
+
+if [ -n "$BUCKET_VAL" ] && [ "$BUCKET_VAL" != "*" ]; then
+  if ! mc mb --ignore-existing "minio/$BUCKET_VAL" 2>/tmp/mc_mb.err; then
+    err=$(cat /tmp/mc_mb.err 2>/dev/null || echo unknown)
+    $ILOG error webhook_register_failed "mc mb failed for bucket $BUCKET_VAL" "$err"
+    exit 1
+  fi
+fi
+
+EVENT_BUCKET="${BUCKET_VAL:-*}"
+SFX="${EP_MINIO_NOTIFY_SUFFIX:-webhook}"
+
+if ! mc event add "minio/$EVENT_BUCKET" "arn:minio:sqs::${SFX}:webhook" \
+  ${PREFIX_VAL:+--prefix "$PREFIX_VAL"} \
+  ${EP_WEBHOOK_SUFFIX:+--suffix "$EP_WEBHOOK_SUFFIX"} \
+  --event "${EP_WEBHOOK_EVENTS:-s3:ObjectCreated:*}" 2>/tmp/mc_event.err
+then
+  err=$(cat /tmp/mc_event.err 2>/dev/null || echo unknown)
+  $ILOG error webhook_register_failed "mc event add failed (bucket notify)" "$err"
+  exit 1
+fi
+
+$ILOG info webhook_register_ok "MinIO bucket notification registered" "bucket=$EVENT_BUCKET prefix=$PREFIX_VAL events=${EP_WEBHOOK_EVENTS:-s3:ObjectCreated:*} arn_suffix=$SFX endpoint=${EP_WEBHOOK_ENDPOINT:-8090}"
+
+echo "Webhook registered: bucket=$EVENT_BUCKET prefix=$PREFIX_VAL events=$EP_WEBHOOK_EVENTS arn_suffix=$SFX"

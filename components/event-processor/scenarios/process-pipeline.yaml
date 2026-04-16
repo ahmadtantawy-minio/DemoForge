@@ -1,7 +1,7 @@
 scenario:
   id: process-pipeline
   name: Downstream bucket writes (S3 & Iceberg)
-  description: "Run actions on matching events; results go to the S3 bucket and Iceberg warehouse configured on your outgoing edges."
+  description: "Run actions on matching events; each webhook is written as a JSON report under the configured S3 bucket (see EP_REPORTS_PREFIX), and optional scenarios can also write to Iceberg via configured edges."
   category: tooling
   version: "1.0"
 
