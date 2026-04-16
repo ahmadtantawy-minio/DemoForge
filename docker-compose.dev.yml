@@ -28,7 +28,7 @@ services:
       - "9211:9211"
 
   frontend:
-    # Vite HMR (stage `dev`). demoforge.sh also runs: docker compose build --target dev frontend
+    # Vite HMR (stage `dev` — set here so `docker compose build` works without CLI --target)
     build:
       context: ./frontend
       dockerfile: Dockerfile

@@ -323,12 +323,11 @@ cmd_start() {
     build_component_images
 
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
-        # Dev mode: frontend must use Dockerfile stage `dev` (Vite HMR), not `prod` (nginx).
-        # hub-update / hub-push use --target prod for GCR — keep that separate from this path.
-        # Backend is single-stage; do not pass --target (would fail if set to dev).
-        log "Building dev images (backend + frontend --target dev)..."
-        docker compose "${DC_FLAGS[@]}" build backend
-        docker compose "${DC_FLAGS[@]}" build --target dev frontend
+        # Dev mode: frontend uses Dockerfile stage `dev` via docker-compose.dev.yml (build.target).
+        # (Some Docker Compose versions reject `docker compose build --target`; the compose file is enough.)
+        # hub-update / hub-push use hub-push.sh --target prod for GCR — separate path.
+        log "Building dev images (frontend + backend)..."
+        docker compose "${DC_FLAGS[@]}" build frontend backend
         docker image prune -f --filter "until=1h" &>/dev/null || true
         log "Starting services..."
         docker compose "${DC_FLAGS[@]}" up -d --no-build

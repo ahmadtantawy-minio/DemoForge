@@ -45,6 +45,15 @@ def _categorise(manifest) -> str:
     return "vendor"
 
 
+def _coerce_built_at(value: object) -> str | None:
+    """Docker API may return Created as str; normalize for ImageInfo."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 def _pull_source(image_ref: str) -> str:
     """Determine registry from image ref."""
     if "/" not in image_ref or image_ref.startswith("library/"):
@@ -80,6 +89,14 @@ PLATFORM_IMAGES = [
 @router.get("/status", response_model=list[ImageInfo])
 async def get_image_status():
     """Return status of all component images."""
+    try:
+        return await _get_image_status_impl()
+    except Exception as e:
+        logger.exception("get_image_status failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+async def _get_image_status_impl() -> list[ImageInfo]:
     results = []
     # Gather all image checks concurrently via threads
     tasks = []
@@ -94,7 +111,7 @@ async def get_image_status():
     # Collect extra refs alongside primary images
     extra_refs_meta: list[tuple[str, str]] = []  # (component_name, image_ref)
     for name, manifest in manifests_with_images:
-        for ref in manifest.image_extra_refs:
+        for ref in manifest.image_extra_refs or []:
             extra_refs_meta.append((name, ref))
             tasks.append(asyncio.to_thread(_check_image_cached, ref))
 
@@ -122,7 +139,7 @@ async def get_image_status():
             effective_size_mb=effective_size,
             pull_source=_pull_source(manifest.image),
             status="cached" if cached else "missing",
-            built_at=built_at,
+            built_at=_coerce_built_at(built_at),
         ))
 
     for (name, ref), cache_result in zip(extra_refs_meta, extra_results):
@@ -141,7 +158,7 @@ async def get_image_status():
             effective_size_mb=local_size,
             pull_source=_pull_source(ref),
             status="cached" if cached else "missing",
-            built_at=built_at,
+            built_at=_coerce_built_at(built_at),
         ))
 
     # Add platform images (DemoForge infrastructure)
@@ -179,7 +196,7 @@ async def get_image_status():
             effective_size_mb=local_size,
             pull_source=psource,
             status="cached" if cached else "missing",
-            built_at=built_at,
+            built_at=_coerce_built_at(built_at),
         ))
 
     return results

@@ -41,6 +41,9 @@ services:
       - DEMOFORGE_HOST_DATA_DIR=${PWD}/data
       - DEMOFORGE_VERSION=${DEMOFORGE_VERSION:-dev}
       - DEMOFORGE_HUB_LOCAL=${DEMOFORGE_HUB_LOCAL:-}
+      # Uvicorn defaults forwarded-allow-ips to 127.0.0.1 only — nginx uses the Docker bridge IP,
+      # so X-Forwarded-* were ignored and redirects / absolute URLs could break for the SPA proxy.
+      - "FORWARDED_ALLOW_IPS=*"
     labels:
       - "demoforge.role=backend"                     # So we can find ourselves
 

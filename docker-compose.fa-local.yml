@@ -49,6 +49,7 @@ services:
       - DEMOFORGE_HOST_COMPONENTS_DIR=${PWD}/components
       - DEMOFORGE_HOST_DATA_DIR=${PWD}/fa-data/data
       - DEMOFORGE_VERSION=${DEMOFORGE_VERSION:-dev}
+      - "FORWARDED_ALLOW_IPS=*"
     labels:
       - "demoforge.role=backend"
 

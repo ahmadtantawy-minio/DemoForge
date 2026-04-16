@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 import yaml
@@ -10,6 +11,7 @@ from ..models.api_models import (
 )
 from ..state.store import state
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 DEMOS_DIR = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
 
@@ -17,8 +19,16 @@ def _load_demo(demo_id: str) -> DemoDefinition | None:
     path = os.path.join(DEMOS_DIR, f"{demo_id}.yaml")
     if not os.path.exists(path):
         return None
-    with open(path) as f:
-        return DemoDefinition(**yaml.safe_load(f))
+    try:
+        with open(path) as f:
+            raw = yaml.safe_load(f)
+        if raw is None or not isinstance(raw, dict):
+            logger.warning("Demo %r: empty or invalid YAML in %s", demo_id, path)
+            return None
+        return DemoDefinition(**raw)
+    except Exception as e:
+        logger.warning("Demo %r: failed to parse %s — %s", demo_id, path, e)
+        return None
 
 def _save_demo(demo: DemoDefinition):
     os.makedirs(DEMOS_DIR, exist_ok=True)

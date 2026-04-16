@@ -89,7 +89,14 @@ async def lifespan(app: FastAPI):
     monitor_task.cancel()
     sync_task.cancel()
 
-app = FastAPI(title="DemoForge API", version="0.1.0", lifespan=lifespan)
+# redirect_slashes=False: behind nginx, slash redirects can emit Location with the internal
+# backend host unless X-Forwarded-* are trusted (see FORWARDED_ALLOW_IPS in compose).
+app = FastAPI(
+    title="DemoForge API",
+    version="0.1.0",
+    lifespan=lifespan,
+    redirect_slashes=False,
+)
 
 # Browser origins for SPA + Vite dev (FA :3000, dev :3001, fa-local :3002, Vite :5173).
 # API is on a different port than the UI, so the page Origin must be listed here.

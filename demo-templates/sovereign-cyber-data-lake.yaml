@@ -563,5 +563,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-15T16:08:11.683943+00:00'
+updated_at: '2026-04-16T02:19:38.136316+00:00'
 source_template_id: sovereign-cyber-data-lake
