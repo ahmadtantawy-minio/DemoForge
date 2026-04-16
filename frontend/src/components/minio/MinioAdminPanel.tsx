@@ -16,8 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+import { apiUrl } from "../../lib/apiBase";
 
 interface BucketInfo {
   name: string;
@@ -68,7 +67,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
     if (!activeDemoId || !clusterId) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/minio/${clusterId}/info`);
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/minio/${clusterId}/info`));
       if (res.ok) {
         setInfo(await res.json());
       }
@@ -80,7 +79,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
     if (!activeDemoId || !nodeId) return;
     setLogLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/instances/${nodeId}/logs?tail=300`);
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/instances/${nodeId}/logs?tail=300`));
       if (res.ok) {
         const data = await res.json();
         setLogOutput(data.logs || "");
@@ -106,7 +105,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
     setMcRunning(true);
     setMcOutput("");
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/minio/${clusterId}/mc`, {
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/minio/${clusterId}/mc`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: mcCommand }),
@@ -126,7 +125,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   const setBucketPolicy = async (bucket: string, policy: string) => {
     if (!activeDemoId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/minio/${clusterId}/policy`, {
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/minio/${clusterId}/policy`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bucket, policy }),
@@ -146,7 +145,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   const toggleVersioning = async (bucket: string, enabled: boolean) => {
     if (!activeDemoId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/minio/${clusterId}/versioning`, {
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/minio/${clusterId}/versioning`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bucket, enabled }),
@@ -166,7 +165,7 @@ export default function MinioAdminPanel({ open, onOpenChange, clusterId, cluster
   const toggleEncryption = async (bucket: string, enabled: boolean) => {
     if (!activeDemoId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/minio/${clusterId}/encryption`, {
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/minio/${clusterId}/encryption`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bucket, enabled }),

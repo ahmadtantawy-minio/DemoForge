@@ -2,8 +2,9 @@ import { createElement } from "react";
 import { Copy } from "lucide-react";
 import { useDebugStore } from "../stores/debugStore";
 import { toast } from "../lib/toast";
+import { apiUrl, apiWsUrl, getApiOrigin } from "../lib/apiBase";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+export { getApiOrigin, apiUrl, apiWsUrl };
 
 function debugLog(level: "info" | "warn" | "error", source: string, message: string, details?: string) {
   try { useDebugStore.getState().addEntry(level, source, message, details); } catch {}
@@ -13,7 +14,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   const method = options?.method || "GET";
   debugLog("info", "API", `${method} ${path}`);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(apiUrl(path), {
       headers: { "Content-Type": "application/json" },
       ...options,
     });
@@ -97,13 +98,13 @@ export const saveDiagramWithGroups = (id: string, nodes: any[], edges: any[], gr
 
 // Demo Export/Import
 export const exportDemo = (demoId: string) => {
-  window.open(`${API_BASE}/api/demos/${demoId}/export`, '_blank');
+  window.open(apiUrl(`/api/demos/${demoId}/export`), "_blank");
 };
 
 export const importDemo = async (file: File): Promise<{ id: string; name: string }> => {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`${API_BASE}/api/demos/import`, {
+  const res = await fetch(apiUrl("/api/demos/import"), {
     method: 'POST',
     body: formData,
   });
@@ -265,10 +266,10 @@ export const execContainerLog = (demoId: string, nodeId: string, command: string
 
 // Terminal WebSocket URL
 export const terminalWsUrl = (demoId: string, nodeId: string) =>
-  `${API_BASE.replace("http", "ws")}/api/demos/${demoId}/instances/${nodeId}/terminal`;
+  apiWsUrl(`/api/demos/${demoId}/instances/${nodeId}/terminal`);
 
 // Proxy URL (for opening web UIs)
-export const proxyUrl = (path: string) => `${API_BASE}${path}`;
+export const proxyUrl = (path: string) => apiUrl(path);
 
 // System Health
 export const fetchSystemHealth = () =>

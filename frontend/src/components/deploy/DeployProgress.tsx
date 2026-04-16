@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, XCircle, AlertTriangle, Loader2, Terminal } from "lucide-react";
 import { useDebugStore } from "../../stores/debugStore";
 import { apiFetch } from "../../api/client";
+import { apiUrl } from "../../lib/apiBase";
 
 interface DeployStep {
   step: string;
@@ -27,12 +28,11 @@ const STEP_LABELS: Record<string, string> = {
 interface Props {
   demoId: string;
   demoName: string;
-  apiBase: string;
   onDone: (success: boolean) => void;
   taskId?: string;
 }
 
-export default function DeployProgress({ demoId, demoName, apiBase, onDone, taskId }: Props) {
+export default function DeployProgress({ demoId, demoName, onDone, taskId }: Props) {
   const [steps, setSteps] = useState<DeployStep[]>([]);
   const [finished, setFinished] = useState<boolean | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -66,8 +66,8 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
       try {
         // Prefer task endpoint when taskId is available
         const url = taskId
-          ? `${apiBase}/api/demos/${demoId}/task/${taskId}`
-          : `${apiBase}/api/demos/${demoId}/deploy/progress`;
+          ? apiUrl(`/api/demos/${demoId}/task/${taskId}`)
+          : apiUrl(`/api/demos/${demoId}/deploy/progress`);
         const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
@@ -115,7 +115,7 @@ export default function DeployProgress({ demoId, demoName, apiBase, onDone, task
     poll();
     intervalRef.current = setInterval(poll, 500);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [demoId, apiBase, taskId]);
+  }, [demoId, taskId]);
 
   const statusIcon = (status: string) => {
     switch (status) {

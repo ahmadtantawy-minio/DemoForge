@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+import { apiUrl } from "../../lib/apiBase";
 
 interface DriveInfo {
   path: string;
@@ -106,8 +105,8 @@ export default function ClusterHealthPanel({ demoId, clusterId, drivesPerNode = 
   const refreshHealth = async () => {
     try {
       const [hRes, healRes] = await Promise.all([
-        fetch(`${API_BASE}/api/demos/${demoId}/clusters/${clusterId}/health`),
-        fetch(`${API_BASE}/api/demos/${demoId}/clusters/${clusterId}/healing`),
+        fetch(apiUrl(`/api/demos/${demoId}/clusters/${clusterId}/health`)),
+        fetch(apiUrl(`/api/demos/${demoId}/clusters/${clusterId}/healing`)),
       ]);
       if (hRes.ok) {
         const data: ClusterHealth = await hRes.json();
@@ -140,7 +139,7 @@ export default function ClusterHealthPanel({ demoId, clusterId, drivesPerNode = 
 
   const postSimulate = async (endpoint: string, body: Record<string, unknown>) => {
     const res = await fetch(
-      `${API_BASE}/api/demos/${demoId}/clusters/${clusterId}/simulate/${endpoint}`,
+      apiUrl(`/api/demos/${demoId}/clusters/${clusterId}/simulate/${endpoint}`),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

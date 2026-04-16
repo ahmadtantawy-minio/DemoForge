@@ -449,7 +449,6 @@ export default function DemoManager() {
         <DeployProgress
           demoId={deployingDemo.id}
           demoName={deployingDemo.name}
-          apiBase={import.meta.env.VITE_API_URL || "http://localhost:9210"}
           onDone={handleDeployDone}
         />
       )}

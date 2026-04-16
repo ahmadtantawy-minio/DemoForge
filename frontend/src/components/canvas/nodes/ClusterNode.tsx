@@ -16,6 +16,7 @@ import ClusterContextMenu from "./cluster/ClusterContextMenu";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
 import McpPanel from "../../minio/McpPanel";
 import LogViewer from "../../logs/LogViewer";
+import { apiUrl } from "../../../lib/apiBase";
 
 export default function ClusterNode({ id, data }: NodeProps) {
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -34,11 +35,10 @@ export default function ClusterNode({ id, data }: NodeProps) {
   const mcpEnabled = isAIStor && nodeData.mcpEnabled !== false;
   const aistorTablesEnabled = isAIStor && nodeData.aistorTablesEnabled === true;
 
-  const _apiBase = (import.meta as any).env?.VITE_API_URL || "http://localhost:9210";
   const _lbInst = instances.find((i) => i.node_id === `${id}-lb`);
   const consoleUrl =
     _lbInst?.health === "healthy" && activeDemoId
-      ? `${_apiBase}/proxy/${activeDemoId}/${id}-lb/console/`
+      ? apiUrl(`/proxy/${activeDemoId}/${id}-lb/console/`)
       : null;
 
   const [contextMenu, setContextMenu] = useState<{

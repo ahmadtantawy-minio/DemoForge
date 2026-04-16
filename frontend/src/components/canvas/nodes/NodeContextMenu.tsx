@@ -3,6 +3,7 @@ import { Copy } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import type { ContainerInstance } from "../../../types";
 import { proxyUrl, restartInstance, execCommand, startGenerator, stopGenerator } from "../../../api/client";
+import { apiUrl } from "../../../lib/apiBase";
 
 interface Props {
   x: number;
@@ -158,8 +159,7 @@ export default function NodeContextMenu({
               onClose();
               toast.info("Setting up tables...");
               try {
-                const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
-                const res = await fetch(`${API_BASE}/api/demos/${demoId}/setup-tables`, { method: "POST" });
+                const res = await fetch(apiUrl(`/api/demos/${demoId}/setup-tables`), { method: "POST" });
                 const data = await res.json();
                 const created = data.results?.filter((r: any) => r.status === "created") || [];
                 const exists = data.results?.filter((r: any) => r.status === "exists") || [];
@@ -183,8 +183,7 @@ export default function NodeContextMenu({
               onClose();
               toast.info("Setting up Superset dashboards...");
               try {
-                const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
-                const res = await fetch(`${API_BASE}/api/demos/${demoId}/setup-superset`, { method: "POST" });
+                const res = await fetch(apiUrl(`/api/demos/${demoId}/setup-superset`), { method: "POST" });
                 const data = await res.json();
                 const created = data.results?.filter((r: any) => r.status === "created") || [];
                 const exists = data.results?.filter((r: any) => r.status === "exists") || [];

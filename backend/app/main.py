@@ -91,9 +91,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DemoForge API", version="0.1.0", lifespan=lifespan)
 
+# Browser origins for SPA + Vite dev (FA :3000, dev :3001, fa-local :3002, Vite :5173).
+# API is on a different port than the UI, so the page Origin must be listed here.
+_cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+_extra = os.getenv("DEMOFORGE_CORS_ORIGINS", "").strip()
+if _extra:
+    _cors_origins.extend(o.strip() for o in _extra.split(",") if o.strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:9210"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

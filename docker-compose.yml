@@ -1,4 +1,5 @@
-# docker-compose.yml — runs DemoForge itself
+# docker-compose.yml — runs DemoForge itself (FA mode: host 3000/9210 via FRONTEND_PORT/BACKEND_PORT).
+# Dev mode layers docker-compose.dev.yml and uses project name demoforge-dev so FA + dev can run together.
 services:
   backend:
     image: demoforge/demoforge-backend:latest
@@ -50,8 +51,8 @@ services:
       dockerfile: Dockerfile
       target: prod
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
-    environment:
-      - VITE_API_URL=http://localhost:9210
+    # Omit VITE_API_URL so the SPA uses same-origin /api and /proxy (nginx forwards to backend).
+    # Set VITE_API_URL only if the UI must call the API on a different host.

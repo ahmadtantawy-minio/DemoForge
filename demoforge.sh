@@ -32,17 +32,20 @@ FA_BACKEND_PORT=9212
 FA_FRONTEND_PORT=3002
 FA_DC_FLAGS=(-p "$FA_PROJECT_NAME" -f "docker-compose.fa-local.yml")
 
-# Build compose file flags — layer dev override when DEMOFORGE_MODE=dev
-DC_FLAGS=(-f "docker-compose.yml")
-if [[ "${DEMOFORGE_MODE:-standard}" == "dev" && -f "$SCRIPT_DIR/docker-compose.dev.yml" ]]; then
-    DC_FLAGS+=(-f "docker-compose.dev.yml")
-fi
-# Include local hub-api (profile "local-hub") when DEMOFORGE_HUB_LOCAL=1 (make dev-start)
-# Skip it for dev-start-gcp, which routes FA admin calls directly to DEMOFORGE_HUB_API_URL
-if [[ "${DEMOFORGE_HUB_LOCAL:-}" == "1" ]]; then
-    DC_FLAGS+=("--profile" "local-hub")
-fi
+# Compose file list — populated by refresh_dc_flags (always run load_env first so mode/env match).
+DC_FLAGS=(-f "$SCRIPT_DIR/docker-compose.yml")
 FRONTEND_PORT=3000
+
+# Recompute docker compose -f flags after load_env (mode, DEMOFORGE_HUB_LOCAL, paths).
+refresh_dc_flags() {
+    DC_FLAGS=(-f "$SCRIPT_DIR/docker-compose.yml")
+    if [[ "${DEMOFORGE_MODE:-standard}" == "dev" && -f "$SCRIPT_DIR/docker-compose.dev.yml" ]]; then
+        DC_FLAGS+=(-f "$SCRIPT_DIR/docker-compose.dev.yml")
+    fi
+    if [[ "${DEMOFORGE_HUB_LOCAL:-}" == "1" ]]; then
+        DC_FLAGS+=("--profile" "local-hub")
+    fi
+}
 
 # Colors
 RED='\033[0;31m'
@@ -93,10 +96,11 @@ stop_services() {
         echo "$demo_containers" | xargs docker rm 2>/dev/null || true
     fi
 
-    # Stop stale demoforge containers, but spare the isolated FA local instance (demoforge-fa-*)
+    # Stop stale demoforge containers, but spare sibling stacks: FA local (demoforge-fa-*)
+    # and dev (demoforge-dev-*), which use different COMPOSE_PROJECT_NAME on the same host.
     local stale
     stale=$(docker ps -a --format "{{.ID}} {{.Names}}" 2>/dev/null \
-        | awk '$2 ~ /^demoforge-/ && $2 !~ /^demoforge-fa-/ {print $1}' || true)
+        | awk '$2 ~ /^demoforge-/ && $2 !~ /^demoforge-fa-/ && $2 !~ /^demoforge-dev-/ {print $1}' || true)
     if [ -n "$stale" ]; then
         warn "Removing stale demoforge containers..."
         echo "$stale" | xargs docker stop 2>/dev/null || true
@@ -166,14 +170,19 @@ load_env() {
         unset _gw_key
     fi
 
-    # Mode-specific ports: dev→9211/3001 so dev and FA can coexist on the same machine
+    # Mode-specific ports: FA → 3000/9210, dev → 3001/9211 (non-overlapping host ports).
+    # Separate COMPOSE_PROJECT_NAME so both stacks can run at once (distinct containers/volumes).
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
         export BACKEND_PORT=9211
-        FRONTEND_PORT=3001
+        export FRONTEND_PORT=3001
+        [[ -z "${COMPOSE_PROJECT_NAME:-}" ]] && export COMPOSE_PROJECT_NAME=demoforge-dev
     else
         export BACKEND_PORT=9210
-        FRONTEND_PORT=3000
+        export FRONTEND_PORT=3000
+        [[ -z "${COMPOSE_PROJECT_NAME:-}" ]] && export COMPOSE_PROJECT_NAME=demoforge
     fi
+    export COMPOSE_PROJECT_NAME
+    refresh_dc_flags
 }
 
 build_component_images() {
@@ -348,6 +357,7 @@ cmd_start() {
 
 cmd_stop() {
     log "Stopping DemoForge..."
+    load_env
     stop_services
     clean_demo_networks
     ok "DemoForge stopped."
@@ -359,7 +369,8 @@ cmd_restart() {
 }
 
 cmd_status() {
-    echo -e "${BLUE}=== DemoForge Status ===${NC}"
+    load_env
+    echo -e "${BLUE}=== DemoForge Status (${COMPOSE_PROJECT_NAME:-demoforge}) ===${NC}"
     echo ""
 
     # Compose services
@@ -405,19 +416,23 @@ cmd_status() {
 }
 
 cmd_logs() {
+    load_env
     docker compose "${DC_FLAGS[@]}" logs -f --tail=100
 }
 
 cmd_logs_be() {
+    load_env
     docker compose "${DC_FLAGS[@]}" logs -f --tail=100 backend
 }
 
 cmd_logs_fe() {
+    load_env
     docker compose "${DC_FLAGS[@]}" logs -f --tail=100 frontend
 }
 
 cmd_build() {
     check_deps
+    load_env
     log "Building DemoForge images..."
     build_component_images
     docker compose "${DC_FLAGS[@]}" build
@@ -427,6 +442,7 @@ cmd_build() {
 
 cmd_clean() {
     log "Full cleanup..."
+    load_env
     stop_services
     clean_demo_networks
 
@@ -500,7 +516,7 @@ cmd_dev_fe() {
     echo ""
 
     cd frontend
-    VITE_API_URL="http://localhost:${BACKEND_PORT}" \
+    VITE_BACKEND_URL="http://localhost:${BACKEND_PORT}" \
     npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT"
 }
 

@@ -5,6 +5,7 @@ import { ImageStatusBadge } from "../components/images/ImageStatusBadge";
 import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server, Upload } from "lucide-react";
 import { toast } from "../lib/toast";
 import { useDemoStore } from "../stores/demoStore";
+import { apiUrl } from "../lib/apiBase";
 
 type ImageWithPull = ImageInfo & { pullStatus?: "pulling" | "complete" | "error"; pullPct?: number };
 
@@ -35,7 +36,7 @@ export function ImagesPage() {
   const [registryHost, setRegistryHost] = useState("");
   useEffect(() => {
     setRegistryStatus("checking");
-    fetch(`${import.meta.env.VITE_API_URL || "http://localhost:9210"}/api/images/registry-health`)
+    fetch(apiUrl("/api/images/registry-health"))
       .then(r => r.json())
       .then(d => {
         setRegistryHost(d.host || "");

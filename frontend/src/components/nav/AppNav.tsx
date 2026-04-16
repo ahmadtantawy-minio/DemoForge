@@ -1,6 +1,7 @@
 import { Home, LayoutDashboard, FileText, HardDrive, ShieldCheck, Users, Wifi, Settings, Sun, Moon } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useDemoStore, type PageKey } from "../../stores/demoStore";
+import { apiUrl } from "../../lib/apiBase";
 
 const baseTopItems: { key: PageKey; icon: typeof Home; label: string }[] = [
   { key: "home", icon: Home, label: "Home" },
@@ -22,7 +23,7 @@ export default function AppNav() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL || "http://localhost:9210"}/api/version`)
+    fetch(apiUrl("/api/version"))
       .then((r) => r.json())
       .then((d) => setAppVersion(d.version ?? null))
       .catch(() => {});

@@ -19,7 +19,9 @@ export default defineConfig({
       clientPort: port,
     },
     proxy: {
-      "/api": { target: backendUrl, changeOrigin: true },
+      // /proxy/* is served by the API at /proxy/ (not under /api/)
+      "/proxy": { target: backendUrl, changeOrigin: true, ws: true },
+      "/api": { target: backendUrl, changeOrigin: true, ws: true },
       "/ws": { target: backendUrl.replace(/^http/, "ws"), changeOrigin: true, ws: true },
     },
   },

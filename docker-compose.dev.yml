@@ -23,7 +23,8 @@ services:
   backend:
     # Enable uvicorn --reload on port 9211 (dev port, avoids conflict with FA on 9210)
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9211", "--reload"]
-    ports:
+    # Replace base compose ports so we do not merge 9210:9210 with 9211:9211
+    ports: !override
       - "9211:9211"
 
   frontend:
@@ -32,10 +33,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: dev
-    ports:
+    # Replace base 3000:3000 — Vite listens on 3001 only; merged ports would leave a dead :3000 publish
+    ports: !override
       - "3001:3001"
     environment:
-      - VITE_API_URL=http://localhost:9211
+      # Same-origin API via Vite proxy (/api, /proxy → backend) — avoids CORS to :9211
       - VITE_PORT=3001
       - VITE_BACKEND_URL=http://backend:9211
     # Source files mounted for HMR; node_modules stays from the image layer

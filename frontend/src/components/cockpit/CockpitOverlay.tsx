@@ -2,8 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useDemoStore } from "../../stores/demoStore";
 import { GripHorizontal, X, RefreshCw } from "lucide-react";
 import ClusterHealthPanel from "./ClusterHealthPanel";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+import { apiUrl } from "../../lib/apiBase";
 
 interface BucketStat {
   name: string;
@@ -134,7 +133,7 @@ export default function CockpitOverlay() {
   const fetchCockpitNow = useCallback(async () => {
     if (!enabled || !activeDemoId || !isRunning) return;
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit`);
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/cockpit`));
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setData({ clusters: [], error: err.detail || `HTTP ${res.status}` } as any);
@@ -147,7 +146,7 @@ export default function CockpitOverlay() {
   const fetchHealthNow = useCallback(async () => {
     if (!enabled || !activeDemoId || !isRunning) return;
     try {
-      const res = await fetch(`${API_BASE}/api/demos/${activeDemoId}/cockpit/health`);
+      const res = await fetch(apiUrl(`/api/demos/${activeDemoId}/cockpit/health`));
       if (!res.ok) return;
       setHealthData(await res.json());
     } catch { /* silently fail */ }
@@ -166,7 +165,7 @@ export default function CockpitOverlay() {
       setClusters([]);
       return;
     }
-    fetch(`${API_BASE}/api/demos/${activeDemoId}`)
+    fetch(apiUrl(`/api/demos/${activeDemoId}`))
       .then((r) => r.ok ? r.json() : null)
       .then((demo) => {
         if (demo?.clusters) {

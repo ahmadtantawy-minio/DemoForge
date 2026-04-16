@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "../../lib/toast";
 import { ChevronDown, ChevronRight, Send } from "lucide-react";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:9210";
+import { apiUrl } from "../../lib/apiBase";
 
 interface ToolCall {
   name: string;
@@ -52,7 +51,7 @@ export default function McpChat({ demoId, clusterId }: Props) {
   // Fetch MCP + LLM connection info
   useEffect(() => {
     Promise.all([
-      fetch(`${API_BASE}/api/settings/llm`).then(r => r.ok ? r.json() : null),
+      fetch(apiUrl("/api/settings/llm")).then(r => r.ok ? r.json() : null),
     ]).then(([llmSettings]) => {
       setMcpInfo({
         mcpUrl: `http://demoforge-${demoId}-${clusterId}-mcp:8090/mcp`,
@@ -94,7 +93,7 @@ export default function McpChat({ demoId, clusterId }: Props) {
 
       try {
         const res = await fetch(
-          `${API_BASE}/api/demos/${demoId}/minio/${clusterId}/mcp/chat`,
+          apiUrl(`/api/demos/${demoId}/minio/${clusterId}/mcp/chat`),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
