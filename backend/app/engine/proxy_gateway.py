@@ -14,6 +14,18 @@ from ..state.store import state
 # Persistent async HTTP client — connection pooling across requests
 _http_client: httpx.AsyncClient | None = None
 
+# Set by nginx for the DemoForge API; must not be forwarded to component UIs.
+# Jetty/Airlift (e.g. Trino) reject X-Forwarded-* with 406 unless explicitly trusted.
+_STRIP_PROXY_HEADERS_TO_UPSTREAM = frozenset({
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-forwarded-prefix",
+    "x-real-ip",
+    "forwarded",
+})
+
 def get_http_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None:
@@ -92,6 +104,9 @@ async def forward_request(
     # be stripped of their Content-Encoding header and rendered as garbage.
     headers.pop("accept-encoding", None)
     headers.pop("Accept-Encoding", None)
+    for hk in list(headers.keys()):
+        if hk.lower() in _STRIP_PROXY_HEADERS_TO_UPSTREAM:
+            del headers[hk]
 
     # Read request body
     body = await request.body()
