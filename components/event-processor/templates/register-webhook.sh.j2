@@ -106,6 +106,7 @@ if mc ready --help >/dev/null 2>&1; then
 fi
 
 # Retry: ARN arn:minio:sqs::${SFX}:webhook must exist server-side; first seconds after start can race.
+# Do not retry configuration errors (e.g. overlapping prefix/suffix filters on the same event types).
 attempt=1
 max_attempts=25
 while [ "$attempt" -le "$max_attempts" ]; do
@@ -120,6 +121,11 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
   err=$(cat /tmp/mc_event.err 2>/dev/null || echo unknown)
   err_detail=$(printf '%s\ncommand: %s' "$err" "$MC_CMD_DISPLAY")
+  if echo "$err" | grep -qi 'overlapping'; then
+    $ILOG error webhook_register_failed "mc event add: overlapping notification filters (not retrying)" "$err_detail"
+    echo "Hint: Another rule on this bucket overlaps this prefix/suffix for the same events. Remove or adjust rules (mc event list, console), or change webhook prefix/suffix on the edge." >&2
+    exit 1
+  fi
   if [ "$attempt" -eq "$max_attempts" ]; then
     $ILOG error webhook_register_failed "mc event add failed (bucket notify)" "$err_detail"
     echo "Hint: Ensure MinIO has MINIO_NOTIFY_WEBHOOK_ENABLE_${SFX}=on and ENDPOINT_${SFX} pointing to ${EP_WEBHOOK_ENDPOINT:-8090/webhook}, then restart MinIO. ARN must use the same IDENTIFIER as the env suffix." >&2
