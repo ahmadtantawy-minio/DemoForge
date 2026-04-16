@@ -44,17 +44,6 @@ _df_trim() {
   printf '%s' "$s"
 }
 
-# Gateway (org) key for routes behind Caddy @auth — see scripts/minio-gcp.sh.
-# FA personal key alone works only on /api/hub/fa/bootstrap (same as fa-setup.sh).
-_load_gateway_key_for_hub() {
-  local g=""
-  if [[ -f "$PROJECT_ROOT/.env.hub" ]]; then
-    g=$(grep "^DEMOFORGE_GATEWAY_API_KEY=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2- || true)
-    [[ -z "$g" ]] && g=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.hub" 2>/dev/null | cut -d= -f2- || true)
-  fi
-  _df_trim "$g"
-}
-
 # Parse flags
 LOCAL_MODE=0
 for arg in "$@"; do
@@ -77,7 +66,6 @@ DEFAULT_HUB_URL="https://demoforge-gateway-64xwtiev6q-ww.a.run.app"
 # ── Step 1: Load FA credentials ───────────────────────────────────────────────
 FA_KEY_RAW=$(grep "^DEMOFORGE_API_KEY=" "$PROJECT_ROOT/.env.local" 2>/dev/null | cut -d= -f2- || echo "")
 FA_KEY="$(_df_trim "$FA_KEY_RAW")"
-GATEWAY_KEY="$(_load_gateway_key_for_hub)"
 HUB_URL="$DEFAULT_HUB_URL"
 _FA_VALID=0
 
@@ -100,8 +88,7 @@ else
   ok "Hub reachable"
 
   # ── Step 2b: FA key validation (same path as fa-setup.sh) ───────────────────
-  # The gateway only accepts the org gateway key on X-Api-Key for /api/hub/templates/.
-  # /api/hub/fa/bootstrap is exempt — hub validates the FA key there (see scripts/minio-gcp.sh).
+  # /api/hub/fa/bootstrap is exempt from org gateway auth — hub validates the FA key (minio-gcp.sh).
   log "Validating FA key with hub..."
   _AUTH_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" \
     "${HUB_URL}/api/hub/fa/bootstrap" \
@@ -121,15 +108,12 @@ else
     warn "Could not validate FA key (HTTP ${_AUTH_HTTP}) — skipping sync"
   fi
 
-  # Optional: confirm templates route when gateway key is in .env.hub (matches backend template_sync)
-  if [[ "$_FA_VALID" -eq 1 && -n "$GATEWAY_KEY" && "$GATEWAY_KEY" != "$FA_KEY" ]]; then
+  # Optional: hub templates list with FA key only (gateway forwards like bootstrap)
+  if [[ "$_FA_VALID" -eq 1 ]]; then
     _TMPL_HTTP=$(curl -s --connect-timeout 5 -o /dev/null -w "%{http_code}" \
       "${HUB_URL}/api/hub/templates/" \
-      -H "X-Api-Key: ${GATEWAY_KEY}" \
-      -H "X-Fa-Api-Key: ${FA_KEY}" 2>/dev/null || echo "000")
-    [[ "$_TMPL_HTTP" == "200" ]] && ok "Hub templates endpoint reachable (gateway + FA headers)"
-  elif [[ "$_FA_VALID" -eq 1 && -z "$GATEWAY_KEY" ]]; then
-    warn "No gateway key in .env.hub — ensure hub-deploy populated DEMOFORGE_GATEWAY_API_KEY (or DEMOFORGE_API_KEY) so template sync from the backend works."
+      -H "X-Api-Key: ${FA_KEY}" 2>/dev/null || echo "000")
+    [[ "$_TMPL_HTTP" == "200" ]] && ok "Hub templates endpoint reachable (FA key)"
   fi
   echo ""
 

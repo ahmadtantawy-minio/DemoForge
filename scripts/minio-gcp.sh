@@ -260,6 +260,18 @@ deploy_gateway_cloudrun() {
     }
   }
 
+  # Templates + licenses: no org gateway key at the edge — hub-api validates FA via X-Api-Key / X-Fa-Api-Key
+  # (same model as bootstrap). Admin/template writes still enforced inside hub-api.
+  handle /api/hub/templates /api/hub/templates/* /api/hub/licenses /api/hub/licenses/* {
+    reverse_proxy {env.HUB_API_HOST}:443 {
+      header_up Host {env.HUB_API_HOST}
+      transport http {
+        tls
+        tls_server_name {env.HUB_API_HOST}
+      }
+    }
+  }
+
   # API key validation — key is baked in at image build time.
   # Positive matcher (@auth) avoids Caddy's broken "not header" block on Cloud Run.
   @auth header X-Api-Key ${gateway_api_key}

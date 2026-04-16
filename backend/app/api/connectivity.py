@@ -248,7 +248,7 @@ async def _find_local_hub_api() -> tuple[str | None, float]:
 
 async def _check_template_sync() -> dict:
     """FA mode: verify hub-api templates endpoint is reachable and returns templates."""
-    from ..engine.template_sync import HUB_URL, FA_API_KEY, GATEWAY_API_KEY, TEMPLATES_URL
+    from ..engine.template_sync import HUB_URL, FA_API_KEY, TEMPLATES_URL
     steps = []
 
     if not HUB_URL:
@@ -260,10 +260,7 @@ async def _check_template_sync() -> dict:
         async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.get(
                 f"{TEMPLATES_URL}/",
-                headers={
-                    "X-Api-Key": GATEWAY_API_KEY or FA_API_KEY,
-                    "X-Fa-Api-Key": FA_API_KEY,
-                },
+                headers={"X-Api-Key": FA_API_KEY},
             )
             if resp.status_code == 503:
                 steps.append(_step("Template sync", False,

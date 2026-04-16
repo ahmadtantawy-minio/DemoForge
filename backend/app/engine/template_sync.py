@@ -1,8 +1,8 @@
 """
 Template sync — pulls templates from hub-api (authenticated with FA API key).
 
-No on/off flag — sync attempts whenever called. If hub is unreachable or
-FA key is missing, sync returns an error status; no separate enable flag needed.
+The GCP gateway forwards /api/hub/templates* without org gateway auth; hub-api
+validates the FA key (get_current_fa). No separate DEMOFORGE_GATEWAY_API_KEY needed for sync.
 
 Environment variables:
   DEMOFORGE_HUB_URL=https://demoforge-gateway-64xwtiev6q-ww.a.run.app
@@ -24,7 +24,6 @@ logger = logging.getLogger("demoforge.template_sync")
 HUB_URL = os.environ.get("DEMOFORGE_HUB_URL", "").rstrip("/")
 FA_API_KEY = os.environ.get("DEMOFORGE_API_KEY", "")
 SYNCED_DIR = os.environ.get("DEMOFORGE_SYNCED_TEMPLATES_DIR", "./synced-templates")
-GATEWAY_API_KEY = os.environ.get("DEMOFORGE_GATEWAY_API_KEY", "") or FA_API_KEY
 HUB_LOCAL = os.environ.get("DEMOFORGE_HUB_LOCAL", "") == "1"
 SYNC_MANIFEST_PATH = os.path.join(SYNCED_DIR, ".sync-manifest.json")
 
@@ -52,12 +51,8 @@ def sync_templates() -> dict:
     manifest = _load_manifest()
     stats = {"downloaded": 0, "unchanged": 0, "deleted": 0, "errors": 0}
 
-    # Gateway requires X-Api-Key = gateway key; hub-api reads FA identity from X-Fa-Api-Key.
-    # When HUB_LOCAL=1 there is no gateway, so FA key works directly.
-    headers = {
-        "X-Api-Key": GATEWAY_API_KEY or FA_API_KEY,
-        "X-Fa-Api-Key": FA_API_KEY,
-    }
+    # Hub-api validates the FA key (get_current_fa). GCP gateway exempts this path from org-key auth.
+    headers = {"X-Api-Key": FA_API_KEY}
 
     try:
         with httpx.Client(timeout=15) as client:
@@ -144,15 +139,12 @@ def _hub_upload(filename: str, content: bytes) -> dict:
         return {"status": "error", "message": "DEMOFORGE_HUB_URL not set — cannot reach hub gateway."}
     if not ADMIN_KEY:
         return {"status": "error", "message": "DEMOFORGE_HUB_API_ADMIN_KEY not set — cannot authenticate to hub-api."}
-    if not HUB_LOCAL and not GATEWAY_API_KEY:
-        return {"status": "error", "message": "DEMOFORGE_API_KEY (or DEMOFORGE_GATEWAY_API_KEY) not set — gateway will reject the request."}
 
+    # Gateway exempts /api/hub/templates* from org-key auth; hub-api checks X-Hub-Admin-Key for admin PUT.
     headers: dict[str, str] = {
         "X-Hub-Admin-Key": ADMIN_KEY,
         "Content-Type": "application/x-yaml",
     }
-    if not HUB_LOCAL and GATEWAY_API_KEY:
-        headers["X-Api-Key"] = GATEWAY_API_KEY
 
     url = f"{HUB_URL}/api/hub/templates/{filename}"
     try:
