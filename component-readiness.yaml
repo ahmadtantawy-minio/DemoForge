@@ -98,9 +98,6 @@ components:
   minio-aistore:
     fa_ready: true
     updated_at: '2026-04-03T03:37:38.242839+00:00'
-  webhook-receiver:
-    fa_ready: true
-    updated_at: '2026-04-16T02:51:51.327350+00:00'
   event-processor:
     fa_ready: true
     updated_at: '2026-04-15T12:00:00+00:00'

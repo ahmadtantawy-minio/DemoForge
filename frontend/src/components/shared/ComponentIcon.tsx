@@ -641,7 +641,6 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("kong")) return <KongIcon size={size} />;
     if (id.includes("event-bridge") || id.includes("event_bridge")) return <EventBridgeIcon size={size} />;
     if (id.includes("event-producer") || id.includes("event_producer")) return <EventProducerIcon size={size} />;
-    if (id.includes("webhook-receiver") || id.includes("webhook_receiver")) return <EventProducerIcon size={size} />;
     if (id.includes("event-processor") || id.includes("event_processor")) return <EventProcessorIcon size={size} />;
     if (id.includes("external-system") || id.includes("external_system")) return <ExternalSystemIcon size={size} />;
     return <DefaultIcon size={size} />;

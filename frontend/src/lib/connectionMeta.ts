@@ -37,7 +37,6 @@ export const connectionColors: Record<string, string> = {
   "nginx-backend": "#f97316",
   "external-api": "#64748b",
   "dashboard-provision": "#7c3aed",
-  "bucket-webhook": "#ec4899",
   webhook: "#EF9F27",
 };
 
@@ -88,6 +87,5 @@ export const connectionLabels: Record<string, string> = {
   "nginx-backend": "Backend",
   "external-api": "External API",
   "dashboard-provision": "Dashboard Provisioning",
-  "bucket-webhook": "Bucket Webhook",
   webhook: "Webhook",
 };
