@@ -107,10 +107,10 @@ dev-purge-fa:   ## [Dev] Purge an FA (hard delete, can re-register). Usage: make
 	echo "Error: hub-api not reachable. Run: make dev-hub-api"
 
 ## Dev mode (DEMOFORGE_MODE=dev injected automatically)
-dev-start:      ## Start DemoForge in dev mode (local hub-api + local S3 — both cloud runs hosted locally)
+dev-start:      ## Dev mode + local hub-api; frontend built with Dockerfile --target dev (Vite), not GCR prod
 	DEMOFORGE_HUB_LOCAL=1 ./demoforge-dev.sh start
 
-dev-start-gcp:  ## Start DemoForge in dev mode connected to GCP cloud runs (hub-api + gateway)
+dev-start-gcp:  ## Dev mode + GCP hub; builds local frontend with Dockerfile --target dev (Vite), not GCR prod
 	@HUB_URL=$$(grep "^DEMOFORGE_HUB_URL=" .env.hub .env.local 2>/dev/null | tail -1 | cut -d= -f2-); \
 	HUB_API_URL=$$(grep "^DEMOFORGE_HUB_API_URL=" .env.hub .env.local 2>/dev/null | tail -1 | cut -d= -f2-); \
 	ADMIN_KEY=$$(grep "^DEMOFORGE_HUB_API_ADMIN_KEY=" .env.hub 2>/dev/null | cut -d= -f2-); \
@@ -189,7 +189,7 @@ hub-release-minor: ## [Dev] Release with minor bump
 hub-release-major: ## [Dev] Release with major bump
 	@scripts/hub-release.sh --major
 
-hub-update:       ## [Dev] Update GCP hub: gateway + templates + images + licenses
+hub-update:       ## [Dev] Update GCP hub (gateway, hub-api, images). Frontend image: prod (hub-push --target prod)
 	@scripts/hub-update.sh
 
 hub-update-%:     ## [Dev] Update specific: hub-update-gateway, hub-update-images, hub-update-images-all

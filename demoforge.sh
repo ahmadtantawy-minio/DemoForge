@@ -110,8 +110,10 @@ stop_services() {
 
 clean_demo_networks() {
     log "Cleaning up demo networks..."
+    # Skip sibling compose networks (dev / fa-local) so FA stop does not remove demoforge-dev_* / demoforge-fa_*.
     local nets
-    nets=$(docker network ls --filter "name=demoforge-" -q 2>/dev/null || true)
+    nets=$(docker network ls --format "{{.ID}} {{.Name}}" 2>/dev/null \
+        | awk '$2 ~ /^demoforge-/ && $2 !~ /demoforge-dev/ && $2 !~ /demoforge-fa/ {print $1}' || true)
     if [ -n "$nets" ]; then
         echo "$nets" | xargs docker network rm 2>/dev/null || true
         ok "Removed demo networks."
@@ -171,17 +173,18 @@ load_env() {
     fi
 
     # Mode-specific ports: FA → 3000/9210, dev → 3001/9211 (non-overlapping host ports).
-    # Separate COMPOSE_PROJECT_NAME so both stacks can run at once (distinct containers/volumes).
+    # COMPOSE_PROJECT_NAME must always follow DEMOFORGE_MODE — not a stale value from .env.local
+    # or the parent shell (e.g. COMPOSE_PROJECT_NAME=demoforge-dev + fa-update setting MODE=fa would
+    # otherwise make `docker compose down` tear down the dev stack during FA restart).
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
         export BACKEND_PORT=9211
         export FRONTEND_PORT=3001
-        [[ -z "${COMPOSE_PROJECT_NAME:-}" ]] && export COMPOSE_PROJECT_NAME=demoforge-dev
+        export COMPOSE_PROJECT_NAME=demoforge-dev
     else
         export BACKEND_PORT=9210
         export FRONTEND_PORT=3000
-        [[ -z "${COMPOSE_PROJECT_NAME:-}" ]] && export COMPOSE_PROJECT_NAME=demoforge
+        export COMPOSE_PROJECT_NAME=demoforge
     fi
-    export COMPOSE_PROJECT_NAME
     refresh_dc_flags
 }
 
@@ -320,10 +323,12 @@ cmd_start() {
     build_component_images
 
     if [[ "${DEMOFORGE_MODE:-standard}" == "dev" ]]; then
-        # Dev mode: always rebuild frontend (target changes prod→dev) and backend.
-        # Component images are cached separately above; other services use --no-build.
-        log "Building dev images (frontend + backend)..."
-        docker compose "${DC_FLAGS[@]}" build frontend backend
+        # Dev mode: frontend must use Dockerfile stage `dev` (Vite HMR), not `prod` (nginx).
+        # hub-update / hub-push use --target prod for GCR — keep that separate from this path.
+        # Backend is single-stage; do not pass --target (would fail if set to dev).
+        log "Building dev images (backend + frontend --target dev)..."
+        docker compose "${DC_FLAGS[@]}" build backend
+        docker compose "${DC_FLAGS[@]}" build --target dev frontend
         docker image prune -f --filter "until=1h" &>/dev/null || true
         log "Starting services..."
         docker compose "${DC_FLAGS[@]}" up -d --no-build

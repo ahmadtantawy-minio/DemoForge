@@ -261,8 +261,17 @@ deploy_gateway_cloudrun() {
   }
 
   # Templates + licenses: no org gateway key at the edge — hub-api validates FA via X-Api-Key / X-Fa-Api-Key
-  # (same model as bootstrap). Admin/template writes still enforced inside hub-api.
-  handle /api/hub/templates /api/hub/templates/* /api/hub/licenses /api/hub/licenses/* {
+  # (same model as bootstrap). One path matcher per handle (Caddy rejects multiple paths in one handle).
+  handle /api/hub/templates* {
+    reverse_proxy {env.HUB_API_HOST}:443 {
+      header_up Host {env.HUB_API_HOST}
+      transport http {
+        tls
+        tls_server_name {env.HUB_API_HOST}
+      }
+    }
+  }
+  handle /api/hub/licenses* {
     reverse_proxy {env.HUB_API_HOST}:443 {
       header_up Host {env.HUB_API_HOST}
       transport http {

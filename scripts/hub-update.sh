@@ -62,7 +62,7 @@ fi
 
 # ── Images → GCR (no DIRECT_IP needed) ──
 if [[ "$MODE" == "--all" || "$MODE" == "--images" ]]; then
-    log "=== Building & Pushing Core Images ==="
+    log "=== Building & Pushing Core Images (production frontend: hub-push uses Dockerfile --target prod) ==="
     "$SCRIPT_DIR/hub-push.sh"
     echo ""
 fi

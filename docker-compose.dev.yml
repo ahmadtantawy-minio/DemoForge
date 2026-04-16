@@ -28,7 +28,7 @@ services:
       - "9211:9211"
 
   frontend:
-    # Use the dev stage: Vite HMR instead of nginx
+    # Vite HMR (stage `dev`). demoforge.sh also runs: docker compose build --target dev frontend
     build:
       context: ./frontend
       dockerfile: Dockerfile

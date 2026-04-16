@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Push DemoForge images to GCR. Frontend is always built with --target prod (nginx + Vite dist).
+# Local dev (make dev-start / dev-start-gcp) uses Dockerfile --target dev via demoforge-dev + docker compose — not this script.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -89,10 +91,16 @@ for i in "${!COMPONENTS[@]}"; do
     log "  Dockerfile: ${dockerfile#$PROJECT_ROOT/}"
     log "  Context:    ${context#$PROJECT_ROOT/}"
     log "  Tag:        ${GCR_IMAGE}"
+    [[ "$comp" == "demoforge-frontend" ]] && log "  Mode:       production (vite build → nginx static, --target prod)"
     echo ""
 
+    # Frontend: explicit production image (nginx + Vite dist). Dockerfile ends with AS prod;
+    # --target documents intent if stages are reordered later.
+    BUILD_FLAGS=(-f "$dockerfile")
+    [[ "$comp" == "demoforge-frontend" ]] && BUILD_FLAGS+=(--target prod)
+
     BUILD_START=$SECONDS
-    if docker build -t "$GCR_IMAGE" -f "$dockerfile" "$context" 2>&1; then
+    if docker build -t "$GCR_IMAGE" "${BUILD_FLAGS[@]}" "$context" 2>&1; then
         BUILD_ELAPSED=$(( SECONDS - BUILD_START ))
         log "  ✓ Built in ${BUILD_ELAPSED}s: $GCR_IMAGE"
     else
