@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY integration_log.py server.py .
-RUN mkdir -p /app/scenarios
+COPY integration_log.py server.py pipeline.py .
+COPY scenarios/ /app/scenarios/
 EXPOSE 8090 8091
 CMD ["python", "server.py"]

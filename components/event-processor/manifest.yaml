@@ -36,6 +36,11 @@ environment:
   EP_MODE: "process"
   EP_WRITE_EVENT_REPORTS: "true"
   EP_REPORTS_PREFIX: ""
+  EP_PROCESSING_SCENARIO: "malware-sample-pipeline.yaml"
+  EP_REPORT_OUTPUT_BUCKET: ""
+  TRINO_HOST: ""
+  TRINO_CATALOG: ""
+  TRINO_USER: "demoforge"
 
 secrets:
   - key: S3_ACCESS_KEY

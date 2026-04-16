@@ -20,6 +20,8 @@ environment:
   ICEBERG_CATALOG_URI: ""
   ICEBERG_SIGV4: "false"
   ES_STARTUP_DELAY: "0"
+  ES_ON_DEMAND_DIR: "/tmp/es-on-demand"
+  ES_ON_DEMAND_POLL_SEC: "5"
 
 secrets:
   - key: S3_ACCESS_KEY

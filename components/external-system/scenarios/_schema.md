@@ -50,6 +50,15 @@ datasets:                 # list, processed SEQUENTIALLY in order
       stream_rate: "25/s"     # rows/sec for stream modes
       stream_duration: "forever" | "30m"
 
+      # Optional: offline on-demand bursts (polls ES_ON_DEMAND_DIR, default /tmp/es-on-demand)
+      on_demand:
+        enabled: bool           # when true, engine watches for *.json request files after initial batch
+        inherit_from: string    # optional dataset id — on-demand writes use that dataset’s batch S3 target (table: raw_landing bucket/prefix; object: bucket/prefix) so paths stay consistent
+        default_count: int      # objects per trigger, or CSV files for landing_only tables
+        max_count: int          # cap per request (objects or csv files)
+        rows_per_csv_file: int  # landing_only: rows per CSV (defaults to raw_landing.batch_size)
+        max_csv_files: int      # landing_only: cap files per request
+
 reference_data:
   - id: string                # referenced by ref_lookup generator
     description: string
@@ -134,3 +143,16 @@ saved_queries:
 | `METABASE_URL`         | Metabase URL (default `http://metabase:3000`)        |
 | `METABASE_USER`        | default `admin@demoforge.local`                      |
 | `METABASE_PASSWORD`    | default `DemoForge123!`                              |
+| `ES_ON_DEMAND_DIR`     | directory polled for `*.json` on-demand triggers (default `/tmp/es-on-demand`) |
+| `ES_ON_DEMAND_POLL_SEC`| poll interval seconds (default `5`)                |
+
+## On-demand generation (batch scenarios)
+
+After the initial batch/stream phase, datasets with `generation.on_demand.enabled: true` keep the container in a **poll loop** on `ES_ON_DEMAND_DIR`. Drop a `*.json` file; it is consumed and moved to `processed/`.
+
+**Request body** (any of):
+
+- `{}` — run `default_count` for **every** on-demand dataset.
+- `{"count": N}` — when exactly one dataset has `on_demand`, generate `N` objects (or `N` CSV files for `landing_only`).
+- `{"malware_scan_sim": 2}` — per-dataset counts by id.
+- `{"generate": [{"dataset": "malware_scan_sim", "count": 2}]}` — explicit list.

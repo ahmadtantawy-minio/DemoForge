@@ -20,8 +20,11 @@ Env vars:
   METABASE_URL          Metabase URL (default http://metabase:3000)
   METABASE_USER         Metabase user (default admin@demoforge.local)
   METABASE_PASSWORD     Metabase password (default DemoForge123!)
+  ES_ON_DEMAND_DIR      Poll this dir for *.json to trigger extra batch generation (default /tmp/es-on-demand)
+  ES_ON_DEMAND_POLL_SEC Polling interval for on-demand requests (default 5)
 """
 
+import copy
 import io
 import json
 import os
@@ -38,6 +41,11 @@ from botocore.exceptions import ClientError
 from src.schema_loader import load_scenario
 from src.generators import generate_batch, generate_row
 from src import metabase_client as mc
+
+try:
+    from integration_log import append as _integration_log_append
+except ImportError:
+    _integration_log_append = None
 
 
 # ---------------------------------------------------------------------------
@@ -752,6 +760,235 @@ def _write_table_landing_only(dataset: dict, ctx: dict, client) -> None:
     return None
 
 
+def write_landing_only_extra_files(
+    dataset: dict, ctx: dict, client, num_files: int, rows_per_file: int,
+) -> None:
+    """Append N CSV files (for landing_only tables) — used by on-demand triggers."""
+    ds_id = dataset["id"]
+    schema = dataset.get("schema", [])
+    raw_landing = dataset.get("raw_landing")
+    if not raw_landing or not client or num_files <= 0 or rows_per_file <= 0:
+        return
+    rl_bucket = raw_landing.get("bucket", "raw-logs")
+    rl_prefix = raw_landing.get("prefix", "")
+    ensure_bucket(client, rl_bucket)
+    ts = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+    for fi in range(num_files):
+        rows = generate_batch(schema, rows_per_file, ctx)
+        key = f"{rl_prefix}{ds_id}_ondemand_{ts}_{fi + 1:04d}.csv"
+        _write_csv_to_s3(client, rl_bucket, key, rows, schema)
+        print(f"[{ds_id}] on-demand CSV: {len(rows)} rows → s3://{rl_bucket}/{key}")
+
+
+def _cap_on_demand(n: int, mx: int) -> int:
+    if n < 0:
+        return 0
+    return min(n, mx)
+
+
+def _on_demand_specs(scenario: dict) -> list[tuple[dict, dict]]:
+    out = []
+    for ds in scenario.get("datasets", []):
+        gen = ds.get("generation") or {}
+        od = gen.get("on_demand")
+        if isinstance(od, dict) and od.get("enabled"):
+            out.append((ds, od))
+    return out
+
+
+def _parse_on_demand_counts(
+    payload: dict | None, od_specs: list[tuple[dict, dict]],
+) -> dict[str, int]:
+    """Map dataset id → count (objects, or CSV files for landing_only)."""
+    if not od_specs:
+        return {}
+    id_set = {d["id"] for d, _ in od_specs}
+    defaults = {d["id"]: int(od.get("default_count", 1)) for d, od in od_specs}
+    maxmap = {d["id"]: int(od.get("max_count", 5000)) for d, od in od_specs}
+
+    if not payload:
+        return {i: _cap_on_demand(defaults[i], maxmap[i]) for i in id_set}
+
+    if isinstance(payload.get("generate"), list):
+        counts: dict[str, int] = {}
+        for item in payload["generate"]:
+            if not isinstance(item, dict):
+                continue
+            dsid = item.get("dataset")
+            if dsid in id_set:
+                raw = int(item.get("count", defaults.get(dsid, 1)))
+                counts[dsid] = _cap_on_demand(raw, maxmap[dsid])
+        return counts if counts else {i: _cap_on_demand(defaults[i], maxmap[i]) for i in id_set}
+
+    if "count" in payload and len(od_specs) == 1:
+        only_id = od_specs[0][0]["id"]
+        return {
+            only_id: _cap_on_demand(int(payload["count"]), maxmap[only_id]),
+        }
+
+    counts = {}
+    for k, v in payload.items():
+        if k in ("generate", "scenario", "note"):
+            continue
+        if k in id_set and isinstance(v, (int, float)):
+            counts[k] = _cap_on_demand(int(v), maxmap[k])
+    if counts:
+        return counts
+
+    return {i: _cap_on_demand(defaults[i], maxmap[i]) for i in id_set}
+
+
+def _resolve_on_demand_target(ds: dict, scenario: dict) -> dict:
+    """If generation.on_demand.inherit_from is set, use that dataset's batch S3 target (bucket/prefix)."""
+    gen = ds.get("generation") or {}
+    od = gen.get("on_demand") or {}
+    ref_id = od.get("inherit_from")
+    if not ref_id:
+        return ds
+    sibling = next((d for d in scenario.get("datasets", []) if d.get("id") == ref_id), None)
+    if not sibling:
+        print(f"[on-demand] inherit_from dataset '{ref_id}' not found — using configured bucket/prefix")
+        return ds
+    out = copy.deepcopy(ds)
+    st = sibling.get("target")
+    if st == "table":
+        rl = sibling.get("raw_landing") or {}
+        if not rl.get("bucket"):
+            print(f"[on-demand] '{ref_id}' has no raw_landing.bucket — cannot inherit; using defaults")
+            return ds
+        if ds.get("target") == "object":
+            out["bucket"] = rl["bucket"]
+            out["prefix"] = rl.get("prefix", "")
+            print(
+                f"[on-demand] '{ds['id']}' writes to s3://{out['bucket']}/{out['prefix']} "
+                f"(same target as batch dataset '{ref_id}')",
+            )
+        elif ds.get("target") == "table" and ds.get("landing_only"):
+            out["raw_landing"] = {**(ds.get("raw_landing") or {}), **rl}
+            print(
+                f"[on-demand] '{ds['id']}' raw_landing aligned with batch dataset '{ref_id}'",
+            )
+        else:
+            print(
+                f"[on-demand] inherit_from '{ref_id}' applies to object or landing_only datasets only "
+                f"(got target={ds.get('target')}, landing_only={ds.get('landing_only')})",
+            )
+            return ds
+    elif st == "object":
+        if not sibling.get("bucket"):
+            print(f"[on-demand] '{ref_id}' has no bucket — cannot inherit")
+            return ds
+        out["bucket"] = sibling["bucket"]
+        out["prefix"] = sibling.get("prefix", "")
+        print(
+            f"[on-demand] '{ds['id']}' writes to s3://{out['bucket']}/{out['prefix']} "
+            f"(same target as '{ref_id}')",
+        )
+    else:
+        print(f"[on-demand] inherit_from '{ref_id}' has unsupported target={st}")
+        return ds
+    return out
+
+
+def _run_on_demand_trigger(
+    ds: dict,
+    od_cfg: dict,
+    count: int,
+    ctx: dict,
+    client,
+    table_writer,
+    table_kind: str,
+    scenario: dict,
+) -> None:
+    ds_eff = _resolve_on_demand_target(ds, scenario)
+    target = ds_eff.get("target")
+    ds_id = ds["id"]
+    if count <= 0:
+        print(f"[on-demand] {ds_id}: count=0 — skip.")
+        return
+    if target == "object":
+        write_object_batch(
+            client, ds_eff, ctx, table_writer, table_kind, count, phase_label="On-demand",
+        )
+        return
+    if target == "table" and ds_eff.get("landing_only"):
+        raw = ds_eff.get("raw_landing") or {}
+        rows_pf = int(od_cfg.get("rows_per_csv_file") or raw.get("batch_size", 500))
+        max_files = int(od_cfg.get("max_csv_files", 50))
+        nfiles = min(count, max_files)
+        write_landing_only_extra_files(ds_eff, ctx, client, nfiles, rows_pf)
+        return
+    print(
+        f"[on-demand] dataset '{ds_id}' (target={target}, landing_only={ds_eff.get('landing_only')}) "
+        "does not support on-demand — skip.",
+    )
+
+
+def run_on_demand_loop(
+    scenario: dict,
+    client,
+    ctx: dict,
+    table_writer,
+    table_kind: str,
+) -> None:
+    """Poll ES_ON_DEMAND_DIR for *.json request files; generate batches offline (no cloud)."""
+    od_specs = _on_demand_specs(scenario)
+    if not od_specs:
+        return
+    poll = max(1.0, ES_ON_DEMAND_POLL_SEC)
+    os.makedirs(ES_ON_DEMAND_DIR, exist_ok=True)
+    processed = os.path.join(ES_ON_DEMAND_DIR, "processed")
+    os.makedirs(processed, exist_ok=True)
+    print(
+        f"[external-system] On-demand generation enabled — drop *.json in {ES_ON_DEMAND_DIR} "
+        f"(poll every {poll:g}s). Datasets: {[d[0]['id'] for d in od_specs]}",
+    )
+    while True:
+        try:
+            names = sorted(os.listdir(ES_ON_DEMAND_DIR))
+        except OSError:
+            time.sleep(poll)
+            continue
+        for name in names:
+            if not name.endswith(".json") or name.startswith("."):
+                continue
+            path = os.path.join(ES_ON_DEMAND_DIR, name)
+            if not os.path.isfile(path):
+                continue
+            payload = None
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    raw = fh.read().strip()
+                payload = json.loads(raw) if raw else {}
+            except Exception as exc:
+                print(f"[on-demand] invalid JSON in {path}: {exc}")
+                try:
+                    dest = os.path.join(processed, f"{name}.error")
+                    os.replace(path, dest)
+                except OSError:
+                    pass
+                continue
+            if not isinstance(payload, dict):
+                print(f"[on-demand] expected object in {path}, got {type(payload)}")
+                continue
+            counts = _parse_on_demand_counts(payload, od_specs)
+            print(f"[on-demand] request {name} → {counts}")
+            for ds, od_cfg in od_specs:
+                n = counts.get(ds["id"], 0)
+                if n <= 0:
+                    continue
+                try:
+                    _run_on_demand_trigger(ds, od_cfg, n, ctx, client, table_writer, table_kind, scenario)
+                except Exception as exc:
+                    print(f"[on-demand] {ds['id']} failed: {exc}")
+            try:
+                dest = os.path.join(processed, f"{int(time.time())}_{name}")
+                os.replace(path, dest)
+            except OSError as exc:
+                print(f"[on-demand] could not move {path}: {exc}")
+        time.sleep(poll)
+
+
 def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str, client=None):
     ds_id = dataset["id"]
     if dataset.get("landing_only"):
@@ -918,8 +1155,16 @@ def publish_metabase_intent(scenario: dict):
     """Write a provisioning intent file to the shared volume for the Metabase reconciler."""
     dashboards = scenario.get("dashboards", [])
     saved_queries = scenario.get("saved_queries", {})
-    if not dashboards and not saved_queries.get("queries"):
+    qlist = saved_queries.get("queries") or []
+    if not dashboards and not qlist:
         print("[external-system] No Metabase dashboards/queries in scenario — skipping intent.")
+        if _integration_log_append:
+            _integration_log_append(
+                "info",
+                "dashboard_seed_request",
+                f"No Metabase dashboards/queries in scenario {scenario['id']} — intent not written",
+                "",
+            )
         return
 
     import json as _json
@@ -935,8 +1180,23 @@ def publish_metabase_intent(scenario: dict):
         with open(path, "w") as f:
             _json.dump(intent, f, indent=2)
         print(f"[external-system] Metabase intent written → {path}")
+        if _integration_log_append:
+            titles = [d.get("title", "?") for d in dashboards]
+            _integration_log_append(
+                "info",
+                "dashboard_seed_request",
+                f"Metabase dashboard seed requested for scenario {scenario['id']}",
+                f"path={path} dashboard_count={len(dashboards)} dashboard_titles={_json.dumps(titles)} saved_query_count={len(qlist)} await_kind=dashboard_seed_result",
+            )
     except Exception as exc:
         print(f"[external-system] Failed to write Metabase intent: {exc}")
+        if _integration_log_append:
+            _integration_log_append(
+                "error",
+                "dashboard_seed_request",
+                f"Failed to write Metabase intent for scenario {scenario['id']}",
+                str(exc)[:500],
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1050,9 +1310,12 @@ def main():
     # Stream phase
     if stream_metas and table_writer:
         run_streams(stream_metas, table_writer, ctx, client=client)
+
+    # On-demand file generation (poll ES_ON_DEMAND_DIR for *.json)
+    if _on_demand_specs(scenario):
+        run_on_demand_loop(scenario, client, ctx, table_writer, table_kind)
     else:
-        print("[external-system] No streaming datasets — engine idling.")
-        # Keep container alive
+        print("[external-system] No on-demand datasets — engine idling.")
         while True:
             time.sleep(3600)
 

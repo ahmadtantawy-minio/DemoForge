@@ -1,7 +1,7 @@
 scenario:
   id: soc-threat-intel
   name: "SOC Threat Intelligence"
-  description: "Threat intelligence feeds: STIX/TAXII + OSINT — Iceberg IOC table, STIX JSON bundles, and a malware sample vault mirrored to Iceberg."
+  description: "Threat intelligence feeds: STIX/TAXII + OSINT — Iceberg IOC table, STIX JSON bundles, and a malware sample vault (raw binaries only; sandbox JSON reports and Iceberg analysis rows come from the event processor)."
   category: cybersecurity
 
 display:
@@ -79,27 +79,15 @@ datasets:
       mode: batch
       seed_count: 100
 
-  # 3. Malware sample vault — binary + JSON report + Iceberg metadata -----------------------------------
-  - id: malware_samples
-    target: object
-    bucket: malware-vault
-    prefix: "samples/"
-    object_format: binary
-    object_size_min: 10240
-    object_size_max: 524288
-
-    # Write JSON sandbox analysis report alongside each binary
-    also_write_report:
-      prefix: "reports/"
-
-    mirror_to_table:
-      namespace: soc
-      table_name: malware_metadata
-      fields: [sha256, file_type, sandbox_verdict, threat_actor, file_size_bytes,
-               malware_family, analysis_timestamp, sandbox_engine, analysis_duration_seconds,
-               behavioral_indicators, mitre_techniques]
-
-    schema:
+  # Empty Iceberg table DDL only (not MinIO “folders”). Rows = structured columns for Trino/SQL;
+  # raw analysis JSON lives as objects under malware-vault/reports/ (written by event-processor).
+  # format: parquet = Iceberg/warehouse file format for this table, not the format of those JSON report objects.
+  - id: malware_metadata_empty
+    target: table
+    namespace: soc
+    table_name: malware_metadata
+    format: parquet
+    schema: &malware_meta_schema
       - {name: object_id,       type: string, generator: uuid}
       - {name: sha256,          type: string, generator: ioc,
          params: {ioc_type: sha256}}
@@ -156,7 +144,26 @@ datasets:
 
     generation:
       mode: batch
-      seed_count: 50
+      seed_rows: 0
+
+  # Raw binaries into malware-vault/samples/ — on-demand via context menu; no JSON reports from this engine
+  - id: malware_samples
+    target: object
+    bucket: malware-vault
+    prefix: "samples/"
+    object_format: binary
+    object_size_min: 10240
+    object_size_max: 524288
+
+    schema: *malware_meta_schema
+
+    generation:
+      mode: batch
+      seed_count: 0
+      on_demand:
+        enabled: true
+        default_count: 2
+        max_count: 100
 
 dashboards:
   - id: threat-intel-overview

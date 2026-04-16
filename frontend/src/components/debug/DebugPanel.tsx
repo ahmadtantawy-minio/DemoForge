@@ -172,12 +172,13 @@ function LogEntry({ entry }: { entry: DebugEntry }) {
 }
 
 export default function DebugPanel() {
-  const { entries, clear } = useDebugStore();
+  const { entries, integrationBuffer, clear, clearIntegrationBuffer } = useDebugStore();
   const [tab, setTab] = useState<Tab>("health");
 
   const sortedEntries = [...entries].reverse();
   const errorCount = entries.filter((e) => e.level === "error").length;
   const warnCount = entries.filter((e) => e.level === "warn").length;
+  const integrationEntriesView = [...integrationBuffer].reverse();
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -220,14 +221,21 @@ export default function DebugPanel() {
             <span className="text-muted-foreground">{entries.filter((e) => e.source === "Lifecycle" || e.source === "Deploy").length} events</span>
           )}
           {tab === "integrations" && (
-            <span className="text-muted-foreground">
-              {entries.filter((e) => e.source === "Provision" || e.source === "Integration").length} events
-            </span>
+            <span className="text-muted-foreground">{integrationBuffer.length} events</span>
           )}
         </div>
         {tab === "logs" && (
           <button onClick={clear} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Clear
+            Clear logs
+          </button>
+        )}
+        {tab === "integrations" && integrationBuffer.length > 0 && (
+          <button
+            onClick={clearIntegrationBuffer}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            type="button"
+          >
+            Clear integration
           </button>
         )}
       </div>
@@ -249,19 +257,14 @@ export default function DebugPanel() {
           </div>
         ) : tab === "integrations" ? (
           <div className="font-mono text-xs p-1">
-            {(() => {
-              const integrationEntries = [...entries]
-                .filter((e) => e.source === "Provision" || e.source === "Integration")
-                .reverse();
-              return integrationEntries.length === 0 ? (
-                <div className="flex items-center justify-center h-32 text-muted-foreground">
-                  No integration events yet. Deploy a demo with init scripts, edges, or an event-processor (webhook registration,
-                  deliveries, and per-event reports appear here).
-                </div>
-              ) : (
-                integrationEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)
-              );
-            })()}
+            {integrationEntriesView.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-muted-foreground">
+                No integration events yet. Deploy a demo with init scripts, edges, or an event-processor (webhook registration,
+                deliveries, and per-event reports appear here).
+              </div>
+            ) : (
+              integrationEntriesView.map((entry) => <LogEntry key={entry.id} entry={entry} />)
+            )}
           </div>
         ) : (
           <div className="font-mono text-xs p-1">

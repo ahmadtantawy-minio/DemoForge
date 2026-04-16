@@ -56,3 +56,25 @@ datasets:
     generation:
       mode: batch
       seed_rows: 3000
+
+  # Binary blobs — on-demand writes use the same bucket/prefix as vulnerability_scan.raw_landing (inherit_from).
+  - id: malware_scan_sim
+    target: object
+    bucket: raw-logs
+    prefix: ""
+    object_format: binary
+    object_size_min: 2048
+    object_size_max: 131072
+
+    schema:
+      - {name: object_id, type: string, generator: uuid}
+      - {name: sha256, type: string, generator: ioc, params: {ioc_type: sha256}}
+
+    generation:
+      mode: batch
+      seed_count: 0
+      on_demand:
+        enabled: true
+        inherit_from: vulnerability_scan
+        default_count: 2
+        max_count: 100

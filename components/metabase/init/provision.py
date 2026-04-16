@@ -31,6 +31,10 @@ MB_USER = os.environ.get("MB_USER", "admin@demoforge.local")
 MB_PASS = os.environ.get("MB_PASSWORD", "DemoForge123!")
 TRINO_HOST = os.environ.get("TRINO_HOST", "")
 TRINO_CATALOG = os.environ.get("TRINO_CATALOG", "iceberg")
+# Set on metabase-init by compose from sql-query edge (namespace / default schema hint for demos)
+TRINO_SCHEMA = os.environ.get("TRINO_SCHEMA", "")
+
+_LOGGED_TRINO_SEED_ENV = False
 
 
 class _MbHttpError(Exception):
@@ -71,7 +75,8 @@ INTENTS_DIR = os.environ.get("MB_INTENTS_DIR", "/provision-intents")
 DONE_DIR = os.path.join(INTENTS_DIR, "done")
 FAILED_DIR = os.path.join(INTENTS_DIR, "failed")
 POLL_INTERVAL_BASE = int(os.environ.get("MB_PROVISION_POLL_SEC", "20"))
-MAX_PROVISION_ATTEMPTS = int(os.environ.get("MB_PROVISION_MAX_ATTEMPTS", "4"))
+MAX_PROVISION_ATTEMPTS = int(os.environ.get("MB_PROVISION_MAX_ATTEMPTS", "8"))
+METABASE_HEALTH_MAX_ATTEMPTS = int(os.environ.get("MB_METABASE_HEALTH_MAX_ATTEMPTS", "10"))
 
 VIS_MAP = {
     "table": "table", "bar": "bar", "line": "line",
@@ -89,31 +94,47 @@ def _is_transient(exc: BaseException) -> bool:
 
 
 def wait_ready(timeout: int = 900) -> None:
-    """Wait for Metabase /api/health with exponential backoff between attempts."""
+    """Wait for Metabase /api/health with exponential backoff (at most METABASE_HEALTH_MAX_ATTEMPTS tries)."""
+    max_attempts = METABASE_HEALTH_MAX_ATTEMPTS
     deadline = time.time() + timeout
-    attempt = 0
     delay = 2.0
-    while time.time() < deadline:
+    detail = ""
+    for attempt in range(1, max_attempts + 1):
+        if time.time() >= deadline:
+            raise RuntimeError(f"Metabase not ready after {timeout}s")
         try:
             data = _urlopen_json("GET", "/api/health", timeout=8)
             if isinstance(data, dict) and data.get("status") == "ok":
-                log_integration("info", "metabase_provision", "Metabase API healthy", f"attempt={attempt + 1}")
+                log_integration("info", "metabase_provision", "Metabase API healthy", f"attempt={attempt}/{max_attempts}")
                 return
+            if isinstance(data, dict):
+                detail = f"status={data.get('status')!r}"
+            else:
+                detail = f"unexpected_response={type(data).__name__}"
         except Exception as exc:
-            log_integration(
-                "warn" if attempt > 3 else "info",
-                "metabase_provision",
-                "Waiting for Metabase health",
-                f"attempt={attempt + 1} err={type(exc).__name__}: {str(exc)[:200]}",
-            )
-        attempt += 1
-        remaining = int(deadline - time.time())
+            detail = f"{type(exc).__name__}: {str(exc)[:200]}"
+        log_integration(
+            "warn" if attempt > 3 else "info",
+            "metabase_provision",
+            "Metabase /api/health not ready yet",
+            f"attempt={attempt}/{max_attempts} {detail}",
+        )
+        if attempt >= max_attempts:
+            raise RuntimeError(f"Metabase /api/health not ok after {max_attempts} attempts (last: {detail})")
+        remaining = deadline - time.time()
         if remaining <= 0:
-            break
-        time.sleep(min(delay, float(remaining)))
+            raise RuntimeError(f"Metabase not ready after {timeout}s")
+        sleep_for = min(delay, float(remaining))
+        next_at = time.time() + sleep_for
+        next_local = time.strftime("%H:%M:%S", time.localtime(next_at))
+        log_integration(
+            "warn" if attempt > 3 else "info",
+            "metabase_provision",
+            "Metabase health backoff — next check",
+            f"completed_attempt={attempt}/{max_attempts} next_retry_in_s={sleep_for:.2f} next_retry_at_local={next_local}",
+        )
+        time.sleep(sleep_for)
         delay = min(60.0, delay * 1.5 + random.uniform(0, 0.5))
-
-    raise RuntimeError(f"Metabase not ready after {timeout}s")
 
 
 def get_token() -> str:
@@ -141,16 +162,25 @@ def put(token: str, path: str, body: dict):
 
 
 def ensure_trino_db(token: str) -> int | None:
+    global _LOGGED_TRINO_SEED_ENV
     if not TRINO_HOST:
         return None
     host, port = (TRINO_HOST.split(":", 1) + ["8080"])[:2]
+    if not _LOGGED_TRINO_SEED_ENV:
+        _LOGGED_TRINO_SEED_ENV = True
+        log_integration(
+            "info",
+            "trino_metabase_seed",
+            "Provisioner: Trino↔Metabase env (same TRINO_* as setup-metabase.sh; from compose / diagram edges)",
+            f"host={host} port={port} catalog={TRINO_CATALOG} TRINO_SCHEMA={TRINO_SCHEMA or '(unset)'}",
+        )
     data = get(token, "/api/database")
     dbs = data if isinstance(data, list) else data.get("data", [])
     for db in dbs:
         if "trino" in db.get("name", "").lower() or "presto" in db.get("name", "").lower():
             log_integration("info", "metabase_provision", f"Using existing Trino DB id={db['id']}", db.get("name", ""))
             return db["id"]
-    log_integration("info", "metabase_provision", "Creating Trino connection in Metabase", f"host={host} catalog={TRINO_CATALOG}")
+    log_integration("info", "trino_metabase_seed", "Creating Trino DB via Metabase API (presto-jdbc)", f"host={host} catalog={TRINO_CATALOG}")
     body = {
         "name": "Trino (DemoForge)",
         "engine": "presto-jdbc",
@@ -214,6 +244,15 @@ def provision_spec_once(token: str, db_id: int, spec: dict) -> None:
     """Single attempt to apply intent; raises on failure."""
     dashboards = spec.get("dashboards", [])
     saved_queries = spec.get("saved_queries", {})
+    qlist = saved_queries.get("queries") or []
+    sid = spec.get("scenario_id") or spec.get("scenario_name") or "unknown"
+    titles = [d.get("title", "?") for d in dashboards]
+    log_integration(
+        "info",
+        "metabase_provision",
+        f"Applying Metabase dashboard seed for scenario {sid}",
+        f"dashboards={len(dashboards)} titles={titles!r} saved_queries={len(qlist)}",
+    )
 
     col_name = saved_queries.get("collection", "")
     col_id: int | None = ensure_collection(token, col_name) if col_name else None
@@ -259,6 +298,14 @@ def provision_spec_with_retries(token: str, db_id: int, spec: dict, scenario_id:
     for attempt in range(1, MAX_PROVISION_ATTEMPTS + 1):
         try:
             provision_spec_once(token, db_id, spec)
+            nd = len(spec.get("dashboards", []))
+            nq = len((spec.get("saved_queries") or {}).get("queries") or [])
+            log_integration(
+                "info",
+                "dashboard_seed_result",
+                f"SUCCESS: Metabase dashboard seed finished for scenario {scenario_id}",
+                f"dashboards={nd} saved_queries={nq} attempt={attempt}/{MAX_PROVISION_ATTEMPTS}",
+            )
             log_integration("info", "metabase_provision", f"Intent applied: {scenario_id}", f"attempt={attempt}")
             return
         except Exception as exc:
@@ -277,6 +324,12 @@ def provision_spec_with_retries(token: str, db_id: int, spec: dict, scenario_id:
                 continue
             break
     assert last_exc is not None
+    log_integration(
+        "error",
+        "dashboard_seed_result",
+        f"FAILED: Metabase dashboard seed for scenario {scenario_id} after {MAX_PROVISION_ATTEMPTS} attempt(s)",
+        f"{type(last_exc).__name__}: {str(last_exc)[:700]}",
+    )
     raise last_exc
 
 
@@ -346,6 +399,18 @@ def main() -> None:
                 log_integration("info", "metabase_provision", f"Processing intent: {scenario_id}", path)
                 provision_spec_with_retries(token, db_id, spec, scenario_id)
                 mark_done(path)
+            except json.JSONDecodeError as exc:
+                log_integration("error", "metabase_provision", f"Intent JSON invalid: {scenario_id}", str(exc)[:400])
+                log_integration(
+                    "error",
+                    "dashboard_seed_result",
+                    f"FAILED: could not parse intent file for scenario {scenario_id}",
+                    str(exc)[:700],
+                )
+                try:
+                    mark_failed(path, str(exc))
+                except Exception:
+                    pass
             except Exception as exc:
                 log_integration("error", "metabase_provision", f"Intent failed permanently: {scenario_id}", str(exc)[:500])
                 try:

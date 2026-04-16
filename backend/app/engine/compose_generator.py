@@ -901,6 +901,26 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             _event_processor_webhook_and_suffix(demo, node, env, container_name)
             _event_processor_s3_from_edges(demo, node, env, project_name)
             _event_processor_s3_fallback_from_webhook_peer(demo, node, env, project_name)
+            # Trino INSERT for configurable processing pipelines (e.g. malware_metadata)
+            trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
+            if trino_node:
+                if "TRINO_HOST" not in env or not env["TRINO_HOST"]:
+                    env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
+                if "TRINO_CATALOG" not in env:
+                    for e in demo.edges:
+                        if e.source == node.id or e.target == node.id:
+                            cat = (e.connection_config or {}).get("catalog_name")
+                            if cat:
+                                env["TRINO_CATALOG"] = cat
+                                break
+                    if "TRINO_CATALOG" not in env:
+                        for e in demo.edges:
+                            if e.source == trino_node.id or e.target == trino_node.id:
+                                if e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+                                    cat = (e.connection_config or {}).get("catalog_name")
+                                    if cat:
+                                        env["TRINO_CATALOG"] = cat
+                                        break
 
         # Auto-resolve LLM API endpoint from llm-api edges
         for edge in demo.edges:
@@ -1243,6 +1263,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     aliases = existing.get("aliases", [])
                     aliases.append(cluster_alias)
                     existing["aliases"] = aliases
+
+        # Dev Logs → Integrations JSONL: stable node id for tails from this container
+        if node.component in ("external-system", "event-processor"):
+            env.setdefault("INTEGRATION_NODE_ID", node.id)
 
         # Resolve resource limits: use the larger of demo default or manifest value
         res = demo.resources
@@ -1590,6 +1614,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     if metabase_node:
         trino_edge = next((e for e in demo.edges if e.target == metabase_node.id and e.connection_type == "sql-query"), None)
         trino_node = next((n for n in demo.nodes if trino_edge and n.id == trino_edge.source), None)
+        # Fallback: any Trino node in the demo (Metabase must still reach Trino on the Docker network)
+        if not trino_node:
+            trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
         metabase_host = f"{project_name}-{metabase_node.id}"
         trino_host = f"{project_name}-{trino_node.id}" if trino_node else ""
         catalog_override = trino_edge.connection_config.get("catalog_name", "") if trino_edge else ""
@@ -1603,6 +1630,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         else:
             catalog = "iceberg"
         schema = trino_edge.connection_config.get("schema", "analytics") if trino_edge else "analytics"
+        if not trino_edge and trino_node:
+            logger.warning(
+                f"Demo {demo.id}: Metabase has no sql-query edge from Trino — using first Trino node "
+                f"{trino_node.id} for TRINO_HOST (add Trino→Metabase sql-query edge for explicit catalog/schema)."
+            )
 
         components_dir = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
         setup_script = os.path.join(os.path.abspath(components_dir), "metabase", "init", "setup-metabase.sh")
@@ -1629,6 +1661,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "TRINO_CATALOG": catalog,
                 "TRINO_SCHEMA": schema,
                 "INTEGRATION_NODE_ID": "metabase-init",
+                "INTEGRATION_LOG_SOURCE": "metabase-init",
                 "METABASE_INTEGRATION_LOG": "/tmp/demoforge_integration.jsonl",
             }
 
@@ -1657,7 +1690,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "networks": init_networks,
                 "volumes": sidecar_volumes,
                 "restart": "no",
-                "depends_on": [metabase_node.id],
+                # Start after Metabase JVM and Trino HTTP — avoids empty TRINO_HOST and connection refused to :8080
+                "depends_on": [metabase_node.id] + ([trino_node.id] if trino_node else []),
             }
             logger.info(f"Added metabase-init sidecar for demo {demo.id} (provision={'yes' if has_provision else 'no'})")
 

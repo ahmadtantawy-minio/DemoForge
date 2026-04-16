@@ -2,6 +2,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X, RefreshCw, CornerDownRight } from "lucide-react";
 import { fetchContainerLogs, execContainerLog, fetchComponentManifest, fetchInstances } from "../../api/client";
+import {
+  type IntegrationEventRow,
+  mergePersistedIntegrationEvents,
+  resolveIntegrationRunFingerprint,
+  INTEGRATION_EVENTS_RETENTION_MS,
+} from "../../lib/integrationEventsCache";
 
 const STORAGE_KEY = "demoforge:logViewer:bounds";
 const DEFAULT_WIDTH = 920;
@@ -85,16 +91,6 @@ type EdgeConfigRow = {
   status: string;
   description: string;
   error: string;
-};
-
-type IntegrationEventRow = {
-  id?: string;
-  ts_ms?: number;
-  node_id?: string;
-  level?: string;
-  kind?: string;
-  message?: string;
-  details?: string;
 };
 
 /** Init scripts likely tied to MinIO Day0/1 (mc, buckets, replication, webhooks, etc.). */
@@ -220,7 +216,9 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
       try {
         const resp = await fetchInstances(demoId);
         const raw = resp.init_results ?? [];
-        const integ = resp.integration_events ?? [];
+        const instances = resp.instances ?? [];
+        const runFp = resolveIntegrationRunFingerprint(demoId, instances);
+        const integ = mergePersistedIntegrationEvents(demoId, runFp, resp.integration_events ?? []);
         setMinioSnapshot({
           edge_configs: resp.edge_configs ?? [],
           init_results: filterMinioRelatedInits(raw),
@@ -386,7 +384,9 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
             <span className="text-sm font-semibold text-foreground truncate" title={activeNodeId}>
               Logs — {activeNodeId}
               {activeTabKind === "minio-config" && (
-                <span className="text-[10px] font-normal text-muted-foreground ml-1">(demo-wide: edges, init, webhooks)</span>
+                <span className="text-[10px] font-normal text-muted-foreground ml-1">
+                  (demo-wide: edges, init, webhooks; integration stream buffered ~{INTEGRATION_EVENTS_RETENTION_MS / 60_000}m locally)
+                </span>
               )}
             </span>
             {sidecarNodes.length > 0 && (
@@ -542,9 +542,13 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
                     )}
                   </section>
                   <section>
-                    <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">
+                    <h3 className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">
                       Webhook &amp; integration stream (event-processor)
                     </h3>
+                    <p className="text-[10px] text-zinc-600 mb-2 leading-snug">
+                      Merged with this browser&apos;s buffer: last {INTEGRATION_EVENTS_RETENTION_MS / 60_000} minutes of events
+                      persist across refresh while this demo stack is the same run (localStorage + session).
+                    </p>
                     {minioSnapshot.integration_events.length === 0 ? (
                       <div className="text-zinc-500 text-xs">
                         No integration log entries yet. Registration runs on deploy; deliveries appear when MinIO notifies the

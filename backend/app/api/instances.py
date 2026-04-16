@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import json
 import logging
 import os
 import re
+from pathlib import Path
 import shlex
 import time as time_module
 import uuid
@@ -22,12 +24,29 @@ from ..models.api_models import (
     InstancesResponse, ContainerInstance, WebUILink,
     ExecRequest, ExecResponse, NetworkMembership, CredentialInfo,
     EdgeConfigStatus, ExecLogRequest, LogResponse,
+    ExternalSystemOnDemandMetaResponse, ExternalSystemOnDemandDataset,
+    ExternalSystemOnDemandTriggerRequest,
 )
 from .demos import _load_demo, _save_demo
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _resolve_components_dir() -> str:
+    """Resolve components/ for scenario YAML. When uvicorn cwd is backend/, ./components is wrong."""
+    env = (os.environ.get("DEMOFORGE_COMPONENTS_DIR") or "").strip()
+    if env:
+        return os.path.abspath(env)
+    try:
+        here = Path(__file__).resolve()
+        root_components = here.parents[3] / "components"
+        if root_components.is_dir():
+            return str(root_components)
+    except (OSError, IndexError):
+        pass
+    return os.path.abspath("./components")
 
 
 def _demo_integration_audit_path(demo_id: str) -> str:
@@ -408,6 +427,33 @@ async def list_instances(demo_id: str):
                             continue
             except Exception:
                 pass
+
+        # external-system: dashboard seed intents + optional integration_log.py writes
+        es_node_ids = [n.id for n in demo.nodes if n.component == "external-system"]
+        for es_id in es_node_ids:
+            if es_id not in running.containers:
+                continue
+            cname = running.containers[es_id].container_name
+            try:
+                exit_code, stdout, _stderr = await exec_in_container(
+                    cname,
+                    "sh -c 'test -f /tmp/demoforge_integration.jsonl && tail -n 500 /tmp/demoforge_integration.jsonl || true'",
+                )
+                if exit_code != 0 or not (stdout or "").strip():
+                    continue
+                for line in stdout.strip().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        if isinstance(rec, dict):
+                            rec["node_id"] = es_id
+                            integration_events.append(rec)
+                    except json.JSONDecodeError:
+                        continue
+            except Exception:
+                continue
 
         integration_events.extend(_load_demo_integration_audit(demo_id))
 
@@ -900,6 +946,93 @@ async def stop_generator(demo_id: str, node_id: str):
         return {"state": "idle"}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+def _external_system_on_demand_meta_dict(demo_id: str, node_id: str) -> dict:
+    """Load scenario YAML and list datasets with generation.on_demand.enabled."""
+    import yaml as _yaml
+
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+    node = next((n for n in demo.nodes if n.id == node_id), None)
+    if not node or node.component != "external-system":
+        raise HTTPException(400, "Not an external-system node")
+    scenario_id = (node.config or {}).get("ES_SCENARIO", "").strip()
+    if not scenario_id:
+        return {"enabled": False, "scenario_id": "", "datasets": []}
+    components_dir = _resolve_components_dir()
+    yaml_path = os.path.join(components_dir, "external-system", "scenarios", f"{scenario_id}.yaml")
+    if not os.path.isfile(yaml_path):
+        return {"enabled": False, "scenario_id": scenario_id, "datasets": []}
+    with open(yaml_path, "r", encoding="utf-8") as fh:
+        raw = _yaml.safe_load(fh)
+    scen = raw.get("scenario", {}) if isinstance(raw, dict) else {}
+    sid = scen.get("id", scenario_id)
+    datasets_out: list[dict] = []
+    for ds in raw.get("datasets", []) if isinstance(raw, dict) else []:
+        if not isinstance(ds, dict):
+            continue
+        gen = ds.get("generation") or {}
+        od = gen.get("on_demand")
+        if isinstance(od, dict) and od.get("enabled"):
+            datasets_out.append({
+                "id": ds.get("id", ""),
+                "target": ds.get("target", ""),
+                "default_count": int(od.get("default_count", 1)),
+            })
+    return {
+        "enabled": len(datasets_out) > 0,
+        "scenario_id": sid,
+        "datasets": datasets_out,
+    }
+
+
+@router.get(
+    "/api/demos/{demo_id}/instances/{node_id}/external-system/on-demand",
+    response_model=ExternalSystemOnDemandMetaResponse,
+)
+async def get_external_system_on_demand_meta(demo_id: str, node_id: str):
+    """Whether the selected ES_SCENARIO has on-demand datasets (for UI context menu)."""
+    d = _external_system_on_demand_meta_dict(demo_id, node_id)
+    return ExternalSystemOnDemandMetaResponse(
+        enabled=d["enabled"],
+        scenario_id=d["scenario_id"],
+        datasets=[ExternalSystemOnDemandDataset(**x) for x in d["datasets"]],
+    )
+
+
+@router.post("/api/demos/{demo_id}/instances/{node_id}/external-system/on-demand")
+async def trigger_external_system_on_demand(
+    demo_id: str,
+    node_id: str,
+    req: ExternalSystemOnDemandTriggerRequest = ExternalSystemOnDemandTriggerRequest(),
+):
+    """Drop a JSON request file in the container's ES_ON_DEMAND_DIR (default /tmp/es-on-demand)."""
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(404, "Instance not found")
+    d = _external_system_on_demand_meta_dict(demo_id, node_id)
+    if not d["enabled"]:
+        raise HTTPException(400, "On-demand generation is not enabled for this scenario")
+    payload = req.payload or {}
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "payload must be a JSON object")
+    raw_json = json.dumps(payload, separators=(",", ":"))
+    b64 = base64.standard_b64encode(raw_json.encode()).decode("ascii")
+    fname = f"trigger-{int(time_module.time() * 1000)}.json"
+    code = (
+        "import base64, pathlib; "
+        f"b={repr(b64)}; "
+        "pathlib.Path('/tmp/es-on-demand').mkdir(parents=True, exist_ok=True); "
+        f"pathlib.Path('/tmp/es-on-demand/{fname}').write_bytes(base64.standard_b64decode(b.encode('ascii')))"
+    )
+    shell_cmd = f"python3 -c {shlex.quote(code)}"
+    container_name = running.containers[node_id].container_name
+    exit_code, stdout, stderr = await exec_in_container(container_name, shell_cmd, timeout=30)
+    if exit_code != 0:
+        raise HTTPException(500, f"Could not write on-demand trigger: {stderr or stdout or 'exec failed'}")
+    return {"ok": True, "file": f"/tmp/es-on-demand/{fname}"}
 
 
 @router.post("/api/demos/{demo_id}/instances/{node_id}/exec", response_model=ExecResponse)

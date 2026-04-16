@@ -1,4 +1,5 @@
-"""Append-only JSONL for Integrations tab (backend polls /tmp/demoforge_integration.jsonl in metabase-init). Offline-only — local file, no network."""
+"""Append-only JSONL for Dev Logs → Integrations (same contract as metabase-init)."""
+
 from __future__ import annotations
 
 import json
@@ -8,7 +9,7 @@ import uuid
 from typing import Any
 
 INTEGRATION_LOG_PATH = os.environ.get("METABASE_INTEGRATION_LOG", "/tmp/demoforge_integration.jsonl")
-INTEGRATION_LOG_SOURCE = os.environ.get("INTEGRATION_LOG_SOURCE", "metabase-init")
+INTEGRATION_LOG_SOURCE = os.environ.get("INTEGRATION_LOG_SOURCE", "external-system")
 
 
 def append(level: str, kind: str, message: str, details: str = "") -> dict[str, Any]:

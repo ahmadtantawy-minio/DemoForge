@@ -78,8 +78,11 @@ export const fetchGeneratedConfig = (id: string) =>
 export const fetchConfigScript = (id: string) =>
   apiFetch<{ demo_id: string; script: string; sections: { name: string; commands: string[] }[] }>(`/api/demos/${id}/config-script`);
 
-export const saveLayout = (id: string, positions: { id: string; x: number; y: number }[]) =>
-  apiFetch<{ status: string; positions_updated: number }>(`/api/demos/${id}/layout`, {
+export const saveLayout = (
+  id: string,
+  positions: { id: string; x: number; y: number; width?: number; height?: number }[]
+) =>
+  apiFetch<{ status: string; positions_updated: number; dimensions_updated?: number }>(`/api/demos/${id}/layout`, {
     method: "PUT",
     body: JSON.stringify({ positions }),
   });
@@ -259,6 +262,24 @@ export const execCommand = (demoId: string, nodeId: string, command: string) =>
   apiFetch<{ exit_code: number; stdout: string; stderr: string }>(
     `/api/demos/${demoId}/instances/${nodeId}/exec`,
     { method: "POST", body: JSON.stringify({ command }) }
+  );
+
+/** External-system scenario on-demand generation (see generation.on_demand in scenario YAML). */
+export const fetchExternalSystemOnDemandMeta = (demoId: string, nodeId: string) =>
+  apiFetch<{
+    enabled: boolean;
+    scenario_id: string;
+    datasets: Array<{ id: string; target: string; default_count: number }>;
+  }>(`/api/demos/${demoId}/instances/${nodeId}/external-system/on-demand`);
+
+export const triggerExternalSystemOnDemand = (
+  demoId: string,
+  nodeId: string,
+  payload: Record<string, unknown> = {}
+) =>
+  apiFetch<{ ok: boolean; file: string }>(
+    `/api/demos/${demoId}/instances/${nodeId}/external-system/on-demand`,
+    { method: "POST", body: JSON.stringify({ payload }) }
   );
 
 // Logs

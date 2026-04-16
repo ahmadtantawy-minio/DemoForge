@@ -1,6 +1,6 @@
 """Request/response models for all API endpoints."""
 from typing import Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from enum import Enum
 
 # --- Registry ---
@@ -135,6 +135,20 @@ class LogResponse(BaseModel):
     lines: list[str]
     container: str
     truncated: bool
+
+class ExternalSystemOnDemandDataset(BaseModel):
+    id: str
+    target: str = ""
+    default_count: int = 1
+
+class ExternalSystemOnDemandMetaResponse(BaseModel):
+    enabled: bool
+    scenario_id: str = ""
+    datasets: list[ExternalSystemOnDemandDataset] = []
+
+class ExternalSystemOnDemandTriggerRequest(BaseModel):
+    """Written to /tmp/es-on-demand/*.json inside the external-system container (default {})."""
+    payload: dict = Field(default_factory=dict)
 
 # --- Images ---
 class ImageInfo(BaseModel):

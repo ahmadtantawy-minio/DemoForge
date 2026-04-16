@@ -198,6 +198,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: ci.id,
         type: "canvas-image",
         position: ci.position || { x: 0, y: 0 },
+        width: ci.width || 200,
+        height: ci.height || 60,
         style: { width: ci.width || 200, height: ci.height || 60 },
         draggable: !ci.locked,
         selectable: true,
@@ -362,7 +364,18 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     if (layoutSaveTimeout.current) clearTimeout(layoutSaveTimeout.current);
     layoutSaveTimeout.current = setTimeout(() => {
       const ns = useDiagramStore.getState().nodes;
-      const positions = ns.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }));
+      const positions = ns.map((n) => {
+        const row: { id: string; x: number; y: number; width?: number; height?: number } = {
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+        };
+        const w = (n as any).width;
+        const h = (n as any).height;
+        if (typeof w === "number" && !Number.isNaN(w)) row.width = w;
+        if (typeof h === "number" && !Number.isNaN(h)) row.height = h;
+        return row;
+      });
       setLayoutSaveStatus("saving");
       saveLayout(demoId, positions)
         .then(() => {
@@ -384,8 +397,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           c.type === "position" || c.type === "select" || c.type === "dimensions"
         );
         if (allowed.length > 0) onNodesChange(allowed);
-        // Save layout on any position change (debounced)
-        if (activeDemoId && allowed.some((c: any) => c.type === "position")) {
+        // Persist position + size (Experience uses layout endpoint, not full diagram save)
+        if (
+          activeDemoId &&
+          allowed.some((c: any) => c.type === "position" || c.type === "dimensions")
+        ) {
           doLayoutSave(activeDemoId);
         }
         return;
@@ -396,6 +412,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           c.type === "position" || c.type === "select" || c.type === "dimensions"
         );
         if (allowed.length > 0) onNodesChange(allowed);
+        // Mark dirty so Cmd+S / future save persists resize after Stop
+        if (allowed.some((c: any) => c.type === "position" || c.type === "dimensions")) {
+          setDirty(true);
+        }
         return;
       }
       onNodesChange(changes);
@@ -860,9 +880,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       // Ctrl/Cmd+S: save diagram
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        const { isDirty, setDirty: sd } = useDiagramStore.getState();
-        if (!isDirty || !activeDemoId) return;
-        const { nodes: ns, edges: es } = useDiagramStore.getState();
+        if (!activeDemoId) return;
+        const { nodes: ns, edges: es, setDirty: sd } = useDiagramStore.getState();
         const groups = ns.filter((n) => n.type === "group");
         const componentNodes = ns.filter((n) => n.type !== "group");
         saveDiagram(activeDemoId, [...componentNodes, ...groups], es)

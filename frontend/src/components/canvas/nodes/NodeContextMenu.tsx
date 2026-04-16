@@ -1,8 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "../../../lib/toast";
 import type { ContainerInstance } from "../../../types";
-import { proxyUrl, restartInstance, execCommand, startGenerator, stopGenerator } from "../../../api/client";
+import {
+  proxyUrl,
+  restartInstance,
+  execCommand,
+  startGenerator,
+  stopGenerator,
+  fetchExternalSystemOnDemandMeta,
+  triggerExternalSystemOnDemand,
+} from "../../../api/client";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { apiUrl } from "../../../lib/apiBase";
 
@@ -33,6 +41,30 @@ interface Props {
 export default function NodeContextMenu({
   x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, canViewLogs, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onViewLogs, onClose,
 }: Props) {
+
+  const [esOnDemandMeta, setEsOnDemandMeta] = useState<{
+    enabled: boolean;
+    scenario_id: string;
+    datasets: Array<{ id: string; target: string; default_count: number }>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (componentId !== "external-system" || !demoId || !nodeId) {
+      setEsOnDemandMeta(null);
+      return;
+    }
+    let cancelled = false;
+    fetchExternalSystemOnDemandMeta(demoId, nodeId)
+      .then((m) => {
+        if (!cancelled) setEsOnDemandMeta(m);
+      })
+      .catch(() => {
+        if (!cancelled) setEsOnDemandMeta({ enabled: false, scenario_id: "", datasets: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [componentId, demoId, nodeId, isRunning, instance?.health]);
 
   const clampedX = Math.min(x, window.innerWidth - 200);
   const clampedY = Math.min(y, window.innerHeight - 300);
@@ -178,6 +210,39 @@ export default function NodeContextMenu({
             }}
           >
             Setup Tables
+          </button>
+        </>
+      )}
+      {componentId === "external-system" &&
+        isRunning &&
+        instance &&
+        instance.health !== "stopped" &&
+        instance.health !== "error" &&
+        esOnDemandMeta?.enabled && (
+        <>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-amber-400 hover:bg-amber-500/10 transition-colors"
+            onClick={() => {
+              toast.info("Triggering on-demand generation…");
+              triggerExternalSystemOnDemand(demoId, nodeId, {})
+                .then((r) =>
+                  toast.success("On-demand batch queued", {
+                    description: r.file ? `Request: ${r.file}` : undefined,
+                  })
+                )
+                .catch((err: any) =>
+                  toast.error("On-demand trigger failed", { description: err?.message ?? String(err) })
+                );
+              onClose();
+            }}
+          >
+            Trigger on-demand batch
+            {esOnDemandMeta.datasets.length > 0 ? (
+              <span className="block text-[10px] text-muted-foreground font-normal mt-0.5 truncate" title={esOnDemandMeta.datasets.map((d) => d.id).join(", ")}>
+                {esOnDemandMeta.datasets.map((d) => d.id).join(", ")}
+              </span>
+            ) : null}
           </button>
         </>
       )}

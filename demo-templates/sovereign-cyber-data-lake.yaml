@@ -129,8 +129,8 @@ nodes:
   component: external-system
   variant: default
   position:
-    x: -313.2453674477936
-    y: 496.88942216908583
+    x: -319.2453674477936
+    y: 432.88942216908583
   config:
     ES_SCENARIO: soc-threat-intel
     ES_STARTUP_DELAY: '10'
@@ -185,8 +185,8 @@ nodes:
   component: event-processor
   variant: single
   position:
-    x: -302.6817804469263
-    y: 640.7661958854691
+    x: -196.68178044692633
+    y: 734.7661958854691
   config:
     EP_ACTION_SCENARIO: process-pipeline
     EP_MODE: observe
@@ -299,9 +299,9 @@ edges:
 groups: []
 sticky_notes:
 - id: sn-fw-data
-  text: '500K events as Iceberg tables (Parquet). 20 columns: IPs, ports, protocol,
-    action, severity, MITRE ATT&CK tactic. Streaming at 25 events/sec after initial
-    seed.'
+  text: 500K events seeded into soc.firewall_events (20 columns including MITRE ATT&CK
+    tactic). CSV files land in raw-logs/firewall/ in parallel. Streams 25 events/sec
+    continuously.
   color: '#6b7280'
   title: Firewall event stream
   visibility: customer
@@ -312,29 +312,33 @@ sticky_notes:
   height: 141.0
   font_size: sm
 - id: sn-ti-data
-  text: 'Structured: 8K IOC records as Iceberg table via catalog API. Semi-structured:
-    500 STIX 2.1 JSON bundles as S3 objects. Unstructured: 200 malware binary samples
-    as S3 objects with metadata mirrored to queryable Iceberg table.'
+  text: 'Structured — 8K IOCs in soc.threat_iocs (indicators, actors, confidence,
+    JSON tags)
+
+    Semi-structured — 500 STIX 2.1 bundles in threat-intel/feeds/
+
+    Unstructured — 200 malware binaries dropped in malware-vault/samples/, triggering
+    the Sandbox Scanner'
   color: '#6b7280'
-  title: Three data types, two write paths
+  title: Three data types
   visibility: customer
   position:
-    x: -649.0076840325554
-    y: 404.10003500775395
-  width: 341.0
-  height: 163.0
+    x: -726.7376268819648
+    y: 425.7934445418747
+  width: 435.0
+  height: 159.0
   font_size: sm
 - id: sn-vs-data
-  text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
-    business unit, OS. Batch import — scans are periodic.
+  text: 15K findings in soc.vulnerability_scan (CVE, CVSS, remediation status, business
+    unit, OS). CSVs land in raw-logs/vuln-scan/. Batch ingest — scans are periodic.
   color: '#6b7280'
   title: Vulnerability scan data
   visibility: customer
   position:
-    x: -633.0
+    x: -631.0
     y: 228.26577361381692
-  width: 334.0
-  height: 120.0
+  width: 332.0
+  height: 136.0
   font_size: sm
 - id: sn-aistor-catalog
   text: No external metastore. No Polaris. No Hive. The catalog is embedded at /_iceberg
@@ -370,8 +374,8 @@ sticky_notes:
   position:
     x: 1079.0
     y: 50.0
-  width: 281.0
-  height: 124.0
+  width: 297.0
+  height: 131.0
   font_size: sm
 - id: sn-fw-fa
   text: Seeding takes ~30s. Show DemoForge log viewer during seeding — audience sees
@@ -504,28 +508,30 @@ sticky_notes:
   height: 212.0
   font_size: sm
 - id: sn-vs-data-3
-  text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
-    business unit, OS. Batch import — scans are periodic.
+  text: Webhook on malware-vault/samples/ triggers simulated sandbox analysis. Writes
+    a JSON report to malware-vault/reports/{sha256}.json with the full report in a
+    report_json column — queryable via json_extract.
   color: '#6b7280'
-  title: Vulnerability scan data
+  title: Malware analysis
   visibility: customer
   position:
-    x: -627.6572589584517
-    y: 657.1842418667636
-  width: 341.0
-  height: 121.0
+    x: -563.2644258114068
+    y: 669.2690123042343
+  width: 399.0
+  height: 138.0
   font_size: sm
 - id: sn-vs-data-3
-  text: 15K scan findings as Iceberg table. CVE IDs, CVSS scores, remediation status,
-    business unit, OS. Batch import — scans are periodic.
+  text: Webhook on malware-vault/samples/ triggers simulated sandbox analysis. Writes
+    a JSON report to malware-vault/reports/{sha256}.json with the full report in a
+    report_json column — queryable via json_extract.
   color: '#6b7280'
-  title: Vulnerability scan data
+  title: Malware analysis
   visibility: customer
   position:
-    x: -627.6572589584517
-    y: 657.1842418667636
-  width: 341.0
-  height: 121.0
+    x: -563.2644258114068
+    y: 669.2690123042343
+  width: 399.0
+  height: 138.0
   font_size: sm
 annotations:
 - id: annotation-1
@@ -548,8 +554,8 @@ annotations:
   font_size: xl
 - id: annotation-5
   position:
-    x: -83.24216191898043
-    y: 254.25866605742738
+    x: -63.24216191898043
+    y: 276.2586660574274
   width: 237
   height: null
   title: Raw objects
@@ -559,7 +565,7 @@ annotations:
 
     threat-intel/feeds/ (JSON)
 
-    **malware-vault/samples/ (bin)**'
+    malware-vault/samples/ (bin)'
   style: info
   step_number: null
   pointer_target: null
@@ -567,34 +573,34 @@ annotations:
   font_size: sm
 - id: annotation-6
   position:
-    x: -20.247242566880914
-    y: 561.0520128683808
-  width: 260
+    x: 61.752757433119086
+    y: 659.0520128683808
+  width: 296
   height: null
   title: Event-driven malware analysis
-  body: '**Malware sample (binary) in**
+  body: 'Malware sample (binary) in
 
     Mawlare reports (JSON) out'
   style: callout
   step_number: null
   pointer_target: null
   collapsed: false
-  font_size: sm
+  font_size: base
 - id: annotation-6
   position:
-    x: -20.247242566880914
-    y: 561.0520128683808
-  width: 260
+    x: 61.752757433119086
+    y: 659.0520128683808
+  width: 296
   height: null
   title: Event-driven malware analysis
-  body: '**Malware sample (binary) in**
+  body: 'Malware sample (binary) in
 
     Mawlare reports (JSON) out'
   style: callout
   step_number: null
   pointer_target: null
   collapsed: false
-  font_size: sm
+  font_size: base
 schematics: []
 clusters:
 - id: aistor-1
@@ -633,8 +639,8 @@ canvas_images:
   position:
     x: -237.22123223820256
     y: -261.2839732169831
-  width: 240
-  height: 70
+  width: 279
+  height: 131
   opacity: 0.8
   layer: foreground
   label: ''
@@ -644,8 +650,8 @@ canvas_images:
   position:
     x: -237.22123223820256
     y: -261.2839732169831
-  width: 240
-  height: 70
+  width: 279
+  height: 131
   opacity: 0.8
   layer: foreground
   label: ''
@@ -653,8 +659,8 @@ canvas_images:
 - id: canvas-img-1776256028144
   image_id: apache-iceberg-logo
   position:
-    x: -186.2289371513753
-    y: -138.89583906507792
+    x: -146.45768633882074
+    y: -129.85691842586095
   width: 180
   height: 55
   opacity: 0.8
@@ -670,5 +676,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-16T04:55:13.274997+00:00'
+updated_at: '2026-04-16T05:30:09.894033+00:00'
 source_template_id: sovereign-cyber-data-lake

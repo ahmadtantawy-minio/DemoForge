@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from uvicorn import Config, Server
 
 from integration_log import append as integration_log_append
+from pipeline import load_processing_config, run_malware_pipeline
 
 MAX_EVENTS = 500
 
@@ -167,17 +168,44 @@ def create_webhook_app() -> FastAPI:
             _payload_summary(payload),
         )
         out: dict[str, Any] = {"status": "ok", "stored": True, "event_id": rec["event_id"]}
-        rkey, rerr = await _write_event_report(rec)
+        proc_cfg = load_processing_config()
+        pl: dict[str, Any] = {}
+        if proc_cfg:
+            pl = await asyncio.to_thread(run_malware_pipeline, payload, proc_cfg, _get_s3_client())
+            rec["malware_pipeline"] = pl
+            out["malware_pipeline"] = pl
+            if pl.get("matched"):
+                integration_log_append(
+                    "info",
+                    "malware_pipeline",
+                    f"sha256={pl.get('sha256')} report_key={pl.get('report_key')} trino_ok={pl.get('trino_ok')}",
+                    pl.get("trino_error") or "",
+                )
+
+        skip_generic = bool(pl.get("skip_generic_audit"))
+        rkey, rerr = None, None
+        if not skip_generic:
+            rkey, rerr = await _write_event_report(rec)
+        elif pl.get("report_key"):
+            rkey = pl["report_key"]
         if rkey:
+            rec["report_key"] = rkey
+            rec["report_written"] = True
             out["report_key"] = rkey
             out["report_written"] = True
             integration_log_append(
                 "info",
                 "webhook_report_written",
-                f"S3 report written for event_id={rec['event_id']}",
+                (
+                    f"Malware pipeline JSON report for event_id={rec['event_id']}"
+                    if pl.get("skip_generic_audit")
+                    else f"S3 report written for event_id={rec['event_id']}"
+                ),
                 f"key={rkey}",
             )
         elif rerr:
+            rec["report_error"] = rerr
+            rec["report_written"] = False
             out["report_written"] = False
             out["report_error"] = rerr
             integration_log_append(
@@ -234,37 +262,148 @@ def _html_ui() -> str:
   h1 { font-size:1rem; font-weight:600; margin:0 0 12px; }
   .meta { font-size:12px; color:#a1a1aa; margin-bottom:16px; }
   ul { list-style:none; padding:0; margin:0; }
-  li { border:1px solid #27272a; border-radius:8px; margin-bottom:8px; overflow:hidden; }
-  summary { cursor:pointer; padding:10px 12px; background:#18181b; font-size:13px; }
+  li { border:1px solid #27272a; border-radius:8px; margin-bottom:8px; overflow:hidden; transition: border-color 0.35s ease, box-shadow 0.35s ease; }
+  li.is-new { border-color: #ea580c; box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.65), 0 0 12px rgba(234, 88, 12, 0.12); }
+  summary { cursor:pointer; padding:10px 12px; background:#18181b; font-size:12px; line-height:1.45; }
   summary:hover { background:#27272a; }
+  .sum-main { color: #e4e4e7; }
+  .sum-files { display:block; margin-top:4px; font-size:11px; color:#a1a1aa; font-family: ui-monospace, monospace; }
+  .sum-files .lbl { color:#71717a; }
   pre { margin:0; padding:12px; font-size:11px; background:#09090b; overflow:auto; max-height:240px; white-space:pre-wrap; word-break:break-all; }
 </style></head><body>
 <h1>Event Processor</h1>
 <p class="meta">Latest """ + str(MAX_EVENTS) + """ events · Webhook :8090 · UI/API :8091</p>
+<p class="meta" id="empty-hint" style="display:none;color:#fbbf24;">No events yet. Objects must land in a bucket covered by the <strong>webhook</strong> edge (bucket/prefix/events) and the init script must have registered MinIO notifications. Upload a test object to that bucket or POST to <code style="font-size:11px">:8090/webhook</code>.</p>
 <ul id="list"></ul>
 <script>
-async function load() {
-  const r = await fetch('/api/events');
-  const j = await r.json();
-  const el = document.getElementById('list');
-  el.innerHTML = '';
-  (j.events || []).forEach((ev, i) => {
-    const li = document.createElement('li');
-    const ts = new Date(ev.received_at_ms).toISOString();
-    const summary = document.createElement('summary');
-    summary.textContent = ts + ' — ' + (ev.content_type || 'no content-type');
-    const pre = document.createElement('pre');
-    pre.textContent = JSON.stringify(ev.payload, null, 2);
-    const details = document.createElement('details');
-    details.open = i === 0;
-    details.appendChild(summary);
-    details.appendChild(pre);
-    li.appendChild(details);
-    el.appendChild(li);
-  });
-}
-load();
-setInterval(load, 4000);
+(function() {
+  var prevIds = {};
+  var hadPoll = false;
+  /** Relative to &lt;base href&gt; from DemoForge proxy — avoid fetch('/api/...') which hits the wrong origin. */
+  function apiUrl(path) {
+    var p = path.indexOf('/') === 0 ? path.slice(1) : path;
+    return p;
+  }
+
+  function basename(p) {
+    if (!p || typeof p !== 'string') return '';
+    var bs = String.fromCharCode(92);
+    var i = Math.max(p.lastIndexOf('/'), p.lastIndexOf(bs));
+    return i >= 0 ? p.slice(i + 1) : p;
+  }
+
+  function truncateMid(s, maxLen) {
+    if (!s || s.length <= maxLen) return s;
+    var half = Math.floor((maxLen - 1) / 2);
+    return s.slice(0, half) + '…' + s.slice(s.length - half);
+  }
+
+  /** Best-effort object key from MinIO/AWS-style webhook JSON (never throws). */
+  function extractObjectKey(payload) {
+    try {
+      if (!payload || typeof payload !== 'object') return '';
+      if (typeof payload.Key === 'string' && payload.Key) return payload.Key;
+      if (typeof payload.key === 'string' && payload.key) return payload.key;
+      var recs = payload.Records || payload.records;
+      if (!Array.isArray(recs) || !recs.length) return '';
+      var r0 = recs[0];
+      if (!r0 || typeof r0 !== 'object') return '';
+      var s3 = r0.s3 || r0.S3;
+      if (s3 && s3.object && typeof s3.object.key === 'string') return s3.object.key;
+      if (s3 && s3.Object && typeof s3.Object.Key === 'string') return s3.Object.Key;
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function extractOutputKey(ev) {
+    try {
+      if (ev && typeof ev.report_key === 'string' && ev.report_key) return ev.report_key;
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  async function load() {
+    var r = await fetch(apiUrl('api/events'));
+    var j = await r.json();
+    var el = document.getElementById('list');
+    var hint = document.getElementById('empty-hint');
+    el.innerHTML = '';
+    var events = j.events || [];
+    if (hint) { hint.style.display = events.length === 0 ? 'block' : 'none'; }
+    var currSet = {};
+    for (var ci = 0; ci < events.length; ci++) {
+      if (events[ci] && events[ci].event_id) currSet[events[ci].event_id] = true;
+    }
+
+    events.forEach(function(ev) {
+      var li = document.createElement('li');
+      var ts = new Date(ev.received_at_ms).toISOString();
+      var ct = ev.content_type || 'no content-type';
+      var inKey = extractObjectKey(ev.payload);
+      var inName = basename(inKey) || (inKey ? truncateMid(inKey, 48) : '');
+      var outKey = extractOutputKey(ev);
+      var outName = basename(outKey);
+
+      var isNew = hadPoll && ev.event_id && !prevIds[ev.event_id];
+      if (isNew) {
+        li.className = 'is-new';
+        (function(node) {
+          setTimeout(function() { try { node.classList.remove('is-new'); } catch (e) {} }, 12000);
+        })(li);
+      }
+
+      var summary = document.createElement('summary');
+      var main = document.createElement('span');
+      main.className = 'sum-main';
+      main.textContent = ts + ' — ' + ct;
+      summary.appendChild(main);
+
+      var files = document.createElement('span');
+      files.className = 'sum-files';
+      var lblIn = document.createElement('span'); lblIn.className = 'lbl'; lblIn.textContent = 'in ';
+      var vIn = document.createElement('span');
+      vIn.textContent = (inName || inKey ? truncateMid(inName || inKey, 56) : '—');
+      files.appendChild(lblIn);
+      files.appendChild(vIn);
+      if (outName || outKey) {
+        var sep = document.createElement('span'); sep.textContent = ' · '; files.appendChild(sep);
+        var lblOut = document.createElement('span'); lblOut.className = 'lbl'; lblOut.textContent = 'out ';
+        var vOut = document.createElement('span');
+        vOut.textContent = truncateMid(outName || outKey, 56);
+        files.appendChild(lblOut);
+        files.appendChild(vOut);
+      } else if (ev.report_error) {
+        var sep2 = document.createElement('span'); sep2.textContent = ' · '; files.appendChild(sep2);
+        var lblErr = document.createElement('span'); lblErr.style.color = '#f87171'; lblErr.textContent = 'report failed';
+        files.appendChild(lblErr);
+      }
+      summary.appendChild(files);
+
+      var pre = document.createElement('pre');
+      try {
+        pre.textContent = JSON.stringify(ev, null, 2);
+      } catch (e) {
+        pre.textContent = String(ev);
+      }
+      var details = document.createElement('details');
+      details.open = false;
+      details.appendChild(summary);
+      details.appendChild(pre);
+      li.appendChild(details);
+      el.appendChild(li);
+    });
+
+    prevIds = currSet;
+    hadPoll = true;
+  }
+
+  load();
+  setInterval(load, 4000);
+})();
 </script>
 </body></html>"""
 

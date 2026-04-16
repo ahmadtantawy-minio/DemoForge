@@ -171,13 +171,27 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
         if rf_node.get("type") == "canvas-image":
             from ..models.demo import DemoCanvasImage
             ci_data = rf_node.get("data", {})
+            ci_style = rf_node.get("style") if isinstance(rf_node.get("style"), dict) else {}
+            # NodeResizer updates rf_node.width/height; style may lag — prefer top-level dims
+            _cw = rf_node.get("width")
+            _ch = rf_node.get("height")
+            if _cw is None:
+                _sw = ci_style.get("width", 200)
+                _cw = int(_sw) if isinstance(_sw, (int, float)) else int(str(_sw).replace("px", "") or 200)
+            else:
+                _cw = int(_cw)
+            if _ch is None:
+                _sh = ci_style.get("height", 60)
+                _ch = int(_sh) if isinstance(_sh, (int, float)) else int(str(_sh).replace("px", "") or 60)
+            else:
+                _ch = int(_ch)
             demo.canvas_images.append(DemoCanvasImage(
                 id=rf_node["id"],
                 image_id=ci_data.get("image_id", ""),
                 position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
                                       y=rf_node.get("position", {}).get("y", 0)),
-                width=int(rf_node.get("style", {}).get("width", 200) or 200),
-                height=int(rf_node.get("style", {}).get("height", 60) or 60),
+                width=_cw,
+                height=_ch,
                 opacity=ci_data.get("opacity", 0.8),
                 layer=ci_data.get("layer", "foreground"),
                 label=ci_data.get("label", ""),
@@ -310,12 +324,17 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
 
 @router.put("/api/demos/{demo_id}/layout")
 async def save_layout(demo_id: str, req: dict):
-    """Save node positions without changing structure. Used by Experience mode."""
+    """Save node positions without changing structure. Used by Experience mode.
+
+    Each position entry may include optional width/height so resizes persist (stickies,
+    canvas images, annotations, groups) without a full diagram save.
+    """
     demo = _load_demo(demo_id)
     if not demo:
         raise HTTPException(404, "Demo not found")
 
-    positions = {p["id"]: (p["x"], p["y"]) for p in req.get("positions", [])}
+    raw = req.get("positions", [])
+    positions = {p["id"]: (p["x"], p["y"]) for p in raw}
 
     for node in demo.nodes:
         if node.id in positions:
@@ -337,8 +356,68 @@ async def save_layout(demo_id: str, req: dict):
         if sch.id in positions:
             sch.position.x, sch.position.y = positions[sch.id]
 
+    for sn in getattr(demo, "sticky_notes", []):
+        if sn.id in positions:
+            sn.position.x, sn.position.y = positions[sn.id]
+
+    for ci in getattr(demo, "canvas_images", []):
+        if ci.id in positions:
+            ci.position.x, ci.position.y = positions[ci.id]
+
+    dim_updates = 0
+    for p in raw:
+        pid = p.get("id")
+        if not pid:
+            continue
+        w, h = p.get("width"), p.get("height")
+        for sn in getattr(demo, "sticky_notes", []):
+            if sn.id == pid:
+                if w is not None:
+                    sn.width = float(w)
+                    dim_updates += 1
+                if h is not None:
+                    sn.height = float(h)
+                    dim_updates += 1
+                break
+        for ci in getattr(demo, "canvas_images", []):
+            if ci.id == pid:
+                if w is not None:
+                    ci.width = int(w)
+                    dim_updates += 1
+                if h is not None:
+                    ci.height = int(h)
+                    dim_updates += 1
+                break
+        for ann in getattr(demo, "annotations", []):
+            if ann.id == pid:
+                if w is not None:
+                    ann.width = int(w)
+                    dim_updates += 1
+                if h is not None:
+                    ann.height = int(h)
+                    dim_updates += 1
+                break
+        for grp in demo.groups:
+            if grp.id == pid:
+                if w is not None:
+                    grp.width = float(w)
+                    dim_updates += 1
+                if h is not None:
+                    grp.height = float(h)
+                    dim_updates += 1
+                break
+        for cl in demo.clusters:
+            if cl.id == pid:
+                if w is not None:
+                    cl.width = float(w)
+                    dim_updates += 1
+                if h is not None:
+                    cl.height = float(h)
+                    dim_updates += 1
+                break
+
     _save_demo(demo)
-    return {"status": "saved", "positions_updated": len(positions)}
+    return {"status": "saved", "positions_updated": len(positions), "dimensions_updated": dim_updates}
 
 
 @router.get("/api/demos/{demo_id}/walkthrough")
