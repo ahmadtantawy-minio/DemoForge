@@ -6,16 +6,16 @@
 
 ## Backlog
 
-> **Execution order** (current plan): Sprint 5 (doc only) → Sprint 6 → Sprint 7
-> Sprint 5 gates Sprint 6. Sprints 5–7 are sequential by priority.
+> **Execution order (updated):** Sprint 5 architect doc ✅ · Sprint 6 decommission ✅ · Sprint 7 webhook receiver ✅ (Event Processor) · Sprint 6 **runtime Add Pool** ✅.
 > Sprints 1–4 are excluded from this plan for now.
 
 ---
 
 ### Sprint 5 — Add Pool Architect Doc (M · doc only · gates Sprint 6)
 
-- [ ] **Architect doc: MinIO Cluster — "Add Pool" impact assessment** `sprint:5` `doc-only`
-  - No implementation code this sprint. Spawn architect agent to produce `plans/architect-add-pool.md` covering:
+- [x] **Architect doc: MinIO Cluster — "Add Pool" impact assessment** `sprint:5` `doc-only`
+  - **Delivered:** `plans/architect-add-pool.md` (draft covering compose impact, demo_state, destroy flows; implementation choices TBD per MinIO edition).
+  - Original scope — spawn architect to produce `plans/architect-add-pool.md` covering:
     1. How MinIO pool expansion works at the API/CLI level (online vs. restart-required)
     2. How the new pool's containers are named, networked, and added to the compose file (`compose_generator` impact)
     3. How `demo_state` tracks pool count and drive/node counts so the canvas node re-renders correctly
@@ -27,27 +27,20 @@
 
 ### Sprint 6 — MinIO Pool Lifecycle (L · requires Sprint 5 doc approved · docker-expert + minio-expert review)
 
-- [ ] **Enhancement: MinIO Cluster — pool decommission/commission lifecycle with state tracking** `sprint:6`
-  - When a cluster has more than 1 pool running, expose a "Decommission Pool" action in the per-pool context menu (pool header or pool row in the Instances/Cockpit panel). Decommissioning initiates `mc admin decommission start` and tracks progress via polling.
-  - Track decommission state per-pool in the demo's running state: `idle | decommissioning | decommissioned`. Surface state in the Cockpit and in the canvas cluster node (badge per pool).
-  - A decommissioned pool can be re-commissioned ("Commission Pool" action appears when pool state is `decommissioned`). Commission should call `mc admin decommission cancel` or re-add the pool, whichever is appropriate for the MinIO version in use.
-  - Decommission/commission state must survive page refresh (persisted in backend demo state, not just in-memory).
+- [x] **Enhancement: MinIO Cluster — pool decommission/commission lifecycle with state tracking** `sprint:6`
+  - **Delivered in codebase:** Backend `POST/GET/.../decommission` + cancel in `instances.py`; `_persist_pool_lifecycle`; `PoolContainer` / `ClusterNode` / `ClusterContextMenu` UX; mc-shell `mc admin decommission` integration. Persisted pool lifecycle in demo YAML. Commission path uses cancel decommission; re-adding drained hardware is separate from Add Pool below.
 
-- [ ] **Enhancement: MinIO Cluster — "Add Pool" from context menu at runtime** `sprint:6` `blocked-by:sprint-5`
-  - When a cluster is running, expose "Add Pool" in the cluster context menu. Implementation follows the design in `plans/architect-add-pool.md`.
-  - Adding a pool provisions new containers (new `pool{N}` set of drives + nodes) and integrates with the pool state model built for decommission above.
+- [x] **Enhancement: MinIO Cluster — "Add Pool" from context menu at runtime** `sprint:6` `blocked-by:sprint-5`
+  - **Delivered:** `POST /api/demos/{id}/clusters/{cluster_id}/apply-topology` → `apply_saved_demo_topology` (regenerate compose + `docker compose up -d`, refresh `running.containers`, cluster configs). Frontend: `saveDiagram` then `applyClusterTopology` after pool add/duplicate/remove (`ClusterNode`, shared `persistClusterTopology` helper). **Runtime UX:** Add Pool / Duplicate / Remove surfaced in cluster + pool context menus while running; Add Pool button shown on canvas when demo is running. Properties panel debounces compose-affecting edits (pools, edition, creds, feature toggles) to the same apply path.
+  - **Note:** Full MinIO “rolling restart” semantics are approximated by Compose recreating/updating services when env/peer lists change; see `plans/architect-add-pool.md` for edition-specific caveats.
 
 ---
 
-### Sprint 7 — Webhook Receiver Component (XL · isolated · largest scope)
+### Sprint 7 — Webhook Receiver Component (XL · isolated · largest scope) — **Track D completed**
 
-- [ ] **Enhancement: MinIO Bucket Webhook edge + Webhook Receiver component** `sprint:7`
-  - Add a new connection type `bucket-webhook` that can originate from a MinIO Node or Cluster. The edge should have a configurable property: `bucket_name` (string, set in the edge properties panel). The edge label displays the bucket name.
-  - The edge must terminate on a new **Webhook Receiver** component. This is a lightweight service (simple HTTP server) that accepts incoming MinIO bucket-notification webhooks and stores them in memory (ring buffer, 500 events max).
-  - The Webhook Receiver component includes a built-in UI (served on its own port, accessible via the control plane or a direct link in the Instances panel) that shows received webhooks latest-first, with expandable detail (event type, object key, bucket, timestamp, full JSON payload). MVP: no auth, no search, no export.
-  - On deploy: `compose_generator` wires the MinIO `notify_webhook` config for the specified bucket pointing to the receiver container's HTTP endpoint. The receiver container auto-starts and registers itself.
-  - The component should appear in the palette under a "Integrations" or "Receivers" category.
-  - Requires `minio-expert` review (MinIO notify_webhook config) and `frontend-designer` (receiver UI).
+- [x] **Enhancement: MinIO Bucket Webhook edge + Webhook Receiver component** `sprint:7`
+  - **Completed / superseded by Event Processor:** The product ships **`webhook`** edges (MinIO ↔ **event-processor**) with bucket/prefix/suffix/events on the edge, `compose_generator` injecting `MINIO_NOTIFY_WEBHOOK_*` and EP env, `register-webhook.sh` + `mc event add`, ring buffer (**500** events in `server.py`), UI on **:8091**, integration JSONL. Naming differs from the original `bucket-webhook` sketch; a separate minimal “Webhook Receiver-only” palette component was not added — **event-processor** is the supported receiver.
+  - Original spec (for history): new connection type `bucket-webhook` → dedicated receiver component; MVP ring buffer UI; compose notify wiring; palette under Integrations.
 
 - [x] **Fix: Update AIStor & Iceberg logos to use bundled assets — works offline on FA PCs**
   - The AIStor Tables and Apache Iceberg canvas images currently reference SVG files served from `/canvas-images/` at runtime. On FA (Field Accelerator) PCs deployed without internet access, these may not load if the path resolution differs from development.
@@ -250,3 +243,15 @@
 ## Demo Management UX
 
 - [x] **Enhancement: Last updated timestamp on demos** — Wherever demos are listed or examined (demo manager, canvas header, any demo list view), show the last modified date/time in local timezone. Needs a `updated_at` field persisted on the demo state whenever the user makes a change (topology edits, config changes, saves). Display format: relative ("2 hours ago") with full timestamp on hover (e.g. "Apr 13, 2026, 14:32"). Scope: demo list/manager view, canvas title bar or header area, demo detail panel if any.
+
+---
+
+## Backlog — performance, FA UX, deploy state, MinIO readiness (new)
+
+- [x] **Performance: retire log lines after ~10 minutes so the frontend stays light** — Implemented: `DEBUG_LOG_TTL_MS` + `createdAtMs` on each `DebugEntry`; `addEntry` prunes by age before cap slice. Integration dedup in `App.tsx` uses `Map<id, ts_ms>` with the same TTL. Export `DEBUG_LOG_TTL_MS` from `debugStore.ts`.
+
+- [x] **UX: rename "Dev Logs" → "Logs" and expose in FA mode** — Bottom designer tabs + toolbar button use **"Logs"**; `showDesignerLogsPanel = faMode === "dev" || faMode === "fa"` so FA gets Terminal + Logs like dev. Standard mode unchanged (toolbar toggle still opens the panel).
+
+- [x] **Reliability: demos stuck in `deploying` while containers are actually running** — `StateStore.reconcile_deploying_from_docker()` runs after each `sync_with_docker` (`main.py` loop): if status is `deploying`, no lifecycle task is active, and every **non-sidecar** container is Docker-`running`, promote to `running`. Sidecars cover metabase-init and other `demoforge.sidecar` peers.
+
+- [x] **Investigation: MinIO cluster shows "up" slower than individual containers** — Documented in `plans/minio-cluster-readiness-latency.md` (polling, `/minio/health/cluster` vs Docker, overrides, cold start).
