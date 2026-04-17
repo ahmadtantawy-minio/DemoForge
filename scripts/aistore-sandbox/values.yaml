@@ -1,0 +1,43 @@
+# Helm values for chart: minio/aistor-objectstore
+# All workload-facing names use prefix df-cursor-* (namespace / release names set in deploy.sh).
+#
+# CRD split:
+#   - S3: spec.pools[].servers → MinIO server StatefulSet
+#   - spec.services.minio / spec.services.console → distinct Kubernetes Services
+#
+# Pool: servers × volumesPerServer > 4
+
+secrets:
+  accessKey: minioadmin
+  secretKey: minioadmin
+
+objectStore:
+  name: df-cursor-sandbox
+  image:
+    repository: quay.io/minio/aistor/minio
+    tag: RELEASE.2026-04-14T21-32-45Z
+    pullPolicy: IfNotPresent
+
+  pools:
+    - name: df-cursor-pool-0
+      servers: 4
+      volumesPerServer: 2
+      size: 10Gi
+
+  services:
+    minio:
+      name: df-cursor-s3-api
+      serviceType: ClusterIP
+      labels:
+        df-cursor.min.io/role: s3-api
+    console:
+      name: df-cursor-console-ui
+      serviceType: ClusterIP
+      labels:
+        df-cursor.min.io/role: console
+
+  certificates:
+    disableAutoCert: true
+
+  prometheusOperator: false
+  pvcProtection: false

@@ -1,0 +1,33 @@
+# Reference-only — do not apply if Helm already installed the ObjectStore.
+# Names follow df-cursor-* prefix convention.
+
+apiVersion: aistor.min.io/v1
+kind: ObjectStore
+metadata:
+  name: df-cursor-sandbox
+  namespace: df-cursor-aistor
+spec:
+  image: quay.io/minio/aistor/minio:RELEASE.2026-04-14T21-32-45Z
+  pools:
+    - name: df-cursor-pool-0
+      servers: 4
+      volumesPerServer: 2
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 10Gi
+  services:
+    minio:
+      name: df-cursor-s3-api
+      serviceType: ClusterIP
+      labels:
+        df-cursor.min.io/role: s3-api
+    console:
+      name: df-cursor-console-ui
+      serviceType: ClusterIP
+      labels:
+        df-cursor.min.io/role: console
+  certificates:
+    disableAutoCert: true
