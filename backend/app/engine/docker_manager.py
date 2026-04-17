@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
 
 
+def _demo_has_pool_decommissioning(demo: DemoDefinition) -> bool:
+    """True if any cluster pool is mid-drain (compose apply would disrupt MinIO)."""
+    for cl in demo.clusters or []:
+        for _pid, st in (cl.pool_lifecycle or {}).items():
+            if st == "decommissioning":
+                return True
+    return False
+
+
 def _get_cluster_configs_path(data_dir: str, project_name: str) -> str:
     return os.path.join(data_dir, project_name, ".cluster-configs.json")
 
@@ -659,3 +668,96 @@ async def exec_in_container(container_name: str, command: str, timeout: int = 60
         return -1, "", f"Command timed out after {timeout}s"
     except NotFound:
         raise ValueError(f"Container {container_name} not found")
+
+
+async def apply_saved_demo_topology(
+    demo_id: str,
+    data_dir: str,
+    components_dir: str,
+) -> dict[str, str | int]:
+    """Regenerate compose from on-disk demo YAML and run ``docker compose up -d``.
+
+    Use after saving an updated diagram (e.g. extra ``server_pools`` row) while the demo is
+    **running** so new MinIO pool services are created. Does not remove volumes.
+    """
+    from ..api.demos import _load_demo
+
+    lock = _get_lock(demo_id)
+    async with lock:
+        running = state.get_demo(demo_id)
+        if not running:
+            raise ValueError("Demo not in running state")
+        if running.status != "running":
+            raise ValueError("Demo must be running to apply topology")
+
+        demo = _load_demo(demo_id)
+        if not demo:
+            raise ValueError("Demo YAML not found")
+
+        if _demo_has_pool_decommissioning(demo):
+            raise ValueError(
+                "Cannot apply topology while a pool decommission is in progress. "
+                "Wait until the pool shows as decommissioned (drain complete) or cancel decommission."
+            )
+
+        project_name = running.compose_project
+        logger.info("Applying saved topology for demo %s (compose regenerate + up -d)", demo_id)
+
+        compose_path, demo_out = await asyncio.to_thread(
+            generate_compose, demo, data_dir, components_dir
+        )
+        running.compose_file_path = compose_path
+
+        timeout = int(getattr(demo_out, "deploy_timeout_seconds", None) or COMPOSE_TIMEOUT)
+        proc = await asyncio.create_subprocess_exec(
+            "docker",
+            "compose",
+            "-f",
+            compose_path,
+            "-p",
+            project_name,
+            "up",
+            "-d",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise TimeoutError(f"docker compose up timed out after {timeout}s") from None
+        if proc.returncode != 0:
+            err = (stderr.decode(errors="replace") or stdout.decode(errors="replace"))[:4000]
+            raise RuntimeError(f"docker compose up failed: {err}")
+
+        containers = await asyncio.to_thread(
+            docker_client.containers.list,
+            filters={"label": f"demoforge.demo={demo_id}"},
+        )
+        running.containers.clear()
+        for c in containers:
+            node_id = c.labels.get("demoforge.node", "")
+            if not node_id:
+                continue
+            container_nets = list(c.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+            running.containers[node_id] = RunningContainer(
+                node_id=node_id,
+                component_id=c.labels.get("demoforge.component", ""),
+                container_name=c.name,
+                networks=container_nets,
+                is_sidecar=c.labels.get("demoforge.sidecar") == "true",
+            )
+            for net_key in container_nets:
+                if net_key.startswith(project_name) and net_key not in running.networks:
+                    running.networks.append(net_key)
+
+        state.set_demo(running)
+        if demo_out.clusters:
+            await asyncio.to_thread(_save_cluster_configs, data_dir, project_name, demo_out.clusters)
+
+        return {
+            "status": "ok",
+            "compose_path": compose_path,
+            "container_count": len(running.containers),
+        }

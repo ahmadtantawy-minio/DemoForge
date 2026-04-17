@@ -417,41 +417,118 @@ export default function ClusterContextMenu(props: Props) {
     const decomStatus = poolId ? (poolDecommissionStatus?.[poolId] ?? "active") : "active";
     const isDecommissioning = decomStatus === "decommissioning";
     const isDecommissioned = decomStatus === "decommissioned";
+    const onlyPool = poolsCount <= 1;
     const menu = (
       <div
         ref={menuRef}
-        className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[220px] text-popover-foreground"
+        className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[240px] text-popover-foreground"
         style={style}
       >
         <div className="px-3 py-1 text-xs font-semibold text-muted-foreground border-b border-border">
           {activePool?.id || "Pool"}
         </div>
         {isDecommissioned ? (
-          <div className="px-3 py-1.5 text-xs text-red-400">Pool is decommissioned</div>
+          <>
+            <div className="px-3 py-2 text-xs text-amber-200/90 leading-relaxed">
+              Draining finished — MinIO reports this pool as decommissioned. You can remove it from the diagram (compose will drop those services).
+            </div>
+            {onlyPool ? (
+              <div className="px-3 py-1.5 text-xs text-muted-foreground">Cannot remove the only pool from the cluster.</div>
+            ) : confirmRemovePool ? (
+              <div className="px-3 py-2">
+                <div className="text-xs text-destructive mb-2">Remove this pool from the diagram and update Docker?</div>
+                <div className="flex gap-1">
+                  <button
+                    className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
+                    onClick={() => poolId && onRemovePool(poolId)}
+                  >
+                    Confirm Remove
+                  </button>
+                  <button
+                    className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                    onClick={() => onSetConfirmRemovePool(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                onClick={() => onSetConfirmRemovePool(true)}
+              >
+                Remove pool from diagram…
+              </button>
+            )}
+          </>
         ) : isDecommissioning ? (
           <>
-            <div className="px-3 py-1.5 text-xs text-orange-400">Decommissioning in progress...</div>
+            <div className="px-3 py-2 text-xs text-orange-300/95 leading-relaxed">
+              Decommissioning: data is draining to other pools. Topology apply is blocked until this completes or you cancel.
+            </div>
             <button
               className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
               onClick={() => { poolId && onCancelDecommission?.(poolId); onClose(); }}
             >
-              Cancel Decommission
+              Cancel decommission
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
+              disabled
+              title="Wait until status is Decommissioned"
+            >
+              Remove pool (locked)
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
+              disabled
+              title="Not available while draining"
+            >
+              Duplicate pool
             </button>
           </>
         ) : (
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
-            onClick={() => { poolId && onDecommissionPool?.(poolId); onClose(); }}
-          >
-            Decommission Pool
-          </button>
+          <>
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
+              onClick={() => { poolId && onDecommissionPool?.(poolId); onClose(); }}
+            >
+              Decommission pool (drain)…
+            </button>
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+              onClick={() => {
+                poolId && onDuplicatePool(poolId);
+                onClose();
+              }}
+            >
+              Duplicate pool
+            </button>
+            {onlyPool ? (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
+                disabled
+                title="Cannot remove the only pool"
+              >
+                Remove pool (only pool)
+              </button>
+            ) : (
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground opacity-50 cursor-not-allowed"
+                disabled
+                title="Run decommission first; remove unlocks when the pool shows Decommissioned"
+              >
+                Remove pool (locked)
+              </button>
+            )}
+          </>
         )}
         <div className="border-t border-border my-1" />
         <button
           className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
           onClick={onClose}
         >
-          Cancel
+          Close
         </button>
       </div>
     );
@@ -513,6 +590,15 @@ export default function ClusterContextMenu(props: Props) {
             onClick={onViewInstances}
           >
             View in Instances
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+            onClick={() => {
+              onAddPool();
+              onClose();
+            }}
+          >
+            Add server pool
           </button>
           {demoId && (
             <>

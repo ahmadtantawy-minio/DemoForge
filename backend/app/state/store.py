@@ -262,5 +262,54 @@ class StateStore:
                             running.networks.append(n)
                 self.running_demos[demo_id] = running
 
+    def reconcile_deploying_from_docker(self) -> None:
+        """Promote ``deploying`` → ``running`` when no lifecycle task is active but all steady-state
+        containers are up. Excludes sidecars (e.g. metabase-init, MCP sidecars) via ``is_sidecar``.
+
+        Covers deploy task timeout after ``compose up``, backend restart mid-deploy, or missed completion.
+        """
+        try:
+            import docker
+            from docker.errors import APIError
+            from ..engine import task_manager
+        except Exception:
+            return
+        try:
+            client = docker.from_env()
+        except (APIError, Exception):
+            return
+        try:
+            for demo_id, running in list(self.running_demos.items()):
+                if running.status != "deploying":
+                    continue
+                if task_manager.is_operation_running(demo_id):
+                    continue
+                steady = [(nid, c) for nid, c in running.containers.items() if not c.is_sidecar]
+                if not steady:
+                    continue
+                all_running = True
+                for _nid, rc in steady:
+                    try:
+                        ctr = client.containers.get(rc.container_name)
+                        if ctr.status != "running":
+                            all_running = False
+                            break
+                    except Exception:
+                        all_running = False
+                        break
+                if all_running:
+                    running.status = "running"
+                    logger.info(
+                        "Reconciled demo %s from deploying -> running "
+                        "(steady containers running, no active lifecycle task)",
+                        demo_id,
+                    )
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+
 # Singleton
 state = StateStore()

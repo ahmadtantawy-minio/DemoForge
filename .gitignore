@@ -56,6 +56,10 @@ data/licenses.yaml
 demos/*.yaml
 !demos/.gitkeep
 
+# Python virtual environments
+.venv/
+venv/
+
 # Python bytecode
 __pycache__/
 *.pyc

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDemoStore } from "./stores/demoStore";
 import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
+import { DEBUG_LOG_TTL_MS } from "./lib/debugLogTtl";
 import { fetchDemos, fetchInstances, getFailoverStatus, getResilienceStatus, fetchIdentity } from "./api/client";
 import { Toaster } from "sonner";
 import Toolbar from "./components/toolbar/Toolbar";
@@ -36,7 +37,8 @@ export default function App() {
   const prevDemoStatuses = useRef<Record<string, string>>({});
   const provisionEmitted = useRef<Set<string>>(new Set());
   const initResultsEmitted = useRef<Set<string>>(new Set());
-  const integrationEventSeen = useRef<Map<string, Set<string>>>(new Map());
+  /** Per-demo map of integration event id → last-seen ts_ms (pruned for TTL). */
+  const integrationEventSeen = useRef<Map<string, Map<string, number>>>(new Map());
   const [terminalTabs, setTerminalTabs] = useState<{ nodeId: string }[]>([]);
   const [walkthroughSteps, setWalkthroughSteps] = useState<WalkthroughStep[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(200);
@@ -238,18 +240,23 @@ export default function App() {
             addDebugEntry(level, "Provision", `${result.node_id}: init (exit ${result.exit_code})`, output || undefined);
           }
         }
-        // Webhook / event-processor integration log (deduped by event id)
+        // Webhook / event-processor integration log (deduped by event id, TTL-scoped)
         const ie = res.integration_events;
         if (ie && ie.length > 0) {
+          const now = Date.now();
           let seen = integrationEventSeen.current.get(activeDemoId);
           if (!seen) {
-            seen = new Set<string>();
+            seen = new Map<string, number>();
             integrationEventSeen.current.set(activeDemoId, seen);
+          }
+          for (const [k, ts] of [...seen.entries()]) {
+            if (now - ts > DEBUG_LOG_TTL_MS) seen.delete(k);
           }
           for (const ev of ie) {
             const eid = typeof ev.id === "string" && ev.id ? ev.id : `${ev.ts_ms}-${ev.kind}-${ev.message}`;
+            const tsMs = typeof ev.ts_ms === "number" ? ev.ts_ms : now;
             if (seen.has(eid)) continue;
-            seen.add(eid);
+            seen.set(eid, tsMs);
             const lvl = ev.level === "error" ? "error" : ev.level === "warn" ? "warn" : "info";
             const node = typeof ev.node_id === "string" && ev.node_id ? `${ev.node_id}: ` : "";
             const msg = typeof ev.message === "string" ? ev.message : String(ev.message ?? "");
@@ -376,6 +383,8 @@ export default function App() {
   const showLeftSidebar = showSidebars && !isExperience && isDemoEditable;
   const showRightSidebar = showSidebars && !isExperience;
   const showWelcome = !activeDemoId;
+  /** Terminal + Logs tabs (Lifecycle / Integrations) — dev and FA; standard uses toolbar Debug only. */
+  const showDesignerLogsPanel = faMode === "dev" || faMode === "fa";
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
@@ -478,7 +487,7 @@ export default function App() {
               >
                 <div className="w-8 h-0.5 rounded-full bg-zinc-500" />
               </div>
-              {faMode === "dev" && (
+              {showDesignerLogsPanel && (
                 <div className="flex items-center gap-0 px-2 bg-card border-b border-border flex-shrink-0">
                   {(["terminal", "logs"] as const).map((t) => (
                     <button
@@ -486,13 +495,13 @@ export default function App() {
                       onClick={() => setBottomTab(t)}
                       className={`px-3 py-1 text-[11px] font-medium transition-colors border-b-2 ${bottomTab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                     >
-                      {t === "terminal" ? "Terminal" : "Dev Logs"}
+                      {t === "terminal" ? "Terminal" : "Logs"}
                     </button>
                   ))}
                 </div>
               )}
               <div className="flex-1 min-h-0">
-                {faMode === "dev" && bottomTab === "logs"
+                {showDesignerLogsPanel && bottomTab === "logs"
                   ? <DebugPanel />
                   : (debugOpen ? <DebugPanel /> : <TerminalPanel extraTabs={terminalTabs} />)
                 }

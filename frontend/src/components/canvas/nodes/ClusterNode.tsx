@@ -1,8 +1,18 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Handle, Position, type NodeProps, useUpdateNodeInternals } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { useDemoStore } from "../../../stores/demoStore";
-import { stopInstance, startInstance, resetCluster, stopDrive, startDrive, startPoolDecommission, cancelPoolDecommission, getPoolDecommissionStatus } from "../../../api/client";
+import {
+  stopInstance,
+  startInstance,
+  resetCluster,
+  stopDrive,
+  startDrive,
+  startPoolDecommission,
+  cancelPoolDecommission,
+  getPoolDecommissionStatus,
+} from "../../../api/client";
+import { saveDiagramAndApplyClusterTopology } from "../../../lib/persistClusterTopology";
 import { toast } from "../../../lib/toast";
 import { migrateClusterData } from "../../../lib/clusterMigration";
 import { getClusterInstances, getPoolInstances, computeClusterAggregates } from "../../../lib/clusterUtils";
@@ -12,18 +22,25 @@ import PoolContainer from "./cluster/PoolContainer";
 import NodeTile from "./cluster/NodeTile";
 import CapacityBar from "./cluster/CapacityBar";
 import AddPoolButton from "./cluster/AddPoolButton";
+import AddPoolDialog from "./cluster/AddPoolDialog";
 import ClusterContextMenu from "./cluster/ClusterContextMenu";
 import MinioAdminPanel from "../../minio/MinioAdminPanel";
 import McpPanel from "../../minio/McpPanel";
 import LogViewer from "../../logs/LogViewer";
 import { apiUrl } from "../../../lib/apiBase";
+import type { MinioServerPool } from "../../../types";
+
+type PoolDialogState =
+  | { mode: "closed" }
+  | { mode: "add" }
+  | { mode: "duplicate"; duplicateSourceId: string };
 
 export default function ClusterNode({ id, data }: NodeProps) {
   const nodeRef = useRef<HTMLDivElement>(null);
   const updateNodeInternals = useUpdateNodeInternals();
   const nodeData = migrateClusterData(data);
   const pools = nodeData.serverPools || [];
-  const { setSelectedNode, setSelectedClusterElement, selectedClusterElement, nodes, setNodes, setClipboard } = useDiagramStore();
+  const { setSelectedNode, setSelectedClusterElement, selectedClusterElement, nodes, edges, setNodes, setClipboard } = useDiagramStore();
   const { instances, clusterHealth, activeDemoId, demos, setActiveView } = useDemoStore();
   const demoStatus = demos.find((d) => d.id === activeDemoId)?.status;
   const isRunning = demoStatus === "running";
@@ -58,6 +75,8 @@ export default function ClusterNode({ id, data }: NodeProps) {
   const [mcpDefaultTab, setMcpDefaultTab] = useState<"mcp-tools" | "ai-chat">("mcp-tools");
   const [logViewerNodeId, setLogViewerNodeId] = useState<string | null>(null);
   const [poolDecommissionStatus, setPoolDecommissionStatus] = useState<Record<string, "active" | "decommissioning" | "decommissioned">>({});
+  const [poolDecommissionDetail, setPoolDecommissionDetail] = useState<Record<string, string>>({});
+  const [poolDialog, setPoolDialog] = useState<PoolDialogState>({ mode: "closed" });
 
   // Close context menu when canvas background is clicked
   useEffect(() => {
@@ -80,42 +99,113 @@ export default function ClusterNode({ id, data }: NodeProps) {
     return () => observer.disconnect();
   }, [id, updateNodeInternals, instances, clusterHealth]);
 
-  const handleAddPool = useCallback(() => {
+  const persistPoolChangeAndApply = useCallback(
+    (newNodes: typeof nodes) => {
+      if (!activeDemoId || !isRunning) return Promise.resolve();
+      return saveDiagramAndApplyClusterTopology(activeDemoId, id, newNodes, edges);
+    },
+    [activeDemoId, isRunning, edges, id]
+  );
+
+  const openAddPoolDialog = useCallback(() => {
     if (pools.length === 0) return;
-    const lastPool = pools[pools.length - 1];
-    const newPool = { ...lastPool, id: `pool-${pools.length + 1}` };
-    setNodes(
-      nodes.map((n) =>
+    setPoolDialog({ mode: "add" });
+  }, [pools.length]);
+
+  const openDuplicatePoolDialog = useCallback((duplicateSourceId: string) => {
+    setPoolDialog({ mode: "duplicate", duplicateSourceId });
+  }, []);
+
+  const templatePoolForDialog = useMemo((): MinioServerPool => {
+    const fallback: MinioServerPool = {
+      id: "pool-1",
+      nodeCount: 4,
+      drivesPerNode: 2,
+      diskSizeTb: 1,
+      diskType: "ssd",
+      ecParity: 3,
+      ecParityUpgradePolicy: "upgrade",
+      volumePath: "/data",
+    };
+    if (pools.length === 0) return fallback;
+    if (poolDialog.mode === "duplicate") {
+      return pools.find((p) => p.id === poolDialog.duplicateSourceId) ?? pools[pools.length - 1];
+    }
+    return pools[pools.length - 1];
+  }, [poolDialog, pools]);
+
+  const nextPoolId = `pool-${pools.length + 1}`;
+
+  const handlePoolDialogConfirm = useCallback(
+    async (newPool: MinioServerPool) => {
+      const newNodes = nodes.map((n) =>
         n.id !== id ? n : { ...n, data: { ...n.data, serverPools: [...pools, newPool] } }
-      )
-    );
-  }, [pools, nodes, id, setNodes]);
+      );
+      setNodes(newNodes);
+      if (isRunning && activeDemoId) {
+        await persistPoolChangeAndApply(newNodes);
+      }
+    },
+    [pools, nodes, id, setNodes, isRunning, activeDemoId, persistPoolChangeAndApply]
+  );
 
   const handleDuplicatePool = useCallback(
     (poolId: string) => {
+      if (isRunning && activeDemoId) {
+        openDuplicatePoolDialog(poolId);
+        return;
+      }
       const source = pools.find((p) => p.id === poolId);
       if (!source) return;
       const newPool = { ...source, id: `pool-${pools.length + 1}` };
-      setNodes(
-        nodes.map((n) =>
-          n.id !== id ? n : { ...n, data: { ...n.data, serverPools: [...pools, newPool] } }
-        )
+      const newNodes = nodes.map((n) =>
+        n.id !== id ? n : { ...n, data: { ...n.data, serverPools: [...pools, newPool] } }
       );
+      setNodes(newNodes);
     },
-    [pools, nodes, id, setNodes]
+    [pools, nodes, id, setNodes, isRunning, activeDemoId, openDuplicatePoolDialog]
   );
 
   const handleRemovePool = useCallback(
     (poolId: string) => {
       if (pools.length <= 1) return;
+      if (isRunning) {
+        const st = poolDecommissionStatus[poolId];
+        if (st !== "decommissioned") {
+          toast.error(
+            st === "decommissioning"
+              ? "Wait until decommission finishes (pool shows Decommissioned) before removing."
+              : "Decommission and drain this pool first; remove is enabled only after status is Decommissioned."
+          );
+          return;
+        }
+      }
       const next = pools.filter((p) => p.id !== poolId);
-      setNodes(
-        nodes.map((n) =>
-          n.id !== id ? n : { ...n, data: { ...n.data, serverPools: next } }
-        )
-      );
+      const plc = { ...(nodeData.poolLifecycle || {}) };
+      delete plc[poolId];
+      const newNodes = nodes.map((n) => {
+        if (n.id !== id) return n;
+        const data = { ...n.data, serverPools: next } as Record<string, unknown>;
+        if (Object.keys(plc).length > 0) data.poolLifecycle = plc;
+        else delete data.poolLifecycle;
+        return { ...n, data };
+      });
+      setNodes(newNodes);
+      setPoolDecommissionStatus((prev) => {
+        const q = { ...prev };
+        delete q[poolId];
+        return q;
+      });
+      setPoolDecommissionDetail((prev) => {
+        const q = { ...prev };
+        delete q[poolId];
+        return q;
+      });
+      if (isRunning && activeDemoId) {
+        void persistPoolChangeAndApply(newNodes);
+      }
     },
-    [pools, nodes, id, setNodes]
+    [pools, nodes, id, setNodes, isRunning, activeDemoId, persistPoolChangeAndApply, poolDecommissionStatus, nodeData.poolLifecycle]
   );
 
   const handleStopNode = async (nodeId: string) => {
@@ -223,13 +313,50 @@ export default function ClusterNode({ id, data }: NodeProps) {
       try {
         const res = await getPoolDecommissionStatus(activeDemoId, id, pool.id);
         if (res.status && res.status !== "active") {
-          setPoolDecommissionStatus(prev => ({ ...prev, [pool.id]: res.status }));
+          setPoolDecommissionStatus((prev) => ({ ...prev, [pool.id]: res.status }));
+        }
+        if (res.detail) {
+          setPoolDecommissionDetail((d) => ({ ...d, [pool.id]: res.detail! }));
         }
       } catch {
         // Pool may not have decommission in progress — ignore errors
       }
     });
   }, [isRunning, activeDemoId, id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hasDecommissioningPool = Object.values(poolDecommissionStatus).some((s) => s === "decommissioning");
+
+  // While any pool is draining, poll mc status so the canvas shows live phase + enables remove when done
+  useEffect(() => {
+    if (!isRunning || !activeDemoId || pools.length === 0 || !hasDecommissioningPool) return;
+
+    const tick = async () => {
+      for (const pool of pools) {
+        try {
+          const res = await getPoolDecommissionStatus(activeDemoId!, id, pool.id);
+          const mapped =
+            res.status === "decommissioned"
+              ? "decommissioned"
+              : res.status === "decommissioning"
+                ? "decommissioning"
+                : "active";
+          setPoolDecommissionStatus((prev) => {
+            if (prev[pool.id] === mapped) return prev;
+            return { ...prev, [pool.id]: mapped };
+          });
+          if (res.detail) {
+            setPoolDecommissionDetail((d) => ({ ...d, [pool.id]: res.detail! }));
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    const interval = setInterval(() => void tick(), 5000);
+    void tick();
+    return () => clearInterval(interval);
+  }, [isRunning, activeDemoId, id, pools, hasDecommissioningPool]);
 
   return (
     <>
@@ -280,6 +407,7 @@ export default function ClusterNode({ id, data }: NodeProps) {
               hidden={pools.length === 1}
               selected={selectedClusterElement?.type === "pool" && selectedClusterElement.poolId === pool.id}
               decommissionStatus={poolDecommissionStatus[pool.id]}
+              decommissionDetail={poolDecommissionDetail[pool.id]}
               onPoolContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -341,7 +469,9 @@ export default function ClusterNode({ id, data }: NodeProps) {
           );
         })}
 
-        {isEditable && pools.length > 0 && <AddPoolButton onClick={handleAddPool} />}
+        {(isEditable || isRunning) && pools.length > 0 && (
+          <AddPoolButton onClick={openAddPoolDialog} />
+        )}
         {pools.length > 0 && <CapacityBar aggregates={aggregates} />}
         <Handle type="source" position={Position.Right} id="data-out" />
       </div>
@@ -394,7 +524,7 @@ export default function ClusterNode({ id, data }: NodeProps) {
             setContextMenu(null);
           }}
           onAddPool={() => {
-            handleAddPool();
+            openAddPoolDialog();
             setContextMenu(null);
           }}
           onEditPool={(poolId) => {
@@ -429,6 +559,18 @@ export default function ClusterNode({ id, data }: NodeProps) {
           onSetConfirmRemovePool={setConfirmRemovePool}
         />
       )}
+
+      <AddPoolDialog
+        open={poolDialog.mode !== "closed"}
+        onOpenChange={(o) => {
+          if (!o) setPoolDialog({ mode: "closed" });
+        }}
+        templatePool={templatePoolForDialog}
+        nextPoolId={nextPoolId}
+        isRunning={isRunning}
+        title={poolDialog.mode === "duplicate" ? "Duplicate server pool" : "Add server pool"}
+        onConfirm={handlePoolDialogConfirm}
+      />
 
       <MinioAdminPanel
         open={adminPanelOpen}

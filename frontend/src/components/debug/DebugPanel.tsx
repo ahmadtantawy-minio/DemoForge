@@ -270,7 +270,7 @@ export default function DebugPanel() {
           <div className="font-mono text-xs p-1">
             {sortedEntries.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-muted-foreground">
-                No debug entries yet. Deploy a demo to see logs here.
+                No log entries yet. Deploy a demo to see output here.
               </div>
             ) : (
               sortedEntries.map((entry) => <LogEntry key={entry.id} entry={entry} />)

@@ -622,8 +622,8 @@ export default function Toolbar() {
           className={`h-7 text-xs px-2 ${debugStore.isOpen ? "text-primary" : "text-muted-foreground"}`}
         >
           {debugStore.entries.filter((e) => e.level === "error").length > 0
-            ? `Debug (${debugStore.entries.filter((e) => e.level === "error").length})`
-            : "Debug"}
+            ? `Logs (${debugStore.entries.filter((e) => e.level === "error").length})`
+            : "Logs"}
         </Button>
 
         {deploying && activeDemoId && activeDemo && (

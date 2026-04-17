@@ -236,15 +236,28 @@ export const startPoolDecommission = (demoId: string, clusterId: string, poolId:
   );
 
 export const getPoolDecommissionStatus = (demoId: string, clusterId: string, poolId: string) =>
-  apiFetch<{ pool_id: string; raw: string; status: "active" | "decommissioning" | "decommissioned" }>(
-    `/api/demos/${demoId}/clusters/${clusterId}/pools/${poolId}/decommission/status`
-  );
+  apiFetch<{
+    pool_id: string;
+    raw: string;
+    status: "active" | "decommissioning" | "decommissioned";
+    detail?: string;
+  }>(`/api/demos/${demoId}/clusters/${clusterId}/pools/${poolId}/decommission/status`);
 
 export const cancelPoolDecommission = (demoId: string, clusterId: string, poolId: string) =>
   apiFetch<{ status: string; pool_id: string; output: string }>(
     `/api/demos/${demoId}/clusters/${clusterId}/pools/${poolId}/decommission/cancel`,
     { method: "POST" }
   );
+
+/** After saving diagram with updated server_pools, apply compose + docker compose up -d while demo runs. */
+export const applyClusterTopology = (demoId: string, clusterId: string) =>
+  apiFetch<{
+    demo_id: string;
+    cluster_id: string;
+    status: string;
+    compose_path: string;
+    container_count: number;
+  }>(`/api/demos/${demoId}/clusters/${clusterId}/apply-topology`, { method: "POST" });
 
 export const fetchMinioCommands = (demoId: string) =>
   apiFetch<{

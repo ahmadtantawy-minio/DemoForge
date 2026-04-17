@@ -7,6 +7,8 @@ interface Props {
   hidden: boolean;
   selected?: boolean;
   decommissionStatus?: "active" | "decommissioning" | "decommissioned";
+  /** Latest line from ``mc admin decommission status`` (when draining). */
+  decommissionDetail?: string;
   onPoolContextMenu: (e: React.MouseEvent) => void;
   onPoolClick?: (e: React.MouseEvent) => void;
   children: React.ReactNode;
@@ -22,6 +24,7 @@ export default function PoolContainer({
   hidden,
   selected,
   decommissionStatus,
+  decommissionDetail,
   children,
   onPoolContextMenu,
   onPoolClick,
@@ -90,6 +93,11 @@ export default function PoolContainer({
           <span className="text-[10px] text-muted-foreground">{stats.usableTb} TB</span>
         </div>
       </div>
+      {decommissionStatus === "decommissioning" && decommissionDetail && (
+        <p className="text-[9px] text-muted-foreground leading-snug mb-2 font-mono break-words opacity-90">
+          {decommissionDetail.length > 120 ? `${decommissionDetail.slice(0, 120)}…` : decommissionDetail}
+        </p>
+      )}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{children}</div>
     </div>
   );

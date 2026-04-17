@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+/// <reference types="vitest/config" />
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
@@ -7,6 +8,10 @@ const backendUrl = process.env.VITE_BACKEND_URL || "http://localhost:9210";
 
 export default defineConfig({
   plugins: [react()],
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

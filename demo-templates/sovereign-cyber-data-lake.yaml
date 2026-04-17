@@ -274,7 +274,7 @@ edges:
   connection_type: s3
   network: default
   connection_config:
-    target_bucket: malware-vault/reports/
+    target_bucket: malware-vault
   auto_configure: true
   label: ''
   protocol: ''
@@ -288,7 +288,9 @@ edges:
   connection_type: webhook
   network: default
   connection_config:
-    webhook_bucket: malware-vault/samples/
+    webhook_bucket: malware-vault
+    webhook_prefix: samples/
+    webhook_suffix: ''
   auto_configure: true
   label: ''
   protocol: ''
@@ -335,8 +337,8 @@ sticky_notes:
   title: Vulnerability scan data
   visibility: customer
   position:
-    x: -631.0
-    y: 228.26577361381692
+    x: -635.6887535301244
+    y: 214.1995130234436
   width: 332.0
   height: 136.0
   font_size: sm
@@ -360,22 +362,10 @@ sticky_notes:
   title: Standard SQL over Iceberg
   visibility: customer
   position:
-    x: 819.9216520433494
-    y: 389.93913498376617
-  width: 299.0
-  height: 129.0
-  font_size: sm
-- id: sn-metabase-info
-  text: '3 dashboards created automatically: SOC Overview, Threat Intelligence, Vulnerability
-    Posture. Plus 10 pre-configured analyst queries.'
-  color: '#a855f7'
-  title: Auto-provisioned dashboards
-  visibility: customer
-  position:
-    x: 1079.0
-    y: 50.0
-  width: 297.0
-  height: 131.0
+    x: 798.9833969506082
+    y: 391.8426127194699
+  width: 308.0
+  height: 149.0
   font_size: sm
 - id: sn-fw-fa
   text: Seeding takes ~30s. Show DemoForge log viewer during seeding — audience sees
@@ -556,7 +546,7 @@ annotations:
   position:
     x: -63.24216191898043
     y: 276.2586660574274
-  width: 237
+  width: 265
   height: null
   title: Raw objects
   body: 'raw-logs/firewall/ (CSV)
@@ -570,11 +560,11 @@ annotations:
   step_number: null
   pointer_target: null
   collapsed: false
-  font_size: sm
+  font_size: base
 - id: annotation-6
   position:
-    x: 61.752757433119086
-    y: 659.0520128683808
+    x: 40.38188966904917
+    y: 648.3665789863459
   width: 296
   height: null
   title: Event-driven malware analysis
@@ -588,8 +578,8 @@ annotations:
   font_size: base
 - id: annotation-6
   position:
-    x: 61.752757433119086
-    y: 659.0520128683808
+    x: 40.38188966904917
+    y: 648.3665789863459
   width: 296
   height: null
   title: Event-driven malware analysis
@@ -605,7 +595,7 @@ schematics: []
 clusters:
 - id: aistor-1
   component: minio
-  label: AIStor MinIO Cluster
+  label: MinIO AIStor
   position:
     x: 227.05934243399918
     y: 275.8629778342123
@@ -676,5 +666,5 @@ resources:
   total_cpu: 6.0
 deploy_timeout_seconds: null
 created_at: null
-updated_at: '2026-04-16T05:30:09.894033+00:00'
+updated_at: '2026-04-16T07:17:09.726110+00:00'
 source_template_id: sovereign-cyber-data-lake
