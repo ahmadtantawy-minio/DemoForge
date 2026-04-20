@@ -1,0 +1,37 @@
+# Helm values: minio/aistor-objectstore — CLUSTER A (df-cursor-cluster-a namespace)
+# 4 server pods × 4 drives each; expose S3 (minio) only, keep operator Console ClusterIP.
+
+secrets:
+  accessKey: minioadmin
+  secretKey: minioadmin
+
+objectStore:
+  name: df-cursor-cluster-a
+  image:
+    repository: quay.io/minio/aistor/minio
+    tag: RELEASE.2026-04-14T21-32-45Z
+    pullPolicy: IfNotPresent
+
+  pools:
+    - name: df-cursor-cluster-a-pool-0
+      servers: 4
+      volumesPerServer: 4
+      size: 10Gi
+
+  services:
+    minio:
+      name: df-cursor-s3-api
+      serviceType: LoadBalancer
+      labels:
+        df-cursor.min.io/role: s3-api
+    console:
+      name: df-cursor-console-ui
+      serviceType: ClusterIP
+      labels:
+        df-cursor.min.io/role: console
+
+  certificates:
+    disableAutoCert: true
+
+  prometheusOperator: false
+  pvcProtection: false

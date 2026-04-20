@@ -1,0 +1,38 @@
+# Helm values: minio/aistor-objectstore — CLUSTER B (df-cursor-cluster-b namespace)
+# 2 server pods; S3 ClusterIP only; expose operator Console via LoadBalancer.
+# Pool: servers × volumesPerServer must be > 4 for this chart.
+
+secrets:
+  accessKey: minioadmin
+  secretKey: minioadmin
+
+objectStore:
+  name: df-cursor-cluster-b
+  image:
+    repository: quay.io/minio/aistor/minio
+    tag: RELEASE.2026-04-14T21-32-45Z
+    pullPolicy: IfNotPresent
+
+  pools:
+    - name: df-cursor-cluster-b-pool-0
+      servers: 2
+      volumesPerServer: 3
+      size: 10Gi
+
+  services:
+    minio:
+      name: df-cursor-s3-api
+      serviceType: ClusterIP
+      labels:
+        df-cursor.min.io/role: s3-api
+    console:
+      name: df-cursor-console-ui
+      serviceType: LoadBalancer
+      labels:
+        df-cursor.min.io/role: console
+
+  certificates:
+    disableAutoCert: true
+
+  prometheusOperator: false
+  pvcProtection: false

@@ -3,11 +3,27 @@
 # Verbose installer: MinIO AIStor operator + ObjectStore (df-cursor-* prefixed names).
 # License: scripts/minio.license (SUBNET JWT).
 #
+# Remote Console only (cluster B → API on cluster A, no ObjectStore on B):
+#   scripts/aistore-sandbox/deploy-remote-console.sh — see remote-console/README.md
+# Two-namespace MinIO AIStor test (same kube, cluster-a + cluster-b tenants):
+#   AISTOR_TWO_MINIO_NAMESPACES=1 scripts/aistore-sandbox/deploy-two-cluster.sh
+#   (or: scripts/aistore-sandbox/deploy-two-minio-clusters.sh — thin wrapper)
+# Two-context automation (cleanup + API wait + DATA deploy + remote Console):
+#   scripts/aistore-sandbox/deploy-two-cluster.sh
+# Shared uninstall / CRD prune (also invoked by deploy-two-cluster before DATA install):
+#   scripts/aistore-sandbox/cleanup-aistor.sh
+#   AISTOR_CLEANUP_ALL_DF_CURSOR_NAMESPACES=1 — delete every namespace matching ^df-cursor- (see cleanup-aistor.sh)
+#
 # Optional env:
+#   KUBECTL_CONTEXT        if set, every kubectl/helm call uses this kubeconfig context
+#                          (multi-cluster helper; see deploy-two-cluster.sh).
+#                          The namespace is labeled df-cursor.min.io/kube-context when set.
 #   AISTOR_NAMESPACE       (default df-cursor-aistor)
 #   OPERATOR_RELEASE       (default df-cursor-aistor-operator)
 #   OBJECTSTORE_RELEASE    (default df-cursor-aistor-objectstore)
 #   LICENSE_FILE           (default <repo>/scripts/minio.license)
+#   VALUES                 (default <repo>/scripts/aistore-sandbox/values.yaml) — override for multi-tenant files
+#   AISTOR_HELM_OPERATOR_SKIP_CRDS=1  force helm --skip-crds on aistor-operator (else auto if CRDs already exist)
 #   SKIP_OPERATOR=1 | SKIP_OBJECTSTORE=1
 #   HEALTH_WAIT_SEC        (default 600) max seconds to wait for pods after object store
 #   AISTOR_SKIP_CLEANUP=1  skip uninstall + CRD prune (default: cleanup runs before operator install)
@@ -23,7 +39,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VALUES="${ROOT}/scripts/aistore-sandbox/values.yaml"
+VALUES="${VALUES:-${ROOT}/scripts/aistore-sandbox/values.yaml}"
 LICENSE_FILE="${LICENSE_FILE:-${ROOT}/scripts/minio.license}"
 
 NS="${AISTOR_NAMESPACE:-df-cursor-aistor}"
@@ -40,34 +56,11 @@ die() { echo "[df-cursor] ERROR: $*" >&2; exit 1; }
 log() { echo "[df-cursor] $*"; }
 log_step() { echo ""; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; echo "► STEP $1"; echo "   $2"; echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; }
 
-# $1 = force (1 = delete CRDs even if AISTOR_PRUNE_CRDS=0 — used after full cluster reset)
-prune_aistor_crds() {
-  local force="${1:-0}"
-  if [[ "$force" != "1" ]] && [[ "$AISTOR_PRUNE_CRDS" != "1" ]]; then
-    log "  AISTOR_PRUNE_CRDS=0 — not deleting CRDs."
-    return 0
-  fi
-  log "  Deleting CRDs (*.sts.min.io, *.aistor.min.io) so Helm can own them on next install..."
-  local crd_count=0
-  while IFS= read -r crd; do
-    [[ -z "$crd" ]] && continue
-    log "    kubectl delete $crd"
-    kubectl delete "$crd" --wait=false 2>/dev/null && crd_count=$((crd_count + 1)) || true
-  done < <(kubectl get crd -o name 2>/dev/null | grep -E '\.(sts|aistor)\.min\.io$' || true)
-  if [[ "$crd_count" -eq 0 ]]; then
-    log "  No sts.min.io / aistor.min.io CRDs found (or already clean)."
-  else
-    log "  Submitted deletion for ${crd_count} CRD(s); waiting for API to settle..."
-    sleep 3
-    local _i rem
-    for _i in $(seq 1 30); do
-      rem=$(kubectl get crd -o name 2>/dev/null | grep -E '\.(sts|aistor)\.min\.io$' | wc -l | tr -d ' ')
-      rem=${rem:-0}
-      [[ "$rem" == "0" ]] && break
-      sleep 2
-    done
-  fi
-}
+# Pin Kubernetes clients to one context (orchestrated two-cluster flows set KUBECTL_CONTEXT per phase).
+if [[ -n "${KUBECTL_CONTEXT:-}" ]]; then
+  kubectl() { command kubectl --context "${KUBECTL_CONTEXT}" "$@"; }
+  helm() { command helm --kube-context "${KUBECTL_CONTEXT}" "$@"; }
+fi
 
 command -v kubectl >/dev/null || die "kubectl not found in PATH"
 command -v helm >/dev/null || die "helm not found in PATH"
@@ -83,7 +76,11 @@ log "DemoForge AIStor sandbox deploy"
 log "  Repository root:     ${ROOT}"
 log "  Values file:         ${VALUES}"
 log "  License file:        ${LICENSE_FILE}"
-log "  Kubernetes context:  $(kubectl config current-context 2>/dev/null || echo '(unknown)')"
+if [[ -n "${KUBECTL_CONTEXT:-}" ]]; then
+  log "  Kubernetes context:  ${KUBECTL_CONTEXT} (pinned: KUBECTL_CONTEXT)"
+else
+  log "  Kubernetes context:  $(kubectl config current-context 2>/dev/null || echo '(unknown)')"
+fi
 log "  Target namespace:      ${NS} (Helm releases, CR, Services, pool: df-cursor-*; see header note for operator chart names)"
 log "  Helm release (op):   ${OPERATOR_REL}"
 log "  Helm release (store):${STORE_REL}"
@@ -154,7 +151,7 @@ if [[ "${AISTOR_ORBSTACK_RESET:-0}" == "1" ]]; then
   kubectl delete configmap --all -n default 2>/dev/null || true
   kubectl delete secrets -n default --field-selector type!=kubernetes.io/service-account-token 2>/dev/null || true
 
-  prune_aistor_crds 1
+  AISTOR_CLEANUP_PRUNE_CRDS_FORCE=1 bash "${ROOT}/scripts/aistore-sandbox/cleanup-aistor.sh"
   AISTOR_SKIP_CLEANUP=1
   log "  Full reset done. Subsequent steps will recreate namespace ${NS} and install charts."
   log "  kubectl get pods -A (protected namespaces may still show system pods):"
@@ -182,32 +179,18 @@ else
   kubectl create ns "$NS"
   log "  Created namespace ${NS}."
 fi
+if [[ -n "${KUBECTL_CONTEXT:-}" ]]; then
+  kubectl label namespace "$NS" \
+    df-cursor.min.io/kube-context="${KUBECTL_CONTEXT}" \
+    df-cursor.min.io/cluster-role=data-plane \
+    --overwrite >/dev/null 2>&1 || log "  (namespace label skipped — not permitted or API lag)"
+fi
 
 # --- Cleanup prior installs (Helm + orphan CRDs) ---------------------------------
 if [[ "${AISTOR_SKIP_CLEANUP:-0}" != "1" ]]; then
   log_step 3 "Clean up prior MinIO AIStor deployments (before fresh install)"
-  log "Why: leftover Helm releases or CRDs from an older release name / manual apply block the operator chart"
-  log "      (Helm cannot adopt CRDs that lack meta.helm.sh/release-name and app.kubernetes.io/managed-by=Helm)."
-  if helm status "$STORE_REL" -n "$NS" &>/dev/null; then
-    log "  Uninstalling prior Helm release: ${STORE_REL} (aistor-objectstore first)..."
-    helm uninstall "$STORE_REL" -n "$NS" --wait --timeout 5m || log "  ⚠ uninstall ${STORE_REL} returned non-zero (continuing)"
-  else
-    log "  No existing Helm release ${STORE_REL} in ${NS}."
-  fi
-  log "  Removing any remaining ObjectStore CRs in ${NS} (safe if none / CRD missing)..."
-  kubectl delete objectstore --all -n "$NS" --wait=true --timeout=120s 2>/dev/null || log "  (no ObjectStore CRs, or CRD not installed — ok)"
-  if helm status "$OPERATOR_REL" -n "$NS" &>/dev/null; then
-    log "  Uninstalling prior Helm release: ${OPERATOR_REL} (aistor-operator)..."
-    helm uninstall "$OPERATOR_REL" -n "$NS" --wait --timeout 5m || log "  ⚠ uninstall ${OPERATOR_REL} returned non-zero (continuing)"
-  else
-    log "  No existing Helm release ${OPERATOR_REL} in ${NS}."
-  fi
-  log "  Note: helm uninstall often leaves cluster-scoped CRDs; those must match this release or install fails."
-  if [[ "$AISTOR_PRUNE_CRDS" == "1" ]]; then
-    log "  (Set AISTOR_PRUNE_CRDS=0 to skip — required if another namespace on this cluster still uses these APIs.)"
-  fi
-  prune_aistor_crds 0
-  log "  Cleanup step finished."
+  AISTOR_PRUNE_CRDS="${AISTOR_PRUNE_CRDS:-1}" AISTOR_NAMESPACE="$NS" OPERATOR_RELEASE="$OPERATOR_REL" OBJECTSTORE_RELEASE="$STORE_REL" \
+    bash "${ROOT}/scripts/aistore-sandbox/cleanup-aistor.sh"
 else
   log_step 3 "AISTOR_SKIP_CLEANUP=1 — skipping prior uninstall / CRD prune"
 fi
@@ -217,10 +200,21 @@ if [[ "${SKIP_OPERATOR:-0}" != "1" ]]; then
   log_step 4 "Install/upgrade aistor-operator (release: ${OPERATOR_REL})"
   log "This deploys the object-store operator + webhooks + CRDs so ObjectStore resources can be reconciled."
   log "License is passed with --set-file (content of ${LICENSE_FILE})."
-  helm upgrade --install "$OPERATOR_REL" minio/aistor-operator \
-    --namespace "$NS" \
-    --set-file license="$LICENSE_FILE" \
-    --wait --timeout 12m
+  # One argv array (set -u + empty optional "${arr[@]}" breaks on some Bash builds).
+  _op_helm_args=(
+    upgrade --install "$OPERATOR_REL" minio/aistor-operator
+    --namespace "$NS"
+    --set-file "license=$LICENSE_FILE"
+  )
+  if kubectl get crd adminjobs.aistor.min.io >/dev/null 2>&1; then
+    _op_helm_args+=(--skip-crds)
+    log "  Using helm --skip-crds: aistor.min.io CRDs already exist (another Helm release owns them). Uninstall other df-cursor-*-operator releases if you see duplicate controllers."
+  elif [[ "${AISTOR_HELM_OPERATOR_SKIP_CRDS:-0}" == "1" ]]; then
+    _op_helm_args+=(--skip-crds)
+    log "  AISTOR_HELM_OPERATOR_SKIP_CRDS=1 — using helm --skip-crds for aistor-operator."
+  fi
+  _op_helm_args+=(--wait --timeout 12m)
+  helm "${_op_helm_args[@]}"
   log "  Helm reports success; verifying operator workloads in namespace..."
   kubectl get deploy,po -n "$NS" -l "app.kubernetes.io/instance=${OPERATOR_REL}" 2>/dev/null || kubectl get deploy,po -n "$NS"
   log "  Health: waiting for every Deployment in ${NS} to become available (max 300s each)..."
@@ -334,8 +328,9 @@ echo "  mc ls df-cursor/"
 echo "  # Health check against forwarded API:"
 echo "  curl -sS http://127.0.0.1:9000/minio/health/live"
 echo ""
-echo "Layer 4 — Web Console UI (Service ${SVC_UI}, HTTPS port 9443 typically)"
+echo "Layer 4 — Web Console UI (Service ${SVC_UI}; operator-managed, AIStor image — HTTPS port 9443 typically)"
 echo "  kubectl get svc ${SVC_UI} -n ${NS}"
+echo "  # If values.yaml set serviceType LoadBalancer for console, use EXTERNAL-IP:9443; with ClusterIP use port-forward below."
 echo "  kubectl port-forward -n ${NS} svc/${SVC_UI} 9443:9443"
 echo "  # Open: https://127.0.0.1:9443  (accept self-signed / insecure if disableAutoCert)"
 echo "  # Login: minioadmin / minioadmin"

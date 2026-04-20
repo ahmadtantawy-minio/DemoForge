@@ -25,11 +25,15 @@ objectStore:
       size: 10Gi
 
   services:
+    # S3 API: ClusterIP only (in-cluster). External clients use Console or port-forward.
     minio:
       name: df-cursor-s3-api
       serviceType: ClusterIP
       labels:
         df-cursor.min.io/role: s3-api
+    # Console: operator-managed UI (AIStor image train). ClusterIP = not exposed outside the cluster;
+    # use port-forward or put Console on a second cluster (remote-console/) with REMOTE_MINIO_URL → A.
+    # Set serviceType: LoadBalancer here only if you want the operator Console reachable without port-forward.
     console:
       name: df-cursor-console-ui
       serviceType: ClusterIP
