@@ -25,10 +25,12 @@ Once setup is complete and images are cached, DemoForge can run entirely air-gap
 
 ### Prerequisites
 
-- **macOS** with [OrbStack](https://orbstack.dev) (recommended) or Docker Desktop
+- **macOS** with [OrbStack](https://orbstack.dev) (recommended) or Docker Desktop — or **Windows** with Docker Desktop / Podman (Compose v2) and **PowerShell** (`demoforge-windows.cmd` falls back to Windows PowerShell 5.1; **`make *-win`** targets call **`pwsh`** if it is on your `PATH`)
 - **16GB RAM** minimum (32GB recommended for heavy templates)
 - **Docker** running (`docker ps` should work)
 - **API key** from your team lead
+
+**Windows (no Bash required):** from the repo root, run `pwsh -File scripts/windows/fa-setup.ps1` (or `powershell -File ...\fa-setup.ps1`), then `demoforge-windows.cmd start` (or `make fa-setup-win` / `make start-win` if `make` and `pwsh` are on your `PATH`). Optional: set `DEMO_DOCKER_CLI=podman` when using Podman’s CLI. Dev-mode hot reload is not covered by these scripts — use WSL or the existing `demoforge-dev.sh` flow for full dev parity.
 
 ### Quick Start
 

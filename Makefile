@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean fa-setup-win start-win stop-win restart-win status-win logs-win fa-update-win fa-cleanup-win
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -27,6 +27,30 @@ nuke:           ## Full clean + remove built images
 
 help:
 	./demoforge.sh help
+
+fa-setup-win:   ## [Windows] FA first-time setup (PowerShell; requires Docker + pwsh)
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/fa-setup.ps1
+
+start-win:      ## [Windows] Start DemoForge (FA / standard from .env.local)
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge.ps1 start
+
+stop-win:       ## [Windows] Stop DemoForge
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge.ps1 stop
+
+restart-win:    ## [Windows] Restart DemoForge
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge.ps1 restart
+
+status-win:     ## [Windows] Compose + demo container status
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge.ps1 status
+
+logs-win:       ## [Windows] Tail compose logs
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge.ps1 logs
+
+fa-update-win:  ## [Windows] hub-pull + restart + template sync (PowerShell)
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/fa-update.ps1
+
+fa-cleanup-win: ## [Windows] Remove .env.local (backup to .env.local.bak)
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/fa-cleanup.ps1
 
 dev-init:       ## Generate local dev admin key (.env.local) for use with make dev-start (local hub-api)
 	@if grep -q "DEMOFORGE_HUB_API_ADMIN_KEY" .env.local 2>/dev/null; then \
