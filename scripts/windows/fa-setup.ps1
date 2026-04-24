@@ -7,6 +7,8 @@
   pwsh -File scripts/windows/fa-setup.ps1
 #>
 $ErrorActionPreference = 'Stop'
+# Resolve script root (reliable in Windows PowerShell 5.1 and pwsh)
+$PSScriptRoot = if ($MyInvocation.MyCommand.Path) { (Split-Path -Parent $MyInvocation.MyCommand.Path) } elseif ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 . (Join-Path $PSScriptRoot 'DemoForge-Env.ps1')
 
 $ProjectRoot = Get-DemoForgeProjectRoot
@@ -14,7 +16,7 @@ $DefaultHubUrl = 'https://demoforge-gateway-64xwtiev6q-ww.a.run.app'
 $HubUrl = $DefaultHubUrl
 
 Write-Host ''
-Write-Host '  DemoForge — Field setup (Windows)' -ForegroundColor Cyan
+Write-Host '  DemoForge - Field setup (Windows)' -ForegroundColor Cyan
 Write-Host ''
 
 if (-not (Test-DockerAvailable)) { exit 1 }
@@ -48,7 +50,7 @@ try {
     $null = Invoke-WebRequest -Uri "$HubUrl/health" -UseBasicParsing -TimeoutSec 15
 }
 catch {
-    Write-Host "  Cannot reach $HubUrl — check your network." -ForegroundColor Red
+    Write-Host "  Cannot reach $HubUrl - check your network." -ForegroundColor Red
     exit 1
 }
 Write-Host '  Hub gateway reachable' -ForegroundColor Green

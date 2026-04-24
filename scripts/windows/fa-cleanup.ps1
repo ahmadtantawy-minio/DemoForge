@@ -4,6 +4,7 @@
   Remove .env.local after backup (equivalent to make fa-cleanup).
 #>
 $ErrorActionPreference = 'Stop'
+$PSScriptRoot = if ($MyInvocation.MyCommand.Path) { (Split-Path -Parent $MyInvocation.MyCommand.Path) } elseif ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 . (Join-Path $PSScriptRoot 'DemoForge-Env.ps1')
 $root = Get-DemoForgeProjectRoot
 $envLocal = Join-Path $root '.env.local'

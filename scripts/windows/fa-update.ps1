@@ -8,6 +8,7 @@
   pwsh -File scripts/windows/fa-update.ps1
 #>
 $ErrorActionPreference = 'Stop'
+$PSScriptRoot = if ($MyInvocation.MyCommand.Path) { (Split-Path -Parent $MyInvocation.MyCommand.Path) } elseif ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 . (Join-Path $PSScriptRoot 'DemoForge-Env.ps1')
 
 function Invoke-DfScriptFile {
@@ -26,7 +27,7 @@ $ProjectRoot = Get-DemoForgeProjectRoot
 $DefaultHubUrl = 'https://demoforge-gateway-64xwtiev6q-ww.a.run.app'
 $BackendPort = '9210'
 
-Write-Host 'DemoForge — update (Windows)' -ForegroundColor Green
+Write-Host 'DemoForge - update (Windows)' -ForegroundColor Green
 Write-Host ''
 
 if (Get-Command git -ErrorAction SilentlyContinue) {
@@ -36,7 +37,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
         & git pull 2>&1 | Out-Host
         $after = (& git rev-parse HEAD 2>$null | Out-String).Trim()
         if ($before -and $after -and $before -ne $after) {
-            Write-Host 'Scripts updated — re-run this script to use the latest copy.' -ForegroundColor Yellow
+            Write-Host 'Scripts updated - re-run this script to use the latest copy.' -ForegroundColor Yellow
             exit 0
         }
     }
@@ -53,7 +54,7 @@ if (Test-Path $envLocal) {
 
 $faValid = $false
 if (-not $faKey) {
-    Write-Host 'FA key not in .env.local — run fa-setup.ps1. Skipping hub auth steps.' -ForegroundColor Yellow
+    Write-Host 'FA key not in .env.local - run fa-setup.ps1. Skipping hub auth steps.' -ForegroundColor Yellow
 }
 else {
     $hubUrl = $DefaultHubUrl
@@ -73,13 +74,13 @@ else {
         }
     }
     catch {
-        Write-Host 'FA key rejected or hub error — skipping sync after restart.' -ForegroundColor Yellow
+        Write-Host 'FA key rejected or hub error - skipping sync after restart.' -ForegroundColor Yellow
     }
 }
 
 $pullRc = Invoke-DfScriptFile -Path (Join-Path $PSScriptRoot 'hub-pull.ps1')
 if ($pullRc -ne 0) {
-    Write-Host 'hub-pull reported failures — continuing with restart.' -ForegroundColor Yellow
+    Write-Host 'hub-pull reported failures - continuing with restart.' -ForegroundColor Yellow
 }
 
 Set-EnvLocalKey -ProjectRoot $ProjectRoot -Key 'DEMOFORGE_MODE' -Value 'fa'
@@ -108,7 +109,7 @@ for ($i = 0; $i -lt 12; $i++) {
 }
 
 if (-not $ready) {
-    Write-Host 'Backend not ready after 60s — skipping template sync.' -ForegroundColor Yellow
+    Write-Host 'Backend not ready after 60s - skipping template sync.' -ForegroundColor Yellow
     exit 0
 }
 

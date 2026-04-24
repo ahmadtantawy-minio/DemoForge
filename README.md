@@ -30,7 +30,7 @@ Once setup is complete and images are cached, DemoForge can run entirely air-gap
 - **Docker** running (`docker ps` should work)
 - **API key** from your team lead
 
-**Windows (no Bash required):** from the repo root, run `pwsh -File scripts/windows/fa-setup.ps1` (or `powershell -File ...\fa-setup.ps1`), then `demoforge-windows.cmd start` (or `make fa-setup-win` / `make start-win` if `make` and `pwsh` are on your `PATH`). Optional: set `DEMO_DOCKER_CLI=podman` when using Podman’s CLI. Dev-mode hot reload is not covered by these scripts — use WSL or the existing `demoforge-dev.sh` flow for full dev parity.
+**Windows (no Bash required):** from the repo root, run `pwsh -File scripts/windows/fa-setup.ps1` (or `powershell -ExecutionPolicy Bypass -File scripts\windows\fa-setup.ps1` if execution policy blocks scripts), then `demoforge-windows.cmd start` (or `make fa-setup-win` / `make start-win` if `make` and `pwsh` are on your `PATH`). Optional: set `DEMO_DOCKER_CLI=podman` when using Podman’s CLI. The `.ps1` files are **ASCII-only** so they parse correctly in **Windows PowerShell 5.1** and **pwsh**. Dev-mode hot reload is not covered by these scripts; use WSL or the existing `demoforge-dev.sh` flow for full dev parity.
 
 ### Quick Start
 

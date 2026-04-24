@@ -91,7 +91,7 @@ function Start-DemoForgeCore {
             Write-DfLog 'Hub connectivity verified' 'Green'
         }
         catch {
-            Write-DfLog 'Hub gateway unreachable — FA features may be limited.' 'Yellow'
+            Write-DfLog 'Hub gateway unreachable - FA features may be limited.' 'Yellow'
         }
     }
 

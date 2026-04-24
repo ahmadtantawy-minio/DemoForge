@@ -7,6 +7,7 @@
   pwsh -File scripts/windows/hub-pull.ps1
 #>
 $ErrorActionPreference = 'Stop'
+$PSScriptRoot = if ($MyInvocation.MyCommand.Path) { (Split-Path -Parent $MyInvocation.MyCommand.Path) } elseif ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 . (Join-Path $PSScriptRoot 'DemoForge-Env.ps1')
 
 $ProjectRoot = Get-DemoForgeProjectRoot
