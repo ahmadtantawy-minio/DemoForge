@@ -11,7 +11,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 GCR_HOST="${DEMOFORGE_GCR_HOST:-gcr.io/minio-demoforge}"
 GCR_HOST="${GCR_HOST%/}"
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[hub-pull]${NC} $*"; }
 err()  { echo -e "${RED}[hub-pull]${NC} $*" >&2; }
 
@@ -59,6 +59,41 @@ fi
 if ! _resolve_ok registry-1.docker.io; then
   echo -e "${YELLOW}[hub-pull]${NC}  Warning: cannot resolve registry-1.docker.io (base image layers may still pull if cached)."
 fi
+
+# Host DNS can work while the Docker engine resolver does not (common on Docker Desktop for Windows).
+docker_engine_dns_probe() {
+  set +e
+  docker pull alpine:3.19 >/dev/null 2>&1
+  if [[ $? -ne 0 ]]; then
+    echo -e "${YELLOW}[hub-pull]${NC}  Skipping in-container DNS probe (could not pull alpine:3.19; docker.io may be blocked)."
+    set -e
+    return 0
+  fi
+  if docker run --rm alpine:3.19 nslookup gcr.io >/dev/null 2>&1; then
+    log "  Docker engine DNS probe: gcr.io resolves inside a container"
+    set -e
+    return 0
+  fi
+  if docker run --rm --dns 8.8.8.8 --dns 8.8.4.4 alpine:3.19 nslookup gcr.io >/dev/null 2>&1; then
+    echo -e "${YELLOW}[hub-pull]${NC}  Docker engine default DNS failed gcr.io, but a container with --dns 8.8.8.8 worked."
+    echo -e "${YELLOW}[hub-pull]${NC}  Fix: Docker Desktop > Settings > Docker Engine > add: \"dns\": [\"8.8.8.8\", \"8.8.4.4\"]  then Apply & Restart."
+  else
+    echo -e "${YELLOW}[hub-pull]${NC}  Docker engine still cannot resolve gcr.io in a test container. Image refs are gcr.io/minio-demoforge/demoforge/... (see hub-push.sh); this is resolver/VPN/firewall, not a wrong image name."
+  fi
+  set -e
+}
+docker_engine_dns_probe
+
+if command -v curl &>/dev/null; then
+  if curl -sfI --connect-timeout 5 "https://gcr.io/v2/" >/dev/null; then
+    log "  HTTPS to gcr.io/v2/ from host: ok"
+  else
+    echo -e "${YELLOW}[hub-pull]${NC}  HTTPS to gcr.io from host failed (proxy?). Docker may still pull if engine DNS works."
+  fi
+fi
+
+echo -e "${CYAN}[hub-pull]${NC}  First pull target (sanity): ${GCR_HOST}/demoforge/demoforge-frontend:latest"
+echo ""
 
 for repo in "${CRITICAL_IMAGES[@]}"; do
     if pull_image "$repo"; then ((++PULLED)); else ((++FAILED)); fi

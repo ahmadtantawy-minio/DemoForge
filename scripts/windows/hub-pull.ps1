@@ -66,6 +66,47 @@ if (-not (Test-HostnameResolves 'registry-1.docker.io')) {
     Write-Host 'Warning: cannot resolve registry-1.docker.io (Docker Hub). Base layers may fail unless cached.' -ForegroundColor Yellow
 }
 
+try {
+    $null = Invoke-WebRequest -Uri 'https://gcr.io/v2/' -UseBasicParsing -TimeoutSec 10
+    Write-Host 'HTTPS to https://gcr.io/v2/ from Windows: ok (TLS path).' -ForegroundColor DarkGray
+}
+catch {
+    Write-Host 'HTTPS to gcr.io from Windows failed (proxy?). Docker engine may still pull if its DNS differs.' -ForegroundColor Yellow
+}
+
+function Write-DockerEngineGcrDnsProbe {
+    param([Parameter(Mandatory)][string]$Engine)
+    $probeImg = 'alpine:3.19'
+    $savedEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Engine @('pull', $probeImg) 2>&1 | Out-Null
+    }
+    finally {
+        $ErrorActionPreference = $savedEap
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'Skipping in-container DNS probe (could not pull alpine:3.19; docker.io may be blocked from the engine).' -ForegroundColor Yellow
+        return
+    }
+    $okDefault = (Invoke-DockerNativeQuiet -Engine $Engine -ArgumentList @('run', '--rm', $probeImg, 'nslookup', 'gcr.io')) -eq 0
+    if ($okDefault) {
+        Write-Host 'Docker engine DNS probe: gcr.io resolves inside a container (matches or exceeds host DNS).' -ForegroundColor DarkGray
+        return
+    }
+    $okExplicit = (Invoke-DockerNativeQuiet -Engine $Engine -ArgumentList @('run', '--rm', '--dns', '8.8.8.8', '--dns', '8.8.4.4', $probeImg, 'nslookup', 'gcr.io')) -eq 0
+    if ($okExplicit) {
+        Write-Host 'Docker engine default DNS failed gcr.io, but a container with --dns 8.8.8.8 worked.' -ForegroundColor Yellow
+        Write-Host 'Fix: Docker Desktop > Settings > Docker Engine > add "dns": ["8.8.8.8","8.8.4.4"], Apply & Restart.' -ForegroundColor Yellow
+    }
+    else {
+        Write-Host 'Docker engine still cannot resolve gcr.io in a test container. Image refs are gcr.io/minio-demoforge/demoforge/... (same as hub-push.sh); this is engine DNS/VPN/firewall, not a wrong image name.' -ForegroundColor Yellow
+    }
+}
+
+Write-DockerEngineGcrDnsProbe -Engine $docker
+
+Write-Host "First pull target (sanity, matches hub-push): ${GcrHost}/demoforge/demoforge-frontend:latest" -ForegroundColor DarkGray
 Write-Host ''
 
 $pulled = 0

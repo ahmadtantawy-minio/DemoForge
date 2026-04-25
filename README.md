@@ -59,7 +59,7 @@ After a successful pull, images are **re-tagged** locally as `demoforge/demoforg
 **If you see `Temporary failure in name resolution` or similar:**
 
 1. **Confirm the URL** — `docker pull gcr.io/minio-demoforge/demoforge/demoforge-backend:latest` (must match the table above). If your team uses a different registry root, set **`DEMOFORGE_GCR_HOST`** (e.g. in the shell or `.env.local`) to the same value `hub-push` uses, without a trailing slash.
-2. **Host vs Docker DNS (Windows/macOS)** — `hub-pull` preflight checks **Windows/macOS DNS** for `gcr.io`. **Docker Desktop** pulls run inside its Linux VM, which has **its own** resolver. If the host resolves `gcr.io` but pulls still fail, open **Docker Desktop → Settings → Docker Engine** and add explicit DNS, e.g. `"dns": ["8.8.8.8", "8.8.4.4"]`, then **Apply & restart**.
+2. **Host vs Docker DNS (Windows/macOS)** — `hub-pull` checks **host** DNS for `gcr.io`, then runs a **Docker engine** check (`alpine:3.19` + `nslookup gcr.io` inside a container, and again with `--dns 8.8.8.8`). If the second succeeds and the first fails, the engine’s default resolver is broken even though Windows resolves names: add **`"dns": ["8.8.8.8", "8.8.4.4"]`** under **Docker Desktop → Settings → Docker Engine**, then **Apply & restart**. That is **not** a wrong image path; pulls use `gcr.io/minio-demoforge/demoforge/...` exactly as in `hub-push.sh`.
 3. **Docker Hub for base layers** — many Dockerfiles still pull bases from **registry-1.docker.io**. Allow that hostname through firewall/VPN as well, or rely on cached layers.
 4. **Auth** — private GCR may require `gcloud auth configure-docker gcr.io` (or your org’s equivalent).
 
