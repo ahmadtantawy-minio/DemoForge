@@ -20,11 +20,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, Eye } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, Eye, Bug } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
+import { copyDebugBundleToClipboard } from "../../lib/copyDebugBundle";
 
 export default function Toolbar() {
   const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes } = useDemoStore();
@@ -42,6 +43,7 @@ export default function Toolbar() {
   const [renameName, setRenameName] = useState("");
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [copyingDebug, setCopyingDebug] = useState(false);
 
   const isDirty = useDiagramStore((s) => s.isDirty);
   const faId = useDemoStore((s) => s.faId);
@@ -62,6 +64,20 @@ export default function Toolbar() {
       setSyncing(false);
     }
   }, [activeDemoId, setInstances, setClusterHealth]);
+
+  const handleCopyDebugBundle = useCallback(async () => {
+    setCopyingDebug(true);
+    try {
+      const r = await copyDebugBundleToClipboard();
+      if (r.ok) {
+        toast.success(r.message, { description: "Paste into Slack, GitHub issue, or your notes on your dev PC." });
+      } else {
+        toast.error(r.message);
+      }
+    } finally {
+      setCopyingDebug(false);
+    }
+  }, []);
 
   const handleSave = useCallback(() => {
     if (!activeDemoId) return;
@@ -487,6 +503,26 @@ export default function Toolbar() {
 
         {activeDemoId && (
           <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleCopyDebugBundle}
+                  disabled={copyingDebug}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  data-testid="toolbar-copy-debug"
+                >
+                  <Bug className={`w-3.5 h-3.5 ${copyingDebug ? "animate-pulse" : ""}`} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs font-medium">Copy debug bundle</p>
+                <p className="text-[11px] text-muted-foreground mt-1 max-w-[220px]">
+                  Clipboard: URL, logs, /api/health/system, response probe for this page. Shortcut: ⌃⇧D / ⇧⌘D
+                </p>
+              </TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

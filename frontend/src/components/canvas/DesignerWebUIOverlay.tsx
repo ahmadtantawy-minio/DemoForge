@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CornerDownRight, X } from "lucide-react";
+import { CornerDownRight, X, Bug } from "lucide-react";
 import { proxyUrl } from "../../api/client";
+import { copyDebugBundleToClipboard } from "../../lib/copyDebugBundle";
+import { toast } from "sonner";
 
 const STORAGE_KEY = "demoforge:designerWebUiOverlay:bounds";
 const DEFAULT_WIDTH = 960;
@@ -206,6 +208,23 @@ export default function DesignerWebUIOverlay({ proxyPath, title, onClose }: Prop
         >
           <span className="text-sm font-semibold text-foreground truncate pr-2">{title}</span>
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              className="p-1 rounded hover:bg-accent transition-colors"
+              title="Copy debug bundle (URL, logs, health) — ⌃⇧D / ⇧⌘D"
+              onClick={(e) => {
+                e.stopPropagation();
+                void copyDebugBundleToClipboard().then((r) => {
+                  if (r.ok) {
+                    toast.success(r.message, { description: "Includes this page URL + client logs for proxy issues." });
+                  } else {
+                    toast.error(r.message);
+                  }
+                });
+              }}
+            >
+              <Bug className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
             <a
               href={url}
               target="_blank"

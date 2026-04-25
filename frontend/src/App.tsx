@@ -4,7 +4,7 @@ import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
 import { DEBUG_LOG_TTL_MS } from "./lib/debugLogTtl";
 import { fetchDemos, fetchInstances, getFailoverStatus, getResilienceStatus, fetchIdentity } from "./api/client";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import Toolbar from "./components/toolbar/Toolbar";
 import ComponentPalette from "./components/palette/ComponentPalette";
 import DiagramCanvas from "./components/canvas/DiagramCanvas";
@@ -27,6 +27,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { ReadinessPage } from "./pages/ReadinessPage";
 import { FAManagementPage } from "./pages/FAManagementPage";
 import { ConnectivityPage } from "./pages/ConnectivityPage";
+import { copyDebugBundleToClipboard } from "./lib/copyDebugBundle";
 
 export default function App() {
   const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode } = useDemoStore();
@@ -81,6 +82,27 @@ export default function App() {
       .then(({ fa_id, identified, mode, hub_local }) => useDemoStore.getState().setFaIdentity(fa_id, identified, mode, hub_local))
       .catch(() => {});
   }, []);
+
+  // Global shortcut: copy debug bundle (clipboard) — avoid when typing in inputs
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+      if (e.key !== "D" && e.key !== "d") return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input,textarea,select,[contenteditable=true]")) return;
+      e.preventDefault();
+      copyDebugBundleToClipboard().then((r) => {
+        addDebugEntry(r.ok ? "info" : "error", "DebugBundle", r.message);
+        if (r.ok) {
+          toast.success(r.message, { description: "Paste on your dev PC (issue chat, notes, etc.)." });
+        } else {
+          toast.error(r.message);
+        }
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [addDebugEntry]);
 
   // Initial load + periodic sync of demo status from backend.
   // Preserve transitional states (deploying/stopping) so the background poll
