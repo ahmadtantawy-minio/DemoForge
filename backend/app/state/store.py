@@ -233,6 +233,24 @@ class StateStore:
                     if node_id not in current_nodes:
                         del running.containers[node_id]
 
+        # Ghost "deploying": no active lifecycle task and no labelled containers in Docker
+        try:
+            from ..engine import task_manager as _tm
+        except Exception:
+            _tm = None  # type: ignore[assignment]
+        for demo_id, running in list(self.running_demos.items()):
+            if running.status != "deploying":
+                continue
+            if _tm and _tm.is_operation_running(demo_id):
+                continue
+            if len(docker_demos.get(demo_id, [])) == 0:
+                logger.warning(
+                    "Sync: demo %s was deploying but has no Docker containers and no active task — clearing state",
+                    demo_id,
+                )
+                self.remove_demo(demo_id)
+                self.deploy_progress.pop(demo_id, None)
+
         # Detect orphaned containers (in Docker but not in our state)
         for demo_id, containers in docker_demos.items():
             running_containers = [c for c in containers if c.status == "running"]
@@ -286,6 +304,20 @@ class StateStore:
                     continue
                 steady = [(nid, c) for nid, c in running.containers.items() if not c.is_sidecar]
                 if not steady:
+                    try:
+                        lst = client.containers.list(
+                            all=True,
+                            filters={"label": f"demoforge.demo={demo_id}"},
+                        )
+                    except Exception:
+                        lst = []
+                    if not lst:
+                        logger.info(
+                            "Reconcile: demo %s was deploying with no steady containers and none in Docker — clearing state",
+                            demo_id,
+                        )
+                        self.remove_demo(demo_id)
+                        self.deploy_progress.pop(demo_id, None)
                     continue
                 all_running = True
                 for _nid, rc in steady:

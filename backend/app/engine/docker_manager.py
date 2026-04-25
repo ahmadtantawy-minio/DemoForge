@@ -286,10 +286,25 @@ async def _pull_missing_images(demo: DemoDefinition, progress) -> int:
         gcr_ref = f"{GCR_PREFIX}/{image_ref}" if image_ref.startswith("demoforge/") else image_ref
         await progress("images", "running", f"Pulling {image_ref}...")
         logger.info(f"Pulling missing image from GCR: {gcr_ref}")
-        try:
-            await asyncio.to_thread(docker_client.images.pull, gcr_ref)
+
+        def _pull_and_tag():
+            try:
+                docker_client.images.pull(gcr_ref)
+            except Exception as e:
+                try:
+                    docker_client.images.get(gcr_ref)
+                except Exception:
+                    raise e
+                logger.warning(
+                    "Docker pull reported an error for %s but the image is present locally; continuing deploy: %s",
+                    gcr_ref,
+                    e,
+                )
             img = docker_client.images.get(gcr_ref)
             img.tag(image_ref)
+
+        try:
+            await asyncio.to_thread(_pull_and_tag)
             pulled.add(image_ref)
             logger.info(f"Pulled and tagged {image_ref}")
         except Exception as e:
@@ -336,63 +351,74 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
     )
     state.set_demo(running)
 
-    # Pre-build custom images (components with build_context)
-    await progress("images", "running", "Checking for custom images to build...")
-    images_built = await _build_custom_images(demo, components_dir, progress)
-    if images_built:
-        await progress("images", "done", f"Built {images_built} custom image(s)")
-    else:
-        await progress("images", "done", "No custom images needed")
-
-    # Pull any missing component images from GCR on-demand
-    images_pulled = await _pull_missing_images(demo, progress)
-    if images_pulled:
-        await progress("images", "done", f"Pulled {images_pulled} missing image(s) from GCR")
-
-    # Clean up leftover containers (preserve volumes unless cluster topology changed)
-    await progress("cleanup", "running", "Cleaning up previous containers...")
-    await _cleanup_demo(demo.id, compose_path, project_name, network_names, remove_volumes=False)
-
-    # Remove volumes for clusters whose topology changed — MinIO erasure sets cannot be resized
-    if changed_clusters:
-        await progress("cleanup", "running", f"Resetting {len(changed_clusters)} reconfigured cluster(s)...")
-        for cluster_id in changed_clusters:
-            cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
-            prev = prev_cluster_configs[cluster_id]
-            if cluster:
-                old_pools = prev.get("pools") or [{"node_count": prev["node_count"], "drives_per_node": prev["drives_per_node"]}]
-                new_pools = [{"node_count": p.node_count, "drives_per_node": p.drives_per_node} for p in cluster.get_pools()]
-                await _remove_cluster_volumes(project_name, cluster_id, old_pools, new_pools)
-
-    await progress("cleanup", "done", "Cleanup complete")
-
-    # Run docker compose up with timeout
-    await progress("containers", "running", f"Starting {len(demo.nodes)} containers...")
-    proc = await asyncio.create_subprocess_exec(
-        "docker", "compose", "-f", compose_path, "-p", project_name, "up", "-d",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    compose_timeout = demo.deploy_timeout_seconds or COMPOSE_TIMEOUT
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=compose_timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        running.status = "error"
-        running.error_message = f"docker compose up timed out after {compose_timeout}s"
-        state.set_demo(running)
-        await progress("containers", "error", running.error_message)
-        raise TimeoutError(running.error_message)
+        # Pre-build custom images (components with build_context)
+        await progress("images", "running", "Checking for custom images to build...")
+        images_built = await _build_custom_images(demo, components_dir, progress)
+        if images_built:
+            await progress("images", "done", f"Built {images_built} custom image(s)")
+        else:
+            await progress("images", "done", "No custom images needed")
 
-    if proc.returncode != 0:
-        error_text = stderr.decode()
-        running.status = "error"
-        running.error_message = error_text
-        state.set_demo(running)
-        await progress("containers", "error", error_text)
-        raise RuntimeError(f"docker compose up failed: {error_text}")
-    await progress("containers", "done", "Containers started")
+        # Pull any missing component images from GCR on-demand
+        images_pulled = await _pull_missing_images(demo, progress)
+        if images_pulled:
+            await progress("images", "done", f"Pulled {images_pulled} missing image(s) from GCR")
+
+        # Clean up leftover containers (preserve volumes unless cluster topology changed)
+        await progress("cleanup", "running", "Cleaning up previous containers...")
+        await _cleanup_demo(demo.id, compose_path, project_name, network_names, remove_volumes=False)
+
+        # Remove volumes for clusters whose topology changed — MinIO erasure sets cannot be resized
+        if changed_clusters:
+            await progress("cleanup", "running", f"Resetting {len(changed_clusters)} reconfigured cluster(s)...")
+            for cluster_id in changed_clusters:
+                cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
+                prev = prev_cluster_configs[cluster_id]
+                if cluster:
+                    old_pools = prev.get("pools") or [{"node_count": prev["node_count"], "drives_per_node": prev["drives_per_node"]}]
+                    new_pools = [{"node_count": p.node_count, "drives_per_node": p.drives_per_node} for p in cluster.get_pools()]
+                    await _remove_cluster_volumes(project_name, cluster_id, old_pools, new_pools)
+
+        await progress("cleanup", "done", "Cleanup complete")
+
+        # Run docker compose up with timeout
+        await progress("containers", "running", f"Starting {len(demo.nodes)} containers...")
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "compose", "-f", compose_path, "-p", project_name, "up", "-d",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        compose_timeout = demo.deploy_timeout_seconds or COMPOSE_TIMEOUT
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=compose_timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            running.status = "error"
+            running.error_message = f"docker compose up timed out after {compose_timeout}s"
+            state.set_demo(running)
+            await progress("containers", "error", running.error_message)
+            raise TimeoutError(running.error_message)
+
+        if proc.returncode != 0:
+            error_text = stderr.decode()
+            running.status = "error"
+            running.error_message = error_text
+            state.set_demo(running)
+            await progress("containers", "error", error_text)
+            raise RuntimeError(f"docker compose up failed: {error_text}")
+        await progress("containers", "done", "Containers started")
+    except Exception:
+        cur = state.get_demo(demo.id)
+        if cur and cur.status == "deploying":
+            logger.warning(
+                "Deploy failed before running state for demo %s; clearing in-memory state so redeploy is possible",
+                demo.id,
+            )
+            state.remove_demo(demo.id)
+            state.deploy_progress.pop(demo.id, None)
+        raise
 
     try:
         # Join backend container to all demo networks

@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { getImageStatus, pullImage, getPullStatus, pullAllMissing, getDanglingImages, pruneDanglingImages, ImageInfo } from "../api/images";
 import { hubPushImages } from "../api/client";
 import { ImageStatusBadge } from "../components/images/ImageStatusBadge";
-import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server, Upload } from "lucide-react";
+import { RefreshCw, Download, Cloud, CloudOff, HardDrive, Server, Upload, Search } from "lucide-react";
 import { toast } from "../lib/toast";
 import { useDemoStore } from "../stores/demoStore";
 import { apiUrl } from "../lib/apiBase";
@@ -18,6 +18,7 @@ export function ImagesPage() {
   const [dangling, setDangling] = useState<{ count: number; reclaimable_mb: number } | null>(null);
   const [pruning, setPruning] = useState(false);
   const [registryStatus, setRegistryStatus] = useState<"checking" | "connected" | "unreachable" | "not_configured">("checking");
+  const [imageFilter, setImageFilter] = useState("");
 
   const loadImages = useCallback(async () => {
     setLoading(true);
@@ -106,10 +107,21 @@ export function ImagesPage() {
     }
   };
 
+  const filteredImages = useMemo(() => {
+    const q = imageFilter.trim().toLowerCase();
+    if (!q) return images;
+    return images.filter(
+      i =>
+        i.image_ref.toLowerCase().includes(q) ||
+        i.component_name.toLowerCase().includes(q) ||
+        (i.pull_source && i.pull_source.toLowerCase().includes(q))
+    );
+  }, [images, imageFilter]);
+
   const groups = {
-    vendor: images.filter(i => i.category === "vendor"),
-    custom: images.filter(i => i.category === "custom"),
-    platform: images.filter(i => i.category === "platform"),
+    vendor: filteredImages.filter(i => i.category === "vendor"),
+    custom: filteredImages.filter(i => i.category === "custom"),
+    platform: filteredImages.filter(i => i.category === "platform"),
   };
 
   const cachedCount = images.filter(i => i.status === "cached").length;
@@ -160,7 +172,7 @@ export function ImagesPage() {
               <button
                 onClick={handleHubPush}
                 disabled={hubPushing || registryStatus === "not_configured" || registryStatus === "checking"}
-                title={registryStatus === "not_configured" ? "No private registry configured (set DEMOFORGE_REGISTRY_PUSH_HOST)" : registryStatus === "unreachable" ? "Registry unreachable" : "Build and push all custom images to hub"}
+                title={registryStatus === "not_configured" ? "Set DEMOFORGE_REGISTRY_PUSH_HOST to enable pushing to the hub registry" : registryStatus === "unreachable" ? "Registry unreachable" : "Build and push all custom images to hub"}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Upload className={`w-4 h-4 ${hubPushing ? "animate-spin" : ""}`} />
@@ -178,33 +190,47 @@ export function ImagesPage() {
           </div>
         </div>
 
+        {/* Quick filter */}
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden />
+          <input
+            type="search"
+            data-testid="images-filter"
+            value={imageFilter}
+            onChange={e => setImageFilter(e.target.value)}
+            placeholder="Filter by image, component, or source…"
+            className="w-full rounded-md border border-border bg-card py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+
         {/* Source banner */}
-        <div className="flex items-center gap-3 mb-4 px-3 py-2 rounded-lg border border-border bg-muted/30 text-xs">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4 px-3 py-2 rounded-lg border border-border bg-muted/30 text-xs">
           <div className="flex items-center gap-1.5">
             <Server className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="font-medium text-foreground">Image Sources</span>
           </div>
-          <span className="text-border">|</span>
-          <div className="flex items-center gap-1.5">
-            {registryStatus === "checking" ? (
-              <span className="text-muted-foreground">Checking private registry...</span>
-            ) : registryStatus === "connected" ? (
-              <>
-                <Cloud className="w-3.5 h-3.5 text-green-400" />
-                <span className="text-green-400 font-medium">Private Registry{registryHost ? ` (${registryHost})` : ""}</span>
-              </>
-            ) : registryStatus === "not_configured" ? (
-              <>
-                <CloudOff className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-muted-foreground">No private registry configured</span>
-              </>
-            ) : (
-              <>
-                <CloudOff className="w-3.5 h-3.5 text-yellow-400" />
-                <span className="text-yellow-400">Private Registry unreachable ({registryHost})</span>
-              </>
-            )}
-          </div>
+          {registryStatus !== "not_configured" && (
+            <>
+              <span className="text-border">|</span>
+              <div className="flex items-center gap-1.5">
+                {registryStatus === "checking" ? (
+                  <span className="text-muted-foreground">Checking private registry...</span>
+                ) : registryStatus === "connected" ? (
+                  <>
+                    <Cloud className="w-3.5 h-3.5 text-green-400" />
+                    <span className="text-green-400 font-medium">Private Registry{registryHost ? ` (${registryHost})` : ""}</span>
+                  </>
+                ) : (
+                  <>
+                    <CloudOff className="w-3.5 h-3.5 text-yellow-400" />
+                    <span className="text-yellow-400">Private Registry unreachable ({registryHost})</span>
+                  </>
+                )}
+              </div>
+            </>
+          )}
           <span className="text-border">|</span>
           <div className="flex items-center gap-3 text-muted-foreground">
             <span className="flex items-center gap-1">
@@ -236,6 +262,11 @@ export function ImagesPage() {
 
         {/* Image groups */}
         <div data-testid="image-list" className="space-y-6">
+          {!loading && imageFilter.trim() && filteredImages.length === 0 && (
+            <div className="rounded-lg border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+              {`No images match "${imageFilter.trim()}"`}
+            </div>
+          )}
           {(["vendor", "custom", "platform"] as const).map(cat => {
             const items = groups[cat];
             if (items.length === 0) return null;

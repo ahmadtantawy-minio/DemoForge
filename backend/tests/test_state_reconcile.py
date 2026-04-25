@@ -70,6 +70,31 @@ def test_reconcile_promotes_when_steady_containers_running(store: StateStore) ->
     mock_client.containers.get.assert_called_once_with("c1")
 
 
+def test_sync_clears_ghost_deploying_no_containers(store: StateStore) -> None:
+    """If status is deploying but Docker has no labelled containers and no task runs, sync drops state."""
+    demo = RunningDemo(demo_id="ghost", status="deploying", compose_project="demoforge-ghost")
+    store.running_demos["ghost"] = demo
+    mock_client = MagicMock()
+    mock_client.containers.list.return_value = []
+    mock_client.close = MagicMock()
+    with patch("docker.from_env", return_value=mock_client):
+        with patch("app.engine.task_manager.is_operation_running", return_value=False):
+            store.sync_with_docker()
+    assert "ghost" not in store.running_demos
+
+
+def test_reconcile_clears_deploying_empty_state_no_docker_containers(store: StateStore) -> None:
+    demo = RunningDemo(demo_id="ghost2", status="deploying", compose_project="demoforge-ghost2")
+    store.running_demos["ghost2"] = demo
+    mock_client = MagicMock()
+    mock_client.containers.list.return_value = []
+    mock_client.close = MagicMock()
+    with patch("docker.from_env", return_value=mock_client):
+        with patch("app.engine.task_manager.is_operation_running", return_value=False):
+            store.reconcile_deploying_from_docker()
+    assert "ghost2" not in store.running_demos
+
+
 def test_reconcile_waits_if_steady_not_running(store: StateStore) -> None:
     demo = RunningDemo(demo_id="abc", status="deploying", compose_project="demoforge-abc")
     demo.containers["n1"] = RunningContainer(

@@ -202,33 +202,38 @@ async def _get_image_status_impl() -> list[ImageInfo]:
     return results
 
 
-async def _do_pull(pull_id: str, image_ref: str):
-    """Background task to pull a Docker image."""
+async def _do_pull(pull_id: str, pull_ref: str, manifest_ref: str | None = None):
+    """Background task to pull a Docker image. ``manifest_ref`` is tagged after GCR pull when set."""
+    display_ref = manifest_ref or pull_ref
     try:
         _pulls[pull_id] = PullStatus(
-            pull_id=pull_id, image_ref=image_ref,
+            pull_id=pull_id, image_ref=display_ref,
             status="pulling", progress_pct=0
         )
 
         def _pull():
             import docker
             client = docker.from_env()
-            client.images.pull(image_ref)
-            client.close()
+            try:
+                _pull_image_verify(client, pull_ref)
+                _maybe_tag_alias(client, pull_ref, manifest_ref)
+            finally:
+                client.close()
 
         await asyncio.to_thread(_pull)
         _pulls[pull_id] = PullStatus(
-            pull_id=pull_id, image_ref=image_ref,
+            pull_id=pull_id, image_ref=display_ref,
             status="complete", progress_pct=100
         )
     except Exception as e:
         _pulls[pull_id] = PullStatus(
-            pull_id=pull_id, image_ref=image_ref,
+            pull_id=pull_id, image_ref=display_ref,
             status="error", error=str(e)[:500]
         )
 
 
-GCR_HOST = "gcr.io/minio-demoforge"
+GCR_HOST = os.environ.get("DEMOFORGE_GCR_HOST", "gcr.io/minio-demoforge").strip().rstrip("/")
+
 
 def _resolve_pull_ref(image_ref: str) -> str:
     """Resolve pull reference — demoforge/ images pull from GCR."""
@@ -237,12 +242,49 @@ def _resolve_pull_ref(image_ref: str) -> str:
     return image_ref
 
 
+def _pull_image_verify(client, pull_ref: str) -> None:
+    """Pull an image; if the engine reports an error but the ref is already present, succeed.
+
+    Docker Desktop on Windows sometimes surfaces stream/API errors after layers finished;
+    deploy and UI pulls should not fail spuriously when ``docker images`` would show the ref.
+    """
+    try:
+        client.images.pull(pull_ref)
+    except Exception as e:
+        try:
+            client.images.get(pull_ref)
+        except Exception:
+            raise e
+        logger.warning(
+            "Docker pull reported an error for %s but the image is present locally; treating as success: %s",
+            pull_ref,
+            e,
+        )
+
+
+def _maybe_tag_alias(client, pull_ref: str, alias_ref: str | None) -> None:
+    """After pulling from GCR, tag as manifest ref (e.g. demoforge/...) so /status shows cached."""
+    if not alias_ref or alias_ref == pull_ref:
+        return
+    try:
+        img = client.images.get(pull_ref)
+        if ":" in alias_ref:
+            repo, _, tag = alias_ref.rpartition(":")
+            tag = tag or "latest"
+        else:
+            repo, tag = alias_ref, "latest"
+        img.tag(repo, tag=tag)
+    except Exception as e:
+        logger.debug("Optional tag %s <- %s: %s", alias_ref, pull_ref, e)
+
+
 @router.post("/pull", response_model=PullResponse)
 async def pull_image(req: PullRequest):
     """Start pulling a Docker image in the background."""
     pull_id = str(uuid4())[:8]
     actual_ref = _resolve_pull_ref(req.image_ref)
-    asyncio.create_task(_do_pull(pull_id, actual_ref))
+    alias = req.image_ref if actual_ref != req.image_ref else None
+    asyncio.create_task(_do_pull(pull_id, actual_ref, alias))
     return PullResponse(pull_id=pull_id)
 
 
@@ -263,7 +305,8 @@ async def pull_all_missing():
     for img in missing:
         pull_id = str(uuid4())[:8]
         actual_ref = _resolve_pull_ref(img.image_ref)
-        asyncio.create_task(_do_pull(pull_id, actual_ref))
+        alias = img.image_ref if actual_ref != img.image_ref else None
+        asyncio.create_task(_do_pull(pull_id, actual_ref, alias))
         pull_ids.append(pull_id)
     return {"pull_ids": pull_ids}
 
