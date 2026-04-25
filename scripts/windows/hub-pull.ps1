@@ -11,7 +11,6 @@ $PSScriptRoot = if ($MyInvocation.MyCommand.Path) { (Split-Path -Parent $MyInvoc
 . (Join-Path $PSScriptRoot 'DemoForge-Env.ps1')
 
 $ProjectRoot = Get-DemoForgeProjectRoot
-$GcrHost = 'gcr.io/minio-demoforge'
 $Critical = @(
     'demoforge/demoforge-frontend',
     'demoforge/demoforge-backend',
@@ -36,7 +35,37 @@ if (Test-Path $envLocal) {
     foreach ($kv in $h.GetEnumerator()) { Set-Item -Path "env:$($kv.Key)" -Value $kv.Value }
 }
 
-Write-Host "Pulling core images from GCR:" -ForegroundColor Cyan
+# Must match scripts/hub-push.sh tag: <GCR_HOST>/demoforge/<component>:latest (after .env so DEMOFORGE_GCR_HOST applies)
+$GcrHost = if ($env:DEMOFORGE_GCR_HOST -and $env:DEMOFORGE_GCR_HOST.Trim()) {
+    $env:DEMOFORGE_GCR_HOST.Trim().TrimEnd('/')
+} else {
+    'gcr.io/minio-demoforge'
+}
+
+function Test-HostnameResolves {
+    param([Parameter(Mandatory)][string]$Name)
+    try {
+        $null = [System.Net.Dns]::GetHostAddresses($Name)
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+Write-Host "Pulling core images from GCR ($GcrHost):" -ForegroundColor Cyan
+Write-Host ''
+
+if (-not (Test-HostnameResolves 'gcr.io')) {
+    Write-Host 'DNS: cannot resolve gcr.io from this host. The pull URL is still gcr.io/minio-demoforge/demoforge/... (same as hub-push.sh).' -ForegroundColor Red
+    Write-Host 'Fix: corporate DNS/VPN, or Docker Desktop > Settings > Docker Engine > add "dns": ["8.8.8.8","8.8.4.4"], Apply & Restart.' -ForegroundColor Yellow
+    Write-Host 'Override registry root only if your team published elsewhere: $env:DEMOFORGE_GCR_HOST = "gcr.io/minio-demoforge"' -ForegroundColor Yellow
+    exit 1
+}
+if (-not (Test-HostnameResolves 'registry-1.docker.io')) {
+    Write-Host 'Warning: cannot resolve registry-1.docker.io (Docker Hub). Base layers may fail unless cached.' -ForegroundColor Yellow
+}
+
 Write-Host ''
 
 $pulled = 0
@@ -44,16 +73,23 @@ $failed = 0
 foreach ($repo in $Critical) {
     $gcrImage = "${GcrHost}/${repo}:latest"
     Write-Host "  Pulling $gcrImage ..." -ForegroundColor Green
+    $savedEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         & $docker @('pull', $gcrImage)
-        if ($LASTEXITCODE -ne 0) { throw "pull failed" }
-        & $docker @('tag', $gcrImage, "${repo}:latest") 2>$null | Out-Null
-        Write-Host "    tagged ${repo}:latest" -ForegroundColor DarkGray
-        $pulled++
+        $pullOk = ($LASTEXITCODE -eq 0)
+        if ($pullOk) {
+            $null = Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('tag', $gcrImage, "${repo}:latest")
+            Write-Host "    tagged ${repo}:latest" -ForegroundColor DarkGray
+            $pulled++
+        }
+        else {
+            Write-Host "    failed: $repo (docker exit $LASTEXITCODE)" -ForegroundColor Red
+            $failed++
+        }
     }
-    catch {
-        Write-Host "    failed: $repo" -ForegroundColor Red
-        $failed++
+    finally {
+        $ErrorActionPreference = $savedEap
     }
 }
 

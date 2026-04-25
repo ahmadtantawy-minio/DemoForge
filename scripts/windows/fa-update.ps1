@@ -1,8 +1,8 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Windows FA day-to-day update: optional git pull, hub-pull, restart, template sync + license cache.
-  Equivalent to scripts/demoforge-update.sh / scripts/fa-update.sh (simplified).
+  Windows FA day-to-day update: hub-pull, restart, template sync + license cache (scripts/fa-update.sh parity).
+  For git pull + re-run on script changes, use demoforge-update.ps1 or make fa-update-win.
 
 .EXAMPLE
   pwsh -File scripts/windows/fa-update.ps1
@@ -17,20 +17,6 @@ $BackendPort = '9210'
 
 Write-Host 'DemoForge - update (Windows)' -ForegroundColor Green
 Write-Host ''
-
-if (Get-Command git -ErrorAction SilentlyContinue) {
-    Push-Location $ProjectRoot
-    try {
-        $before = (& git rev-parse HEAD 2>$null | Out-String).Trim()
-        & git pull 2>&1 | Out-Host
-        $after = (& git rev-parse HEAD 2>$null | Out-String).Trim()
-        if ($before -and $after -and $before -ne $after) {
-            Write-Host 'Scripts updated - re-run this script to use the latest copy.' -ForegroundColor Yellow
-            exit 0
-        }
-    }
-    finally { Pop-Location }
-}
 
 $envLocal = Join-Path $ProjectRoot '.env.local'
 $faKey = ''

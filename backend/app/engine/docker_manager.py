@@ -139,7 +139,8 @@ async def _remove_cluster_volumes(
     return removed
 
 COMPOSE_TIMEOUT = 180  # seconds — max wait for compose up/down
-GCR_PREFIX = "gcr.io/minio-demoforge"
+# Must match scripts/hub-push.sh / hub-pull (default gcr.io/minio-demoforge; optional override for mirrors).
+GCR_PREFIX = os.environ.get("DEMOFORGE_GCR_HOST", "gcr.io/minio-demoforge").strip().rstrip("/")
 
 # Per-demo locks to prevent concurrent deploy/stop race conditions
 _demo_locks: dict[str, asyncio.Lock] = {}

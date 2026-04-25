@@ -46,8 +46,8 @@ status-win:     ## [Windows] Compose + demo container status
 logs-win:       ## [Windows] Tail compose logs
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge.ps1 logs
 
-fa-update-win:  ## [Windows] hub-pull + restart + template sync (PowerShell)
-	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/fa-update.ps1
+fa-update-win:  ## [Windows] git pull + re-run if repo changed, then hub-pull/restart/sync (PowerShell)
+	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/demoforge-update.ps1
 
 fa-cleanup-win: ## [Windows] Remove .env.local (backup to .env.local.bak)
 	pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/fa-cleanup.ps1

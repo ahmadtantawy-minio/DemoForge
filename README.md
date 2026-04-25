@@ -1,6 +1,6 @@
 # DemoForge
 
-Interactive demo orchestration platform for MinIO Field Architects. Design, deploy, and manage Docker-based demo environments from a visual canvas with 27+ pre-built templates covering replication, analytics, AI/ML, lakehouse, event-driven ingestion, and more.
+Interactive demo orchestration platform for MinIO Field Architects. Design, deploy, and manage Docker-based demo environments from a visual canvas with 27+ pre-built templates covering replication, analytics, AI/ML, lakehouse, event-driven ingestion, and more. **Field Architect (FA) mode** is supported on **macOS** (Bash/Make) and **Windows** (PowerShell scripts and optional `make *-win` targets); see [Field Architect Setup](#field-architect-setup).
 
 ---
 
@@ -10,8 +10,8 @@ DemoForge runs **locally** on your laptop. Internet access is only required for 
 
 | Operation | Internet required? |
 |-----------|-------------------|
-| `make fa-setup` (first-time) | Yes — validates FA key, pulls images from GCR |
-| `make fa-update` | Yes — pulls latest code + images |
+| First-time FA setup (`make fa-setup` or Windows `fa-setup.ps1` / `make fa-setup-win`) | Yes — validates FA key; images pulled from GCR on first start or via `hub-pull` |
+| FA update (`make fa-update` or Windows `demoforge-update.ps1` / `make fa-update-win`) | Yes — pulls latest code + images |
 | Template sync (UI) | Yes — syncs from Hub (GCS) |
 | License sync | Yes — fetches from Hub (GCS) |
 | **Creating / deploying / tearing down demos** | **No — fully offline** |
@@ -23,16 +23,49 @@ Once setup is complete and images are cached, DemoForge can run entirely air-gap
 
 ## Field Architect Setup
 
-### Prerequisites
+FA mode is supported on **macOS** (Bash + Make + `demoforge.sh`) and **Windows** (PowerShell scripts under `scripts/windows/` plus optional `make *-win` targets). Both paths use the same `.env.local`, Hub gateway, and Docker Compose stack.
 
-- **macOS** with [OrbStack](https://orbstack.dev) (recommended) or Docker Desktop — or **Windows** with Docker Desktop / Podman (Compose v2) and **PowerShell** (`demoforge-windows.cmd` falls back to Windows PowerShell 5.1; **`make *-win`** targets call **`pwsh`** if it is on your `PATH`)
+### Prerequisites (all platforms)
+
 - **16GB RAM** minimum (32GB recommended for heavy templates)
-- **Docker** running (`docker ps` should work)
+- **Container engine** running with **Compose v2**: [OrbStack](https://orbstack.dev) or Docker Desktop on macOS; **Docker Desktop** or **Podman** (with `docker compose` / `podman compose`) on Windows
 - **API key** from your team lead
 
-**Windows (no Bash required):** from the repo root, run `pwsh -File scripts/windows/fa-setup.ps1` (or `powershell -ExecutionPolicy Bypass -File scripts\windows\fa-setup.ps1` if execution policy blocks scripts), then `demoforge-windows.cmd start` (or `make fa-setup-win` / `make start-win` if `make` and `pwsh` are on your `PATH`). On first start, if core images are missing, `demoforge.ps1 start` runs `scripts/windows/hub-pull.ps1` automatically (needs DNS/network to **gcr.io**; Docker may also contact **registry-1.docker.io** for base layers). Optional: set `DEMO_DOCKER_CLI=podman` when using Podman’s CLI. The `.ps1` files are **ASCII-only** so they parse correctly in **Windows PowerShell 5.1** and **pwsh**. Dev-mode hot reload is not covered by these scripts; use WSL or the existing `demoforge-dev.sh` flow for full dev parity.
+### macOS
 
-### Quick Start
+- Use **OrbStack** (recommended) or Docker Desktop; `docker` / `docker compose` on your `PATH`.
+
+### Windows (FA mode)
+
+- **PowerShell**: use **PowerShell 7** (`pwsh`) when possible. [`demoforge-windows.cmd`](demoforge-windows.cmd) uses `pwsh` if it is on `PATH`, otherwise **Windows PowerShell 5.1**. The `make *-win` Makefile targets invoke `pwsh` directly.
+- **No Git Bash required** for the core FA workflow: onboarding, image pull, start/stop, and updates are covered by [`scripts/windows/`](scripts/windows/).
+- **Execution policy**: if scripts are blocked, run e.g. `powershell -ExecutionPolicy Bypass -File scripts\windows\fa-setup.ps1`, or set `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+- **Podman**: set environment variable `DEMO_DOCKER_CLI=podman` so the scripts call your Podman CLI (must provide Compose v2-compatible `compose` subcommand).
+- **Images**: see [FA image registry and DNS](#fa-image-registry-and-dns) below.
+- **Dev mode** (local hub-api, hot reload, `demoforge-dev.sh`) is not fully mirrored in the Windows scripts; use **WSL** with the existing Bash/Make flow for full dev parity.
+
+### FA image registry and DNS
+
+Core UI images are **not** on Docker Hub under `docker.io/demoforge/...`. They are published from [`scripts/hub-push.sh`](scripts/hub-push.sh) to **Artifact Registry / GCR** using this pattern (same as [`scripts/hub-pull.sh`](scripts/hub-pull.sh) / [`scripts/windows/hub-pull.ps1`](scripts/windows/hub-pull.ps1)):
+
+| Piece | Value |
+|-------|--------|
+| Registry + GCP project | `gcr.io/minio-demoforge` |
+| Repository prefix | `demoforge` |
+| Example full reference | `gcr.io/minio-demoforge/demoforge/demoforge-backend:latest` |
+
+After a successful pull, images are **re-tagged** locally as `demoforge/demoforge-backend:latest` and `demoforge/demoforge-frontend:latest` so [`docker-compose.yml`](docker-compose.yml) can start without talking to Docker Hub for those names.
+
+**If you see `Temporary failure in name resolution` or similar:**
+
+1. **Confirm the URL** — `docker pull gcr.io/minio-demoforge/demoforge/demoforge-backend:latest` (must match the table above). If your team uses a different registry root, set **`DEMOFORGE_GCR_HOST`** (e.g. in the shell or `.env.local`) to the same value `hub-push` uses, without a trailing slash.
+2. **Host vs Docker DNS (Windows/macOS)** — `hub-pull` preflight checks **Windows/macOS DNS** for `gcr.io`. **Docker Desktop** pulls run inside its Linux VM, which has **its own** resolver. If the host resolves `gcr.io` but pulls still fail, open **Docker Desktop → Settings → Docker Engine** and add explicit DNS, e.g. `"dns": ["8.8.8.8", "8.8.4.4"]`, then **Apply & restart**.
+3. **Docker Hub for base layers** — many Dockerfiles still pull bases from **registry-1.docker.io**. Allow that hostname through firewall/VPN as well, or rely on cached layers.
+4. **Auth** — private GCR may require `gcloud auth configure-docker gcr.io` (or your org’s equivalent).
+
+On Windows, the first **`demoforge.ps1 start`** can run **`hub-pull.ps1`** automatically when the local `demoforge/*` tags are missing.
+
+### Quick Start (macOS)
 
 ```bash
 # 1. Clone
@@ -48,28 +81,65 @@ make start
 open http://localhost:3000
 ```
 
+### Quick Start (Windows, FA mode)
+
+From a terminal in the repo root (e.g. `D:\...\DemoForge`):
+
+```powershell
+# 1. Clone (same as macOS), then cd into the repo
+
+# 2. First-time Hub connect (writes .env.local; same role as make fa-setup)
+pwsh -File scripts/windows/fa-setup.ps1
+# Or: make fa-setup-win   (requires pwsh on PATH)
+
+# 3. Start DemoForge (auto-runs hub-pull.ps1 if core images are missing)
+.\demoforge-windows.cmd start
+# Or: pwsh -File scripts/windows/demoforge.ps1 start
+# Or: make start-win
+
+# 4. Open in a browser
+start http://localhost:3000
+```
+
 > **You only need your API key** (provided by your team lead). The Hub URL is already configured.
 
-### What `make fa-setup` does
+### What `make fa-setup` / `fa-setup.ps1` does
 
-1. Verifies Docker is running
+1. Verifies the container engine is available (`docker` / `podman` per `DEMO_DOCKER_CLI`)
 2. Prompts for your **API key** (one-time, saved to `.env.local`)
 3. Verifies Hub gateway connectivity
-4. Detects your FA identity (git email → GitHub CLI → prompt)
-5. Writes `.env.local` with credentials and FA identity
-6. Pulls all custom component images from the registry (pre-built — no local build needed)
+4. Detects your FA identity (git email → GitHub CLI → prompt on both platforms)
+5. Writes `.env.local` with credentials, `DEMOFORGE_MODE=fa`, and Hub URL
+6. Removes legacy **`hub-connector`** if present; ongoing image refresh is **`make fa-update`** (macOS) or **`make fa-update-win`** / [`scripts/windows/demoforge-update.ps1`](scripts/windows/demoforge-update.ps1) (Windows: `git pull` then re-exec if scripts changed, then same steps as **`fa-update.ps1`**). On Windows, the first **`start`** can auto-run **`scripts/windows/hub-pull.ps1`** when core `demoforge/frontend` and `demoforge/backend` tags are missing locally
 
 After setup, DemoForge automatically syncs templates from the Hub on every start.
 
 ### Keeping Up to Date
 
+**macOS:**
+
 ```bash
 make fa-update
+```
+
+**Windows** (matches `scripts/demoforge-update.sh`: **`git pull`**, and if `HEAD` changed **re-runs this entrypoint** so updated scripts under `scripts/windows/` are used, then runs **`fa-update.ps1`** for hub-pull / restart / sync):
+
+```powershell
+pwsh -File scripts/windows/demoforge-update.ps1
+# Or: make fa-update-win
+```
+
+To run only the post-pull steps (no `git pull`), e.g. after you already updated the repo manually:
+
+```powershell
+pwsh -File scripts/windows/fa-update.ps1
 ```
 
 Pulls the latest scripts, refreshes core images from GCR, and restarts DemoForge. Also self-repairs stale environment configuration. Run this whenever your team lead announces an update.
 
 ### Day-to-Day Commands
+
+**macOS:**
 
 ```bash
 make start    # Start DemoForge
@@ -77,6 +147,18 @@ make stop     # Stop DemoForge
 make restart  # Restart
 make logs     # Tail logs
 ```
+
+**Windows (FA mode):**
+
+| Action | Command |
+|--------|---------|
+| Start | `demoforge-windows.cmd start` or `pwsh -File scripts/windows/demoforge.ps1 start` or `make start-win` |
+| Stop | `demoforge-windows.cmd stop` or `make stop-win` |
+| Restart | `demoforge-windows.cmd restart` or `make restart-win` |
+| Status | `demoforge-windows.cmd status` or `make status-win` |
+| Logs | `demoforge-windows.cmd logs` or `make logs-win` |
+| FA update (git pull, re-run if scripts changed, hub-pull, restart, sync) | `pwsh -File scripts/windows/demoforge-update.ps1` or `make fa-update-win` |
+| Reset FA credentials (backup `.env.local` then remove) | `pwsh -File scripts/windows/fa-cleanup.ps1` or `make fa-cleanup-win` |
 
 > Templates and images can be refreshed from the UI (Templates → Sync).
 
