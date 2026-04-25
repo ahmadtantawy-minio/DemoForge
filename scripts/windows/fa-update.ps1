@@ -11,18 +11,6 @@ $ErrorActionPreference = 'Stop'
 $PSScriptRoot = if ($MyInvocation.MyCommand.Path) { (Split-Path -Parent $MyInvocation.MyCommand.Path) } elseif ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 . (Join-Path $PSScriptRoot 'DemoForge-Env.ps1')
 
-function Invoke-DfScriptFile {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [string[]]$Arguments = @()
-    )
-    $exe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-    if (-not $exe) { $exe = (Get-Command powershell.exe).Source }
-    $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Path) + $Arguments
-    $p = Start-Process -FilePath $exe -ArgumentList $all -Wait -PassThru -NoNewWindow
-    return [int]$p.ExitCode
-}
-
 $ProjectRoot = Get-DemoForgeProjectRoot
 $DefaultHubUrl = 'https://demoforge-gateway-64xwtiev6q-ww.a.run.app'
 $BackendPort = '9210'

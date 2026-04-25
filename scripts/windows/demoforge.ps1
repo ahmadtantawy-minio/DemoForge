@@ -114,10 +114,21 @@ function Start-DemoForgeCore {
         if ($ec -ne 0) { exit $ec }
     }
     else {
+        if (-not (Test-DemoForgeCoreImagesPresent -Engine $docker)) {
+            Write-DfLog 'Core images not found locally; pulling from Google Container Registry (hub-pull.ps1)...'
+            $pullScript = Join-Path $PSScriptRoot 'hub-pull.ps1'
+            $pullRc = Invoke-DfScriptFile -Path $pullScript
+            if ($pullRc -ne 0) {
+                Write-Host '  hub-pull.ps1 failed. Images live on gcr.io, not Docker Hub. Check DNS/network/VPN, then run:' -ForegroundColor Red
+                Write-Host '    pwsh -File scripts/windows/hub-pull.ps1' -ForegroundColor Yellow
+                Write-Host '  If the registry requires auth: gcloud auth configure-docker gcr.io' -ForegroundColor Yellow
+                exit 1
+            }
+        }
         Write-DfLog 'Starting services (pre-built images only)...'
         $ec = Invoke-Compose @('up', '-d', '--no-build')
         if ($ec -ne 0) {
-            Write-Host "  Required images missing. Run: pwsh -File scripts/windows/hub-pull.ps1" -ForegroundColor Red
+            Write-Host '  docker compose up failed. Try: pwsh -File scripts/windows/hub-pull.ps1' -ForegroundColor Red
             exit 1
         }
     }
@@ -187,6 +198,9 @@ Usage:
 
 Or:
   pwsh -File scripts/windows/demoforge.ps1 <command>
+
+First-time start pulls core images from GCR via hub-pull.ps1 if they are missing
+(requires DNS/network access to gcr.io and registry-1.docker.io for base layers).
 
 Optional: set DEMO_DOCKER_CLI=podman if you use Podman with the compose plugin.
 '@

@@ -32,6 +32,33 @@ function Invoke-DockerNativeQuiet {
     }
 }
 
+function Test-DemoForgeCoreImagesPresent {
+    param([Parameter(Mandatory)][string]$Engine)
+    $imgs = @('demoforge/demoforge-backend:latest', 'demoforge/demoforge-frontend:latest')
+    foreach ($i in $imgs) {
+        if ((Invoke-DockerNativeQuiet -Engine $Engine -ArgumentList @('image', 'inspect', $i)) -ne 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Invoke-DfScriptFile {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string[]]$Arguments = @()
+    )
+    $exe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if (-not $exe) { $exe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source }
+    if (-not $exe) {
+        Write-Error 'Neither pwsh nor powershell.exe found on PATH.'
+        return 1
+    }
+    $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Path) + $Arguments
+    $p = Start-Process -FilePath $exe -ArgumentList $all -Wait -PassThru -NoNewWindow
+    return [int]$p.ExitCode
+}
+
 function Test-DockerAvailable {
     $docker = Get-DockerExecutable
     if (-not (Get-Command $docker -ErrorAction SilentlyContinue)) {
