@@ -74,10 +74,9 @@ Write-Host '  FA key validated' -ForegroundColor Green
 if ($faIdFromHub) { Write-Host "  Identity from hub: $faIdFromHub" -ForegroundColor Cyan }
 
 $docker = Get-DockerExecutable
-$hc = & $docker @('inspect', 'hub-connector') 2>$null
-if ($LASTEXITCODE -eq 0) {
+if ((Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('inspect', 'hub-connector')) -eq 0) {
     Write-Host '  Removing legacy hub-connector container...' -ForegroundColor Cyan
-    & $docker @('rm', '-f', 'hub-connector') 2>$null | Out-Null
+    $null = Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('rm', '-f', 'hub-connector')
     Write-Host '  Legacy hub-connector removed' -ForegroundColor Green
 }
 

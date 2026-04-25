@@ -87,8 +87,8 @@ Set-EnvLocalKey -ProjectRoot $ProjectRoot -Key 'DEMOFORGE_MODE' -Value 'fa'
 Set-EnvLocalKey -ProjectRoot $ProjectRoot -Key 'DEMOFORGE_HUB_URL' -Value $DefaultHubUrl
 
 $docker = Get-DockerExecutable
-if (& $docker @('inspect', 'hub-connector') 2>$null) {
-    & $docker @('rm', '-f', 'hub-connector') 2>$null | Out-Null
+if ((Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('inspect', 'hub-connector')) -eq 0) {
+    $null = Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('rm', '-f', 'hub-connector')
 }
 
 $restartRc = Invoke-DfScriptFile -Path (Join-Path $PSScriptRoot 'demoforge.ps1') -Arguments @('restart')

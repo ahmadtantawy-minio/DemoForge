@@ -10,19 +10,39 @@ function Get-DockerExecutable {
     return 'docker'
 }
 
+<#
+  Run docker/podman without stderr triggering NativeCommandError when
+  $ErrorActionPreference is 'Stop' (e.g. `docker inspect` on a missing object).
+  Returns the native process exit code (0 = success).
+#>
+function Invoke-DockerNativeQuiet {
+    param(
+        [Parameter(Mandatory)][string]$Engine,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ArgumentList
+    )
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    try {
+        & $Engine @ArgumentList 1>$null 2>$null
+        if ($null -eq $LASTEXITCODE) { return 0 }
+        return [int]$LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $saved
+    }
+}
+
 function Test-DockerAvailable {
     $docker = Get-DockerExecutable
     if (-not (Get-Command $docker -ErrorAction SilentlyContinue)) {
         Write-Error "$docker not found. Install Docker Desktop or Podman, or set DEMO_DOCKER_CLI to your engine CLI."
         return $false
     }
-    $composeTest = & $docker @('compose', 'version') 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    if ((Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('compose', 'version')) -ne 0) {
         Write-Error "Docker Compose v2 required ('$docker compose version' failed). Install the Compose plugin."
         return $false
     }
-    $info = & $docker @('info') 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    if ((Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('info')) -ne 0) {
         Write-Error "Container engine is not running. Start Docker Desktop / Podman machine."
         return $false
     }

@@ -46,8 +46,8 @@ function Stop-CoreServices {
     $demoIds = @((& $docker @('ps', '-aq', '--filter', 'label=demoforge.demo') 2>$null) -split "`n" | Where-Object { $_ })
     if ($demoIds.Count -gt 0 -and -not $faCoreRunning) {
         foreach ($id in $demoIds) {
-            & $docker @('stop', $id) 2>$null | Out-Null
-            & $docker @('rm', $id) 2>$null | Out-Null
+            $null = Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('stop', $id)
+            $null = Invoke-DockerNativeQuiet -Engine $docker -ArgumentList @('rm', $id)
         }
     }
 }
