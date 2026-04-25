@@ -1,5 +1,5 @@
-import { lazy, Suspense, useRef } from "react";
-import { toExcalidrawInitialData, buildPersistedScene } from "./excalidrawScene";
+import { lazy, Suspense, useCallback, useRef } from "react";
+import { toExcalidrawInitialData, buildPersistedScene, pickPersistableAppState, excalidrawChangeSignature } from "./excalidrawScene";
 
 import "@excalidraw/excalidraw/index.css";
 
@@ -18,10 +18,36 @@ type Props = {
 export default function SlideExcalidrawCanvas({ scene, remountKey = 0, mode, className, onSceneChange }: Props) {
   const lastRemount = useRef(remountKey);
   const initialDataRef = useRef(toExcalidrawInitialData(scene ?? null));
+  /** Prevents React↔Excalidraw feedback loops: onChange also runs after parent re-renders (see excalidraw#3014). */
+  const sceneSignatureRef = useRef<string>("");
+  const onSceneChangeRef = useRef(onSceneChange);
+  onSceneChangeRef.current = onSceneChange;
+
   if (lastRemount.current !== remountKey) {
     lastRemount.current = remountKey;
     initialDataRef.current = toExcalidrawInitialData(scene ?? null);
+    sceneSignatureRef.current = "";
   }
+
+  const stableOnChange = useCallback((elements: readonly unknown[], appState: unknown, files: unknown) => {
+    const cb = onSceneChangeRef.current;
+    if (!cb) return;
+    const appSlice = pickPersistableAppState(appState as Record<string, unknown>);
+    const sig = excalidrawChangeSignature(elements, appSlice, files);
+    if (sig === sceneSignatureRef.current) return;
+    sceneSignatureRef.current = sig;
+    try {
+      cb(
+        buildPersistedScene(
+          elements,
+          appState as unknown as Record<string, unknown>,
+          files as unknown as Record<string, unknown>
+        )
+      );
+    } catch {
+      /* ignore stringify / serialization edge cases */
+    }
+  }, []);
 
   return (
     <div className={className ?? "h-full w-full min-h-[280px]"}>
@@ -39,19 +65,7 @@ export default function SlideExcalidrawCanvas({ scene, remountKey = 0, mode, cla
           zenModeEnabled={mode === "present"}
           gridModeEnabled={false}
           detectScroll={false}
-          onChange={
-            mode === "edit" && onSceneChange
-              ? (elements, appState, files) => {
-                  onSceneChange(
-                    buildPersistedScene(
-                      elements,
-                      appState as unknown as Record<string, unknown>,
-                      files as unknown as Record<string, unknown>
-                    )
-                  );
-                }
-              : undefined
-          }
+          onChange={mode === "edit" && onSceneChange ? stableOnChange : undefined}
         />
       </Suspense>
     </div>

@@ -51,3 +51,25 @@ export function toExcalidrawInitialData(scene: Record<string, unknown> | null | 
   const files = asRecord(scene.files) ?? {};
   return { elements, appState: app, files } as ExcalidrawInitialDataState;
 }
+
+/** Cheap fingerprint for onChange dedupe (avoids importing Excalidraw on the main bundle). */
+export function excalidrawChangeSignature(
+  elements: readonly unknown[],
+  appSlice: Record<string, unknown>,
+  files: unknown
+): string {
+  const elSig = Array.isArray(elements)
+    ? elements
+        .map((el) => {
+          const o = el && typeof el === "object" && !Array.isArray(el) ? (el as Record<string, unknown>) : {};
+          return `${o.id ?? ""}:${o.version ?? 0}:${o.versionNonce ?? 0}`;
+        })
+        .join("|")
+    : "";
+  const filesRec = files && typeof files === "object" && !Array.isArray(files) ? (files as Record<string, { version?: number }>) : {};
+  const fileSig = Object.keys(filesRec)
+    .sort()
+    .map((id) => `${id}:${filesRec[id]?.version ?? 0}`)
+    .join("|");
+  return `${elSig}::${JSON.stringify(appSlice)}::${fileSig}`;
+}
