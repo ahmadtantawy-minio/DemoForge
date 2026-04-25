@@ -5,7 +5,19 @@ import yaml
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
-from ..models.demo import DemoDefinition, DemoNetwork, DemoNode, DemoEdge, DemoGroup, DemoCluster, DemoServerPool, DemoStickyNote, DemoAnnotation, NodePosition
+from ..models.demo import (
+    DemoDefinition,
+    DemoNetwork,
+    DemoNode,
+    DemoEdge,
+    DemoGroup,
+    DemoCluster,
+    DemoServerPool,
+    DemoStickyNote,
+    DemoAnnotation,
+    NodePosition,
+    DemoPresentation,
+)
 from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
@@ -449,6 +461,30 @@ async def get_walkthrough(demo_id: str):
                 continue
 
     return {"demo_id": demo_id, "walkthrough": walkthrough}
+
+
+@router.get("/api/demos/{demo_id}/presentation")
+async def get_presentation(demo_id: str):
+    """Intro/outro slide sequences for this demo (stored in demo YAML, not in diagram PUT)."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+    if demo.presentation is None:
+        return DemoPresentation().model_dump()
+    return demo.presentation.model_dump()
+
+
+@router.put("/api/demos/{demo_id}/presentation")
+async def put_presentation(demo_id: str, body: DemoPresentation):
+    """Replace intro/outro slides for this demo."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+    if demo.mode == "experience" and os.getenv("DEMOFORGE_MODE") != "dev":
+        raise HTTPException(403, "Experience demos are read-only")
+    demo.presentation = body
+    _save_demo(demo)
+    return demo.presentation.model_dump()
 
 
 @router.get("/api/demos/{demo_id}/export")

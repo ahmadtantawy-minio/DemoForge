@@ -163,6 +163,21 @@ class DemoResourceSettings(BaseModel):
     total_memory: str = ""         # Total demo budget — e.g. "32g", empty = no limit
     total_cpu: float = 0           # Total demo budget — e.g. 16.0, 0 = no limit
 
+
+class DemoSlide(BaseModel):
+    """One intro or outro slide (YAML-inline; optional Excalidraw scene for future editor)."""
+    id: str
+    title: str = ""
+    body_markdown: str = ""
+    excalidraw_scene: dict[str, Any] | None = None
+
+
+class DemoPresentation(BaseModel):
+    """Per-demo intro/outro sequences for FA walk-up demos (separate from diagram / template walkthrough)."""
+    intro_slides: list[DemoSlide] = []
+    outro_slides: list[DemoSlide] = []
+
+
 class DemoDefinition(BaseModel):
     """Complete demo definition — serializable to/from YAML."""
     id: str
@@ -183,3 +198,4 @@ class DemoDefinition(BaseModel):
     created_at: str | None = None   # ISO-8601 UTC — set once on create
     updated_at: str | None = None   # ISO-8601 UTC — refreshed on every save
     source_template_id: str | None = None  # template this demo was created from
+    presentation: DemoPresentation | None = None  # intro/outro slides; not part of diagram save

@@ -278,6 +278,18 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         # XHR
         f'var _x=XMLHttpRequest.prototype.open;'
         f'XMLHttpRequest.prototype.open=function(m,u){{return _x.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)));}};'
+        # MinIO Console (and similar SPAs) open root-absolute ws URLs (e.g. /ws/...). Without
+        # this they hit the app origin path instead of /proxy/{demo}/{node}/{ui}/... .
+        f'var _WS=window.WebSocket;'
+        f'function _dfWs(u,protocols){{var nu=(typeof u==="string")?rw(u):u;'
+        f'return protocols===undefined?new _WS(nu):new _WS(nu,protocols);}}'
+        f'_dfWs.prototype=_WS.prototype;'
+        f'window.WebSocket=_dfWs;'
+        f'window.WebSocket.CONNECTING=_WS.CONNECTING;'
+        f'window.WebSocket.OPEN=_WS.OPEN;'
+        f'window.WebSocket.CLOSING=_WS.CLOSING;'
+        f'window.WebSocket.CLOSED=_WS.CLOSED;'
+        f'window.WebSocket.prototype=_WS.prototype;'
         f'}})();'
         f'</script>'
     )

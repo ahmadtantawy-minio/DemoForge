@@ -7,9 +7,9 @@ import { useDiagramStore } from "../stores/diagramStore";
 export type CopyDebugBundleResult = { ok: boolean; message: string; charCount?: number };
 
 /**
- * Collects environment + recent client logs + backend health + a same-origin fetch probe
- * of the current URL (useful for broken MinIO console / proxy asset debugging).
- * Screenshots cannot be taken from JS for cross-origin iframes — bundle includes OS hints.
+ * Collects environment + recent client logs + backend health + same-origin fetch probes
+ * (current URL, optional /proxy/... targets) for MinIO console / proxy debugging.
+ * When component UIs load under `/proxy/...` (same origin as the SPA), iframe text may be captured.
  */
 export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResult> {
   if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
@@ -20,12 +20,27 @@ export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResul
   lines.push("# DemoForge debug bundle");
   lines.push(`generated_utc: ${new Date().toISOString()}`);
   lines.push(`href: ${window.location.href}`);
+  lines.push(`origin: ${window.location.origin}`);
   lines.push(`path: ${window.location.pathname}`);
   lines.push(`user_agent: ${navigator.userAgent}`);
+  lines.push(`navigator.platform: ${typeof navigator.platform === "string" ? navigator.platform : "(n/a)"}`);
+  try {
+    const ua = (navigator as Navigator & { userAgentData?: { brands?: unknown; platform?: string; mobile?: boolean } })
+      .userAgentData;
+    if (ua) {
+      lines.push(
+        `user_agent_data: ${JSON.stringify({ brands: ua.brands, platform: ua.platform, mobile: ua.mobile })}`
+      );
+    }
+  } catch {
+    /* ignore */
+  }
   lines.push(`viewport: ${window.innerWidth}x${window.innerHeight}`);
   lines.push(`language: ${navigator.language}`);
   lines.push("");
-  lines.push("# Screenshot (attach separately — JS cannot capture cross-origin iframes)");
+  lines.push(
+    "# Screenshot (attach separately if needed — external UIs in iframes are often same-origin here as /proxy/...)"
+  );
   lines.push("# Windows: Win+Shift+S  |  macOS: Cmd+Shift+4  |  Linux: use your compositor/screenshot tool");
 
   const demoStore = useDemoStore.getState();
@@ -97,14 +112,90 @@ export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResul
     lines.push(`fetch_probe_error: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  let instancesSnapshot: Awaited<ReturnType<typeof fetchInstances>> | null = null;
   if (demoStore.activeDemoId) {
     lines.push("\n## instances snapshot (active demo)");
     try {
-      const inst = await fetchInstances(demoStore.activeDemoId);
-      lines.push(JSON.stringify({ instances: inst.instances?.slice(0, 40) }, null, 2));
+      instancesSnapshot = await fetchInstances(demoStore.activeDemoId);
+      lines.push(JSON.stringify({ instances: instancesSnapshot.instances?.slice(0, 40) }, null, 2));
     } catch (e: unknown) {
       lines.push(`instances_fetch_failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  const appendFetchProbe = async (label: string, pathOrUrl: string, maxBytes: number) => {
+    const url = pathOrUrl.startsWith("http")
+      ? pathOrUrl
+      : apiUrl(pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`);
+    lines.push(`\n### ${label}`);
+    lines.push(`url: ${url}`);
+    try {
+      const r = await fetch(url, { method: "GET", cache: "no-store", credentials: "same-origin" });
+      const ct = (r.headers.get("content-type") || "").toLowerCase();
+      const buf = await r.arrayBuffer();
+      lines.push(`status: ${r.status} ${r.statusText}`);
+      lines.push(`content_type: ${ct}`);
+      lines.push(`body_bytes: ${buf.byteLength}`);
+      const textish =
+        ct.includes("text/") ||
+        ct.includes("json") ||
+        ct.includes("javascript") ||
+        ct.includes("xml") ||
+        ct.includes("html");
+      if (textish && buf.byteLength > 0) {
+        const slice = buf.byteLength > maxBytes ? buf.slice(0, maxBytes) : buf;
+        lines.push("body_prefix_utf8:");
+        lines.push(new TextDecoder("utf-8", { fatal: false }).decode(slice));
+      }
+    } catch (e: unknown) {
+      lines.push(`fetch_error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  lines.push("\n## fetch_probe_proxy_paths (component UI / MinIO console)");
+  if (diagram.designerWebUiOverlay?.proxyPath) {
+    await appendFetchProbe("designer_web_ui_overlay", diagram.designerWebUiOverlay.proxyPath, 6000);
+  } else {
+    lines.push("\n(no designer_web_ui_overlay — open the web UI panel to include its /proxy/ URL here)");
+  }
+  const lbInst = instancesSnapshot?.instances?.find((i) => i.node_id?.endsWith("-lb"));
+  const lbConsole = lbInst?.web_uis?.find((u) => u.name === "console");
+  if (lbConsole?.proxy_url) {
+    await appendFetchProbe("load_balancer_console_from_instances", lbConsole.proxy_url, 6000);
+  }
+
+  lines.push("\n## same_origin_iframe_snippets (/proxy/ only; best-effort)");
+  try {
+    const iframes = Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[src*="/proxy/"]'));
+    lines.push(`iframe_count: ${iframes.length}`);
+    for (let i = 0; i < iframes.length; i++) {
+      const el = iframes[i];
+      lines.push(`\n### iframe[${i}]`);
+      lines.push(`src: ${el.src}`);
+      try {
+        const doc = el.contentDocument;
+        if (!doc) {
+          lines.push("contentDocument: null");
+          continue;
+        }
+        lines.push(`document_title: ${doc.title || "(empty)"}`);
+        const bodyTxt = doc.body?.innerText?.trim().slice(0, 2800) ?? "";
+        if (bodyTxt.length > 0) {
+          lines.push("body_innerText_snippet:");
+          lines.push(bodyTxt);
+        } else {
+          const htmlSnippet = doc.documentElement?.outerHTML?.slice(0, 2000) ?? "";
+          if (htmlSnippet) {
+            lines.push("documentElement_outerHTML_snippet:");
+            lines.push(htmlSnippet);
+          }
+        }
+      } catch (e: unknown) {
+        lines.push(`iframe_access_error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  } catch (e: unknown) {
+    lines.push(`iframe_walk_error: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   const body = lines.join("\n");

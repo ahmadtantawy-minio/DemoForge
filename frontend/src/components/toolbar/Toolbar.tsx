@@ -20,15 +20,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, Eye, Bug } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, Eye, Bug, Clapperboard } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
 import { copyDebugBundleToClipboard } from "../../lib/copyDebugBundle";
+import DemoPresentationAuthoringDialog from "../demo-presentation/DemoPresentationAuthoringDialog";
+import DemoPresentationPresenter from "../demo-presentation/DemoPresentationPresenter";
+import type { DemoSlidePayload } from "../../api/client";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes } = useDemoStore();
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes, faMode } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -47,6 +50,10 @@ export default function Toolbar() {
 
   const isDirty = useDiagramStore((s) => s.isDirty);
   const faId = useDemoStore((s) => s.faId);
+  const [presentationOpen, setPresentationOpen] = useState(false);
+  const [presenterOpen, setPresenterOpen] = useState(false);
+  const [presenterSection, setPresenterSection] = useState<"intro" | "outro">("intro");
+  const [presenterSlides, setPresenterSlides] = useState<DemoSlidePayload[]>([]);
 
   const handleForceSync = useCallback(async () => {
     if (!activeDemoId) return;
@@ -95,6 +102,15 @@ export default function Toolbar() {
   }, [activeDemoId]);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
+  const presentationReadOnly = activeDemo?.mode === "experience" && faMode !== "dev";
+
+  const openPresenter = (section: "intro" | "outro", slides: DemoSlidePayload[]) => {
+    if (!slides.length) return;
+    setPresentationOpen(false);
+    setPresenterSection(section);
+    setPresenterSlides(slides);
+    setPresenterOpen(true);
+  };
 
   const handleRename = async () => {
     if (!activeDemoId || !renameName.trim()) { setRenaming(false); return; }
@@ -614,6 +630,28 @@ export default function Toolbar() {
               </TooltipTrigger>
               <TooltipContent><p className="text-xs">Walkthrough</p></TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPresentationOpen(true);
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  data-testid="toolbar-slides"
+                >
+                  <Clapperboard className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs font-medium">Intro / outro slides</p>
+                <p className="text-[11px] text-muted-foreground mt-1 max-w-[200px]">
+                  Per-demo title cards before and after the live demo (saved in demo YAML).
+                </p>
+              </TooltipContent>
+            </Tooltip>
           </>
         )}
 
@@ -804,6 +842,24 @@ export default function Toolbar() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {activeDemoId && (
+        <>
+          <DemoPresentationAuthoringDialog
+            open={presentationOpen}
+            onOpenChange={setPresentationOpen}
+            demoId={activeDemoId}
+            readOnly={presentationReadOnly}
+            onPresent={openPresenter}
+          />
+          <DemoPresentationPresenter
+            open={presenterOpen}
+            section={presenterSection}
+            slides={presenterSlides}
+            onClose={() => setPresenterOpen(false)}
+          />
+        </>
+      )}
     </TooltipProvider>
   );
 }

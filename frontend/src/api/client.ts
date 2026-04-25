@@ -441,6 +441,28 @@ export const getWalkthrough = (demoId: string) =>
     `/api/demos/${demoId}/walkthrough`
   );
 
+// Intro / outro slides (per-demo presentation; persisted in demo YAML)
+export interface DemoSlidePayload {
+  id: string;
+  title?: string;
+  body_markdown?: string;
+  excalidraw_scene?: Record<string, unknown> | null;
+}
+
+export interface DemoPresentationPayload {
+  intro_slides: DemoSlidePayload[];
+  outro_slides: DemoSlidePayload[];
+}
+
+export const fetchPresentation = (demoId: string) =>
+  apiFetch<DemoPresentationPayload>(`/api/demos/${demoId}/presentation`);
+
+export const savePresentation = (demoId: string, body: DemoPresentationPayload) =>
+  apiFetch<DemoPresentationPayload>(`/api/demos/${demoId}/presentation`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+
 // MCP Tools (Phase 8)
 export interface McpTool {
   name: string;
