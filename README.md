@@ -53,6 +53,7 @@ Core UI images are **not** on Docker Hub under `docker.io/demoforge/...`. They a
 | Registry + GCP project | `gcr.io/minio-demoforge` |
 | Repository prefix | `demoforge` |
 | Example full reference | `gcr.io/minio-demoforge/demoforge/demoforge-backend:latest` |
+| CPU architectures | `hub-push` / `make hub-release` publish a **multi-arch** manifest (default **`linux/amd64,linux/arm64`**). FA **`hub-pull`** uses plain **`docker pull`**, which picks the digest for the engine’s CPU—no `--platform` flag. To push one arch only (faster CI), set **`DEMOFORGE_HUB_PLATFORMS=linux/amd64`**. Optional builder name: **`DEMOFORGE_HUB_BUILDX_BUILDER`**. |
 
 After a successful pull, images are **re-tagged** locally as `demoforge/demoforge-backend:latest` and `demoforge/demoforge-frontend:latest` so [`docker-compose.yml`](docker-compose.yml) can start without talking to Docker Hub for those names.
 

@@ -93,6 +93,7 @@ if command -v curl &>/dev/null; then
 fi
 
 echo -e "${CYAN}[hub-pull]${NC}  First pull target (sanity): ${GCR_HOST}/demoforge/demoforge-frontend:latest"
+log "Each docker pull uses the registry manifest for this engine's CPU (amd64 vs arm64); no --platform flag needed."
 echo ""
 
 for repo in "${CRITICAL_IMAGES[@]}"; do

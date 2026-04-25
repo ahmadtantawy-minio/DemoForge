@@ -107,6 +107,7 @@ function Write-DockerEngineGcrDnsProbe {
 Write-DockerEngineGcrDnsProbe -Engine $docker
 
 Write-Host "First pull target (sanity, matches hub-push): ${GcrHost}/demoforge/demoforge-frontend:latest" -ForegroundColor DarkGray
+Write-Host 'Each docker pull uses the manifest for this engine CPU (amd64 vs arm64); no --platform needed.' -ForegroundColor DarkGray
 Write-Host ''
 
 $pulled = 0

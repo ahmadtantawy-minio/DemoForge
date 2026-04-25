@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Push DemoForge images to GCR. Frontend is always built with --target prod (nginx + Vite dist).
 # Local dev (make dev-start / dev-start-gcp) uses Dockerfile --target dev via demoforge-dev + docker compose — not this script.
+#
+# Multi-arch: by default builds/pushes a manifest list for linux/amd64 + linux/arm64 so Windows/Linux
+# (amd64) and Apple Silicon (arm64) FAs each get a matching image on plain "docker pull" (no --platform).
+# Override: DEMOFORGE_HUB_PLATFORMS=linux/amd64  DEMOFORGE_HUB_BUILDX_BUILDER=mybuilder
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,6 +71,33 @@ CURRENT=0
 
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "")
 
+HUB_PLATFORMS="${DEMOFORGE_HUB_PLATFORMS:-linux/amd64,linux/arm64}"
+HUB_BUILDER="${DEMOFORGE_HUB_BUILDX_BUILDER:-demoforge-hub}"
+
+prepare_buildx() {
+  command -v docker >/dev/null || { err "docker not found"; return 1; }
+  if ! docker buildx version >/dev/null 2>&1; then
+    err "docker buildx is required for hub-push (multi-arch). Install a current Docker CLI / Docker Desktop."
+    return 1
+  fi
+  # Single platform: use default builder (no dedicated builder needed).
+  if [[ "$HUB_PLATFORMS" != *","* ]]; then
+    docker buildx use default >/dev/null 2>&1 || true
+    log "Single-platform push: ${HUB_PLATFORMS}"
+    return 0
+  fi
+  if docker buildx inspect "$HUB_BUILDER" >/dev/null 2>&1; then
+    docker buildx use "$HUB_BUILDER"
+    return 0
+  fi
+  log "Creating buildx builder \"${HUB_BUILDER}\" (docker-container driver) for ${HUB_PLATFORMS}..."
+  docker buildx create --name "$HUB_BUILDER" --driver docker-container --use
+  docker buildx inspect "$HUB_BUILDER" --bootstrap >/dev/null
+}
+
+prepare_buildx || exit 1
+log "Platforms: ${HUB_PLATFORMS} (hub-pull / FA machines: plain docker pull selects the host arch)"
+
 for i in "${!COMPONENTS[@]}"; do
     comp="${COMPONENTS[$i]}"; dockerfile="${DOCKERFILES[$i]}"; context=$(dirname "$dockerfile")
 
@@ -99,33 +130,28 @@ for i in "${!COMPONENTS[@]}"; do
     BUILD_FLAGS=(-f "$dockerfile")
     [[ "$comp" == "demoforge-frontend" ]] && BUILD_FLAGS+=(--target prod)
 
-    BUILD_START=$SECONDS
-    if docker build -t "$GCR_IMAGE" "${BUILD_FLAGS[@]}" "$context" 2>&1; then
-        BUILD_ELAPSED=$(( SECONDS - BUILD_START ))
-        log "  ✓ Built in ${BUILD_ELAPSED}s: $GCR_IMAGE"
-    else
-        BUILD_ELAPSED=$(( SECONDS - BUILD_START ))
-        err "  ✗ Build failed after ${BUILD_ELAPSED}s: $comp"; ((FAILED++)); continue
-    fi
-
-    PUSH_START=$SECONDS
-    if docker push "$GCR_IMAGE" 2>&1; then
-        PUSH_ELAPSED=$(( SECONDS - PUSH_START ))
-        IMG_SIZE=$(docker image inspect "$GCR_IMAGE" --format '{{.Size}}' 2>/dev/null || echo "0")
-        IMG_SIZE_MB=$(( IMG_SIZE / 1000000 ))
-        log "  ✓ Pushed in ${PUSH_ELAPSED}s (${IMG_SIZE_MB} MB): $GCR_IMAGE"; ((BUILT++))
-    else
-        PUSH_ELAPSED=$(( SECONDS - PUSH_START ))
-        err "  ✗ Push failed after ${PUSH_ELAPSED}s: $comp"
-        echo -e "${YELLOW}[hub-push]  Run: gcloud auth configure-docker gcr.io${NC}"
-        ((FAILED++)); continue
-    fi
-
+    TAG_ARGS=(-t "$GCR_IMAGE")
     if [[ -n "$GIT_HASH" ]]; then
-        GCR_GIT="${GCR_HOST}/${REGISTRY_PREFIX}/${comp}:${GIT_HASH}"
-        docker tag "$GCR_IMAGE" "$GCR_GIT"
-        docker push "$GCR_GIT" 2>/dev/null || true
-        log "  ✓ Also tagged: ${GIT_HASH}"
+        TAG_ARGS+=(-t "${GCR_HOST}/${REGISTRY_PREFIX}/${comp}:${GIT_HASH}")
+    fi
+
+    BUILD_START=$SECONDS
+    if docker buildx build \
+        --platform "$HUB_PLATFORMS" \
+        "${BUILD_FLAGS[@]}" \
+        "${TAG_ARGS[@]}" \
+        --push \
+        "$context" 2>&1; then
+        BUILD_ELAPSED=$(( SECONDS - BUILD_START ))
+        log "  ✓ Built + pushed in ${BUILD_ELAPSED}s (manifest: ${HUB_PLATFORMS}): $GCR_IMAGE"
+        [[ -n "$GIT_HASH" ]] && log "  ✓ Same digest also tagged: ${GIT_HASH}"
+        ((BUILT++))
+    else
+        BUILD_ELAPSED=$(( SECONDS - BUILD_START ))
+        err "  ✗ buildx build/push failed after ${BUILD_ELAPSED}s: $comp"
+        echo -e "${YELLOW}[hub-push]  Run: gcloud auth configure-docker gcr.io${NC}"
+        echo -e "${YELLOW}[hub-push]  Multi-arch needs QEMU/binfmt (Docker Desktop includes it). Try DEMOFORGE_HUB_PLATFORMS=linux/amd64 for a single-arch push.${NC}"
+        ((FAILED++)); continue
     fi
 done
 

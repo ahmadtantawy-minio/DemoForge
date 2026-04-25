@@ -185,10 +185,10 @@ pull-missing:
 hub-status:       ## Show local vs remote template counts, sync config, registry health
 	@scripts/hub-status.sh
 
-hub-push:         ## [Dev] Build and push core images (frontend, backend, data-generator) to GCR
+hub-push:         ## [Dev] Multi-arch push (amd64+arm64) core images to GCR; FA hub-pull picks host arch
 	@scripts/hub-push.sh
 
-hub-push-all:     ## [Dev] Build and push ALL custom images to GCR
+hub-push-all:     ## [Dev] Multi-arch push ALL custom images to GCR
 	@scripts/hub-push.sh --all
 
 hub-push-%:       ## [Dev] Build and push one image, e.g.: make hub-push-inference-sim
@@ -201,7 +201,7 @@ hub-pull:         ## [FA] Pull all custom images from private registry
 seed-licenses:    ## Seed license keys to hub via gateway (GCS write path — no gcloud required)
 	@scripts/seed-licenses.sh
 
-hub-release:      ## [Dev] Full release: commit, tag, push images+templates, deploy hub-api, notify FAs
+hub-release:      ## [Dev] Full release: commit, tag, multi-arch GCR images (hub-push), deploy hub-api, notify FAs
 	@scripts/hub-release.sh $(if $(VERSION),--version $(VERSION),) $(if $(filter major,$(BUMP)),--major,) $(if $(filter minor,$(BUMP)),--minor,) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
 
 hub-release-patch: ## [Dev] Release with patch bump (default)
