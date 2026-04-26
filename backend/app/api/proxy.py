@@ -26,11 +26,13 @@ _SPA_RECOVERY_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 import asyncio
+import logging
 import httpx
 import websockets
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from ..engine.proxy_gateway import forward_request, resolve_target
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -94,24 +96,45 @@ async def proxy_ws_handler(
 
     await websocket.accept()
 
-    # Forward cookies from the client to upstream
+    # Forward cookies / Origin / subprotocols — MinIO Console validates these on upgrade.
+    extra_headers: dict[str, str] = {}
     cookies = websocket.headers.get("cookie", "")
-    extra_headers = {}
     if cookies:
         extra_headers["Cookie"] = cookies
+    origin = websocket.headers.get("origin")
+
+    sec_proto = websocket.headers.get("sec-websocket-protocol", "").strip()
+    subprotocols: list[str] | None = None
+    if sec_proto:
+        subprotocols = [p.strip() for p in sec_proto.split(",") if p.strip()]
+
+    connect_kwargs: dict = {
+        "additional_headers": extra_headers if extra_headers else None,
+        "ping_interval": None,
+        "open_timeout": 30,
+    }
+    if origin:
+        connect_kwargs["origin"] = origin
+    if subprotocols:
+        connect_kwargs["subprotocols"] = subprotocols
 
     try:
-        async with websockets.connect(
-            target_url,
-            additional_headers=extra_headers,
-            ping_interval=None,
-        ) as upstream_ws:
+        async with websockets.connect(target_url, **connect_kwargs) as upstream_ws:
             async def client_to_upstream():
                 try:
                     while True:
-                        data = await websocket.receive_text()
-                        await upstream_ws.send(data)
-                except (WebSocketDisconnect, Exception):
+                        msg = await websocket.receive()
+                        if msg["type"] == "websocket.disconnect":
+                            break
+                        if msg["type"] != "websocket.receive":
+                            continue
+                        if "bytes" in msg:
+                            await upstream_ws.send(msg["bytes"])
+                        elif "text" in msg:
+                            await upstream_ws.send(msg["text"])
+                except WebSocketDisconnect:
+                    pass
+                except Exception:
                     pass
 
             async def upstream_to_client():
@@ -125,8 +148,8 @@ async def proxy_ws_handler(
                     pass
 
             await asyncio.gather(client_to_upstream(), upstream_to_client())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("WebSocket proxy failed (target=%s): %s", target_url, e)
     finally:
         try:
             await websocket.close()

@@ -7,7 +7,28 @@ import { useDiagramStore } from "../stores/diagramStore";
 export type CopyDebugBundleResult = { ok: boolean; message: string; charCount?: number };
 
 /** Bump when diagnostics shape or probes change (so pasted bundles are identifiable). */
-const DEBUG_BUNDLE_FORMAT = 5;
+const DEBUG_BUNDLE_FORMAT = 6;
+
+/** Avoid multi-minute exports on huge demos; paths beyond this are listed but not probed. */
+const MAX_AUTO_PROXY_PROBE_PATHS = 80;
+
+type AutoProxyTarget = {
+  label: string;
+  path: string;
+  /** MinIO Console uses `/ws/objectManager` under the `/console/` proxy root. */
+  wsMode: "minio_object_manager" | "none";
+};
+
+function normalizeProxyPath(p: string): string {
+  const t = p.trim();
+  if (!t) return t;
+  return t.startsWith("/") ? t : `/${t}`;
+}
+
+function isMinioConsoleProxyRoot(path: string): boolean {
+  const withSlash = normalizeProxyPath(path).replace(/\/*$/, "/");
+  return withSlash.includes("/console/");
+}
 
 function pathToWebSocketUrl(pathFromOrigin: string): string {
   const p = pathFromOrigin.startsWith("/") ? pathFromOrigin : `/${pathFromOrigin}`;
@@ -278,31 +299,62 @@ export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResul
     }
   };
 
-  const lbInst = instancesSnapshot?.instances?.find((i) => i.node_id?.endsWith("-lb"));
-  const lbConsole = lbInst?.web_uis?.find((u) => u.name === "console");
-
   lines.push("\n## automated_proxy_diagnostics (run when you click copy debug bundle)");
-  const proxyTargets: { label: string; path: string }[] = [];
+  lines.push(
+    "# Probes each unique `proxy_url` from the active demo's instances (every node / LB web UI), plus the designer overlay if open."
+  );
+
+  const proxyTargets: AutoProxyTarget[] = [];
   if (diagram.designerWebUiOverlay?.proxyPath) {
-    proxyTargets.push({ label: "designer_web_ui_overlay", path: diagram.designerWebUiOverlay.proxyPath });
+    const p = normalizeProxyPath(diagram.designerWebUiOverlay.proxyPath);
+    proxyTargets.push({
+      label: "designer_web_ui_overlay",
+      path: p,
+      wsMode: isMinioConsoleProxyRoot(p) ? "minio_object_manager" : "none",
+    });
   }
-  if (lbConsole?.proxy_url) {
-    proxyTargets.push({ label: "load_balancer_console", path: lbConsole.proxy_url });
+
+  const sortedInstances = [...(instancesSnapshot?.instances ?? [])].sort((a, b) =>
+    (a.node_id || "").localeCompare(b.node_id || "", undefined, { sensitivity: "base" })
+  );
+  for (const inst of sortedInstances) {
+    for (const wu of inst.web_uis ?? []) {
+      const raw = wu.proxy_url?.trim();
+      if (!raw || !raw.includes("/proxy/")) continue;
+      const p = normalizeProxyPath(raw);
+      proxyTargets.push({
+        label: `instance:${inst.node_id}:${wu.name}`,
+        path: p,
+        wsMode: wu.name === "console" && isMinioConsoleProxyRoot(p) ? "minio_object_manager" : "none",
+      });
+    }
   }
+
   const seenPaths = new Set<string>();
-  const uniqueTargets = proxyTargets.filter((t) => {
-    if (seenPaths.has(t.path)) return false;
+  const uniqueTargets: AutoProxyTarget[] = [];
+  for (const t of proxyTargets) {
+    if (seenPaths.has(t.path)) continue;
     seenPaths.add(t.path);
-    return true;
-  });
+    uniqueTargets.push(t);
+  }
+
+  const probeList = uniqueTargets.slice(0, MAX_AUTO_PROXY_PROBE_PATHS);
+  const omitted = uniqueTargets.length - probeList.length;
 
   if (uniqueTargets.length === 0) {
     lines.push(
-      "(skipped — no /proxy target: need active demo with LB console in instances, or open a component web UI overlay)"
+      "(skipped — no /proxy targets: need active demo with instances + web_uis, or open a component web UI overlay)"
     );
+  } else {
+    lines.push(`unique_proxy_paths: ${uniqueTargets.length}`);
+    if (omitted > 0) {
+      lines.push(
+        `(only first ${MAX_AUTO_PROXY_PROBE_PATHS} paths probed; ${omitted} omitted — raise MAX_AUTO_PROXY_PROBE_PATHS in copyDebugBundle.ts if needed)`
+      );
+    }
   }
 
-  for (const t of uniqueTargets) {
+  for (const t of probeList) {
     const url = apiUrl(t.path.startsWith("/") ? t.path : `/${t.path}`);
     lines.push(`\n### automated target: ${t.label}`);
     lines.push(`path: ${t.path}`);
@@ -349,8 +401,12 @@ export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResul
       if (hints.length) {
         lines.push("html_sniff_ws_and_api_hints (first matches in first ~14k of body):");
         for (const h of hints) lines.push(`  ${h}`);
+      } else if (t.wsMode === "minio_object_manager") {
+        lines.push(
+          "html_sniff_ws_and_api_hints: (none in first ~14k — common when shell is tiny and /ws/ lives only in lazy chunks)"
+        );
       } else {
-        lines.push("html_sniff_ws_and_api_hints: (no /ws/ or WebSocket( patterns in scanned prefix — unexpected for MinIO console HTML)");
+        lines.push("html_sniff_ws_and_api_hints: (none in first ~14k — typical for non-MinIO-console UIs)");
       }
       lines.push("get_body_prefix_utf8 (first 1800 chars):");
       lines.push(text.slice(0, 1800));
@@ -358,22 +414,39 @@ export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResul
       lines.push(`test GET: ERROR ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    const wsPath = proxyRootToObjectManagerWsPath(t.path);
-    const wsUrl = pathToWebSocketUrl(wsPath);
-    lines.push(`test WebSocket smoke (MinIO objectManager path): ${wsUrl}`);
-    const wsResult = await websocketSmokeTest(wsUrl, 3500);
-    lines.push(`  result: ${wsResult}`);
+    if (t.wsMode === "minio_object_manager") {
+      const wsPath = proxyRootToObjectManagerWsPath(t.path);
+      const wsUrl = pathToWebSocketUrl(wsPath);
+      lines.push(`test WebSocket smoke (MinIO objectManager path): ${wsUrl}`);
+      const wsResult = await websocketSmokeTest(wsUrl, 3500);
+      lines.push(`  result: ${wsResult}`);
+    } else {
+      lines.push("test WebSocket smoke: skipped (not a …/console/ MinIO Console proxy root)");
+    }
+  }
+
+  if (omitted > 0) {
+    lines.push("\n### proxy paths listed but not probed (truncation — paths only)");
+    for (const t of uniqueTargets.slice(MAX_AUTO_PROXY_PROBE_PATHS)) {
+      lines.push(`- ${t.label}: ${t.path}`);
+    }
   }
 
   lines.push("\n## fetch_probe_proxy_paths (full GET up to 6k — only paths not already exercised above)");
-  const autoProbedPaths = new Set(uniqueTargets.map((x) => x.path));
-  if (diagram.designerWebUiOverlay?.proxyPath && !autoProbedPaths.has(diagram.designerWebUiOverlay.proxyPath)) {
-    await appendFetchProbe("designer_web_ui_overlay", diagram.designerWebUiOverlay.proxyPath, 6000);
-  } else if (!diagram.designerWebUiOverlay?.proxyPath) {
+  const autoProbedPaths = new Set(probeList.map((x) => x.path));
+  const designerNorm = diagram.designerWebUiOverlay?.proxyPath
+    ? normalizeProxyPath(diagram.designerWebUiOverlay.proxyPath)
+    : "";
+  if (designerNorm && !autoProbedPaths.has(designerNorm)) {
+    await appendFetchProbe("designer_web_ui_overlay", designerNorm, 6000);
+  } else if (!designerNorm) {
     lines.push("\n(no designer_web_ui_overlay — open the web UI panel to probe that /proxy/ URL here)");
   }
-  if (lbConsole?.proxy_url && !autoProbedPaths.has(lbConsole.proxy_url)) {
-    await appendFetchProbe("load_balancer_console_from_instances", lbConsole.proxy_url, 6000);
+  const lbInst = instancesSnapshot?.instances?.find((i) => i.node_id?.endsWith("-lb"));
+  const lbConsole = lbInst?.web_uis?.find((u) => u.name === "console");
+  const lbConsolePath = lbConsole?.proxy_url ? normalizeProxyPath(lbConsole.proxy_url) : "";
+  if (lbConsolePath && !autoProbedPaths.has(lbConsolePath)) {
+    await appendFetchProbe("load_balancer_console_from_instances", lbConsolePath, 6000);
   }
   if (autoProbedPaths.size > 0) {
     lines.push("\n(paths already covered by automated_proxy_diagnostics GET/HEAD/OPTIONS/WS are not duplicated here)");

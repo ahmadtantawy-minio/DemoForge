@@ -5,9 +5,9 @@
 # which writes directly to GCS via the gateway. hub-seed.sh (gcloud CLI) is no longer part of release.
 #
 # Usage:
-#   scripts/hub-release.sh                     # default: hotfix tag (v0.5.0 → v0.5.0-hotfix.1 → v0.5.0-hotfix.2 …)
+#   scripts/hub-release.sh                     # default: build tag (v0.5.0 → v0.5.0-b1 → v0.5.0-b2 …)
 #   scripts/hub-release.sh --patch            # semver patch bump (v0.5.0 → v0.5.1) — previous default
-#   scripts/hub-release.sh --hotfix           # same as no flag (explicit)
+#   scripts/hub-release.sh --hotfix           # same as no flag (explicit line release without semver bump)
 #   scripts/hub-release.sh --version v1.0.0   # explicit version
 #   scripts/hub-release.sh --minor            # semver minor (v0.5.0 → v0.6.0)
 #   scripts/hub-release.sh --major            # semver major (v0.5.0 → v1.0.0)
@@ -29,7 +29,7 @@ section() { echo -e "\n${CYAN}${BOLD}── $* ───────────
 cd "$PROJECT_ROOT"
 
 # ── Parse flags ────────────────────────────────────────────────────────────
-# Default: hotfix tags on the current line release (--patch / --minor / --major opt into semver).
+# Default: line release tags <base>-bN (--patch / --minor / --major opt into semver).
 BUMP_TYPE="hotfix"
 EXPLICIT_VERSION="${VERSION:-}"
 SKIP_IMAGES=0
@@ -87,17 +87,17 @@ if [[ -n "$EXPLICIT_VERSION" ]]; then
   NEW_VERSION="$EXPLICIT_VERSION"
   [[ "$NEW_VERSION" != v* ]] && NEW_VERSION="v${NEW_VERSION}"
 elif [[ "$BUMP_TYPE" == "hotfix" ]]; then
-  # Line release base: strip an existing trailing -hotfix.N so we always stack on the same semver line.
+  # Line release base: strip an existing trailing -bN so we always stack on the same semver line.
   BASE_TAG="$LAST_TAG"
-  if [[ "$BASE_TAG" =~ ^(.+)-hotfix\.[0-9]+$ ]]; then
+  if [[ "$BASE_TAG" =~ ^(.+)-b[0-9]+$ ]]; then
     BASE_TAG="${BASH_REMATCH[1]}"
   fi
   n=1
-  while git tag | grep -qx "${BASE_TAG}-hotfix.${n}"; do
+  while git tag | grep -qx "${BASE_TAG}-b${n}"; do
     n=$((n + 1))
   done
-  NEW_VERSION="${BASE_TAG}-hotfix.${n}"
-  ok "Hotfix base: ${BASE_TAG} → new tag ${NEW_VERSION}"
+  NEW_VERSION="${BASE_TAG}-b${n}"
+  ok "Build tag base: ${BASE_TAG} → new tag ${NEW_VERSION}"
 else
   # Semver bump (major / minor / patch) from last tag
   _ver="${LAST_TAG#v}"
@@ -167,8 +167,8 @@ fi
 section "Step 2/5 — Tag + push"
 
 log "Creating tag ${NEW_VERSION}..."
-if [[ "$NEW_VERSION" == *"-hotfix."* ]]; then
-  git tag -a "${NEW_VERSION}" -m "Hotfix ${NEW_VERSION}"
+if [[ "$NEW_VERSION" =~ -b[0-9]+$ ]]; then
+  git tag -a "${NEW_VERSION}" -m "Build ${NEW_VERSION}"
 else
   git tag -a "${NEW_VERSION}" -m "Release ${NEW_VERSION}"
 fi

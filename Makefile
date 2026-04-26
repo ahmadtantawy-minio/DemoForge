@@ -201,10 +201,10 @@ hub-pull:         ## [FA] Pull all custom images from private registry
 seed-licenses:    ## Seed license keys to hub via gateway (GCS write path — no gcloud required)
 	@scripts/seed-licenses.sh
 
-hub-release:      ## [Dev] Hotfix release: tag <line>-hotfix.N (no semver bump), images, deploy, notify FAs
+hub-release:      ## [Dev] Build release: tag <line>-bN (no semver bump), images, deploy, notify FAs
 	@scripts/hub-release.sh $(if $(VERSION),--version $(VERSION),) $(if $(filter major,$(BUMP)),--major,) $(if $(filter minor,$(BUMP)),--minor,) $(if $(filter patch,$(BUMP)),--patch,) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
 
-hub-release-hotfix: ## [Dev] Same as hub-release (explicit hotfix tag)
+hub-release-hotfix: ## [Dev] Same as hub-release (explicit --hotfix / -bN line release)
 	@scripts/hub-release.sh --hotfix $(if $(VERSION),--version $(VERSION),) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
 
 hub-release-patch: ## [Dev] Semver patch v0.0.n→v0.0.n+1 (previous default for make hub-release)

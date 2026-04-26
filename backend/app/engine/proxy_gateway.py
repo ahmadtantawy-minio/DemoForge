@@ -162,15 +162,18 @@ async def forward_request(
         content = _inject_base_tag(content, base_path, proxy_prefix)
 
     elif "javascript" in content_type and proxy_prefix:
-        # Rewrite webpack public path inside JS bundles.
-        # SPAs like Superset hardcode /static/assets/ as webpack's publicPath; lazy-loaded
-        # chunks are then fetched from the wrong origin-relative URL. By replacing the
-        # string in the served JS we fix the public path at the source so chunk loading
-        # works without any additional client-side monkey-patching.
+        # Rewrite hardcoded root paths inside JS bundles (Superset publicPath, MinIO Console
+        # lazy chunks: /api/v1/, /ws/, /static/...). fetch/WebSocket interceptors only see calls
+        # from the main bundle; chunk code often uses string literals directly.
         try:
             js = content.decode("utf-8", errors="ignore")
+            pb = proxy_prefix.rstrip("/")
             js = js.replace('"/static/assets/"', f'"{proxy_prefix}/static/assets/"')
             js = js.replace("'/static/assets/'", f"'{proxy_prefix}/static/assets/'")
+            for q in ('"', "'", "`"):
+                js = js.replace(f"{q}/static/", f"{q}{pb}/static/")
+                js = js.replace(f"{q}/api/v1/", f"{q}{pb}/api/v1/")
+                js = js.replace(f"{q}/ws/", f"{q}{pb}/ws/")
             content = js.encode("utf-8")
         except Exception:
             pass
