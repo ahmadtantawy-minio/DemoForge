@@ -109,7 +109,7 @@ export default function DemoPresentationAuthoringDialog({
   };
 
   const renderEditor = (which: "intro" | "outro", slides: DemoSlidePayload[]) => (
-    <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+    <div className="max-h-[min(calc(92vh-10rem),1200px)] space-y-4 overflow-y-auto pr-1">
       {slides.length === 0 && (
         <p className="text-sm text-muted-foreground">No slides yet. Add one to build your {which} sequence.</p>
       )}
@@ -143,7 +143,7 @@ export default function DemoPresentationAuthoringDialog({
               <div className="text-xs font-medium text-muted-foreground">Whiteboard (Excalidraw)</div>
               {s.excalidraw_scene != null ? (
               <>
-                <div className="h-[min(420px,45vh)] w-full overflow-hidden rounded-md border border-border bg-background">
+                <div className="relative isolate h-[min(520px,min(58vh,calc(92vh-22rem)))] w-full overflow-hidden rounded-md border border-border bg-background">
                   <SlideExcalidrawCanvas
                     scene={s.excalidraw_scene as Record<string, unknown>}
                     remountKey={loadGeneration}
@@ -185,7 +185,20 @@ export default function DemoPresentationAuthoringDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent
+        noTransform
+        hideClose={!readOnly}
+        onPointerDownOutside={(e) => {
+          if (!readOnly) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (!readOnly) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (!readOnly) e.preventDefault();
+        }}
+        className="flex max-h-[calc(100vh-4rem)] min-h-[min(720px,calc(100vh-4rem))] flex-col overflow-hidden"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clapperboard className="w-5 h-5" />
@@ -195,12 +208,12 @@ export default function DemoPresentationAuthoringDialog({
         {loading ? (
           <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
         ) : (
-          <Tabs defaultValue="intro" className="flex-1 min-h-0 flex flex-col">
-            <TabsList className="grid w-full grid-cols-2">
+          <Tabs defaultValue="intro" className="flex min-h-0 flex-1 flex-col">
+            <TabsList className="grid w-full shrink-0 grid-cols-2">
               <TabsTrigger value="intro">Intro ({intro.length})</TabsTrigger>
               <TabsTrigger value="outro">Outro ({outro.length})</TabsTrigger>
             </TabsList>
-            <TabsContent value="intro" className="mt-3 flex-1 min-h-0">
+            <TabsContent value="intro" className="mt-3 flex min-h-0 flex-1 flex-col">
               {renderEditor("intro", intro)}
               {intro.length > 0 && (
                 <div className="mt-3 flex justify-end">
@@ -210,7 +223,7 @@ export default function DemoPresentationAuthoringDialog({
                 </div>
               )}
             </TabsContent>
-            <TabsContent value="outro" className="mt-3 flex-1 min-h-0">
+            <TabsContent value="outro" className="mt-3 flex min-h-0 flex-1 flex-col">
               {renderEditor("outro", outro)}
               {outro.length > 0 && (
                 <div className="mt-3 flex justify-end">
@@ -222,7 +235,7 @@ export default function DemoPresentationAuthoringDialog({
             </TabsContent>
           </Tabs>
         )}
-        <DialogFooter className="gap-2 sm:gap-2 flex-col sm:flex-row sm:justify-end border-t border-border pt-3">
+        <DialogFooter className="shrink-0 gap-2 border-t border-border pt-3 sm:gap-2 flex-col sm:flex-row sm:justify-end">
           {!readOnly && (
             <Button type="button" onClick={handleSave} disabled={saving || loading}>
               {saving ? "Saving…" : "Save"}
