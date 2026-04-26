@@ -6,6 +6,9 @@ RUN npm ci
 
 # ── Stage 2: build (Vite production bundle) ───────────────────────────────
 FROM deps AS builder
+# Baked into import.meta.env (see vite.config.ts). hub-push.sh passes the repo's git describe.
+ARG VITE_DEMOFORGE_RELEASE_VERSION=unknown
+ENV VITE_DEMOFORGE_RELEASE_VERSION=$VITE_DEMOFORGE_RELEASE_VERSION
 ENV NODE_ENV=production
 COPY . .
 RUN npm run build

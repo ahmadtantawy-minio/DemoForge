@@ -7,7 +7,7 @@ import { useDiagramStore } from "../stores/diagramStore";
 export type CopyDebugBundleResult = { ok: boolean; message: string; charCount?: number };
 
 /** Bump when diagnostics shape or probes change (so pasted bundles are identifiable). */
-const DEBUG_BUNDLE_FORMAT = 4;
+const DEBUG_BUNDLE_FORMAT = 5;
 
 function pathToWebSocketUrl(pathFromOrigin: string): string {
   const p = pathFromOrigin.startsWith("/") ? pathFromOrigin : `/${pathFromOrigin}`;
@@ -116,18 +116,40 @@ export async function copyDebugBundleToClipboard(): Promise<CopyDebugBundleResul
   lines.push("# Windows: Win+Shift+S  |  macOS: Cmd+Shift+4  |  Linux: use your compositor/screenshot tool");
 
   lines.push("\n## versions (compare with repo / release to confirm this is the latest UI + API)");
-  lines.push(`ui_package_version: ${typeof __DF_UI_PKG_VERSION__ !== "undefined" ? __DF_UI_PKG_VERSION__ : "(vite define missing)"}`);
+  lines.push(`ui_package_version (npm): ${typeof __DF_UI_PKG_VERSION__ !== "undefined" ? __DF_UI_PKG_VERSION__ : "(vite define missing)"}`);
+  const embeddedRelease =
+    typeof import.meta.env.VITE_DEMOFORGE_RELEASE_VERSION === "string"
+      ? import.meta.env.VITE_DEMOFORGE_RELEASE_VERSION
+      : "(missing)";
+  lines.push(
+    `frontend_release_version_embedded (git describe at Vite build; hub-push sets for FA images): ${embeddedRelease}`
+  );
   lines.push(`vite_mode: ${import.meta.env.MODE}`);
   lines.push(`vite_dev: ${String(import.meta.env.DEV)}`);
   lines.push(`vite_prod: ${String(import.meta.env.PROD)}`);
   lines.push(`import_meta_env.BASE_URL: ${import.meta.env.BASE_URL}`);
+  let backendVersionFromApi = "(not parsed)";
   try {
     const vr = await fetch(apiUrl("/api/version"), { cache: "no-store" });
+    const bodyText = await vr.text();
     lines.push(`GET /api/version http_status: ${vr.status}`);
-    lines.push(await vr.text());
+    lines.push(bodyText);
+    try {
+      const j = JSON.parse(bodyText) as { version?: string };
+      if (typeof j.version === "string") backendVersionFromApi = j.version;
+    } catch {
+      /* non-JSON */
+    }
   } catch (e: unknown) {
     lines.push(`GET /api/version failed: ${e instanceof Error ? e.message : String(e)}`);
   }
+  lines.push(
+    `release_version_match (embedded SPA vs GET /api/version): ${
+      embeddedRelease === backendVersionFromApi
+        ? "match"
+        : `differ — embedded="${embeddedRelease}" api="${backendVersionFromApi}"`
+    }`
+  );
   try {
     const mr = await fetch(apiUrl("/api/settings/mode"), { cache: "no-store" });
     lines.push(`GET /api/settings/mode http_status: ${mr.status}`);

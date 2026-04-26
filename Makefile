@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-patch hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean fa-setup-win start-win stop-win restart-win status-win logs-win fa-update-win fa-cleanup-win
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-hotfix hub-release-patch hub-release-semver hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean fa-setup-win start-win stop-win restart-win status-win logs-win fa-update-win fa-cleanup-win
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -201,11 +201,17 @@ hub-pull:         ## [FA] Pull all custom images from private registry
 seed-licenses:    ## Seed license keys to hub via gateway (GCS write path — no gcloud required)
 	@scripts/seed-licenses.sh
 
-hub-release:      ## [Dev] Full release: commit, tag, multi-arch GCR images (hub-push), deploy hub-api, notify FAs
-	@scripts/hub-release.sh $(if $(VERSION),--version $(VERSION),) $(if $(filter major,$(BUMP)),--major,) $(if $(filter minor,$(BUMP)),--minor,) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
+hub-release:      ## [Dev] Hotfix release: tag <line>-hotfix.N (no semver bump), images, deploy, notify FAs
+	@scripts/hub-release.sh $(if $(VERSION),--version $(VERSION),) $(if $(filter major,$(BUMP)),--major,) $(if $(filter minor,$(BUMP)),--minor,) $(if $(filter patch,$(BUMP)),--patch,) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
 
-hub-release-patch: ## [Dev] Release with patch bump (default)
-	@scripts/hub-release.sh --patch
+hub-release-hotfix: ## [Dev] Same as hub-release (explicit hotfix tag)
+	@scripts/hub-release.sh --hotfix $(if $(VERSION),--version $(VERSION),) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
+
+hub-release-patch: ## [Dev] Semver patch v0.0.n→v0.0.n+1 (previous default for make hub-release)
+	@scripts/hub-release.sh --patch $(if $(VERSION),--version $(VERSION),) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
+
+hub-release-semver: ## [Dev] Alias: semver patch release (same as hub-release-patch)
+	@scripts/hub-release.sh --patch $(if $(VERSION),--version $(VERSION),) $(if $(NO_IMAGES),--no-images,) $(if $(NO_DEPLOY),--no-deploy,)
 
 hub-release-minor: ## [Dev] Release with minor bump
 	@scripts/hub-release.sh --minor

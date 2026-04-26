@@ -70,6 +70,8 @@ done
 CURRENT=0
 
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "")
+# Same semantics as backend GET /api/version (git describe) — baked into the SPA at Vite build time.
+RELEASE_VERSION=$(git -C "$PROJECT_ROOT" describe --tags --always --dirty 2>/dev/null || echo "unknown")
 
 HUB_PLATFORMS="${DEMOFORGE_HUB_PLATFORMS:-linux/amd64,linux/arm64}"
 HUB_BUILDER="${DEMOFORGE_HUB_BUILDX_BUILDER:-demoforge-hub}"
@@ -122,13 +124,19 @@ for i in "${!COMPONENTS[@]}"; do
     log "  Dockerfile: ${dockerfile#$PROJECT_ROOT/}"
     log "  Context:    ${context#$PROJECT_ROOT/}"
     log "  Tag:        ${GCR_IMAGE}"
-    [[ "$comp" == "demoforge-frontend" ]] && log "  Mode:       production (vite build → nginx static, --target prod)"
+    if [[ "$comp" == "demoforge-frontend" ]]; then
+        log "  Mode:       production (vite build → nginx static, --target prod)"
+        log "  UI version: VITE_DEMOFORGE_RELEASE_VERSION=${RELEASE_VERSION} (same as backend /api/version when built from this tree)"
+    fi
     echo ""
 
     # Frontend: explicit production image (nginx + Vite dist). Dockerfile ends with AS prod;
     # --target documents intent if stages are reordered later.
     BUILD_FLAGS=(-f "$dockerfile")
-    [[ "$comp" == "demoforge-frontend" ]] && BUILD_FLAGS+=(--target prod)
+    if [[ "$comp" == "demoforge-frontend" ]]; then
+        BUILD_FLAGS+=(--target prod)
+        BUILD_FLAGS+=(--build-arg "VITE_DEMOFORGE_RELEASE_VERSION=${RELEASE_VERSION}")
+    fi
 
     TAG_ARGS=(-t "$GCR_IMAGE")
     if [[ -n "$GIT_HASH" ]]; then

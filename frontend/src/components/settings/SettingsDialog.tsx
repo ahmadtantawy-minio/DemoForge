@@ -16,8 +16,9 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Settings, Key, Bot, Palette, Loader2, Eye, EyeOff, Sun, Moon } from "lucide-react";
+import { Settings, Key, Bot, Palette, Loader2, Eye, EyeOff, Sun, Moon, RotateCcw } from "lucide-react";
 import { toast } from "../../lib/toast";
+import { clearBrowserCachesAndHardReload } from "../../lib/clearBrowserAppCache";
 import {
   fetchLicenseStatus,
   setLicense,
@@ -39,6 +40,7 @@ function GeneralTab() {
   const [isDark, setIsDark] = useState(
     document.documentElement.classList.contains("dark")
   );
+  const [cacheBusy, setCacheBusy] = useState(false);
 
   const toggleTheme = () => {
     const html = document.documentElement;
@@ -80,6 +82,41 @@ function GeneralTab() {
                 Dark
               </>
             )}
+          </Button>
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+          <div>
+            <div className="text-sm font-medium text-foreground">Clear cache and reload</div>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              Removes <span className="font-mono">demoforge:*</span> localStorage (integration logs, panel bounds),
+              clears session storage, deletes Cache Storage and service workers for this origin, then reloads. Theme
+              preference is kept.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-2"
+            disabled={cacheBusy}
+            onClick={() => {
+              setCacheBusy(true);
+              void (async () => {
+                try {
+                  toast.info("Clearing browser data and reloading…");
+                  await clearBrowserCachesAndHardReload();
+                } catch (e) {
+                  setCacheBusy(false);
+                  toast.error("Could not clear caches", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              })();
+            }}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Clear cache and reload
           </Button>
         </div>
       </div>

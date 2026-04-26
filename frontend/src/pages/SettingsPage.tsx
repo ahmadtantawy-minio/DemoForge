@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import { RotateCcw } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { clearBrowserCachesAndHardReload } from "../lib/clearBrowserAppCache";
 import { useDemoStore } from "../stores/demoStore";
 
 interface HubVersionResult {
@@ -10,6 +14,7 @@ interface HubVersionResult {
 export function SettingsPage() {
   const { faMode } = useDemoStore();
   const [versionInfo, setVersionInfo] = useState<HubVersionResult | null>(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/hub/version")
@@ -63,6 +68,36 @@ export function SettingsPage() {
             </span>
           </div>
         )}
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-6 space-y-4 mt-6">
+        <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Browser</h2>
+        <p className="text-sm text-zinc-400 leading-relaxed">
+          Clear DemoForge data stored in this browser (integration log cache, panel layout, session keys for the
+          component proxy), delete Cache Storage entries, unregister service workers, then reload the page so scripts
+          and UI state are fetched fresh. Your theme choice (<span className="font-mono">demoforge-theme</span>) is kept.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+          disabled={cacheBusy}
+          onClick={() => {
+            setCacheBusy(true);
+            void (async () => {
+              try {
+                toast.message("Clearing browser data and reloading…");
+                await clearBrowserCachesAndHardReload();
+              } catch (e) {
+                setCacheBusy(false);
+                toast.error("Could not clear caches", { description: e instanceof Error ? e.message : String(e) });
+              }
+            })();
+          }}
+        >
+          <RotateCcw className="w-4 h-4 mr-2" />
+          Clear cache and reload
+        </Button>
       </section>
     </div>
   );
