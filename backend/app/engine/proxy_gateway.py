@@ -120,7 +120,11 @@ async def forward_request(
     )
 
     content_type = upstream_resp.headers.get("content-type", "")
-    _rewrite_content = "text/html" in content_type or "javascript" in content_type
+    _rewrite_content = (
+        "text/html" in content_type
+        or "javascript" in content_type
+        or "text/css" in content_type
+    )
 
     # Build response headers, rewriting as needed
     resp_headers = {}
@@ -174,7 +178,42 @@ async def forward_request(
                 js = js.replace(f"{q}/static/", f"{q}{pb}/static/")
                 js = js.replace(f"{q}/api/v1/", f"{q}{pb}/api/v1/")
                 js = js.replace(f"{q}/ws/", f"{q}{pb}/ws/")
+                # MinIO Console (CRA / similar): path-absolute hashed bundles at site root
+                # (/main.<hash>.js, /root-styles.css, …). Browsers ignore <base> for these.
+                for root_chunk in (
+                    "/main.",
+                    "/runtime~",
+                    "/runtime.",
+                    "/vendor.",
+                    "/root-styles",
+                    "/background.",
+                    "/background-",
+                    "/Loader.",
+                    "/manifest.json",
+                ):
+                    js = js.replace(f"{q}{root_chunk}", f"{q}{pb}{root_chunk}")
             content = js.encode("utf-8")
+        except Exception:
+            pass
+
+    elif proxy_prefix and "text/css" in content_type:
+        # Root-absolute url(/asset) in stylesheets (MinIO Console) ignores <base>; rewrite.
+        try:
+            import re as _re_css
+
+            css = content.decode("utf-8", errors="ignore")
+            pb = proxy_prefix.rstrip("/")
+
+            def _css_url(m):
+                q, path = m.group(1), m.group(2)
+                if path.startswith("//") or path.startswith(f"{pb}/"):
+                    return m.group(0)
+                if path.startswith("/"):
+                    return f"url({q}{pb}{path}{q})"
+                return m.group(0)
+
+            css = _re_css.sub(r"url\(\s*(['\"]?)(/(?!/)[^)'\"]+)\1\s*\)", _css_url, css)
+            content = css.encode("utf-8")
         except Exception:
             pass
 
@@ -284,7 +323,11 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         f'try{{if(typeof URL!=="undefined"&&u instanceof URL){{var hu=rw(u.href);'
         f'if(hu!==u.href)return _f.call(this,new URL(hu),o);}}}}catch(e){{}}'
         f'try{{if(typeof Request!=="undefined"&&u instanceof Request){{var ru=rw(u.url);'
-        f'if(ru!==u.url)return _f.call(this,new Request(ru,u),o);}}}}catch(e){{}}'
+        f'if(ru!==u.url){{var ri={{method:u.method,headers:u.headers,mode:u.mode,credentials:u.credentials,'
+        f'cache:u.cache,redirect:u.redirect,referrer:u.referrer,referrerPolicy:u.referrerPolicy,'
+        f'integrity:u.integrity,keepalive:u.keepalive,signal:u.signal,duplex:u.duplex}};'
+        f'if(u.body!==null&&u.method!=="GET"&&u.method!=="HEAD")try{{ri.body=u.body;}}catch(e){{}}'
+        f'return _f.call(this,new Request(ru,ri),o);}}}}}}catch(e){{}}'
         f'return _f.call(this,u,o);'
         f'}};'
         # XHR
@@ -329,6 +372,11 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
                 return m.group(0)
             return f'{attr}={quote}{proxy_base}{path}{quote}'
 
-        html = re.sub(r'(href|src|action)=(["\'])(/[^"\']*)\2', _rewrite_attr, html)
+        # Allow whitespace around `=` (MinIO / other SPAs pretty-print HTML).
+        html = re.sub(
+            r'(?i)(href|src|action)\s*=\s*(["\'])(/[^"\']*)\2',
+            _rewrite_attr,
+            html,
+        )
 
     return html.encode("utf-8")
