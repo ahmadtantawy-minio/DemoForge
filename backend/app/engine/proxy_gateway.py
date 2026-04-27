@@ -276,8 +276,17 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         f'Node.prototype.appendChild=function(c){{return _ac.call(this,ps(c));}};'
         f'var _ib=Node.prototype.insertBefore;'
         f'Node.prototype.insertBefore=function(c,r){{return _ib.call(this,ps(c),r);}};'
-        # fetch
-        f'var _f=window.fetch;window.fetch=function(u,o){{return _f.call(this,rw(u),o);}};'
+        # fetch — must rewrite Request/URL inputs, not only strings. MinIO AIStor / Console
+        # often uses fetch(new Request("/api/v1/...")) which would otherwise hit the SPA
+        # origin and return wrong JSON/HTML → "Parsing Error" on the login screen.
+        f'var _f=window.fetch;window.fetch=function(u,o){{'
+        f'if(typeof u==="string")return _f.call(this,rw(u),o);'
+        f'try{{if(typeof URL!=="undefined"&&u instanceof URL){{var hu=rw(u.href);'
+        f'if(hu!==u.href)return _f.call(this,new URL(hu),o);}}}}catch(e){{}}'
+        f'try{{if(typeof Request!=="undefined"&&u instanceof Request){{var ru=rw(u.url);'
+        f'if(ru!==u.url)return _f.call(this,new Request(ru,u),o);}}}}catch(e){{}}'
+        f'return _f.call(this,u,o);'
+        f'}};'
         # XHR
         f'var _x=XMLHttpRequest.prototype.open;'
         f'XMLHttpRequest.prototype.open=function(m,u){{return _x.apply(this,[m,rw(u)].concat([].slice.call(arguments,2)));}};'
