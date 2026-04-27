@@ -74,6 +74,8 @@ function persistBounds(b: PanelBounds) {
 
 type LogTab =
   | { name: string; kind: "docker" }
+  /** MinIO: lines from this container's stdout that mention the browser console / :9001 Web UI. */
+  | { name: string; kind: "minio-console" }
   | { name: string; kind: "exec"; command: string }
   | { name: string; kind: "minio-config" };
 
@@ -118,7 +120,13 @@ interface Props {
 }
 
 const DOCKER_TAB: LogTab = { name: "Docker Logs", kind: "docker" };
+const MINIO_CONSOLE_TAB: LogTab = { name: "Console (Web UI)", kind: "minio-console" };
 const MINIO_CONFIG_TAB: LogTab = { name: "Integrations", kind: "minio-config" };
+
+/** Heuristic: MinIO process logs for the embedded browser console (port 9001 / WebUI). */
+function lineLooksMinioConsoleRelated(line: string): boolean {
+  return /console|WebUI|web ui|9001|:9001|browser ui|MINIO_BROWSER|subnet.*console|Listen.*9001|Starting.*console/i.test(line);
+}
 
 export default function LogViewer({ demoId, nodeId, componentId, onClose }: Props) {
   const [tabs, setTabs] = useState<LogTab[]>([DOCKER_TAB, MINIO_CONFIG_TAB]);
@@ -161,10 +169,16 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
     startH: 0,
   });
 
-  // Load log_commands from manifest (only for main service containers, not sidecars)
+  // Load log_commands from manifest (only for main service containers, not sidecars).
+  // Re-run when switching back from a sidecar so MinIO-only tabs (e.g. console filter) return.
   useEffect(() => {
     if (!componentId) {
       setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
+      return;
+    }
+    if (activeNodeId !== nodeId) {
+      setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
+      setActiveTab(0);
       return;
     }
     fetchComponentManifest(componentId)
@@ -175,12 +189,16 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
             kind: "exec" as const,
             command: lc.command,
           })) ?? [];
-        setTabs([DOCKER_TAB, MINIO_CONFIG_TAB, ...extra]);
+        const core =
+          componentId === "minio"
+            ? [DOCKER_TAB, MINIO_CONSOLE_TAB, MINIO_CONFIG_TAB, ...extra]
+            : [DOCKER_TAB, MINIO_CONFIG_TAB, ...extra];
+        setTabs(core);
       })
       .catch(() => {
-        setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
+        setTabs(componentId === "minio" ? [DOCKER_TAB, MINIO_CONSOLE_TAB, MINIO_CONFIG_TAB] : [DOCKER_TAB, MINIO_CONFIG_TAB]);
       });
-  }, [componentId]);
+  }, [componentId, activeNodeId, nodeId]);
 
   // Fetch sidecar containers for this demo so they can be selected in the log viewer
   useEffect(() => {
@@ -194,14 +212,6 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
       .catch(() => {});
   }, [demoId]);
 
-  // When viewing a sidecar, drop manifest exec tabs (they belong to the main container)
-  useEffect(() => {
-    if (activeNodeId !== nodeId) {
-      setTabs([DOCKER_TAB, MINIO_CONFIG_TAB]);
-      setActiveTab(0);
-    }
-  }, [activeNodeId, nodeId]);
-
   useEffect(() => {
     if (activeTab >= tabs.length) setActiveTab(0);
   }, [tabs, activeTab]);
@@ -211,6 +221,28 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
   const refreshActiveTab = useCallback(async () => {
     const tab = tabs[activeTab];
     if (!tab) return;
+    if (tab.kind === "minio-console") {
+      setLoading(true);
+      try {
+        const result = await fetchContainerLogs(demoId, activeNodeId, 800, "120s");
+        const raw = result.lines ?? [];
+        const filtered = raw.filter(lineLooksMinioConsoleRelated);
+        setLines(
+          filtered.length > 0
+            ? filtered
+            : [
+                "# No log lines matched the MinIO browser-console filter in this window.",
+                "# Patterns include: console, WebUI, :9001, browser UI. Open “Docker Logs” for the full stream.",
+              ]
+        );
+        setLastFetch(new Date().toLocaleTimeString());
+      } catch (e: any) {
+        setLines([`Error: ${e.message}`]);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (tab.kind === "minio-config") {
       setLoading(true);
       try {
@@ -258,14 +290,14 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
   // Initial fetch + polling (lighter interval for demo-wide MinIO snapshot)
   useEffect(() => {
     refreshActiveTab();
-    const intervalMs = activeTabKind === "minio-config" ? 5000 : 3000;
+    const intervalMs = activeTabKind === "minio-config" ? 5000 : 3000; // docker, minio-console, exec
     pollRef.current = setInterval(refreshActiveTab, intervalMs);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [refreshActiveTab, activeTabKind]);
 
-  // Auto-scroll to bottom (docker / exec tabs)
+  // Auto-scroll to bottom (docker / exec / minio-console tabs)
   useEffect(() => {
     if (activeTabKind === "minio-config") return;
     if (scrollRef.current) {

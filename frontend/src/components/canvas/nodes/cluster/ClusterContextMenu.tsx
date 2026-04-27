@@ -2,6 +2,12 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Copy } from "lucide-react";
 import type { ClusterNodeData, ContainerInstance } from "../../../../types";
+import { apiUrl } from "../../../../lib/apiBase";
+
+function webUiOpenUrl(proxyPath: string): string {
+  if (proxyPath.startsWith("http://") || proxyPath.startsWith("https://")) return proxyPath;
+  return apiUrl(proxyPath.startsWith("/") ? proxyPath : `/${proxyPath}`);
+}
 
 interface Props {
   type: "cluster" | "node" | "pool";
@@ -264,17 +270,21 @@ export default function ClusterContextMenu(props: Props) {
             )}
           </>
         )}
-        {consoleUrl && (
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors"
-            onClick={() => {
-              window.open(consoleUrl, "_blank");
-              onClose();
-            }}
-          >
-            Open Console
-          </button>
-        )}
+        {(() => {
+          const consoleLink = nodeInstance?.web_uis?.find((w) => w.name === "console");
+          const nodeConsoleHref = consoleLink?.proxy_url ? webUiOpenUrl(consoleLink.proxy_url) : null;
+          return nodeConsoleHref ? (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors"
+              onClick={() => {
+                window.open(nodeConsoleHref, "_blank");
+                onClose();
+              }}
+            >
+              View Node Console
+            </button>
+          ) : null;
+        })()}
         <button
           className="w-full text-left px-3 py-1.5 text-sm text-sky-400 hover:bg-sky-500/10 transition-colors"
           onClick={() => { onViewLogs(nodeId); onClose(); }}

@@ -167,8 +167,12 @@ async def forward_request(
 
     elif "javascript" in content_type and proxy_prefix:
         # Rewrite hardcoded root paths inside JS bundles (Superset publicPath, MinIO Console
-        # lazy chunks: /api/v1/, /ws/, /static/...). fetch/WebSocket interceptors only see calls
-        # from the main bundle; chunk code often uses string literals directly.
+        # lazy chunks: /ws/, /static/...). fetch/WebSocket interceptors only see calls from the
+        # main bundle; chunk code often uses string literals directly.
+        #
+        # Do NOT bulk-rewrite "/api/v1/" or "/api/v2/" here: MinIO Console (Vite) builds URLs as
+        # `bi+"/api/v1/"` where `bi` comes from <base href>. Replacing the `"/api/v1/"` substring
+        # turns that into `bi+"/proxy/.../api/v1/"` and doubles the prefix (broken login / RTK).
         try:
             js = content.decode("utf-8", errors="ignore")
             pb = proxy_prefix.rstrip("/")
@@ -176,7 +180,7 @@ async def forward_request(
             js = js.replace("'/static/assets/'", f"'{proxy_prefix}/static/assets/'")
             for q in ('"', "'", "`"):
                 js = js.replace(f"{q}/static/", f"{q}{pb}/static/")
-                js = js.replace(f"{q}/api/v1/", f"{q}{pb}/api/v1/")
+                js = js.replace(f"{q}/assets/", f"{q}{pb}/assets/")
                 js = js.replace(f"{q}/ws/", f"{q}{pb}/ws/")
                 # MinIO Console (CRA / similar): path-absolute hashed bundles at site root
                 # (/main.<hash>.js, /root-styles.css, …). Browsers ignore <base> for these.
@@ -303,6 +307,10 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         f'if(u.startsWith("/")&&!u.startsWith(pb))return pb+u;'
         f'try{{var og=window.location.origin;'
         f'if(u.startsWith(og+"/")&&!u.startsWith(og+pb))return og+pb+u.slice(og.length);}}catch(e){{}}'
+        # MinIO Console (Vite): new WebSocket(`ws://${location.host}/api/v2/...`) — full ws URL, not /api relative
+        f'try{{var wm=/^(wss?):\\/\\/([^/]+)(\\/.*)?$/i.exec(u);'
+        f'if(wm&&wm[3]&&window.location.host===wm[2]&&wm[3].startsWith("/")&&!wm[3].startsWith(pb))'
+        f'return wm[1]+"://"+wm[2]+pb+wm[3];}}catch(e){{}}'
         f'return u;}}'
         # patch script/link before DOM insertion (webpack lazy chunk loading)
         f'function ps(c){{'
