@@ -356,6 +356,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 peer_id = edge.source
             elif edge.source == node.id:
                 peer_id = edge.target
+            elif (
+                node.component == "inference-sim"
+                and getattr(node, "group_id", None)
+                and (edge.source == node.group_id or edge.target == node.group_id)
+            ):
+                # Diagram edge from visual group (e.g. GPU server) → MinIO; apply to inference-sim in that group
+                peer_id = edge.target if edge.source == node.group_id else edge.source
             else:
                 continue
             # Check nodes first, then clusters, then cluster LBs

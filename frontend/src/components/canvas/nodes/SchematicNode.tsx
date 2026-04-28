@@ -31,14 +31,14 @@ function SchematicNode({ data }: NodeProps) {
   if (d.variant === "gpu") {
     return (
       <div
-        className="rounded-lg border border-dashed border-purple-400/30 bg-purple-500/5 p-3"
+        className="rounded-lg border border-dashed border-violet-600/45 dark:border-purple-400/35 bg-violet-500/[0.08] dark:bg-purple-500/5 p-3"
         style={{ width: d.width || 200, minHeight: d.height || 160 }}
       >
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-xs font-semibold text-purple-200">{d.label}</span>
+          <div className="w-2 h-2 rounded-full bg-green-600 dark:bg-green-400 shrink-0 animate-pulse" />
+          <span className="text-xs font-semibold text-violet-950 dark:text-purple-100">{d.label}</span>
           {d.sublabel && (
-            <span className="text-[10px] text-purple-400/60 ml-auto">{d.sublabel}</span>
+            <span className="text-[10px] font-medium text-violet-800 dark:text-purple-300 ml-auto">{d.sublabel}</span>
           )}
         </div>
         <div className="space-y-1.5">

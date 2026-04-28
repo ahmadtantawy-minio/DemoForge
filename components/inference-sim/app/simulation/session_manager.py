@@ -4,6 +4,8 @@ import random
 import uuid
 from dataclasses import dataclass, field
 
+from app.simulation.kv_memory_model import kv_per_session_gb
+
 
 @dataclass
 class Session:
@@ -14,6 +16,10 @@ class Session:
     active_ticks: int = 0
     idle_ticks: int = 0
     return_latency_remaining: int = 0
+    # Initial user request: sim tick when accepted + when first token is modeled (queue + prefill).
+    request_sent_tick: int = 0
+    first_token_scheduled_tick: int | None = None
+    initial_ttft_recorded: bool = False
 
 
 class SessionManager:
@@ -23,14 +29,9 @@ class SessionManager:
     def create_session(self, context_tokens: int, gpu_id: str) -> Session:
         """Create new session assigned to a specific GPU.
 
-        KV size scales with context length.
-        Real LLM KV cache: ~2 bytes per token per layer per head.
-        For a 70B model with 80 layers: context_tokens * 80 * 2 * 128 * 2 bytes ~ 40MB per 1K tokens.
-        We use a simplified multiplier: context_tokens / 1024 * 10 MB.
-        So 32K context ~ 320 MB, 128K context ~ 1.28 GB.
+        KV size from TP=2 per-GPU formula (see kv_memory_model).
         """
-        kv_mb = (context_tokens / 1024) * 10.0
-        kv_gb = kv_mb / 1024
+        kv_gb = kv_per_session_gb(context_tokens)
         session = Session(
             id=str(uuid.uuid4())[:8],
             status="active",

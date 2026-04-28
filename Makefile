@@ -1,4 +1,4 @@
-.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-hotfix hub-release-patch hub-release-semver hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean fa-setup-win start-win stop-win restart-win status-win logs-win fa-update-win fa-cleanup-win
+.PHONY: start stop restart status logs build clean nuke dev-start dev-start-gcp dev-stop dev-restart dev-restart-gcp dev-status dev-logs dev-be dev-fe dev-inference-sim dev-hub-api dev-init dev-sim-fa dev-purge-fa dev-as dev-connector-pull help check-images pull-missing hub-status hub-push hub-push-all hub-pull hub-release hub-release-hotfix hub-release-patch hub-release-semver hub-release-minor hub-release-major seed-licenses hub-deploy hub-deploy-api hub-deploy-gateway fa-setup fa-cleanup fa-update fa-clean fa-setup-win start-win stop-win restart-win status-win logs-win fa-update-win fa-cleanup-win
 
 ## Field Architect mode (standard)
 start:          ## Start DemoForge (FA mode)
@@ -168,6 +168,9 @@ dev-be:         ## Run backend locally with hot-reload (dev mode)
 
 dev-fe:         ## Run frontend locally with hot-reload (dev mode)
 	./demoforge-dev.sh dev:fe
+
+dev-inference-sim: ## [Dev] Inference simulator :8095 — uvicorn --reload (Python + index.html / static)
+	./demoforge-dev.sh dev:inference-sim
 
 ## Image management
 check-images:

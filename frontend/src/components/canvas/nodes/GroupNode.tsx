@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type NodeProps, NodeResizer } from "@xyflow/react";
+import { Handle, Position, type NodeProps, NodeResizer } from "@xyflow/react";
 import { useDiagramStore } from "../../../stores/diagramStore";
 
 interface GroupNodeData {
@@ -26,7 +26,7 @@ export default function GroupNode({ id, data, selected }: NodeProps) {
         handleClassName="!w-2.5 !h-2.5 !bg-primary !border-primary !rounded-sm"
       />
       <div
-        className="w-full h-full rounded-xl p-3 cursor-pointer"
+        className="w-full h-full rounded-xl p-3 cursor-pointer relative"
         style={{
           background: `${color}0a`,
           border: `1.5px dashed ${color}40`,
@@ -36,7 +36,20 @@ export default function GroupNode({ id, data, selected }: NodeProps) {
         onMouseLeave={() => setHovered(false)}
         onClick={() => setSelectedNode(id)}
       >
-        <div className="font-semibold text-xs uppercase tracking-wider" style={{ color: `${color}cc` }}>
+        {/* Handles so edges (e.g. GPU server → MinIO tiers) resolve; RF needs anchors on group nodes */}
+        <Handle type="target" position={Position.Top} id="group-in-top" className="!opacity-0 !w-2 !h-2" />
+        <Handle type="target" position={Position.Left} id="group-in-left" className="!opacity-0 !w-2 !h-2" />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          id="group-bottom-out"
+          className="!opacity-0 !w-2 !h-2 !left-1/2 !-translate-x-1/2"
+        />
+        <Handle type="source" position={Position.Right} id="group-right-out" className="!opacity-0 !w-2 !h-2" />
+        <div
+          className="font-semibold text-xs uppercase tracking-wider [color:color-mix(in_srgb,var(--group-accent)_34%,#0c0a12)] dark:[color:color-mix(in_srgb,var(--group-accent)_78%,#fafafa)]"
+          style={{ ["--group-accent" as string]: color }}
+        >
           {nodeData.label || "Group"}
         </div>
         {nodeData.mode === "cluster" && (

@@ -60,16 +60,28 @@ export default function AnimatedDataEdge({
     webhookEdgeLabel = parts.length > 0 ? parts.map(String).join(" · ") : null;
   }
 
-  const protocol = (edgeData as any)?.protocol as string | undefined;
-  const edgeLatency = (edgeData as any)?.latency as string | undefined;
-  const edgeBandwidth = (edgeData as any)?.bandwidth as string | undefined;
+  const tierRole = connConfig?.tier_role as string | undefined;
+  // Persisted demos sometimes drop protocol/latency/bandwidth; infer from STX tier_role for S3 edges
+  let effProtocol = nonemptyTrim((edgeData as any)?.protocol) ?? "";
+  let effLatency = nonemptyTrim((edgeData as any)?.latency) ?? "";
+  let effBandwidth = nonemptyTrim((edgeData as any)?.bandwidth) ?? "";
+  if (connectionType === "s3" && tierRole === "g35-cmx") {
+    if (!effProtocol) effProtocol = "NVMe-oF / RDMA";
+    if (!effLatency) effLatency = "~200-500 μs";
+    if (!effBandwidth) effBandwidth = "800 Gb/s";
+  } else if (connectionType === "s3" && tierRole === "g4-archive") {
+    if (!effProtocol) effProtocol = "S3 over TCP";
+    if (!effLatency) effLatency = "~5–50 ms";
+    if (!effBandwidth) effBandwidth = "100 Gb/s";
+  }
 
   // Protocol-based edge styling
   const protoStyle: React.CSSProperties = (() => {
-    if (!protocol) return {};
-    if (protocol.includes("RDMA") || protocol.includes("NVMe")) return { stroke: "#1D9E75", strokeWidth: 2.5 };
-    if (protocol.includes("gRPC")) return { stroke: "#378ADD", strokeWidth: 1.5, strokeDasharray: "6 3" };
-    if (protocol === "HTTP") return { stroke: "var(--color-muted-foreground, #666)", strokeWidth: 1, strokeDasharray: "2 2" };
+    if (!effProtocol) return {};
+    if (effProtocol.includes("RDMA") || effProtocol.includes("NVMe")) return { stroke: "#1D9E75", strokeWidth: 2.5 };
+    if (effProtocol.includes("S3") && effProtocol.includes("TCP")) return { stroke: "#f59e0b", strokeWidth: 2.2, strokeDasharray: "5 3" };
+    if (effProtocol.includes("gRPC")) return { stroke: "#378ADD", strokeWidth: 1.5, strokeDasharray: "6 3" };
+    if (effProtocol === "HTTP") return { stroke: "var(--color-muted-foreground, #666)", strokeWidth: 1, strokeDasharray: "2 2" };
     return {};
   })();
 
@@ -282,28 +294,28 @@ export default function AnimatedDataEdge({
             {labelText}
           </div>
         )}
-        {(protocol || edgeLatency || edgeBandwidth) && (
+        {(effProtocol || effLatency || effBandwidth) && (
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, 0) translate(${labelX}px,${labelY - 2}px)`,
               pointerEvents: "none",
             }}
-            className="nodrag nopan flex items-center gap-1"
+            className="nodrag nopan flex flex-wrap items-center justify-center gap-1 max-w-[min(420px,70vw)]"
           >
-            {protocol && (
-              <span className="text-[9px] font-mono text-teal-400/80 bg-teal-500/10 px-1 py-0.5 rounded whitespace-nowrap border border-teal-500/20">
-                {protocol}
+            {effProtocol && (
+              <span className="text-[9px] font-mono text-teal-100 bg-teal-950/85 px-1.5 py-0.5 rounded whitespace-nowrap border border-teal-400/50 shadow-sm">
+                {effProtocol}
               </span>
             )}
-            {edgeLatency && (
-              <span className="text-[9px] text-amber-400/80 bg-amber-500/10 px-1 py-0.5 rounded whitespace-nowrap border border-amber-500/20">
-                {edgeLatency}
+            {effLatency && (
+              <span className="text-[10px] font-semibold tabular-nums text-amber-50 bg-amber-950 px-1.5 py-0.5 rounded-md whitespace-nowrap border border-amber-300/60 shadow-sm">
+                {effLatency}
               </span>
             )}
-            {edgeBandwidth && (
-              <span className="text-[9px] text-blue-400/80 bg-blue-500/10 px-1 py-0.5 rounded whitespace-nowrap border border-blue-500/20">
-                {edgeBandwidth}
+            {effBandwidth && (
+              <span className="text-[9px] font-medium text-sky-100 bg-sky-950/85 px-1.5 py-0.5 rounded whitespace-nowrap border border-sky-400/50 shadow-sm">
+                {effBandwidth}
               </span>
             )}
           </div>

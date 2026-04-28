@@ -118,7 +118,15 @@ from app.models import (
     SimConfig, SimStatus, TierState, GPUTierState, SharedTierState, SessionState,
 )
 from app.simulation.kv_block_manager import KVBlockManager, GPU_IDS, effective_g4_ticks
-from app.simulation.session_manager import SessionManager
+from app.simulation.kv_memory_model import (
+    GPU_TYPE_LABEL,
+    KV_PRECISION_NOTE,
+    MODEL_NAME,
+    kv_bytes_per_token_per_gpu_tp2,
+    kv_per_session_gb,
+    sessions_fit_in_kv_cap,
+)
+from app.simulation.session_manager import Session, SessionManager
 from app.simulation.request_generator import RequestGenerator
 from app.simulation.minio_backend import MinIOBackend
 from app.simulation import metrics as sim_metrics
@@ -144,7 +152,7 @@ SCENARIO_PARAMS: dict[str, dict] = {
         "g35_ticks": None,
 
         # Cross-GPU migration: devastating without G3.5 — heavy stall + recompute vs inference
-        "cross_gpu_recompute_chance": 0.42,  # POSIX path often loses race → recompute
+        "cross_gpu_recompute_chance": 0.55,  # POSIX path often loses race → recompute
         "cross_gpu_restore_ticks": 56,       # Slow, jittery file reads when it does try
         "cross_gpu_restore_jitter_pct": 0.30,
 
@@ -201,10 +209,10 @@ _SCENARIO_LABELS = {
 # Narrative targets for stacked GPU time (active inference vs I/O stall vs recompute).
 # Blended with live tracker output so the UI shows a clear step-up across scenarios.
 _SCENARIO_UTIL_TARGETS: dict[str, dict[str, int]] = {
-    # ~low thirties inference; remainder dominated by I/O stall + recompute (POSIX pain)
-    "file-g4": {"active": 33, "io_stall": 36, "recompute": 23, "idle": 8},
+    # Saturated GPU: idle ~0 — bar reads ~100% busy (POSIX still low *useful* inference).
+    "file-g4": {"active": 32, "io_stall": 34, "recompute": 33, "idle": 1},
     # Strong inference uplift; G4 path viable — moderate stall, lower recompute
-    "minio-g4": {"active": 63, "io_stall": 22, "recompute": 12, "idle": 3},
+    "minio-g4": {"active": 64, "io_stall": 21, "recompute": 12, "idle": 3},
     # Near-saturated inference; RDMA path — minimal stall/recompute
     "minio-full": {"active": 92, "io_stall": 5, "recompute": 2, "idle": 1},
 }
@@ -214,19 +222,34 @@ _SCENARIO_UTIL_BLEND = 0.48
 
 # Default promotion-latency ticks when rolling window empty (cold start).
 _SCENARIO_DEFAULT_PROMO_TICKS = {
-    "file-g4": 4.1,
+    "file-g4": 12.0,
     "minio-g4": 1.05,
     "minio-full": 0.14,
 }
 
 # Scales I/O component of TTFT from tier promotions (multiplier on avg_promo * tick_ms).
 _SCENARIO_TTFT_IO_SCALE = {
-    "file-g4": 1.08,
+    "file-g4": 3.15,
     "minio-g4": 0.29,
     "minio-full": 0.035,
 }
 
+# Blend raw counter ratio toward scenario-coherent KV hit % (raw counters skew high vs GPU recompute time).
+_SCENARIO_CACHE_HIT_BLEND = 0.48
+_SCENARIO_CACHE_HIT_ANCHOR = {
+    "file-g4": 52.0,
+    "minio-g4": 80.0,
+    "minio-full": 97.0,
+}
+
 _TICK_MS = 200.0  # engine tick interval for latency display (matches sim loop)
+
+# Fallback G4 restore latency (ms) for UI before enough live samples exist — demo-tuned, scenario-specific.
+_SCENARIO_G4_RESTORE_UI_MS: dict[str, float] = {
+    "file-g4": 880.0,
+    "minio-g4": 118.0,
+    "minio-full": 118.0,
+}
 
 
 def _blend_scenario_utilization(raw: dict[str, int], scenario: str) -> dict[str, int]:
@@ -322,9 +345,11 @@ class SimulationEngine:
         self._last_s3_ops_count = 0
         self._last_rate_ts = time.monotonic()
 
-        # Promotion latency: rolling window for TTFT (last 100 promotions)
+        # Promotion latency: rolling window for legacy TTFT I/O leg (restore paths only)
         self._promotion_latency_ticks: list[int] = []
         self._rolling_ttft: collections.deque = collections.deque(maxlen=100)
+        # End-to-end TTFT (ms): request accepted tick → first-token tick, including scheduler queue
+        self._rolling_ttft_e2e_ms: collections.deque = collections.deque(maxlen=100)
 
         # Dual-GPU tracking
         self._cross_gpu_migrations = 0
@@ -341,6 +366,9 @@ class SimulationEngine:
         # Surface failures in API/UI instead of silent tick-loop swallow
         self._backend_errors: deque[str] = deque(maxlen=24)
 
+        # Rolling G4 restore latencies (ms); ticks * _TICK_MS from successful G4 read paths
+        self._g4_restore_ms_samples: collections.deque = collections.deque(maxlen=120)
+
         # Per-GPU time-budget trackers
         self.gpu_trackers = {
             gpu_id: GPUTimeTracker(window_size=100)
@@ -352,6 +380,23 @@ class SimulationEngine:
     def _get_params(self) -> dict:
         """Return scenario params for current scenario."""
         return SCENARIO_PARAMS.get(self.config.scenario, SCENARIO_PARAMS["file-g4"])
+
+    def _record_g4_restore_ms(self, ticks: int) -> None:
+        """Sample successful G4 restore latency (exclude recompute penalty ticks==50)."""
+        if ticks <= 0 or ticks == 50:
+            return
+        self._g4_restore_ms_samples.append(float(ticks) * _TICK_MS)
+
+    def _g4_avg_restore_ms_for_metrics(self, scenario: str) -> tuple[float, int]:
+        """(display_ms, sample_count) for G4 tier UI."""
+        n = len(self._g4_restore_ms_samples)
+        if n >= 4:
+            avg = sum(self._g4_restore_ms_samples) / float(n)
+            return (round(avg, 0), n)
+        ref = _SCENARIO_G4_RESTORE_UI_MS.get(
+            scenario, _SCENARIO_G4_RESTORE_UI_MS["file-g4"]
+        )
+        return (ref, n)
 
     def _apply_scenario(self) -> None:
         """Update block_manager + scenario flags. Does not clear GPU time history.
@@ -371,12 +416,15 @@ class SimulationEngine:
     def _init_components(self) -> None:
         params = self._get_params()
         self.block_manager = KVBlockManager(
-            g1_cap=settings.g1_capacity_gb,
+            g1_cap=settings.g1_kv_capacity_gb,
             g2_cap=settings.g2_capacity_gb,
             g3_cap=settings.g3_capacity_gb,
             g35_cap=settings.g35_capacity_gb,
             g4_cap=settings.g4_capacity_gb,
             cmx_enabled=params["g35_enabled"],
+            g1_hbm_total_gb=settings.g1_hbm_total_gb,
+            g1_weights_gb=settings.g1_weights_gb_per_gpu,
+            g1_overhead_gb=settings.g1_overhead_gb_per_gpu,
         )
         self.session_manager = SessionManager()
         self.request_gen = RequestGenerator()
@@ -436,6 +484,8 @@ class SimulationEngine:
 
     async def update_config(self, config: SimConfig) -> None:
         async with self._lock:
+            if config.scenario != self.config.scenario:
+                self._g4_restore_ms_samples.clear()
             self.config = config
             self._apply_scenario()
 
@@ -446,9 +496,12 @@ class SimulationEngine:
             if "g35_mode" in updates and "scenario" not in updates:
                 updates = dict(updates)
                 updates["scenario"] = _G35_TO_SCENARIO.get(updates["g35_mode"], "file-g4")
+            prev_scenario = self.config.scenario
             for key, val in updates.items():
                 if hasattr(self.config, key):
                     setattr(self.config, key, val)
+            if self.config.scenario != prev_scenario:
+                self._g4_restore_ms_samples.clear()
             self._apply_scenario()
 
     def jittered_g4_ticks(self, n_concurrent_reads: int = 1) -> int:
@@ -459,6 +512,40 @@ class SimulationEngine:
         jitter = random.randint(-jitter_range, jitter_range) if jitter_range > 0 else 0
         raw = max(1, base + jitter)
         return effective_g4_ticks(raw, n_concurrent_reads, params)
+
+    def _assign_initial_ttft_schedule(self, session: Session, gpu_id: str) -> None:
+        """Wall-clock TTFT for a new request: accepted tick → first token (queue + prefill ticks).
+
+        Queue depth uses G1 contention after allocate; each tick is _TICK_MS narrative ms.
+        """
+        scenario = self.config.scenario
+        session.request_sent_tick = self._tick
+        g1 = self.block_manager.gpu_tiers[gpu_id]["G1"]
+        ahead = max(0, g1.block_count - 1)
+        avg_kv = kv_per_session_gb(self.config.context_tokens)
+        max_sess = max(1, int(g1.capacity_gb / avg_kv)) if avg_kv > 0 else 10
+        denom = max(1, max_sess - 1)
+        fill = min(1.0, ahead / float(denom))
+
+        if scenario == "file-g4":
+            per_ahead = 3.5 + random.random() * 6.0
+            cap = 52
+            fill_w = 10.0
+        elif scenario == "minio-g4":
+            per_ahead = 0.9 + random.random() * 2.2
+            cap = 22
+            fill_w = 5.0
+        else:
+            per_ahead = 0.25 + random.random() * 0.55
+            cap = 10
+            fill_w = 2.0
+
+        queue_ticks = min(
+            cap,
+            int(ahead * per_ahead + fill * fill_w + random.random() * 2),
+        )
+        prefill_ticks = 2 + random.randint(0, 4)
+        session.first_token_scheduled_tick = self._tick + queue_ticks + prefill_ticks
 
     async def reset(self) -> None:
         await self.stop()
@@ -473,6 +560,7 @@ class SimulationEngine:
             self._last_s3_ops_count = 0
             self._promotion_latency_ticks.clear()
             self._rolling_ttft.clear()
+            self._rolling_ttft_e2e_ms.clear()
             self._cross_gpu_migrations = 0
             self._recomputations = 0
             self._cache_hits = 0
@@ -480,12 +568,123 @@ class SimulationEngine:
             self._tick_events.clear()
             self._all_events.clear()
             self._backend_errors.clear()
+            self._g4_restore_ms_samples.clear()
+            self._event_history.clear()
+            self._prev_s3_ops = 0
             for t in self.gpu_trackers.values():
                 t.reset()
+
+            # Restore workload + scenario defaults (matches cold start / env defaults)
+            sc = settings.sim_default_scenario
+            self.config = SimConfig(
+                users=settings.sim_default_users,
+                context_tokens=settings.sim_default_context,
+                speed=1.0,
+                scenario=sc,
+                g35_mode=_SCENARIO_TO_G35.get(sc, "disabled"),
+                cmx_enabled=SCENARIO_PARAMS[sc]["g35_enabled"],
+            )
+            self._apply_scenario()
 
     async def get_state(self) -> SimStatus:
         async with self._lock:
             return self._build_status()
+
+    def _build_memory_budget(self) -> dict:
+        """Structured KV / tier snapshot for Memory Budget UI."""
+        ctx = self.config.context_tokens
+        kv_ps = kv_per_session_gb(ctx)
+        kv_bpt = kv_bytes_per_token_per_gpu_tp2()
+        bm = self.block_manager
+        params = self._get_params()
+        scenario = self.config.scenario
+
+        gpu_payload: dict[str, dict] = {}
+        for gid in GPU_IDS:
+            g1 = bm.gpu_tiers[gid]["G1"]
+            used = float(g1.used_gb)
+            cap = float(g1.capacity_gb)
+            if cap > 0:
+                used = min(used, cap)
+            gpu_payload[gid] = {
+                "g1_total_gb": bm.g1_hbm_total_gb,
+                "weights_gb": bm.g1_weights_gb,
+                "overhead_gb": bm.g1_overhead_gb,
+                "kv_capacity_gb": cap,
+                "sessions_capacity": sessions_fit_in_kv_cap(cap, ctx),
+                "sessions_active": g1.block_count,
+                "used_gb": round(used, 4),
+            }
+
+        g2_agg = bm.aggregate_gpu_tier_across_gpus("G2")
+        g3_agg = bm.aggregate_gpu_tier_across_gpus("G3")
+        g2_cap = float(g2_agg["capacity_gb"])
+        g3_cap = float(g3_agg["capacity_gb"])
+        g2_agg = {
+            **dict(g2_agg),
+            "sessions_capacity": sessions_fit_in_kv_cap(g2_cap, ctx),
+        }
+        g3_agg = {
+            **dict(g3_agg),
+            "sessions_capacity": sessions_fit_in_kv_cap(g3_cap, ctx),
+        }
+        shared_list = bm.get_shared_tier_state()
+        shared_map = {t["name"]: t for t in shared_list}
+        g35_d = shared_map["G3.5"]
+        g4_d = shared_map["G4"]
+
+        sess_list = self.session_manager.get_all()
+        active_only = [s for s in sess_list if s.status == "active"]
+        n_active = len(active_only)
+        if n_active:
+            in_g1 = sum(
+                1
+                for s in active_only
+                if (bm.get_block_tier(s.id) or "") == "G1"
+            )
+            g4_hit = sum(
+                1
+                for s in active_only
+                if (bm.get_block_tier(s.id) or "") == "G4"
+            )
+            sessions_in_hbm_pct = round(100.0 * in_g1 / float(n_active), 2)
+            sessions_hitting_g4_pct = round(100.0 * g4_hit / float(n_active), 2)
+        else:
+            sessions_in_hbm_pct = 0.0
+            sessions_hitting_g4_pct = 0.0
+
+        return {
+            "model": MODEL_NAME,
+            "gpu_type": GPU_TYPE_LABEL,
+            "gpu_count": 2,
+            "tensor_parallel": 2,
+            "kv_precision_note": KV_PRECISION_NOTE,
+            "kv_bytes_per_token": kv_bpt,
+            "context_tokens": ctx,
+            "kv_per_session_gb": round(kv_ps, 6),
+            "total_kv_demand_gb": round(float(self.config.users) * kv_ps, 4),
+            "total_active_sessions": n_active,
+            "scenario": scenario,
+            "gpu-a": gpu_payload["gpu-a"],
+            "gpu-b": gpu_payload["gpu-b"],
+            "G2": dict(g2_agg),
+            "G3": dict(g3_agg),
+            "G3.5": {
+                "sessions_active": int(g35_d["block_count"]),
+                "used_gb": float(g35_d["used_gb"]),
+                "capacity_gb": float(g35_d["capacity_gb"]),
+                "visible": bool(params["g35_enabled"]),
+            },
+            "G4": {
+                "label": str(params.get("g4_label") or "G4"),
+                "sessions_active": int(g4_d["block_count"]),
+                "used_gb": float(g4_d["used_gb"]),
+                "capacity_gb": float(g4_d["capacity_gb"]),
+            },
+            "sessions_in_hbm_pct": sessions_in_hbm_pct,
+            "sessions_hitting_g4_pct": sessions_hitting_g4_pct,
+            "g35_enabled": bool(params["g35_enabled"]),
+        }
 
     def _build_status(self) -> SimStatus:
         scenario = self.config.scenario
@@ -529,10 +728,11 @@ class SimulationEngine:
         # Shared tiers — nudge G4 displayed fill for MinIO G4 scenario (healthy object-tier utilization)
         shared_tiers = self.block_manager.get_shared_tier_state()
         shared_map = {t["name"]: t for t in shared_tiers}
-        g4_used = shared_map["G4"]["used_gb"]
-        g4_cap = shared_map["G4"]["capacity_gb"]
+        g4_used = float(shared_map["G4"]["used_gb"])
+        g4_cap = float(shared_map["G4"]["capacity_gb"])
         if scenario == "minio-g4" and g4_cap > 0:
             g4_used = min(g4_cap * 0.94, g4_used * 1.16 + g4_cap * 0.045)
+        g4_used = min(g4_cap, max(0.0, g4_used)) if g4_cap > 0 else 0.0
 
         shared = SharedTierState(
             g35=TierState(
@@ -575,24 +775,31 @@ class SimulationEngine:
         for gpu_id in GPU_IDS:
             gpu_utils[gpu_id] = float(gpu_util_breakdowns[gpu_id]["active"])
 
-        # Cache hit rate from counters
+        # Cache hit rate: blend raw hit/(hit+miss) with scenario anchor so POSIX isn't ~90% while ~30%+ time is recompute
         total_lookups = self._cache_hits + self._cache_misses
-        hit_rate = clamp(
-            (self._cache_hits / total_lookups * 100) if total_lookups > 0 else 100.0
+        raw_hit_pct = (
+            (self._cache_hits / total_lookups * 100.0) if total_lookups > 0 else 72.0
         )
+        anchor = _SCENARIO_CACHE_HIT_ANCHOR.get(scenario, 70.0)
+        beta = _SCENARIO_CACHE_HIT_BLEND
+        hit_rate = clamp((1.0 - beta) * raw_hit_pct + beta * anchor)
 
-        # TTFT: base LLM work + I/O from tier promotions; scale I/O leg by scenario (POSIX slow → RDMA fast)
-        avg_promo = (
-            sum(self._rolling_ttft) / len(self._rolling_ttft)
-            if self._rolling_ttft
-            else _SCENARIO_DEFAULT_PROMO_TICKS.get(scenario, 2.0)
-        )
-        io_scale = _SCENARIO_TTFT_IO_SCALE.get(scenario, 0.5)
-        io_latency_ms = avg_promo * _TICK_MS * io_scale
-        base_llm_ms = 30.0  # prefill + first token decode
-        ttft = base_llm_ms + io_latency_ms
+        # TTFT: rolling mean of true send→first-token (queue + prefill in ticks × _TICK_MS).
+        # Fallback before enough samples: base LLM + scaled promotion I/O (restore-only proxy).
+        if self._rolling_ttft_e2e_ms:
+            ttft = sum(self._rolling_ttft_e2e_ms) / len(self._rolling_ttft_e2e_ms)
+        else:
+            avg_promo = (
+                sum(self._rolling_ttft) / len(self._rolling_ttft)
+                if self._rolling_ttft
+                else _SCENARIO_DEFAULT_PROMO_TICKS.get(scenario, 2.0)
+            )
+            io_scale = _SCENARIO_TTFT_IO_SCALE.get(scenario, 0.5)
+            io_latency_ms = avg_promo * _TICK_MS * io_scale
+            base_llm_ms = 30.0  # prefill + first token decode
+            ttft = base_llm_ms + io_latency_ms
         if scenario == "file-g4":
-            ttft = min(980.0, max(280.0, ttft))
+            ttft = min(3200.0, max(1100.0, ttft))
         elif scenario == "minio-g4":
             ttft = min(330.0, max(68.0, ttft))
         else:
@@ -609,11 +816,22 @@ class SimulationEngine:
         combined_effective = round(
             (gpu_utils.get("gpu-a", 0.0) + gpu_utils.get("gpu-b", 0.0)) / 2
         )
+        def _busy_pct(u: dict[str, int]) -> float:
+            idle = float(u.get("idle", 0))
+            return max(0.0, min(100.0, 100.0 - idle))
+
+        combined_busy = round(
+            (_busy_pct(gpu_util_breakdowns["gpu-a"]) + _busy_pct(gpu_util_breakdowns["gpu-b"]))
+            / 2.0
+        )
+
+        g4_avg_ms, g4_restore_n = self._g4_avg_restore_ms_for_metrics(scenario)
 
         metrics_dict = {
             "gpu_a_utilization": gpu_util_breakdowns["gpu-a"],
             "gpu_b_utilization": gpu_util_breakdowns["gpu-b"],
             "combined_effective_util": combined_effective,
+            "combined_gpu_busy_util": combined_busy,
             "avg_ttft_ms": round(ttft, 1),
             "cache_hit_rate": round(hit_rate, 4),
             "s3_ops_per_sec": round(ops_rate, 2),
@@ -625,6 +843,8 @@ class SimulationEngine:
             "recomputations": self._recomputations,
             "cache_hits": self._cache_hits,
             "cache_misses": self._cache_misses,
+            "g4_avg_restore_ms": g4_avg_ms,
+            "g4_restore_sample_n": g4_restore_n,
         }
 
         params = self._get_params()
@@ -640,6 +860,7 @@ class SimulationEngine:
             events=(self._all_events + self._tick_events)[-15:],
             backend_errors=list(self._backend_errors),
             eviction_policy=self.block_manager.get_eviction_policy(scenario),
+            memory_budget=self._build_memory_budget(),
             config={
                 "users": self.config.users,
                 "context_tokens": self.config.context_tokens,
@@ -725,6 +946,7 @@ class SimulationEngine:
                 self.config.context_tokens, gpu_id
             )
             self.block_manager.allocate(session.id, session.kv_size_gb, gpu_id)
+            self._assign_initial_ttft_schedule(session, gpu_id)
 
         # 2. Tick sessions
         terminated_ids = self.session_manager.tick_sessions()
@@ -800,9 +1022,10 @@ class SimulationEngine:
                 sim_metrics.recomputations_total.inc()
                 continue
 
-            # Decide target GPU: ~20-30% chance of cross-GPU migration
+            # Decide target GPU: higher cross-GPU churn on POSIX (more painful restores)
             target_gpu = s.gpu_id
-            if random.random() < 0.25:
+            cross_p = 0.34 if self.config.scenario == "file-g4" else 0.25
+            if random.random() < cross_p:
                 other_gpu = [g for g in GPU_IDS if g != s.gpu_id]
                 if other_gpu:
                     target_gpu = other_gpu[0]
@@ -855,6 +1078,8 @@ class SimulationEngine:
                     self._promotion_latency_ticks.append(ticks)
                     self.gpu_trackers[target_gpu].register_io_stall(ticks)
                     self._cache_hits += 1
+                    if current_tier == "G4":
+                        self._record_g4_restore_ms(ticks)
                     self._tick_events.append({
                         "type": "PROMOTE_CROSS_GPU",
                         "session": s.id,
@@ -870,6 +1095,7 @@ class SimulationEngine:
                 # Override G4 ticks with scenario-aware jitter + concurrency collapse
                 if current_tier == "G4":
                     ticks = max(ticks, self.jittered_g4_ticks(_n_concurrent_g4_reads))
+                    self._record_g4_restore_ms(ticks)
                 self._promotion_latency_ticks.append(ticks)
                 if ticks == 50:
                     self._recomputations += 1
@@ -898,16 +1124,26 @@ class SimulationEngine:
                 self._s3_ops_count += 1
             self.block_manager.free(sid)
 
+        # 7.5 End-to-end TTFT samples (request accepted → first token, includes queue wait)
+        for s in self.session_manager.get_all():
+            if s.initial_ttft_recorded or s.first_token_scheduled_tick is None:
+                continue
+            if self._tick >= s.first_token_scheduled_tick:
+                dt = s.first_token_scheduled_tick - s.request_sent_tick
+                if dt >= 0:
+                    self._rolling_ttft_e2e_ms.append(float(dt) * _TICK_MS)
+                s.initial_ttft_recorded = True
+
         # 8. Record GPU time budgets for this tick
         for gpu_id in GPU_IDS:
             tracker = self.gpu_trackers[gpu_id]
             # Count active sessions on this GPU's G1 (doing inference)
             g1 = self.block_manager.gpu_tiers[gpu_id]["G1"]
             active_on_gpu = g1.block_count
-            # Max sessions = G1 capacity / avg KV size
-            avg_kv = (self.config.context_tokens / 32768) * 0.5  # ~0.5 GB at 32K
-            max_sessions = int(g1.capacity_gb / avg_kv) if avg_kv > 0 else 10
-            tracker.record_tick(active_on_gpu, max(1, max_sessions))
+            # Max sessions = G1 KV capacity / per-session KV
+            avg_kv = kv_per_session_gb(self.config.context_tokens)
+            max_sessions = max(1, int(g1.capacity_gb / avg_kv)) if avg_kv > 0 else 10
+            tracker.record_tick(active_on_gpu, max_sessions)
 
         # 9. Update S3 ops rate snapshot
         now = time.monotonic()

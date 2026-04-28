@@ -16,6 +16,7 @@ import { toast } from "../../lib/toast";
 import { nonemptyTrim } from "../../lib/utils";
 import { saveDiagram, saveLayout, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
 import { migrateClusterData } from "../../lib/clusterMigration";
+import { migrateStxInferenceDemoGraphics } from "../../utils/migrateStxInferenceDemoGraphics";
 import ComponentNode from "./nodes/ComponentNode";
 import GroupNode from "./nodes/GroupNode";
 import StickyNoteNode from "./nodes/StickyNoteNode";
@@ -134,15 +135,16 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     if (!activeDemoId) return;
     fetchDemo(activeDemoId).then((demo) => {
       if (!demo) return;
+      const migrated = migrateStxInferenceDemoGraphics(demo);
       // Load groups as React Flow group nodes
-      const rfGroups = (demo.groups || []).map((g: any) => ({
+      const rfGroups = (migrated.groups || []).map((g: any) => ({
         id: g.id,
         type: "group",
         position: g.position || { x: 0, y: 0 },
         style: { width: g.width || 400, height: g.height || 300 },
         data: { label: g.label, description: g.description || "", color: g.color || "#3b82f6", style: g.style || "solid", mode: g.mode || "visual", cluster_config: g.cluster_config || {} },
       }));
-      const rfClusters = (demo.clusters || []).map((c: any) => {
+      const rfClusters = (migrated.clusters || []).map((c: any) => {
         // Map snake_case backend fields → camelCase, then run migration so the
         // store always holds canonical data (correct pools) from the first load.
         const rawPools = (c.server_pools || []).map((p: any) => ({
@@ -179,7 +181,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           data: migrateClusterData(rawData),
         };
       });
-      const rfStickies = (demo.sticky_notes || []).map((s: any) => ({
+      const rfStickies = (migrated.sticky_notes || []).map((s: any) => ({
         id: s.id,
         type: "sticky",
         position: s.position || { x: 0, y: 0 },
@@ -194,7 +196,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           fontSize: s.font_size || "sm",
         },
       }));
-      const rfCanvasImages = (demo.canvas_images || []).map((ci: any) => ({
+      const rfCanvasImages = (migrated.canvas_images || []).map((ci: any) => ({
         id: ci.id,
         type: "canvas-image",
         position: ci.position || { x: 0, y: 0 },
@@ -213,8 +215,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           locked: ci.locked || false,
         },
       }));
-      const isExp = demo.mode === "experience";
-      const rfAnnotations = (demo.annotations || []).map((a: any) => ({
+      const isExp = migrated.mode === "experience";
+      const rfAnnotations = (migrated.annotations || []).map((a: any) => ({
         id: a.id,
         type: "annotation",
         position: a.position || { x: 0, y: 0 },
@@ -233,7 +235,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         },
       }));
       // Create annotation pointer edges
-      const rfAnnotationEdges = (demo.annotations || [])
+      const rfAnnotationEdges = (migrated.annotations || [])
         .filter((a: any) => a.pointer_target)
         .map((a: any) => ({
           id: `ann-${a.id}-ptr`,
@@ -241,7 +243,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           target: a.pointer_target,
           type: "annotation-pointer",
         }));
-      const rfSchematics = (demo.schematics || []).map((s: any) => ({
+      const rfSchematics = (migrated.schematics || []).map((s: any) => ({
         id: s.id,
         type: "schematic",
         position: s.position || { x: 0, y: 0 },
@@ -259,7 +261,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           height: s.height,
         },
       }));
-      const rfNodes = (demo.nodes || []).map((n: any) => ({
+      const rfNodes = (migrated.nodes || []).map((n: any) => ({
         id: n.id,
         type: "component",
         position: n.position || { x: 0, y: 0 },
@@ -278,25 +280,49 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           groupId: n.group_id || null,
         },
       }));
-      const rfEdges = (demo.edges || []).map((e: any) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.source_handle || undefined,
-        targetHandle: e.target_handle || undefined,
-        type: "animated",
-        data: {
-          connectionType: e.connection_type,
-          network: e.network,
-          label: e.label || "",
-          protocol: e.protocol || "",
-          latency: e.latency || "",
-          bandwidth: e.bandwidth || "",
-          status: "idle",
-          connectionConfig: e.connection_config || {},
-          autoConfigure: e.auto_configure ?? true,
-        },
-      }));
+      const groupIds = new Set(rfGroups.map((g: any) => g.id));
+      const clusterIds = new Set(rfClusters.map((c: any) => c.id));
+      const rfEdges = (migrated.edges || []).map((e: any) => {
+        let sourceHandle = e.source_handle || undefined;
+        // Group nodes had no handles until GroupNode added anchors; default S3 egress from group frame
+        if (e.connection_type === "s3" && groupIds.has(e.source) && !sourceHandle) {
+          sourceHandle = "group-bottom-out";
+        }
+        let targetHandle = e.target_handle || undefined;
+        // ClusterNode top target id is cluster-in-top (legacy YAML used data-in-top)
+        if (targetHandle === "data-in-top" && clusterIds.has(e.target)) {
+          targetHandle = "cluster-in-top";
+        }
+        // STX GPU server → AIStor tier edges: both land on top of cluster (not left data-in)
+        const tierRoleCfg = (e.connection_config || {})?.tier_role;
+        if (
+          e.connection_type === "s3" &&
+          groupIds.has(e.source) &&
+          clusterIds.has(e.target) &&
+          (tierRoleCfg === "g35-cmx" || tierRoleCfg === "g4-archive")
+        ) {
+          targetHandle = "cluster-in-top";
+        }
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle,
+          targetHandle,
+          type: "animated",
+          data: {
+            connectionType: e.connection_type,
+            network: e.network,
+            label: e.label || "",
+            protocol: e.protocol || "",
+            latency: e.latency || "",
+            bandwidth: e.bandwidth || "",
+            status: "idle",
+            connectionConfig: e.connection_config || {},
+            autoConfigure: e.auto_configure ?? true,
+          },
+        };
+      });
       // Derive nodeCounter from all node/cluster/group IDs to avoid collisions
       const trailingNum = (id: string): number => {
         const m = id.match(/(\d+)$/);

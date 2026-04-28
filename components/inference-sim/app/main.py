@@ -45,6 +45,11 @@ async def status() -> SimStatus:
     return await engine.get_state()
 
 
+@app.get("/sim/state", response_model=SimStatus)
+async def sim_state() -> SimStatus:
+    return await engine.get_state()
+
+
 @app.post("/sim/start", response_model=SimStatus)
 async def sim_start(config: SimConfig | None = None) -> SimStatus:
     await engine.start(config)
@@ -76,9 +81,9 @@ async def get_scenarios():
                 "g35_label": None,
                 "accent": "destructive",
                 "expectations": {
-                    "gpu_util": "~30% inference",
-                    "recompute": "High vs I/O stall",
-                    "ttft": "280-980ms",
+                    "gpu_util": "~99% busy · ~32% useful inference",
+                    "recompute": "High vs I/O wait",
+                    "ttft": "1.1–3.2s",
                 },
             },
             {

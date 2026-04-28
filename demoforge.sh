@@ -17,6 +17,7 @@ set -euo pipefail
 #   nuke        Full clean + remove built images
 #   dev:be      Run backend locally (no Docker) for development
 #   dev:fe      Run frontend locally (no Docker) for development
+#   dev:inference-sim  Run inference simulator locally (:8095) with hot reload
 #   help        Show this help
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -536,6 +537,25 @@ cmd_dev_fe() {
     npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT"
 }
 
+cmd_dev_inference_sim() {
+    local port="${INFERENCE_SIM_PORT:-8095}"
+    log "Starting inference-sim in dev mode (uvicorn --reload) on :${port}..."
+    echo -e "${YELLOW}Tip: pip install -r components/inference-sim/requirements.txt${NC}"
+    echo -e "${YELLOW}UI: http://localhost:${port}/  · watches app/**/*.py and app/static/*${NC}"
+    echo ""
+
+    cd "${SCRIPT_DIR}/components/inference-sim"
+    exec python3 -m uvicorn app.main:app \
+        --host 0.0.0.0 \
+        --port "${port}" \
+        --reload \
+        --reload-dir app \
+        --reload-include '*.py' \
+        --reload-include '*.html' \
+        --reload-include '*.css' \
+        --reload-include '*.js'
+}
+
 cmd_fa_ensure_dirs() {
     mkdir -p "$SCRIPT_DIR/fa-data"/{demos,data,user-templates,synced-templates}
     touch "$SCRIPT_DIR/fa-data/demos/.gitkeep" \
@@ -612,6 +632,7 @@ cmd_help() {
     echo -e "  ${GREEN}nuke${NC}        Full clean + remove built images"
     echo -e "  ${GREEN}dev:be${NC}      Run backend locally (no Docker)"
     echo -e "  ${GREEN}dev:fe${NC}      Run frontend locally (no Docker)"
+    echo -e "  ${GREEN}dev:inference-sim${NC}  Inference simulator on :8095 with hot reload"
     echo -e "  ${GREEN}help${NC}        Show this help"
     echo ""
     echo -e "${BLUE}FA Local Testing (same PC, isolated on ports 9212/3002):${NC}"
@@ -640,6 +661,7 @@ case "${1:-help}" in
     nuke)       cmd_nuke ;;
     dev:be)     cmd_dev_be ;;
     dev:fe)     cmd_dev_fe ;;
+    dev:inference-sim) cmd_dev_inference_sim ;;
     fa:start)   cmd_fa_start ;;
     fa:stop)    cmd_fa_stop ;;
     fa:restart) cmd_fa_restart ;;

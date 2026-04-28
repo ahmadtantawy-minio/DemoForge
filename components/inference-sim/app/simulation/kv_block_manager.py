@@ -108,8 +108,14 @@ class KVBlockManager:
         g35_cap: float = 40.0,
         g4_cap: float = 100.0,
         cmx_enabled: bool = True,
+        g1_hbm_total_gb: float = 80.0,
+        g1_weights_gb: float = 35.0,
+        g1_overhead_gb: float = 4.0,
     ) -> None:
         self.cmx_enabled = cmx_enabled
+        self.g1_hbm_total_gb = float(g1_hbm_total_gb)
+        self.g1_weights_gb = float(g1_weights_gb)
+        self.g1_overhead_gb = float(g1_overhead_gb)
 
         # Per-GPU tiers: gpu_tiers[gpu_id][tier_name] = Tier
         self.gpu_tiers: dict[str, dict[str, Tier]] = {}
@@ -174,13 +180,13 @@ class KVBlockManager:
             return None
 
         block = tier.blocks.pop(coldest_id)
-        tier.used_gb -= block.size_gb
 
         to_tier = self._get_tier(gpu_id, to_tier_name)
         block.tier = to_tier_name
         to_tier.blocks[coldest_id] = block
-        to_tier.used_gb += block.size_gb
         self._location[coldest_id] = (block.gpu_id, to_tier_name)
+        self._reconcile_tier_used(tier)
+        self._reconcile_tier_used(to_tier)
 
         return (coldest_id, from_tier, to_tier_name)
 
@@ -209,7 +215,6 @@ class KVBlockManager:
         block = src.blocks.pop(session_id, None)
         if block is None:
             return 50
-        src.used_gb -= block.size_gb
 
         # Place in destination tier
         dst = self._get_tier(to_gpu, to_tier)
@@ -218,8 +223,9 @@ class KVBlockManager:
         block.idle_ticks = 0
         block.last_access = time.time()
         dst.blocks[session_id] = block
-        dst.used_gb += block.size_gb
         self._location[session_id] = (to_gpu, to_tier)
+        self._reconcile_tier_used(src)
+        self._reconcile_tier_used(dst)
 
         return ticks
 
@@ -261,15 +267,16 @@ class KVBlockManager:
                     break
 
                 tier.blocks.pop(coldest_id)
-                tier.used_gb -= block.size_gb
 
                 to_tier = self._get_tier(gpu_id, to_tier_name)
                 block.tier = to_tier_name
                 to_tier.blocks[coldest_id] = block
-                to_tier.used_gb += block.size_gb
                 self._location[coldest_id] = (gpu_id, to_tier_name)
+                self._reconcile_tier_used(tier)
+                self._reconcile_tier_used(to_tier)
                 events.append((coldest_id, tier_name, to_tier_name, gpu_id))
 
+        self._reconcile_all_tiers()
         return events
 
     def allocate(self, session_id: str, size_gb: float, gpu_id: str) -> None:
@@ -277,8 +284,8 @@ class KVBlockManager:
         g1 = self.gpu_tiers[gpu_id]["G1"]
         block = KVBlock(session_id=session_id, size_gb=size_gb, tier="G1", gpu_id=gpu_id)
         g1.blocks[session_id] = block
-        g1.used_gb += size_gb
         self._location[session_id] = (gpu_id, "G1")
+        self._reconcile_tier_used(g1)
         self.enforce_capacity()
 
     def free(self, session_id: str) -> None:
@@ -288,40 +295,66 @@ class KVBlockManager:
             return
         gpu_id, tier_name = loc
         tier = self._get_tier(gpu_id, tier_name)
-        block = tier.blocks.pop(session_id, None)
-        if block:
-            tier.used_gb -= block.size_gb
+        tier.blocks.pop(session_id, None)
+        self._reconcile_tier_used(tier)
+
+    def _reconcile_tier_used(self, tier: Tier) -> None:
+        """Keep used_gb aligned with block accounting (avoids float drift)."""
+        tier.used_gb = sum(b.size_gb for b in tier.blocks.values())
+
+    def _reconcile_all_tiers(self) -> None:
+        for gid in GPU_IDS:
+            for t in self.gpu_tiers[gid].values():
+                self._reconcile_tier_used(t)
+        for t in self.shared_tiers.values():
+            self._reconcile_tier_used(t)
+
+    def _tier_public_dict(self, t: Tier) -> dict:
+        """Snapshot for API/UI: utilization never exceeds 100% of capacity."""
+        actual = sum(b.size_gb for b in t.blocks.values())
+        cap = float(t.capacity_gb)
+        if cap <= 0:
+            used_out = 0.0
+            pct = 0.0
+        else:
+            used_out = min(actual, cap)
+            pct = min(100.0, (actual / cap) * 100.0)
+        return {
+            "name": t.name,
+            "capacity_gb": cap,
+            "used_gb": used_out,
+            "pct": round(pct, 2),
+            "block_count": t.block_count,
+            "latency_ms": t.latency_ms,
+        }
 
     def get_gpu_tier_state(self, gpu_id: str) -> list[dict]:
         """Return per-GPU tier states as list of dicts."""
-        result = []
-        for tier_name in self.GPU_TIER_ORDER:
-            t = self.gpu_tiers[gpu_id][tier_name]
-            result.append({
-                "name": t.name,
-                "capacity_gb": t.capacity_gb,
-                "used_gb": t.used_gb,
-                "block_count": t.block_count,
-                "latency_ms": t.latency_ms,
-            })
-        return result
+        return [self._tier_public_dict(self.gpu_tiers[gpu_id][tn]) for tn in self.GPU_TIER_ORDER]
 
     def get_shared_tier_state(self) -> list[dict]:
         """Return shared tier states as list of dicts."""
-        return [
-            {
-                "name": t.name,
-                "capacity_gb": t.capacity_gb,
-                "used_gb": t.used_gb,
-                "block_count": t.block_count,
-                "latency_ms": t.latency_ms,
-            }
-            for t in self.shared_tiers.values()
-        ]
+        return [self._tier_public_dict(t) for t in self.shared_tiers.values()]
 
     def get_gpu_g1_free(self, gpu_id: str) -> float:
         """Return free capacity in a GPU's G1 tier."""
         return self.gpu_tiers[gpu_id]["G1"].free_gb
+
+    def aggregate_gpu_tier_across_gpus(self, tier_name: str) -> dict[str, float | int]:
+        """Sum block counts and used_gb for a per-GPU tier across gpu-a and gpu-b."""
+        total_blocks = 0
+        total_used = 0.0
+        total_cap = 0.0
+        for gpu_id in GPU_IDS:
+            t = self.gpu_tiers[gpu_id][tier_name]
+            total_blocks += t.block_count
+            total_used += t.used_gb
+            total_cap += t.capacity_gb
+        return {
+            "sessions_active": total_blocks,
+            "used_gb": round(total_used, 4),
+            "capacity_gb": total_cap,
+        }
 
     def increment_idle_ticks(self, session_id: str) -> None:
         loc = self._location.get(session_id)
@@ -362,12 +395,12 @@ class KVBlockManager:
                 block = g1.blocks.pop(sid, None)
                 if block is None:
                     continue
-                g1.used_gb -= block.size_gb
                 g2 = self.gpu_tiers[gpu_id]["G2"]
                 block.tier = "G2"
                 g2.blocks[sid] = block
-                g2.used_gb += block.size_gb
                 self._location[sid] = (gpu_id, "G2")
+                self._reconcile_tier_used(g1)
+                self._reconcile_tier_used(g2)
                 events.append((sid, "G1", "G2", gpu_id, idle_ticks))
         return events
 

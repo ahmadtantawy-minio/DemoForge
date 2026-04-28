@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class SimConfig(BaseModel):
     users: int = 50
-    context_tokens: int = 32768
+    context_tokens: int = 65536
     speed: float = 1.0
     cmx_enabled: bool = True       # Backward compat
     g35_mode: str = "accelerated"  # Backward compat — maps to scenario
@@ -54,6 +54,7 @@ class SimStatus(BaseModel):
     backend_errors: list[str] = []
     eviction_policy: dict[str, Any] = {}
     config: dict[str, Any] = {}
+    memory_budget: dict[str, Any] | None = None
 
 
 class HealthResponse(BaseModel):
