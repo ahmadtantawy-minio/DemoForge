@@ -70,6 +70,30 @@ async def health_monitor_loop():
     while True:
         try:
             for demo in state.list_demos():
+                # Stuck "stopping" (task missed, UI out of sync, or manual docker stop): if every
+                # tracked container is stopped/not found, align status to stopped.
+                if demo.status == "stopping":
+                    if not demo.containers:
+                        logger.info(
+                            "Health reconciler: demo %s was stopping with no tracked containers — marking stopped",
+                            demo.demo_id,
+                        )
+                        demo.status = "stopped"
+                        continue
+                    all_stopped_s = True
+                    for node_id, container in demo.containers.items():
+                        health = await get_container_health(container.container_name)
+                        container.health = health
+                        if health != ContainerHealthStatus.STOPPED:
+                            all_stopped_s = False
+                    if all_stopped_s:
+                        logger.info(
+                            "Health reconciler: demo %s was stopping and all containers are stopped — marking stopped",
+                            demo.demo_id,
+                        )
+                        demo.status = "stopped"
+                    continue
+
                 if demo.status not in ("running", "error"):
                     continue
 

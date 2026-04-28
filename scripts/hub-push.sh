@@ -38,14 +38,14 @@ for arg in "$@"; do
   [[ "$arg" == "--all" ]] && PUSH_ALL=true
 done
 
-CORE_IMAGES=("demoforge-frontend" "demoforge-backend" "data-generator" "event-processor" "external-system")
+CORE_IMAGES=("demoforge-frontend" "demoforge-backend" "data-generator" "event-processor" "external-system" "inference-sim" "inference-client")
 
 echo -e "\n${CYAN}Found ${#COMPONENTS[@]} images to build:${NC}"
 for i in "${!COMPONENTS[@]}"; do echo "  ${COMPONENTS[$i]} ← ${DOCKERFILES[$i]#$PROJECT_ROOT/}"; done
 echo ""
 
 if [[ "$PUSH_ALL" == "false" ]]; then
-    echo -e "${YELLOW}Mode: core only (frontend, backend, data-generator, event-processor, external-system). Use --all to push all images.${NC}"
+    echo -e "${YELLOW}Mode: core only (frontend, backend, data-generator, event-processor, external-system, inference-sim, inference-client). Use --all to push all images.${NC}"
 fi
 
 FILTER="${1:-}"

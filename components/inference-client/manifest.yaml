@@ -3,7 +3,8 @@ name: Inference Client
 category: simulation
 icon: inference-client
 version: "1.0"
-image: curlimages/curl:latest
+image: demoforge/inference-client:latest
+build_context: .
 description: "Simulates inference API requests to the GPU server"
 
 resources:

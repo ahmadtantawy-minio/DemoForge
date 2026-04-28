@@ -20,7 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, Eye, Bug, Clapperboard } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, StickyNote, Bug, Clapperboard } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
@@ -59,18 +59,26 @@ export default function Toolbar() {
     if (!activeDemoId) return;
     setSyncing(true);
     try {
-      const res = await fetchInstances(activeDemoId);
-      setInstances(res.instances);
-      if (res.cluster_health) setClusterHealth(res.cluster_health);
-      const { updateNodeHealth } = useDiagramStore.getState();
-      for (const inst of res.instances) updateNodeHealth(inst.node_id, inst.health);
+      try {
+        const res = await fetchInstances(activeDemoId);
+        setInstances(res.instances);
+        if (res.cluster_health) setClusterHealth(res.cluster_health);
+        const { updateNodeHealth } = useDiagramStore.getState();
+        for (const inst of res.instances) updateNodeHealth(inst.node_id, inst.health);
+      } catch {
+        // Destroyed / not in runtime state — clear canvas badges; demo list still refreshes below.
+        setInstances([]);
+        setClusterHealth({});
+      }
+      const demosRes = await fetchDemos();
+      setDemos(demosRes.demos);
       toast.success("State synced", { duration: 1500 });
     } catch {
       toast.error("Sync failed");
     } finally {
       setSyncing(false);
     }
-  }, [activeDemoId, setInstances, setClusterHealth]);
+  }, [activeDemoId, setInstances, setClusterHealth, setDemos]);
 
   const handleCopyDebugBundle = useCallback(async () => {
     setCopyingDebug(true);
@@ -305,8 +313,8 @@ export default function Toolbar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center gap-3 px-4 py-2 bg-card border-b border-border text-foreground text-sm">
-        <div className="flex items-center gap-2 mr-2">
+      <div className="flex flex-nowrap items-center gap-2 px-4 py-2 bg-card border-b border-border text-foreground text-sm min-w-0 overflow-x-auto">
+        <div className="flex items-center gap-2 mr-2 shrink-0">
           <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="6" y="18" width="14" height="10" rx="2" fill="#C72C48" opacity="0.4"/>
             <rect x="10" y="11" width="14" height="10" rx="2" fill="#C72C48" opacity="0.7"/>
@@ -526,7 +534,7 @@ export default function Toolbar() {
                   disabled={copyingDebug}
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                   data-testid="toolbar-copy-debug"
                 >
                   <Bug className={`w-3.5 h-3.5 ${copyingDebug ? "animate-pulse" : ""}`} />
@@ -545,12 +553,12 @@ export default function Toolbar() {
                   onClick={() => setConfigViewerOpen(true)}
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                 >
                   <FileCode className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Generated Config</p></TooltipContent>
+              <TooltipContent><p className="text-xs">View generated config (YAML / manifests)</p></TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -558,18 +566,17 @@ export default function Toolbar() {
                   onClick={() => setScriptPanelOpen(true)}
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                 >
                   <Terminal className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Setup Script</p></TooltipContent>
+              <TooltipContent><p className="text-xs">Setup script &amp; container commands</p></TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   onClick={() => {
-                    // Load current resource settings from demo
                     import("../../api/client").then(({ fetchDemo }) =>
                       fetchDemo(activeDemoId!).then((demo: any) => {
                         const r = demo.resources || {};
@@ -587,12 +594,12 @@ export default function Toolbar() {
                   }}
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Demo Settings</p></TooltipContent>
+              <TooltipContent><p className="text-xs">Demo resource limits (CPU / memory)</p></TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -600,35 +607,55 @@ export default function Toolbar() {
                   onClick={(e) => { e.stopPropagation(); setShowFaNotes(!showFaNotes); }}
                   variant="ghost"
                   size="sm"
-                  className={`h-7 px-2 flex items-center gap-1 text-xs ${showFaNotes ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`h-7 w-7 p-0 shrink-0 ${showFaNotes ? "text-amber-400 bg-amber-400/10" : "text-muted-foreground hover:text-foreground"}`}
+                  aria-label={showFaNotes ? "Hide FA notes" : "Show FA notes"}
                 >
-                  <Eye className="w-3.5 h-3.5" />
-                  <span>FA notes</span>
+                  <StickyNote className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Toggle FA internal notes</p></TooltipContent>
+              <TooltipContent>
+                <p className="text-xs font-medium">FA notes</p>
+                <p className="text-[11px] text-muted-foreground mt-1 max-w-[220px]">
+                  Toggle internal field-application notes on the canvas.
+                </p>
+              </TooltipContent>
             </Tooltip>
-            <Button
-              onClick={(e) => { e.stopPropagation(); toggleCockpit(); }}
-              variant="ghost"
-              size="sm"
-              className={`h-7 w-7 p-0 ${cockpitEnabled ? "text-green-400 bg-green-400/10" : "text-muted-foreground hover:text-foreground"}`}
-              title={cockpitEnabled ? "Cockpit On" : "Cockpit Off"}
-            >
-              <Gauge className="w-3.5 h-3.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={(e) => { e.stopPropagation(); toggleCockpit(); }}
+                  variant="ghost"
+                  size="sm"
+                  className={`h-7 w-7 p-0 shrink-0 ${cockpitEnabled ? "text-green-400 bg-green-400/10" : "text-muted-foreground hover:text-foreground"}`}
+                  aria-label={cockpitEnabled ? "Disable session cockpit" : "Enable session cockpit"}
+                >
+                  <Gauge className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs font-medium">Session cockpit</p>
+                <p className="text-[11px] text-muted-foreground mt-1 max-w-[200px]">
+                  {cockpitEnabled ? "Overlay is on — click to hide live session metrics." : "Show live session metrics overlay while presenting."}
+                </p>
+              </TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   onClick={(e) => { e.stopPropagation(); toggleWalkthrough(); }}
                   variant="ghost"
                   size="sm"
-                  className={`h-7 w-7 p-0 ${walkthroughOpen ? "text-blue-400 bg-blue-400/10" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`h-7 w-7 p-0 shrink-0 ${walkthroughOpen ? "text-blue-400 bg-blue-400/10" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Walkthrough</p></TooltipContent>
+              <TooltipContent>
+                <p className="text-xs font-medium">Walkthrough</p>
+                <p className="text-[11px] text-muted-foreground mt-1 max-w-[200px]">
+                  Guided tour of controls and diagram features.
+                </p>
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -639,7 +666,7 @@ export default function Toolbar() {
                   }}
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                   data-testid="toolbar-slides"
                 >
                   <Clapperboard className="w-3.5 h-3.5" />
@@ -655,6 +682,7 @@ export default function Toolbar() {
           </>
         )}
 
+        <div className="flex items-center gap-1 ml-auto shrink-0 justify-end">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -708,6 +736,7 @@ export default function Toolbar() {
             taskId={deployTaskId}
           />
         )}
+        </div>
       </div>
 
       <DemoSelectorModal open={selectorOpen} onOpenChange={setSelectorOpen} />

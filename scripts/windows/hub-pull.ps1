@@ -16,7 +16,9 @@ $Critical = @(
     'demoforge/demoforge-backend',
     'demoforge/data-generator',
     'demoforge/event-processor',
-    'demoforge/external-system'
+    'demoforge/external-system',
+    'demoforge/inference-sim',
+    'demoforge/inference-client'
 )
 
 $docker = Get-DockerExecutable

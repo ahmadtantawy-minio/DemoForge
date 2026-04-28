@@ -143,9 +143,9 @@ SCENARIO_PARAMS: dict[str, dict] = {
         "g35_enabled": False,
         "g35_ticks": None,
 
-        # Cross-GPU migration: devastating without G3.5
-        "cross_gpu_recompute_chance": 0.35,  # 35% give up on slow file read
-        "cross_gpu_restore_ticks": 55,       # When it does try: slow + jittery
+        # Cross-GPU migration: devastating without G3.5 — heavy stall + recompute vs inference
+        "cross_gpu_recompute_chance": 0.42,  # POSIX path often loses race → recompute
+        "cross_gpu_restore_ticks": 56,       # Slow, jittery file reads when it does try
         "cross_gpu_restore_jitter_pct": 0.30,
 
         # POSIX degrades non-linearly under concurrent access
@@ -158,14 +158,14 @@ SCENARIO_PARAMS: dict[str, dict] = {
         "g4_base_ticks": 12,            # ~120ms effective (S3 GET over TCP)
         "g4_jitter_pct": 0.20,          # ±20% (consistent, no lock contention)
         "g4_parallel_factor": 4,        # 4 concurrent reads before degradation
-        "g4_label": "MinIO S3",
+        "g4_label": "MinIO S3 (G4 tier)",
 
         "g35_enabled": False,
         "g35_ticks": None,
 
-        # Cross-GPU migration: viable via G4 S3 restore
-        "cross_gpu_recompute_chance": 0.10,  # 10% recompute — S3/TCP occasionally too slow
-        "cross_gpu_restore_ticks": 18,       # S3/TCP cross-GPU: ~120-180ms class
+        # Cross-GPU migration: viable via G4 S3 restore — strong G4 path vs POSIX
+        "cross_gpu_recompute_chance": 0.07,  # rare recompute; inference time grows vs file/POSIX
+        "cross_gpu_restore_ticks": 16,       # S3/TCP cross-GPU: faster restore than POSIX
         "cross_gpu_restore_jitter_pct": 0.15,
 
         "concurrency_collapse_enabled": False,
@@ -194,9 +194,70 @@ SCENARIO_PARAMS: dict[str, dict] = {
 
 _SCENARIO_LABELS = {
     "file-g4": "File / POSIX Storage",
-    "minio-g4": "MinIO Object Store",
+    "minio-g4": "G4 as MinIO Object Store",
     "minio-full": "MinIO G4 S3 + G3.5 CTX RDMA",
 }
+
+# Narrative targets for stacked GPU time (active inference vs I/O stall vs recompute).
+# Blended with live tracker output so the UI shows a clear step-up across scenarios.
+_SCENARIO_UTIL_TARGETS: dict[str, dict[str, int]] = {
+    # ~low thirties inference; remainder dominated by I/O stall + recompute (POSIX pain)
+    "file-g4": {"active": 33, "io_stall": 36, "recompute": 23, "idle": 8},
+    # Strong inference uplift; G4 path viable — moderate stall, lower recompute
+    "minio-g4": {"active": 63, "io_stall": 22, "recompute": 12, "idle": 3},
+    # Near-saturated inference; RDMA path — minimal stall/recompute
+    "minio-full": {"active": 92, "io_stall": 5, "recompute": 2, "idle": 1},
+}
+
+# Weight on narrative targets vs raw simulation (0..1). Higher = clearer scenario story.
+_SCENARIO_UTIL_BLEND = 0.48
+
+# Default promotion-latency ticks when rolling window empty (cold start).
+_SCENARIO_DEFAULT_PROMO_TICKS = {
+    "file-g4": 4.1,
+    "minio-g4": 1.05,
+    "minio-full": 0.14,
+}
+
+# Scales I/O component of TTFT from tier promotions (multiplier on avg_promo * tick_ms).
+_SCENARIO_TTFT_IO_SCALE = {
+    "file-g4": 1.08,
+    "minio-g4": 0.29,
+    "minio-full": 0.035,
+}
+
+_TICK_MS = 200.0  # engine tick interval for latency display (matches sim loop)
+
+
+def _blend_scenario_utilization(raw: dict[str, int], scenario: str) -> dict[str, int]:
+    """Blend tracker percentages toward scenario targets; normalize to sum 100."""
+    targets = _SCENARIO_UTIL_TARGETS.get(scenario, _SCENARIO_UTIL_TARGETS["file-g4"])
+    alpha = _SCENARIO_UTIL_BLEND
+    keys = ("active", "io_stall", "recompute", "idle")
+    blended = [(1.0 - alpha) * float(raw[k]) + alpha * float(targets[k]) for k in keys]
+    tot = sum(blended)
+    if tot <= 0:
+        return raw
+    vals = [b * 100.0 / tot for b in blended]
+    rounded = [int(v) for v in vals]
+    rem = 100 - sum(rounded)
+    if rem > 0:
+        order = sorted(range(4), key=lambda i: vals[i] - rounded[i], reverse=True)
+        for k in range(rem):
+            rounded[order[k % 4]] += 1
+    elif rem < 0:
+        order = sorted(range(4), key=lambda i: vals[i] - rounded[i])
+        k = 0
+        while sum(rounded) > 100 and k < 50:
+            idx = order[k % 4]
+            if rounded[idx] > 0:
+                rounded[idx] -= 1
+            k += 1
+    out = {keys[i]: max(0, rounded[i]) for i in range(4)}
+    drift = 100 - sum(out.values())
+    if drift != 0:
+        out["active"] = max(0, out["active"] + drift)
+    return out
 
 # Backward-compat mapping: old g35_mode values → new scenario IDs.
 # NOTE: "standard" mapped to "minio-g4" (G3.5 disabled) intentionally —
@@ -277,6 +338,8 @@ class SimulationEngine:
         self._all_events: list[dict] = []
         # Rolling event history (last 15 events with reason/policy)
         self._event_history: deque[dict] = deque(maxlen=15)
+        # Surface failures in API/UI instead of silent tick-loop swallow
+        self._backend_errors: deque[str] = deque(maxlen=24)
 
         # Per-GPU time-budget trackers
         self.gpu_trackers = {
@@ -291,18 +354,19 @@ class SimulationEngine:
         return SCENARIO_PARAMS.get(self.config.scenario, SCENARIO_PARAMS["file-g4"])
 
     def _apply_scenario(self) -> None:
-        """Update block_manager state based on current scenario.
+        """Update block_manager + scenario flags. Does not clear GPU time history.
 
-        Also flushes in-flight stall/recompute ticks and clears the rolling
-        history so the GPU utilization bars and chart respond within 1-2 ticks
-        instead of waiting for a 100-tick rolling window to drain.
+        Storage-scenario switches used to flush stall/recompute state and the
+        rolling utilization window, which made bars and metrics snap to zero.
+        We keep trackers and in-flight IO/recompute so transitions stay smooth;
+        use `reset()` for a full wipe.
+
+        `self.config.scenario` is the single source of truth: `_get_params()` reads
+        `SCENARIO_PARAMS[scenario]` for every tick and both `gpu-a` / `gpu-b` paths
+        (shared block manager + per-GPU trackers). There is no per-GPU scenario.
         """
         params = self._get_params()
         self.block_manager.cmx_enabled = params["g35_enabled"]
-        for tracker in self.gpu_trackers.values():
-            tracker.remaining_stall_ticks = 0
-            tracker.remaining_recompute_ticks = 0
-            tracker.history.clear()
 
     def _init_components(self) -> None:
         params = self._get_params()
@@ -354,17 +418,21 @@ class SimulationEngine:
             self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
+        # Never await the sim task while holding _lock: _loop needs the same lock each tick.
+        # Doing so deadlocks stop() (stuck Stop button, frozen TICK).
+        task: asyncio.Task | None = None
         async with self._lock:
             if not self._running:
                 return
             self._running = False
-            if self._task:
-                self._task.cancel()
-                try:
-                    await self._task
-                except asyncio.CancelledError:
-                    pass
-                self._task = None
+            task = self._task
+            self._task = None
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def update_config(self, config: SimConfig) -> None:
         async with self._lock:
@@ -411,6 +479,7 @@ class SimulationEngine:
             self._cache_misses = 0
             self._tick_events.clear()
             self._all_events.clear()
+            self._backend_errors.clear()
             for t in self.gpu_trackers.values():
                 t.reset()
 
@@ -419,7 +488,14 @@ class SimulationEngine:
             return self._build_status()
 
     def _build_status(self) -> SimStatus:
-        # Build per-GPU tier states
+        scenario = self.config.scenario
+
+        # Per-GPU stacked utilization: blend live tracker with scenario narrative bands
+        gpu_util_breakdowns: dict[str, dict[str, int]] = {}
+        for gpu_id in GPU_IDS:
+            raw_u = self.gpu_trackers[gpu_id].utilization()
+            gpu_util_breakdowns[gpu_id] = _blend_scenario_utilization(raw_u, scenario)
+
         gpu_states = []
         for gpu_id in GPU_IDS:
             gpu_tiers = self.block_manager.get_gpu_tier_state(gpu_id)
@@ -447,12 +523,17 @@ class SimulationEngine:
                     block_count=tier_map["G3"]["block_count"],
                     latency_ms=tier_map["G3"]["latency_ms"],
                 ),
-                utilization=self.gpu_trackers[gpu_id].utilization(),
+                utilization=gpu_util_breakdowns[gpu_id],
             ))
 
-        # Build shared tier state
+        # Shared tiers — nudge G4 displayed fill for MinIO G4 scenario (healthy object-tier utilization)
         shared_tiers = self.block_manager.get_shared_tier_state()
         shared_map = {t["name"]: t for t in shared_tiers}
+        g4_used = shared_map["G4"]["used_gb"]
+        g4_cap = shared_map["G4"]["capacity_gb"]
+        if scenario == "minio-g4" and g4_cap > 0:
+            g4_used = min(g4_cap * 0.94, g4_used * 1.16 + g4_cap * 0.045)
+
         shared = SharedTierState(
             g35=TierState(
                 name="G3.5",
@@ -464,7 +545,7 @@ class SimulationEngine:
             g4=TierState(
                 name="G4",
                 capacity_gb=shared_map["G4"]["capacity_gb"],
-                used_gb=shared_map["G4"]["used_gb"],
+                used_gb=g4_used,
                 block_count=shared_map["G4"]["block_count"],
                 latency_ms=shared_map["G4"]["latency_ms"],
             ),
@@ -489,12 +570,7 @@ class SimulationEngine:
         def clamp(val: float) -> float:
             return min(100.0, max(0.0, val))
 
-        # Per-GPU utilization from time-budget tracker
-        gpu_util_breakdowns = {}
-        for gpu_id in GPU_IDS:
-            gpu_util_breakdowns[gpu_id] = self.gpu_trackers[gpu_id].utilization()
-
-        # Effective utilization = active inference only
+        # Effective utilization = active inference only (already scenario-blended above)
         gpu_utils = {}
         for gpu_id in GPU_IDS:
             gpu_utils[gpu_id] = float(gpu_util_breakdowns[gpu_id]["active"])
@@ -505,17 +581,22 @@ class SimulationEngine:
             (self._cache_hits / total_lookups * 100) if total_lookups > 0 else 100.0
         )
 
-        # Rolling TTFT is accumulated in _tick_once(), just read here
+        # TTFT: base LLM work + I/O from tier promotions; scale I/O leg by scenario (POSIX slow → RDMA fast)
         avg_promo = (
             sum(self._rolling_ttft) / len(self._rolling_ttft)
             if self._rolling_ttft
-            else 0.0
+            else _SCENARIO_DEFAULT_PROMO_TICKS.get(scenario, 2.0)
         )
-        # TTFT = base LLM prefill/decode (~30ms) + I/O stall from tier promotion
-        # I/O component: ticks × scale factor per tier latency
-        io_latency_ms = avg_promo * 200
+        io_scale = _SCENARIO_TTFT_IO_SCALE.get(scenario, 0.5)
+        io_latency_ms = avg_promo * _TICK_MS * io_scale
         base_llm_ms = 30.0  # prefill + first token decode
         ttft = base_llm_ms + io_latency_ms
+        if scenario == "file-g4":
+            ttft = min(980.0, max(280.0, ttft))
+        elif scenario == "minio-g4":
+            ttft = min(330.0, max(68.0, ttft))
+        else:
+            ttft = min(88.0, max(31.0, ttft))
 
         now = time.monotonic()
         elapsed = now - self._last_rate_ts
@@ -546,7 +627,6 @@ class SimulationEngine:
             "cache_misses": self._cache_misses,
         }
 
-        scenario = self.config.scenario
         params = self._get_params()
         g35_mode = _SCENARIO_TO_G35.get(scenario, "disabled")
 
@@ -558,6 +638,7 @@ class SimulationEngine:
             sessions=session_states,
             metrics=metrics_dict,
             events=(self._all_events + self._tick_events)[-15:],
+            backend_errors=list(self._backend_errors),
             eviction_policy=self.block_manager.get_eviction_policy(scenario),
             config={
                 "users": self.config.users,
@@ -575,24 +656,42 @@ class SimulationEngine:
         )
 
     async def _loop(self) -> None:
+        import traceback
+
         loop = asyncio.get_event_loop()
         while self._running:
             interval = 0.2 / max(self.config.speed, 0.1)
             await asyncio.sleep(interval)
 
+            if not self._running:
+                break
+
             try:
                 async with self._lock:
+                    if not self._running:
+                        break
                     await self._tick_once(loop)
                     state = self._build_status()
-            except Exception:
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                tb = traceback.format_exc()
+                msg = f"[tick {self._tick}] {type(e).__name__}: {e}"
+                tail = tb[-1200:] if len(tb) > 1200 else tb
+                async with self._lock:
+                    self._backend_errors.append(msg[:400])
+                    self._backend_errors.append(tail)
                 continue
 
             # Broadcast to WebSocket clients (outside lock — state is immutable)
             try:
                 sim_metrics.update_metrics(state.model_dump())
                 await self._broadcast(state)
-            except Exception:
-                pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                async with self._lock:
+                    self._backend_errors.append(f"[broadcast] {type(e).__name__}: {str(e)[:300]}")
 
     async def _tick_once(self, loop: asyncio.AbstractEventLoop) -> None:
         self._tick += 1
@@ -604,7 +703,7 @@ class SimulationEngine:
                 self._all_events = self._all_events[-50:]
         self._tick_events.clear()
 
-        # 1. Generate new sessions — pick GPU with more G1 free space
+        # 1. New sessions — RequestGenerator.pick_gpu() uses G1 free headroom (tie → round-robin)
         active = self.session_manager.get_active_sessions()
         idle = self.session_manager.get_idle_sessions()
         returning = self.session_manager.get_returning_sessions()

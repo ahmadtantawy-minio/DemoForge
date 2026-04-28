@@ -51,6 +51,7 @@ class SimStatus(BaseModel):
     sessions: list[SessionState]
     metrics: dict[str, Any]
     events: list[dict[str, Any]] = []
+    backend_errors: list[str] = []
     eviction_policy: dict[str, Any] = {}
     config: dict[str, Any] = {}
 

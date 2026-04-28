@@ -22,6 +22,8 @@ CRITICAL_IMAGES=(
   "demoforge/data-generator"
   "demoforge/event-processor"
   "demoforge/external-system"
+  "demoforge/inference-sim"
+  "demoforge/inference-client"
 )
 
 pull_image() {

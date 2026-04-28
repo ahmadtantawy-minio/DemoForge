@@ -895,6 +895,55 @@
   .summary-label { font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
   .summary-value { font-size: 10px; font-weight: 600; color: var(--text); white-space: nowrap; }
   .summary-divider { color: var(--border); font-size: 14px; }
+
+  /* Diagnostics: API + sim errors (stop/start, tick loop, fetch) */
+  .diag-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 38vh;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    background: rgba(15, 15, 18, 0.95);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
+  }
+  .diag-panel.collapsed .diag-body { display: none; }
+  .diag-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(220, 38, 38, 0.12);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+  .diag-header.ok { background: rgba(15, 15, 18, 0.6); }
+  .diag-title { font-weight: 600; color: var(--text); }
+  .diag-hint { color: var(--text-secondary); font-size: 10px; }
+  .diag-body { overflow: auto; padding: 8px 10px 10px; max-height: 32vh; }
+  .diag-line { margin: 0 0 6px; white-space: pre-wrap; word-break: break-word; color: #fecaca; }
+  .diag-line.client { color: #fde68a; }
+  .diag-line.backend { color: #fca5a5; }
+  .diag-empty { color: var(--text-secondary); font-style: italic; }
+  .diag-actions { display: flex; gap: 8px; align-items: center; }
+  .diag-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .diag-actions button:hover { color: var(--text); border-color: var(--text-secondary); }
+  .diag-panel.hidden { display: none !important; }
+  .diag-panel.visible { display: flex !important; }
 </style>
 </head>
 <body>
@@ -921,6 +970,19 @@
       <span id="statusText">Disconnected</span>
     </div>
   </div>
+</div>
+
+<div id="diagPanel" class="diag-panel collapsed hidden" aria-live="polite">
+  <div class="diag-header ok" id="diagHeader">
+    <div>
+      <span class="diag-title" id="diagTitle">Diagnostics</span>
+      <span class="diag-hint" id="diagHint"> — click to expand</span>
+    </div>
+    <div class="diag-actions">
+      <button type="button" id="diagClear" title="Clear log">Clear</button>
+    </div>
+  </div>
+  <div class="diag-body" id="diagBody"></div>
 </div>
 
 <!-- MAIN -->
@@ -1154,8 +1216,8 @@
             <div class="scenario-card selector warning" data-scenario="minio-g4" onclick="setScenario('minio-g4')">
               <div class="scenario-accent"></div>
               <div class="scenario-content">
-                <div class="scenario-label">MinIO Object Store</div>
-                <div class="scenario-subtitle">S3-native G4 memory tier</div>
+                <div class="scenario-label">G4 as MinIO Object Store</div>
+                <div class="scenario-subtitle">S3-native G4 tier — high object throughput</div>
               </div>
             </div>
             <div class="scenario-card selector success" data-scenario="minio-full" onclick="setScenario('minio-full')">
@@ -1325,6 +1387,77 @@
   const btnStart = $('btnStart');
   const btnReset = $('btnReset');
 
+  /** Client-side failures (fetch/network/HTTP); merged with server backend_errors in diagnostics panel */
+  let clientDiagLines = [];
+  let serverDiagLines = [];
+  let statusPollFailures = 0;
+
+  const diagPanel = $('diagPanel');
+  const diagBody = $('diagBody');
+  const diagHeader = $('diagHeader');
+  const diagTitle = $('diagTitle');
+  const diagHint = $('diagHint');
+
+  function pushClientError(msg) {
+    const line = (typeof msg === 'string' ? msg : String(msg)).trim() || '(empty error)';
+    clientDiagLines.unshift('[' + new Date().toISOString().slice(11, 23) + '] ' + line);
+    if (clientDiagLines.length > 20) clientDiagLines.length = 20;
+    renderDiagPanel();
+  }
+
+  function renderDiagPanel() {
+    if (!diagPanel || !diagBody) return;
+    const lines = serverDiagLines.map(t => ({ cls: 'diag-line backend', text: t }))
+      .concat(clientDiagLines.map(t => ({ cls: 'diag-line client', text: t })));
+    if (!lines.length) {
+      diagPanel.classList.add('hidden');
+      diagPanel.classList.remove('visible');
+      return;
+    }
+    diagPanel.classList.remove('hidden');
+    diagPanel.classList.add('visible');
+    diagPanel.classList.remove('collapsed');
+    if (diagHeader) diagHeader.classList.remove('ok');
+    if (diagTitle) diagTitle.textContent = 'Diagnostics (' + lines.length + ')';
+    if (diagHint) diagHint.textContent = ' — backend + UI · click bar to toggle';
+    diagBody.innerHTML = lines.map(l =>
+      '<p class="' + l.cls + '">' + escapeHtml(l.text) + '</p>'
+    ).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  if (diagHeader && diagPanel) {
+    diagHeader.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('#diagClear')) return;
+      diagPanel.classList.toggle('collapsed');
+    });
+  }
+  const diagClearBtn = $('diagClear');
+  if (diagClearBtn) {
+    diagClearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clientDiagLines = [];
+      renderDiagPanel();
+    });
+  }
+
+  /** Directory prefix for same-origin API + WS. Required behind DemoForge /proxy/…/simulation
+   *  when the browser URL has no trailing slash — otherwise relative `sim/start` resolves to the wrong path. */
+  function apiBasePath() {
+    let p = window.location.pathname || '/';
+    if (!p.endsWith('/')) {
+      p += '/';
+    }
+    return p;
+  }
+
   // --- Connection ---
   function setStatus(state) {
     statusBadge.className = 'status-badge ' + state;
@@ -1335,7 +1468,7 @@
   let wsFailCount = 0;
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = proto + '//' + location.host + '/sim/stream';
+    const url = proto + '//' + location.host + apiBasePath() + 'sim/stream';
     try {
       ws = new WebSocket(url);
     } catch(e) {
@@ -1375,17 +1508,27 @@
     if (pollInterval) return;
     pollInterval = setInterval(async () => {
       try {
-        const res = await fetch('status');
+        const res = await fetch(apiBasePath() + 'status');
         if (res.ok) {
+          statusPollFailures = 0;
           const data = await res.json();
           try {
             handleData(data);
           } catch(he) {
             console.error('handleData error:', he);
+            pushClientError('handleData: ' + (he && he.message ? he.message : String(he)));
+          }
+        } else {
+          statusPollFailures++;
+          if (statusPollFailures === 1) {
+            pushClientError('GET status: HTTP ' + res.status + ' ' + (res.statusText || ''));
           }
         }
       } catch(e) {
-        // Network error — don't override status if we already got data
+        statusPollFailures++;
+        if (statusPollFailures === 1) {
+          pushClientError('GET status (network): ' + (e && e.message ? e.message : String(e)));
+        }
         if (!isRunning) setStatus('disconnected');
       }
     }, 500);
@@ -1395,6 +1538,12 @@
   // --- Data handling ---
   function handleData(d) {
     if (!d) return;
+    if (d.backend_errors && d.backend_errors.length) {
+      serverDiagLines = d.backend_errors.slice();
+    } else {
+      serverDiagLines = [];
+    }
+    renderDiagPanel();
     currentTick = d.tick || 0;
     isRunning = !!d.running;
     setStatus(isRunning ? 'running' : 'stopped');
@@ -1697,7 +1846,7 @@
     const strip = document.getElementById('mode-comparison');
     if (!strip) return;
     const scenarios = ['file-g4', 'minio-g4', 'minio-full'];
-    const labels = { 'file-g4': 'File / POSIX', 'minio-g4': 'MinIO S3', 'minio-full': 'MinIO G4 S3 + G3.5 CTX RDMA' };
+    const labels = { 'file-g4': 'File / POSIX', 'minio-g4': 'G4 as MinIO Object Store', 'minio-full': 'MinIO G4 S3 + G3.5 CTX RDMA' };
 
     let html = '<div class="cmp-title">SCENARIO COMPARISON</div><div class="cmp-grid">';
     scenarios.forEach(scenario => {
@@ -1954,30 +2103,42 @@
 
   // --- API Calls ---
   function sendConfig(cfg) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({type: 'config', ...cfg}));
-    } else {
-      fetch('sim/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(cfg)
-      }).catch(() => {});
-    }
+    // Always POST — server WS handler does not process inbound commands; POST works behind /proxy/ too.
+    fetch(apiBasePath() + 'sim/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(cfg)
+    })
+      .then(async (res) => {
+        if (!res.ok) pushClientError('POST sim/config: HTTP ' + res.status);
+      })
+      .catch((e) => pushClientError('sim/config: ' + (e && e.message ? e.message : String(e))));
   }
 
   function sendCommand(cmd) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({type: cmd}));
-    } else {
-      fetch('sim/' + cmd, {method: 'POST'}).catch(() => {});
-    }
+    fetch(apiBasePath() + 'sim/' + cmd, {method: 'POST'})
+      .then(async (res) => {
+        const text = await res.text();
+        if (!res.ok) {
+          pushClientError('POST sim/' + cmd + ': HTTP ' + res.status + (text ? '\n' + text.slice(0, 600) : ''));
+          return;
+        }
+        if (!text) return;
+        try {
+          const data = JSON.parse(text);
+          handleData(data);
+        } catch (pe) {
+          pushClientError('sim/' + cmd + ' response JSON: ' + (pe && pe.message ? pe.message : String(pe)));
+        }
+      })
+      .catch((e) => pushClientError('sim/' + cmd + ': ' + (e && e.message ? e.message : String(e))));
   }
 
   // --- Scenario selector ---
   const SCENARIO_SUMMARIES = {
-    'file-g4':    { g4: 'File / POSIX', g35: 'Disabled', expect: '<50% GPU util \u00B7 High recompute \u00B7 Slow TTFT' },
-    'minio-g4':   { g4: 'MinIO S3 (TCP)', g35: 'Disabled', expect: '55-70% GPU util \u00B7 Moderate recompute \u00B7 Faster TTFT' },
-    'minio-full': { g4: 'MinIO S3 (TCP)', g35: 'MinIO RDMA (BlueField-4)', expect: '82-92% GPU util \u00B7 Rare recompute \u00B7 Lowest TTFT' },
+    'file-g4':    { g4: 'File / POSIX', g35: 'Disabled', expect: '~30% inference \u00B7 Stall + recompute heavy \u00B7 Slow TTFT' },
+    'minio-g4':   { g4: 'MinIO S3 (TCP)', g35: 'Disabled', expect: 'Strong inference \u00B7 High G4 use \u00B7 Much faster TTFT' },
+    'minio-full': { g4: 'MinIO S3 (TCP)', g35: 'MinIO RDMA (BlueField-4)', expect: '90%+ inference \u00B7 Minimal stall/recompute \u00B7 Lowest TTFT' },
   };
 
   function updateScenarioSummary(scenario) {
@@ -2108,12 +2269,12 @@
   // --- Guided Demo Script (manually advancing) ---
   const GUIDED_SCRIPT = [
     { phase: "tell", title: "The inference memory challenge", body: "Modern LLMs maintain a KV cache for every conversation \u2014 the model's short-term memory. As context windows grow to 128K+ tokens, this cache can reach tens of gigabytes per session.\n\nGPU HBM is fast but limited. When it fills up, cache gets evicted. If a user returns and their cache is gone, the GPU must recompute it from scratch.", icon: "\u26A1" },
-    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. MinIO Object Store (S3/TCP — drop-in replacement)\n3. MinIO G4 S3 + G3.5 CTX RDMA (G4 MinIO S3/TCP + G3.5 Context Memory via BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
+    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. G4 as MinIO Object Store (S3/TCP — drop-in replacement)\n3. MinIO G4 S3 + G3.5 CTX RDMA (G4 MinIO S3/TCP + G3.5 Context Memory via BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
     { phase: "tell", title: "Scenario 1: File / POSIX Storage", body: "Traditional NFS/Lustre as the G4 archive tier. POSIX metadata locks serialize reads under concurrent GPU access, causing non-linear latency collapse.\n\nClick Next to start. Watch for red 'recompute' segments and slow TTFT.", icon: "1", action: { scenario: "file-g4" } },
     { phase: "show", mode: "file-g4", body: "Running: File / POSIX Storage. Watch red recompute segments in GPU bars, high TTFT, and G4 filling up under contention. Click Next when ready." },
     { phase: "tell", title: "Scenario 1 results", useCapture: "file-g4", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "Scenario 2: MinIO Object Store", body: "Now we switch to MinIO as the G4 tier \u2014 S3 over TCP. No hardware change needed. S3 GET is stateless, so parallel reads scale linearly.\n\nClick Next to start.", icon: "2", action: { scenario: "minio-g4" } },
-    { phase: "show", mode: "minio-g4", body: "Running: MinIO Object Store (S3/TCP). Watch the green 'inference' segment grow and G4 latency stabilize. Click Next when ready." },
+    { phase: "tell", title: "Scenario 2: G4 as MinIO Object Store", body: "Now we switch to MinIO as the G4 tier \u2014 S3 over TCP. No hardware change needed. S3 GET is stateless, so parallel reads scale linearly and G4 fills productively.\n\nClick Next to start.", icon: "2", action: { scenario: "minio-g4" } },
+    { phase: "show", mode: "minio-g4", body: "Running: G4 as MinIO Object Store (S3/TCP). Watch inference climb, G4 utilization run high, and TTFT improve vs POSIX. Click Next when ready." },
     { phase: "tell", title: "Scenario 2 results", useCapture: "minio-g4", prevCapture: "file-g4", icon: "\uD83D\uDCCA" },
     { phase: "tell", title: "Scenario 3: MinIO G4 S3 + G3.5 CTX RDMA", body: "G4 stays MinIO S3/TCP. We now add the G3.5 Context Memory tier \u2014 MinIO on BlueField-4 with NVMe-oF/RDMA at 800 Gb/s. Sub-millisecond cross-GPU KV cache sharing eliminates recomputation stalls.\n\nClick Next to start.", icon: "3", action: { scenario: "minio-full" } },
     { phase: "show", mode: "minio-full", body: "Running: MinIO G4 S3 + G3.5 CTX RDMA. I/O stall nearly invisible. Cross-GPU migrations resolve in microseconds via RDMA. Click Next when ready." },
@@ -2204,7 +2365,7 @@
       // Show phase: start simulation immediately
       sendCommand('reset');
       setTimeout(() => sendCommand('start'), 500);
-      const modeLabel = step.mode === 'file-g4' ? 'File / POSIX' : step.mode === 'minio-g4' ? 'MinIO S3' : 'MinIO RDMA';
+      const modeLabel = step.mode === 'file-g4' ? 'File / POSIX' : step.mode === 'minio-g4' ? 'G4 as MinIO Object Store' : 'MinIO RDMA';
       guidedCardEl.innerHTML =
         '<div class="gc-card">' +
           '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
@@ -2319,7 +2480,7 @@
   const SE_TOUR_STEPS = [
     { target: 'gpu-util-section', title: 'GPU utilization breakdown', body: "This stacked bar shows how each GPU spends its time. Green = useful inference. Amber = waiting for storage I/O. Red = wasted recomputation. The goal is to maximize green.", position: 'left' },
     { target: 'shared-g35-track', title: 'G3.5 \u2014 the MinIO tier (shared)', body: "This is MinIO AIStor. It's shared between both GPUs. When a session moves from GPU-A to GPU-B, the KV cache is pulled from G3.5 instead of being recomputed.", position: 'left' },
-    { target: 'scenarioSelector', title: 'The three scenarios \u2014 your main demo control', body: "File/POSIX: customer's painful baseline. MinIO Object: S3 drop-in replacement, immediate gain. MinIO + RDMA: full vision with BlueField-4. Advance through these to show the progression.", position: 'left' },
+    { target: 'scenarioSelector', title: 'The three scenarios \u2014 your main demo control', body: "File/POSIX: painful baseline. G4 as MinIO Object Store: S3 drop-in, higher inference + G4 utilization. MinIO G4 + G3.5 RDMA: highest inference, minimal stall/recompute. Advance through these to show the progression.", position: 'left' },
     { target: 'cross-gpu-path', title: 'Cross-GPU return path', body: "This diagram shows what happens when a user's session is routed to a different GPU. With G3.5: cache is shared, no recompute. Without: cache is lost, GPU must rebuild it.", position: 'left' },
     { target: 'mode-comparison', title: 'Mode comparison \u2014 builds automatically', body: "As you switch between modes, metrics are captured here. After running all three modes, you have a side-by-side comparison. The 'Guided demo' button does this for you.", position: 'left' },
     { target: 'guided-demo-btn', title: 'Guided demo \u2014 autopilot mode', body: "Click this to run the full demo story automatically. It walks through all three modes with explanation cards. Perfect for narrating along without managing controls.", position: 'left' },
