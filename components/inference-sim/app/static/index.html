@@ -353,7 +353,7 @@
       );
   }
   .fill-bar-track.g1-split-track::before {
-    content: 'Model weights + overhead';
+    content: 'Weights + overhead (per node)';
     position: absolute;
     left: 12px;
     top: 50%;
@@ -689,17 +689,17 @@
   .memory-budget-bar-caption strong { color: rgba(255,255,255,0.72); font-weight: 600; }
   .memory-budget-fixed-slice {
     display: flex;
-    flex: 39 1 0;
+    flex: 312 1 0;
     min-width: 0;
     border-right: 1px dashed rgba(255,255,255,0.22);
     box-sizing: border-box;
   }
   .memory-budget-fixed-slice .memory-budget-seg.weights {
-    flex: 35 1 0;
+    flex: 280 1 0;
     border-right: 1px solid rgba(0,0,0,0.25);
   }
   .memory-budget-fixed-slice .memory-budget-seg.overhead {
-    flex: 4 1 0;
+    flex: 32 1 0;
   }
   .memory-budget-bar-row {
     display: flex;
@@ -725,7 +725,7 @@
   .memory-budget-seg.weights { background: linear-gradient(180deg, #5a6578, #3d4656); color: rgba(255,255,255,0.85); }
   .memory-budget-seg.overhead { background: linear-gradient(180deg, #64748b, #475569); color: rgba(255,255,255,0.9); }
   .memory-budget-seg.kvtrack {
-    flex: 41 1 0;
+    flex: 328 1 0;
     background: rgba(232,93,36,0.15);
     padding: 0;
     position: relative;
@@ -1570,7 +1570,7 @@
 
 <!-- HEADER -->
 <div class="header">
-  <div class="header-title">NVIDIA STX: <span>Storage Tier Comparison</span><span class="header-gpu-class">· H100 SXM (2× GPU)</span><span class="header-model-class">· Llama 3.1 70B (FP8 weights)</span></div>
+  <div class="header-title">NVIDIA STX: <span>Storage Tier Comparison</span><span class="header-gpu-class" id="headerTopology">· 2× DGX H100 (16 GPUs · 8 replicas)</span><span class="header-model-class" id="headerModelLine">· Llama 3.1 70B FP8</span></div>
   <div class="header-center">
     <button class="header-guide-btn" id="headerGuideBtn">How it works</button>
     <button class="header-action-btn header-start" id="btnStart">Start</button>
@@ -1604,12 +1604,12 @@
   <div class="left-col">
     <!-- GPU Tiers -->
     <div class="gpu-grid">
-      <div class="gpu-card" id="gpuA">
-        <div class="gpu-card-header">H100 SXM <span style="font-weight:500;opacity:0.55;font-size:10px;">GPU A</span></div>
+        <div class="gpu-card" id="gpuA">
+        <div class="gpu-card-header">DGX Node A <span id="gpu-card-sub-a" style="font-weight:500;opacity:0.55;font-size:10px;">8× H100</span></div>
         <div class="tier-row">
           <div class="tier-label">
             <div><span class="tier-name" style="color:var(--g1)">G1</span><span class="tier-desc">HBM3 (hot)</span></div>
-            <div class="tier-capacity-wrap"><div class="tier-capacity" id="gpuA-g1-cap">0 / 0 GB</div><button type="button" class="tier-cap-help" aria-label="Why G1 80 GB is fixed" data-tooltip="G1 HBM total is fixed at 80 GB per H100 in this demo. About 35 GB is model weights and ~4 GB is runtime overhead (~39 GB fixed); the remaining ~41 GB is KV cache budget.">?</button></div>
+            <div class="tier-capacity-wrap"><div class="tier-capacity" id="gpuA-g1-cap">0 / 0 GB</div><button type="button" class="tier-cap-help" id="tier-cap-help-a" aria-label="Node G1 HBM layout" data-tooltip="Node G1 is 8× HBM aggregate in this demo. Model weights and overhead scale per GPU; the remainder is KV cache budget (per-GPU KV math × 8).">?</button></div>
           </div>
           <div class="fill-bar-track g1-split-track" id="gpuA-g1-track">
             <div class="fill-bar-fill g1" id="gpuA-g1-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
@@ -1636,11 +1636,11 @@
       </div>
 
       <div class="gpu-card" id="gpuB">
-        <div class="gpu-card-header">H100 SXM <span style="font-weight:500;opacity:0.55;font-size:10px;">GPU B</span></div>
+        <div class="gpu-card-header">DGX Node B <span id="gpu-card-sub-b" style="font-weight:500;opacity:0.55;font-size:10px;">8× H100</span></div>
         <div class="tier-row">
           <div class="tier-label">
             <div><span class="tier-name" style="color:var(--g1)">G1</span><span class="tier-desc">HBM3 (hot)</span></div>
-            <div class="tier-capacity-wrap"><div class="tier-capacity" id="gpuB-g1-cap">0 / 0 GB</div><button type="button" class="tier-cap-help" aria-label="Why G1 80 GB is fixed" data-tooltip="G1 HBM total is fixed at 80 GB per H100 in this demo. About 35 GB is model weights and ~4 GB is runtime overhead (~39 GB fixed); the remaining ~41 GB is KV cache budget.">?</button></div>
+            <div class="tier-capacity-wrap"><div class="tier-capacity" id="gpuB-g1-cap">0 / 0 GB</div><button type="button" class="tier-cap-help" id="tier-cap-help-b" aria-label="Node G1 HBM layout" data-tooltip="Same as Node A: 8× HBM aggregate, weights and overhead scaled, KV budget is the remainder.">?</button></div>
           </div>
           <div class="fill-bar-track g1-split-track" id="gpuB-g1-track">
             <div class="fill-bar-fill g1" id="gpuB-g1-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
@@ -1670,7 +1670,7 @@
     <!-- Shared Tiers -->
     <div class="shared-card" id="sharedCard">
       <div class="shared-header">Shared Storage (Pod-Level)</div>
-      <div class="shared-subtitle">MinIO object storage accessible by all GPUs in the pod</div>
+      <div class="shared-subtitle">MinIO object storage shared across both DGX nodes</div>
       <div class="cmx-warning" id="cmxWarning"></div>
 
       <div class="tier-row" id="g35-tier-row">
@@ -1681,12 +1681,12 @@
         <div class="fill-bar-track" id="shared-g35-track">
           <div class="fill-bar-fill g35" id="shared-g35-fill" style="width:0%"><span class="fill-bar-pct"></span></div>
         </div>
-        <div class="shared-note" id="sharedNote">Blocks from both GPUs land here</div>
+        <div class="shared-note" id="sharedNote">Blocks from both nodes land here</div>
       </div>
 
       <div class="tier-row" id="tier-bar-g4" style="margin-top:12px">
         <div class="tier-label">
-          <div><span class="tier-name" style="color:var(--g4)">G4</span><span class="tier-desc" id="g4TierDesc">File / POSIX</span></div>
+          <div><span class="tier-name" style="color:var(--g4)">G4</span><span class="tier-desc" id="g4TierDesc">File / POSIX Storage</span></div>
           <div class="tier-capacity" id="shared-g4-cap">0 / 0 GB</div>
           <div class="tier-g4-latency" id="g4AvgLatency" title="Modeled G4 KV restore latency for the active scenario; switches to a live rolling average after enough samples."></div>
         </div>
@@ -1738,7 +1738,7 @@
         <div class="sessions-table-wrap">
           <table class="sessions">
             <thead>
-              <tr><th>Session</th><th>GPU</th><th>Tier</th><th>Status</th><th>Cache</th></tr>
+              <tr><th>Session</th><th>Node</th><th>Tier</th><th>Status</th><th>Cache</th></tr>
             </thead>
             <tbody id="sessionsBody"></tbody>
           </table>
@@ -1775,9 +1775,9 @@
         <button class="graph-toggle-btn" id="graphToggle" title="Toggle graph view">&#x1F4C8;</button>
       </div>
       <div class="gpu-util-section" id="gpu-util-section">
-        <div class="gpu-util-header">GPU UTILIZATION <span style="font-weight:500;opacity:0.55;font-size:10px;">(stacked bar · column = non-idle %)</span></div>
+        <div class="gpu-util-header">NODE UTILIZATION <span style="font-weight:500;opacity:0.55;font-size:10px;">(stacked bar · column = non-idle %)</span></div>
         <div class="gpu-util-row" id="gpu-util-a">
-          <div class="gpu-util-label">H100 SXM <span style="font-weight:500;opacity:0.55;font-size:9px;">A</span></div>
+          <div class="gpu-util-label">Node A <span id="gpu-util-chip-a" style="font-weight:500;opacity:0.55;font-size:9px;">8×H100</span></div>
           <div class="gpu-util-bar-track">
             <div class="gpu-util-segment segment-active" id="gpu-a-active" style="width:0%"></div>
             <div class="gpu-util-segment segment-stall" id="gpu-a-stall" style="width:0%"></div>
@@ -1786,7 +1786,7 @@
           <div class="gpu-util-value" id="gpu-a-effective">&mdash;</div>
         </div>
         <div class="gpu-util-row" id="gpu-util-b">
-          <div class="gpu-util-label">H100 SXM <span style="font-weight:500;opacity:0.55;font-size:9px;">B</span></div>
+          <div class="gpu-util-label">Node B <span id="gpu-util-chip-b" style="font-weight:500;opacity:0.55;font-size:9px;">8×H100</span></div>
           <div class="gpu-util-bar-track">
             <div class="gpu-util-segment segment-active" id="gpu-b-active" style="width:0%"></div>
             <div class="gpu-util-segment segment-stall" id="gpu-b-stall" style="width:0%"></div>
@@ -1797,7 +1797,7 @@
         <div class="gpu-util-summary-cards">
           <div class="gpu-util-summary-card">
             <div class="gpu-util-summary-value" id="combined-busy-value">&mdash;</div>
-            <div class="gpu-util-summary-label">GPU busy (avg)</div>
+            <div class="gpu-util-summary-label">Node busy (avg)</div>
           </div>
           <div class="gpu-util-summary-card">
             <div class="gpu-util-summary-value" id="combined-effective-value">&mdash;</div>
@@ -1810,7 +1810,7 @@
               <div class="gpu-util-key-row"><span class="legend-dot dot-recompute"></span><span>Recompute</span></div>
               <div class="gpu-util-key-row"><span class="legend-dot dot-idle"></span><span>Idle (track)</span></div>
             </div>
-            <div class="gpu-util-key-hint">Stacked bar width = non-idle GPU time; remainder of track is idle.</div>
+            <div class="gpu-util-key-hint">Stacked bar width = non-idle node time; remainder of track is idle.</div>
             <div class="gpu-util-summary-label">Segment key</div>
           </div>
         </div>
@@ -1837,7 +1837,7 @@
           </div>
         </div>
         <div class="metrics-row-secondary">
-          <span class="metric-micro"><span class="metric-micro-label">Cross-GPU migr.</span><strong id="m-migrations">&mdash;</strong></span>
+          <span class="metric-micro"><span class="metric-micro-label">Cross-node migr.</span><strong id="m-migrations">&mdash;</strong></span>
           <span class="metric-micro-sep">·</span>
           <span class="metric-micro"><span class="metric-micro-label">S3 ops/s</span><strong id="m-s3ops">&mdash;</strong></span>
           <span class="metric-micro-sep">·</span>
@@ -1860,7 +1860,7 @@
             <input type="checkbox"><span class="chart-swatch"></span>Idle
           </label>
           <label class="chart-toggle" data-series="gpuUtil" style="--clr:#4ade80;">
-            <input type="checkbox"><span class="chart-swatch"></span>GPU Util
+            <input type="checkbox"><span class="chart-swatch"></span>Avg node busy %
           </label>
         </div>
       </div>
@@ -1884,14 +1884,14 @@
             <div class="scenario-card selector warning" data-scenario="minio-g4" onclick="setScenario('minio-g4')">
               <div class="scenario-accent"></div>
               <div class="scenario-content">
-                <div class="scenario-label">G4 as MinIO Object Store</div>
+                <div class="scenario-label">G4 as MinIO AIStor</div>
                 <div class="scenario-subtitle">S3-native G4 tier — high object throughput</div>
               </div>
             </div>
             <div class="scenario-card selector success" data-scenario="minio-full" onclick="setScenario('minio-full')">
               <div class="scenario-accent"></div>
               <div class="scenario-content">
-                <div class="scenario-label">MinIO G4 S3 + G3.5 CTX RDMA</div>
+                <div class="scenario-label">MinIO MemKV (G3.5) + AIStor (G4)</div>
                 <div class="scenario-subtitle">G4 MinIO S3/TCP · G3.5 Context Memory — NVMe-oF/RDMA (BlueField-4)</div>
               </div>
             </div>
@@ -1899,7 +1899,7 @@
           <div class="scenario-summary" id="scenarioSummary">
             <div class="summary-item">
               <span class="summary-label">G4:</span>
-              <span class="summary-value" id="summaryG4">File / POSIX</span>
+              <span class="summary-value" id="summaryG4">File / POSIX Storage</span>
             </div>
             <div class="summary-divider">│</div>
             <div class="summary-item">
@@ -1908,7 +1908,7 @@
             </div>
             <div class="summary-divider">│</div>
             <div class="summary-item">
-              <span class="summary-value" id="summaryExpect">~99% GPU busy · ~32% useful inference · High TTFT + recompute</span>
+              <span class="summary-value" id="summaryExpect">~99% node busy · ~32% useful inference · High TTFT + recompute</span>
             </div>
           </div>
         </div>
@@ -1920,6 +1920,7 @@
             <div class="slider-value" id="sessionsValue">100</div>
           </div>
           <div class="control-subtitle">Number of inference sessions</div>
+          <div class="control-subtitle" id="sessionsReplicaHint" style="opacity:0.75;font-size:11px;margin-top:2px;"></div>
           <input type="range" id="sessionsSlider" min="10" max="500" value="100" step="10">
         </div>
 
@@ -1991,13 +1992,13 @@
         <div class="memory-budget-callout" id="memoryBudgetCallout"></div>
         <div class="memory-budget-gpu-block">
           <div class="memory-budget-gpu-label">
-            <span class="memory-budget-hbm-line">GPU A — 80 GB HBM<button type="button" class="memory-budget-help" title="H100 SXM has 80 GB HBM per GPU—that total is a fixed hardware ceiling in this demo. About 35 GB is occupied by the FP8, TP=2 Llama 3.1 70B weight shard and ~4 GB is held for activations plus framework overhead (~39 GB combined, not usable for KV). The remaining ~41 GB is the KV cache budget; only that slice fills from the simulation. Changing context length or user count does not change the 80 / 35+4 / 41 layout." aria-label="Why 80 GB HBM total is fixed">?</button></span>
+            <span class="memory-budget-hbm-line">Node A — aggregate HBM<button type="button" class="memory-budget-help" id="mb-help-a" title="Each DGX node is modeled as one aggregate: 8× H100 SXM HBM, FP8 TP=2 Llama 3.1 70B weights and overhead scale by GPU count; the remaining slice is KV budget (per-GPU math × 8). Simulation fills only the KV slice." aria-label="Node memory layout">?</button></span>
           </div>
-          <div class="memory-budget-bar-caption"><strong>~39 GB (left):</strong> model weights + overhead — fixed, not KV. <strong>~41 GB (right):</strong> KV cache budget.</div>
-          <div class="memory-budget-bar-row" aria-label="GPU A: about 39 gigabytes reserved for weights and overhead, 41 gigabytes for KV cache">
-            <div class="memory-budget-fixed-slice" title="Model weights (35 GB) + runtime overhead (4 GB) ≈ 39 GB reserved — not available for KV cache">
-              <div class="memory-budget-seg weights" title="FP8 model weights (TP=2 shard)">35 GB</div>
-              <div class="memory-budget-seg overhead" title="Activations, workspace, and framework reserve">4 GB</div>
+          <div class="memory-budget-bar-caption" id="mb-bar-caption-a"><strong>~312 GB (left):</strong> model weights + overhead — fixed, not KV. <strong>~328 GB (right):</strong> KV cache budget (8× per-GPU).</div>
+          <div class="memory-budget-bar-row" aria-label="Node A: weights plus overhead reserved; remainder is KV cache budget">
+            <div class="memory-budget-fixed-slice" id="mb-fixed-slice-a" title="Model weights (8×35 GB) + runtime overhead (8×4 GB) ≈ 312 GB reserved — not available for KV cache">
+              <div class="memory-budget-seg weights" id="mb-weights-a" title="FP8 model weights (TP=2 shard, 8 GPUs)">280 GB</div>
+              <div class="memory-budget-seg overhead" id="mb-overhead-a" title="Activations, workspace, and framework reserve">32 GB</div>
             </div>
             <div class="memory-budget-seg kvtrack">
               <div class="memory-budget-kv-fill" id="mb-kvfill-a" style="width:0%"></div>
@@ -2007,13 +2008,13 @@
         </div>
         <div class="memory-budget-gpu-block">
           <div class="memory-budget-gpu-label">
-            <span class="memory-budget-hbm-line">GPU B — 80 GB HBM<button type="button" class="memory-budget-help" title="H100 SXM has 80 GB HBM per GPU—that total is a fixed hardware ceiling in this demo. About 35 GB is occupied by the FP8, TP=2 Llama 3.1 70B weight shard and ~4 GB is held for activations plus framework overhead (~39 GB combined, not usable for KV). The remaining ~41 GB is the KV cache budget; only that slice fills from the simulation. Changing context length or user count does not change the 80 / 35+4 / 41 layout." aria-label="Why 80 GB HBM total is fixed">?</button></span>
+            <span class="memory-budget-hbm-line">Node B — aggregate HBM<button type="button" class="memory-budget-help" id="mb-help-b" title="Same layout as Node A: 8× H100 aggregate per DGX, weights and overhead scaled by GPU count, KV budget is the remainder." aria-label="Node memory layout">?</button></span>
           </div>
-          <div class="memory-budget-bar-caption"><strong>~39 GB (left):</strong> model weights + overhead — fixed, not KV. <strong>~41 GB (right):</strong> KV cache budget.</div>
-          <div class="memory-budget-bar-row" aria-label="GPU B: about 39 gigabytes reserved for weights and overhead, 41 gigabytes for KV cache">
-            <div class="memory-budget-fixed-slice" title="Model weights (35 GB) + runtime overhead (4 GB) ≈ 39 GB reserved — not available for KV cache">
-              <div class="memory-budget-seg weights" title="FP8 model weights (TP=2 shard)">35 GB</div>
-              <div class="memory-budget-seg overhead" title="Activations, workspace, and framework reserve">4 GB</div>
+          <div class="memory-budget-bar-caption" id="mb-bar-caption-b"><strong>~312 GB (left):</strong> model weights + overhead — fixed, not KV. <strong>~328 GB (right):</strong> KV cache budget (8× per-GPU).</div>
+          <div class="memory-budget-bar-row" aria-label="Node B: weights plus overhead reserved; remainder is KV cache budget">
+            <div class="memory-budget-fixed-slice" id="mb-fixed-slice-b" title="Model weights (8×35 GB) + runtime overhead (8×4 GB) ≈ 312 GB reserved — not available for KV cache">
+              <div class="memory-budget-seg weights" id="mb-weights-b" title="FP8 model weights (TP=2 shard, 8 GPUs)">280 GB</div>
+              <div class="memory-budget-seg overhead" id="mb-overhead-b" title="Activations, workspace, and framework reserve">32 GB</div>
             </div>
             <div class="memory-budget-seg kvtrack">
               <div class="memory-budget-kv-fill" id="mb-kvfill-b" style="width:0%"></div>
@@ -2078,8 +2079,8 @@
           </div>
         </div>
         <div class="scenario-card" data-users="200" data-context="16384" data-speed="20" data-cmx="true">
-          <div class="scenario-title">GPU Migration Stress Test</div>
-          <div class="scenario-desc">High velocity scheduling to demonstrate cross-GPU migration benefits</div>
+          <div class="scenario-title">Cross-node KV stress test</div>
+          <div class="scenario-desc">High velocity scheduling to demonstrate cross-node migration benefits</div>
           <div class="scenario-pills">
             <span class="pill">200 sessions</span>
             <span class="pill">16K ctx</span>
@@ -2124,7 +2125,7 @@
     <div id="mode-comparison"></div>
   </div>
 </div>
-<div class="footer-note">Per-GPU tiers model <strong>NVIDIA H100 SXM</strong> (2024–2026): G1 = 80 GB HBM3, G2 = 512 GB system DRAM, G3 = 4 TB local NVMe. Shared G4 = 50 GB at simulation scale. G4 fills when GPU tiers overflow; POSIX + cross-GPU paths still show recompute when restore loses the race.</div>
+<div class="footer-note" id="footerTopologyNote">Per-node tiers aggregate <strong>8× NVIDIA H100 SXM</strong> per DGX (2024–2026): G1 HBM, G2 system DRAM, G3 local NVMe scale ×8 from per-GPU defaults. Shared G4 at simulation scale. G4 fills when node tiers overflow; POSIX + cross-node paths still show recompute when restore loses the race.</div>
 
 <script>
 (function() {
@@ -2146,7 +2147,109 @@
   let recompRateState = { lastT: null, lastV: null, emaPerSec: null };
   let latestMemoryBudget = null;
   const MB_KV_BPT_DEFAULT = 163840;
-  const MB_G1_KV_CAP = 41;
+  const MB_GPUS_PER_NODE_DEFAULT = 8;
+  const MB_G1_KV_CAP_DEFAULT = 41 * MB_GPUS_PER_NODE_DEFAULT;
+  function mbPerNodeKey(suffix) {
+    return suffix === 'a' ? 'node-a' : 'node-b';
+  }
+  function mbNodeBlock(mb, suffix) {
+    if (!mb) return null;
+    const nk = mbPerNodeKey(suffix);
+    const legacy = suffix === 'a' ? 'gpu-a' : 'gpu-b';
+    return mb[nk] || mb[legacy] || null;
+  }
+
+  function topologyFromPayload(cfg, mb) {
+    const c = cfg || {};
+    const m = mb || {};
+    const nodeCount = c.node_count != null ? Number(c.node_count) : (m.node_count != null ? Number(m.node_count) : 2);
+    const gpn = c.gpus_per_node != null ? Number(c.gpus_per_node) : (m.gpus_per_node != null ? Number(m.gpus_per_node) : MB_GPUS_PER_NODE_DEFAULT);
+    let gpuCount = c.gpu_count != null ? Number(c.gpu_count) : (m.gpu_count != null ? Number(m.gpu_count) : NaN);
+    if (!Number.isFinite(gpuCount) || gpuCount <= 0) gpuCount = nodeCount * gpn;
+    const replicas = c.replica_count != null ? Number(c.replica_count) : (m.replica_count != null ? Number(m.replica_count) : 8);
+    const model = c.model_name || m.model || window.__mbModelName || 'Llama 3.1 70B FP8';
+    const tp = c.tensor_parallel != null ? Number(c.tensor_parallel) : (m.tensor_parallel != null ? Number(m.tensor_parallel) : 2);
+    const kvNote = c.kv_precision_note || m.kv_precision_note || window.__mbKvNote || 'BF16 KV cache (2 bytes/element)';
+    return { nodeCount: nodeCount, gpn: gpn, gpuCount: gpuCount, replicas: replicas, model: model, tp: tp, kvNote: kvNote };
+  }
+
+  function applyTopologyUI(cfg, mb) {
+    const t = topologyFromPayload(cfg, mb);
+    window.__mbGpusPerNode = t.gpn;
+    window.__mbNodeCount = t.nodeCount;
+    window.__mbReplicaCount = t.replicas;
+    window.__mbTensorParallel = t.tp;
+    window.__mbGpuCount = t.gpuCount;
+    const ht = document.getElementById('headerTopology');
+    const hm = document.getElementById('headerModelLine');
+    if (ht) ht.textContent = '\u00B7 ' + t.nodeCount + ' nodes \u00B7 ' + t.gpuCount + ' GPUs \u00B7 ' + t.replicas + ' replicas';
+    if (hm) hm.textContent = '\u00B7 ' + t.model + ' · TP=' + t.tp + ' · ' + t.kvNote;
+    const srh = document.getElementById('sessionsReplicaHint');
+    const c0 = cfg || {};
+    const sat = c0.session_arrival_target != null ? Number(c0.session_arrival_target) : Math.min(100, Math.max(1, t.replicas));
+    if (srh) {
+      srh.textContent = 'Live arrival target: min(slider, replicas) = ' + sat + ' concurrent sessions (cluster-wide cap).';
+    }
+    const chip = t.gpn + '\u00D7H100';
+    const subA = document.getElementById('gpu-card-sub-a');
+    const subB = document.getElementById('gpu-card-sub-b');
+    if (subA) subA.textContent = chip;
+    if (subB) subB.textContent = chip;
+    const ua = document.getElementById('gpu-util-chip-a');
+    const ub = document.getElementById('gpu-util-chip-b');
+    if (ua) ua.textContent = chip;
+    if (ub) ub.textContent = chip;
+    const tipA = 'Node G1 is ' + t.gpn + '\u00D7 HBM aggregate. Model weights and overhead scale per GPU; the remainder is KV cache budget (per-GPU KV math \u00D7 ' + t.gpn + ').';
+    const tba = document.getElementById('tier-cap-help-a');
+    const tbb = document.getElementById('tier-cap-help-b');
+    if (tba) tba.setAttribute('data-tooltip', tipA);
+    if (tbb) tbb.setAttribute('data-tooltip', 'Same as Node A: ' + t.gpn + '\u00D7 HBM aggregate, weights and overhead scaled, KV budget is the remainder.');
+    const foot = document.getElementById('footerTopologyNote');
+    if (foot) {
+      foot.innerHTML = 'Per-node tiers aggregate <strong>' + t.gpn + '\u00D7 NVIDIA H100 SXM</strong> per DGX (2024\u20132026): G1 HBM, G2 system DRAM, G3 local NVMe scale \u00D7' + t.gpn +
+        ' from per-GPU defaults. Shared G4 at simulation scale. G4 fills when node tiers overflow; POSIX + cross-node paths still show recompute when restore loses the race.';
+    }
+  }
+
+  function updateMemoryBudgetBarCaptions(mb) {
+    if (!mb) return;
+    const gpn = mb.gpus_per_node != null ? Number(mb.gpus_per_node) : (window.__mbGpusPerNode != null ? window.__mbGpusPerNode : MB_GPUS_PER_NODE_DEFAULT);
+    const tp = mb.tensor_parallel != null ? Number(mb.tensor_parallel) : (window.__mbTensorParallel != null ? window.__mbTensorParallel : 2);
+    const ha = document.getElementById('mb-help-a');
+    const hb = document.getElementById('mb-help-b');
+    if (ha) {
+      ha.title = 'Each DGX node is modeled as one aggregate: ' + gpn + '\u00D7 H100 SXM HBM, FP8 TP=' + tp + ' Llama-class weights and overhead scale by GPU count; the remaining slice is KV budget (per-GPU math \u00D7 ' + gpn + '). Simulation fills only the KV slice.';
+    }
+    if (hb) {
+      hb.title = 'Same layout as Node A: ' + gpn + '\u00D7 H100 aggregate per DGX, weights and overhead scaled by GPU count, KV budget is the remainder.';
+    }
+    ['a', 'b'].forEach(function (suffix) {
+      const row = mbNodeBlock(mb, suffix);
+      if (!row) return;
+      const w = Number(row.weights_gb || 0);
+      const o = Number(row.overhead_gb || 0);
+      const kv = Number(row.kv_capacity_gb || 0);
+      const left = w + o;
+      const perW = gpn > 0 ? w / gpn : 0;
+      const perO = gpn > 0 ? o / gpn : 0;
+      const capEl = document.getElementById('mb-bar-caption-' + suffix);
+      if (capEl) {
+        capEl.innerHTML = '<strong>~' + Math.round(left) + ' GB (left):</strong> model weights + overhead — fixed, not KV. <strong>~' +
+          Math.round(kv) + ' GB (right):</strong> KV cache budget (' + gpn + '\u00D7 per-GPU).';
+      }
+      const wEl = document.getElementById('mb-weights-' + suffix);
+      const oEl = document.getElementById('mb-overhead-' + suffix);
+      const fix = document.getElementById('mb-fixed-slice-' + suffix);
+      if (wEl) {
+        wEl.textContent = Math.round(w) + ' GB';
+        wEl.title = 'FP8 model weights (TP=' + tp + ' shard, ' + gpn + ' GPUs/node)';
+      }
+      if (oEl) oEl.textContent = Math.round(o) + ' GB';
+      if (fix) {
+        fix.title = 'Model weights (' + gpn + '\u00D7' + Math.round(perW) + ' GB) + runtime overhead (' + gpn + '\u00D7' + Math.round(perO) + ' GB) \u2248 ' + Math.round(left) + ' GB reserved — not available for KV cache';
+      }
+    });
+  }
 
   function gpuBusyPct(u) {
     if (!u || typeof u !== 'object') return 0;
@@ -2283,11 +2386,11 @@
   }
   function applyMemoryBudgetPoll(mb) {
     if (!mb) return;
-    const cap = mb['gpu-a'] && mb['gpu-a'].kv_capacity_gb != null ? Number(mb['gpu-a'].kv_capacity_gb) : MB_G1_KV_CAP;
-    [['a', 'gpu-a'], ['b', 'gpu-b']].forEach(function (pair) {
+    const first = mbNodeBlock(mb, 'a');
+    const cap = first && first.kv_capacity_gb != null ? Number(first.kv_capacity_gb) : MB_G1_KV_CAP_DEFAULT;
+    [['a'], ['b']].forEach(function (pair) {
       const suffix = pair[0];
-      const gid = pair[1];
-      const g = mb[gid];
+      const g = mbNodeBlock(mb, suffix);
       const fill = $('mb-kvfill-' + suffix);
       const meta = $('mb-kvmeta-' + suffix);
       if (!g || !fill || !meta) return;
@@ -2347,6 +2450,7 @@
       pctLine.textContent = 'Active sessions in G1 (HBM KV): ' + mb.sessions_in_hbm_pct + '% · hitting G4: ' +
         (mb.sessions_hitting_g4_pct != null ? mb.sessions_hitting_g4_pct : 0) + '%';
     }
+    updateMemoryBudgetBarCaptions(mb);
   }
   function refreshMemoryBudgetInstant() {
     const sub = $('memoryBudgetSubhdr');
@@ -2359,17 +2463,25 @@
     const kvb = kvBytesPerTokenLive();
     const kvKb = kvb / 1024;
     const kvSess = kvPerSessionGbFromCtx(ct);
-    const demand = users * kvSess;
-    const aggKvCap = MB_G1_KV_CAP * 2;
-    const fitOne = kvSess > 0 ? Math.floor(MB_G1_KV_CAP / kvSess) : 0;
+    const repCap = window.__mbReplicaCount != null ? Math.max(1, Number(window.__mbReplicaCount)) : 8;
+    const effUsers = Math.min(users, repCap);
+    const demand = effUsers * kvSess;
+    const perNodeCap = window.__mbG1KvPerNode != null ? window.__mbG1KvPerNode : MB_G1_KV_CAP_DEFAULT;
+    const nNodesMb = window.__mbNodeCount != null ? window.__mbNodeCount : 2;
+    const aggKvCap = perNodeCap * nNodesMb;
+    const fitOne = kvSess > 0 ? Math.floor(perNodeCap / kvSess) : 0;
     const kvCard = $('mb-card-kvsess');
     if (kb) kb.textContent = kvKb.toFixed(2);
     if (ks) ks.textContent = kvSess.toFixed(3);
-    if (kvCard) kvCard.classList.toggle('kv-over-cap', kvSess > MB_G1_KV_CAP + 1e-9);
-    if (dm) dm.textContent = demand.toFixed(2) + ' GB';
+    if (kvCard) kvCard.classList.toggle('kv-over-cap', kvSess > perNodeCap + 1e-9);
+    if (dm) dm.textContent = demand.toFixed(2) + ' GB (min(slider, ' + repCap + ' replicas))';
     if (sub) {
-      sub.innerHTML = '<strong>' + (window.__mbModelName || 'Llama 3.1 70B') + '</strong> · FP8 weights · 2× H100 SXM · TP=2 · GQA (8 KV heads) · ' +
-        (window.__mbKvNote || 'KV BF16') + ' · context <strong>' + ct.toLocaleString() + '</strong> tokens';
+      const nn = window.__mbNodeCount != null ? window.__mbNodeCount : 2;
+      const gpn = window.__mbGpusPerNode != null ? window.__mbGpusPerNode : MB_GPUS_PER_NODE_DEFAULT;
+      const rep = window.__mbReplicaCount != null ? window.__mbReplicaCount : 8;
+      const tp = window.__mbTensorParallel != null ? window.__mbTensorParallel : 2;
+      sub.innerHTML = '<strong>' + (window.__mbModelName || 'Llama 3.1 70B') + '</strong> · FP8 weights · ' + nn + '\u00D7 DGX (' + gpn + '\u00D7 H100/node) · TP=' + tp + ' · GQA (8 KV heads) · ' +
+        (window.__mbKvNote || 'KV BF16') + ' · context <strong>' + ct.toLocaleString() + '</strong> tokens · replicas <strong>' + rep + '</strong>';
     }
     if (callout) {
       callout.classList.remove('visible', 'warn', 'ok');
@@ -2380,18 +2492,18 @@
       if (fitOne <= 0 && kvSess > 0) {
         callout.classList.add('visible', 'warn');
         callout.textContent = 'Zero sessions fit in HBM KV at ' + ctxK + 'K context. Each session needs ~' + kvSess.toFixed(1) +
-          ' GB but only ' + MB_G1_KV_CAP + ' GB KV is available per GPU. Requests depend on DRAM/NVMe/shared tiers.';
+          ' GB but only ' + perNodeCap.toFixed(0) + ' GB KV is available per node aggregate. Requests depend on DRAM/NVMe/shared tiers.';
       } else if (fitOne >= 1 && fitOne <= 3) {
         callout.classList.add('visible', 'warn');
-        callout.textContent = 'Only ~' + fitOne + ' session(s) fit in HBM KV per GPU; the rest spill to colder tiers.' +
+        callout.textContent = 'Only ~' + fitOne + ' session(s) fit in HBM KV per node; the rest spill to colder tiers.' +
           (g4p > 0 ? ' ~' + g4p.toFixed(0) + '% of active sessions on G4.' : '');
       } else if (g4p > 10) {
         callout.classList.add('visible', 'warn');
-        callout.textContent = g4p.toFixed(0) + '% of active sessions hitting shared storage — latency can gate GPU utilization.';
+        callout.textContent = g4p.toFixed(0) + '% of active sessions hitting shared storage — latency can gate node utilization.';
       } else if (demand > aggKvCap + 0.01) {
         callout.classList.add('visible', 'warn');
-        callout.textContent = 'Configured KV demand (~' + demand.toFixed(1) + ' GB) exceeds aggregate dual-GPU KV slice (~' +
-          aggKvCap + ' GB). Expect spill to colder tiers.';
+        callout.textContent = 'Configured KV demand (~' + demand.toFixed(1) + ' GB) exceeds aggregate node KV (~' +
+          aggKvCap.toFixed(0) + ' GB). Expect spill to colder tiers.';
       } else {
         callout.classList.add('visible', 'ok');
         callout.textContent = 'KV cache pressure is manageable. Try increasing context or user count to see spill behavior.';
@@ -2575,6 +2687,7 @@
       serverDiagLines = [];
     }
     renderDiagPanel();
+    applyTopologyUI(d.config || {}, d.memory_budget || null);
     currentTick = d.tick || 0;
     isRunning = !!d.running;
     setStatus(isRunning ? 'running' : 'stopped');
@@ -2609,17 +2722,17 @@
       }
     }
 
-    // GPU tiers (new format)
-    if (d.gpus && Array.isArray(d.gpus)) {
-      d.gpus.forEach(gpu => {
-        const gpuId = gpu.gpu_id || gpu.id || '';
-        const prefix = gpuId === 'gpu-a' ? 'gpuA' : 'gpuB';
+    // Node (or legacy GPU) tiers
+    const computeUnits = (d.nodes && d.nodes.length) ? d.nodes : (d.gpus || []);
+    if (computeUnits.length) {
+      computeUnits.forEach((gpu, idx) => {
+        const gpuId = gpu.node_id || gpu.gpu_id || gpu.id || '';
+        const prefix = idx === 0 ? 'gpuA' : 'gpuB';
         ['g1','g2','g3'].forEach(tier => {
           if (gpu[tier]) updateBar(prefix + '-' + tier, gpu[tier]);
         });
-        // Update stacked util bars from per-GPU utilization data
         if (gpu.utilization) {
-          const suffix = gpuId === 'gpu-a' ? 'a' : 'b';
+          const suffix = idx === 0 ? 'a' : 'b';
           const u = gpu.utilization;
           const el = id => document.getElementById(id);
           const act = el('gpu-' + suffix + '-active');
@@ -2661,7 +2774,7 @@
     }
 
     // Store latest state for comparison strip
-    if (d.gpus) latestGpus = d.gpus;
+    latestGpus = (d.nodes && d.nodes.length) ? d.nodes : (d.gpus || null);
     if (d.shared) latestShared = d.shared;
 
     // Metrics
@@ -2702,6 +2815,13 @@
       }
       if (d.memory_budget.model) window.__mbModelName = d.memory_budget.model;
       if (d.memory_budget.kv_precision_note) window.__mbKvNote = d.memory_budget.kv_precision_note;
+      const _na = mbNodeBlock(d.memory_budget, 'a');
+      if (_na && _na.kv_capacity_gb != null) {
+        window.__mbG1KvPerNode = Number(_na.kv_capacity_gb);
+      }
+      if (d.memory_budget.node_count != null) {
+        window.__mbNodeCount = Number(d.memory_budget.node_count);
+      }
     }
     refreshMemoryBudgetInstant();
 
@@ -2727,8 +2847,13 @@
     const pct = Math.min(100, Math.max(0, rawPct));
     const isTopG1 = id === 'gpuA-g1' || id === 'gpuB-g1';
     if (isTopG1) {
-      const g1HbmTotal = 80.0;
-      const g1Fixed = 39.0;
+      const letter = id === 'gpuA-g1' ? 'a' : 'b';
+      const mbRow = (typeof latestMemoryBudget !== 'undefined' && latestMemoryBudget)
+        ? mbNodeBlock(latestMemoryBudget, letter) : null;
+      const g1HbmTotal = (mbRow && mbRow.g1_total_gb != null) ? Number(mbRow.g1_total_gb) : (80.0 * MB_GPUS_PER_NODE_DEFAULT);
+      const weights = (mbRow && mbRow.weights_gb != null) ? Number(mbRow.weights_gb) : (35.0 * MB_GPUS_PER_NODE_DEFAULT);
+      const ov = (mbRow && mbRow.overhead_gb != null) ? Number(mbRow.overhead_gb) : (4.0 * MB_GPUS_PER_NODE_DEFAULT);
+      const g1Fixed = weights + ov;
       const visPct = g1HbmTotal > 0 ? Math.min(100, Math.max(0, (usedDisp / g1HbmTotal) * 100)) : 0;
       fill.style.marginLeft = ((g1Fixed / g1HbmTotal) * 100).toFixed(2) + '%';
       fill.style.width = visPct.toFixed(2) + '%';
@@ -2742,10 +2867,15 @@
     fill.classList.toggle('critical', pct > 90);
     if (cap) {
       if (isTopG1) {
+        const letter = id === 'gpuA-g1' ? 'a' : 'b';
+        const mbRow = (typeof latestMemoryBudget !== 'undefined' && latestMemoryBudget)
+          ? mbNodeBlock(latestMemoryBudget, letter) : null;
+        const kvCap = (mbRow && mbRow.kv_capacity_gb != null) ? Number(mbRow.kv_capacity_gb) : MB_G1_KV_CAP_DEFAULT;
+        const hbmTot = (mbRow && mbRow.g1_total_gb != null) ? Number(mbRow.g1_total_gb) : (80.0 * MB_GPUS_PER_NODE_DEFAULT);
         const usedTxt = (Math.abs(usedDisp - Math.round(usedDisp)) < 0.05)
           ? String(Math.round(usedDisp))
           : usedDisp.toFixed(1);
-        cap.textContent = usedTxt + ' / 41 (80) GB';
+        cap.textContent = usedTxt + ' / ' + Math.round(kvCap) + ' (' + Math.round(hbmTot) + ') GB';
       } else {
         if (total >= 1000) {
           const capText = ((total / 1000) % 1 === 0 ? (total / 1000).toFixed(0) : (total / 1000).toFixed(1)) + ' TB';
@@ -2767,6 +2897,7 @@
   function metricTrendArrowHtml(series, opts) {
     const invertBad = opts && opts.invertBad;
     const neutral = opts && opts.neutral;
+    const increaseOrStableOnly = opts && opts.increaseOrStableOnly;
     if (!series || series.length < 4) {
       return '<span class="metric-trend neu">\u25CF</span>';
     }
@@ -2780,6 +2911,9 @@
       return '<span class="metric-trend neu">\u25CF</span>';
     }
     const growing = n > o;
+    if (increaseOrStableOnly && !growing) {
+      return '<span class="metric-trend neu">\u25CF</span>';
+    }
     if (neutral) {
       return '<span class="metric-trend neu">' + (growing ? '\u25B2' : '\u25BC') + '</span>';
     }
@@ -2790,9 +2924,9 @@
   }
 
   function renderMetrics(m) {
-    // GPU utilization is now an object {active, io_stall, recompute, idle}
-    const gpuA = m.gpu_a_utilization || {};
-    const gpuB = m.gpu_b_utilization || {};
+    // Per-node utilization is an object {active, io_stall, recompute, idle}
+    const gpuA = m.node_a_utilization || m.gpu_a_utilization || {};
+    const gpuB = m.node_b_utilization || m.gpu_b_utilization || {};
     const effA = typeof gpuA === 'object' ? (gpuA.active || 0) : gpuA;
     const effB = typeof gpuB === 'object' ? (gpuB.active || 0) : gpuB;
     const combinedEff = m.combined_effective_util != null ? m.combined_effective_util : Math.round((effA + effB) / 2);
@@ -2870,7 +3004,7 @@
     refreshCmxWarning(m);
 
     setMetricPlain('m-cache', m.cache_hit_rate, '%', colorCache);
-    setMetricPlain('m-migrations', m.cross_gpu_migrations, '', () => 'teal');
+    setMetricPlain('m-migrations', m.cross_node_migrations != null ? m.cross_node_migrations : m.cross_gpu_migrations, '', () => 'teal');
     setMetricPlain('m-s3ops', m.s3_ops_per_sec, '', () => 'teal');
 
     if (isRunning && m.avg_ttft_ms != null) {
@@ -2888,7 +3022,7 @@
       trendHist.prevRecomp = m.recomputations;
     }
     const rTr = $('m-recomp-tr');
-    if (rTr) rTr.innerHTML = isRunning && trendHist.recompDelta.length >= 4 ? metricTrendArrowHtml(trendHist.recompDelta, { invertBad: true }) : '';
+    if (rTr) rTr.innerHTML = isRunning && trendHist.recompDelta.length >= 4 ? metricTrendArrowHtml(trendHist.recompDelta, { invertBad: true, increaseOrStableOnly: true }) : '';
 
     if (isRunning && m.active_sessions != null) {
       trendHist.sessions.push(m.active_sessions);
@@ -2897,7 +3031,7 @@
     const sTr = $('m-sessions-tr');
     if (sTr) sTr.innerHTML = isRunning ? metricTrendArrowHtml(trendHist.sessions, { neutral: true }) : '';
 
-    // Update stacked GPU utilization bars
+    // Update stacked per-node utilization bars
     updateGPUUtilBars(gpuA, gpuB, combinedEff, combinedBusy);
   }
 
@@ -2971,48 +3105,48 @@
     g4Track.classList.toggle('g4-stressed', scenario === 'file-g4');
   }
 
-  // --- Cross-GPU return path diagram ---
+  // --- Cross-node return path diagram (intra-node NVLink vs cross-node G4/G3.5) ---
   function renderCrossGpuPath(scenario) {
     const container = document.getElementById('cross-gpu-path');
     if (!container) return;
     if (scenario === 'file-g4') {
       container.innerHTML =
-        '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
-        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to H100 SXM (B)</div>' +
+        '<div class="cgp-hdr">CROSS-NODE RETURN PATH</div>' +
+        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to <strong>DGX Node B</strong> (other rack)</div>' +
         '<div class="cgp-diagram">' +
-          '<div class="cgp-node"><div class="cgp-lbl">H100 SXM A</div><div class="cgp-box">G1</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">Node A (8×H100)</div><div class="cgp-box">G1</div><div class="cgp-det">NVLink inside node</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
           '<div class="cgp-node"><div class="cgp-lbl">G4</div><div class="cgp-box cgp-cold">NFS</div><div class="cgp-det">500ms+</div></div>' +
           '<div class="cgp-flow"><div class="cgp-arr cgp-arr-bad">\u2717\u2192</div></div>' +
-          '<div class="cgp-node"><div class="cgp-lbl">H100 SXM B</div><div class="cgp-box cgp-recomp">G1</div><div class="cgp-det cgp-det-bad">\u26A1recompute</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">Node B</div><div class="cgp-box cgp-recomp">G1</div><div class="cgp-det cgp-det-bad">\u26A1recompute</div></div>' +
         '</div>' +
-        '<div class="cgp-res cgp-res-bad">Cache wasted. Full recomputation. GPU I/O wait ~500-2000 ms.</div>';
+        '<div class="cgp-res cgp-res-bad">Cross-node without G3.5: POSIX G4 restore + recompute. Intra-node stays on NVLink-class local tiers.</div>';
     } else if (scenario === 'minio-g4') {
       container.innerHTML =
-        '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
-        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to H100 SXM (B)</div>' +
+        '<div class="cgp-hdr">CROSS-NODE RETURN PATH</div>' +
+        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to <strong>DGX Node B</strong></div>' +
         '<div class="cgp-diagram">' +
-          '<div class="cgp-node"><div class="cgp-lbl">H100 SXM A</div><div class="cgp-box">G1</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">Node A</div><div class="cgp-box">G1</div><div class="cgp-det">NVLink pool</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
           '<div class="cgp-node"><div class="cgp-lbl">G4</div><div class="cgp-box cgp-cold" style="border-color:rgba(245,158,11,0.5);color:#f59e0b;">S3</div><div class="cgp-det">~120ms</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2461restore</div><div class="cgp-arr">\u2192</div></div>' +
-          '<div class="cgp-node"><div class="cgp-lbl">H100 SXM B</div><div class="cgp-box cgp-promoted" style="border-color:rgba(245,158,11,0.5);color:#f59e0b;">G1</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">Node B</div><div class="cgp-box cgp-promoted" style="border-color:rgba(245,158,11,0.5);color:#f59e0b;">G1</div></div>' +
         '</div>' +
-        '<div class="cgp-lat" style="color:rgba(245,158,11,0.8);">Round-trip: ~120ms (S3/TCP)</div>' +
-        '<div class="cgp-res" style="color:#f59e0b;background:rgba(245,158,11,0.08);">Cache restored via MinIO S3. Occasional recompute fallback.</div>';
+        '<div class="cgp-lat" style="color:rgba(245,158,11,0.8);">Cross-node: S3/TCP over G4</div>' +
+        '<div class="cgp-res" style="color:#f59e0b;background:rgba(245,158,11,0.08);">MinIO G4 restore across nodes. Intra-node path avoids rack-to-rack hop.</div>';
     } else {
       container.innerHTML =
-        '<div class="cgp-hdr">CROSS-GPU RETURN PATH</div>' +
-        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to H100 SXM (B)</div>' +
+        '<div class="cgp-hdr">CROSS-NODE RETURN PATH</div>' +
+        '<div class="cgp-scenario">User returns \u2192 Dynamo routes to <strong>DGX Node B</strong></div>' +
         '<div class="cgp-diagram">' +
-          '<div class="cgp-node"><div class="cgp-lbl">H100 SXM A</div><div class="cgp-box">G1</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">Node A</div><div class="cgp-box">G1</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2460evict</div><div class="cgp-arr">\u2192</div></div>' +
           '<div class="cgp-node cgp-node-minio"><div class="cgp-lbl">G3.5</div><div class="cgp-box cgp-minio">MinIO</div><div class="cgp-det">NVMe-oF / RDMA</div><div class="cgp-det">\u2461PUT + GET</div></div>' +
           '<div class="cgp-flow"><div class="cgp-step">\u2462promote</div><div class="cgp-arr">\u2192</div></div>' +
-          '<div class="cgp-node"><div class="cgp-lbl">H100 SXM B</div><div class="cgp-box cgp-promoted">G1</div></div>' +
+          '<div class="cgp-node"><div class="cgp-lbl">Node B</div><div class="cgp-box cgp-promoted">G1</div></div>' +
         '</div>' +
-        '<div class="cgp-lat">Round-trip: ~500\u03BCs (RDMA)</div>' +
-        '<div class="cgp-res cgp-res-good">Cache reused. No recomputation. GPU stays busy.</div>';
+        '<div class="cgp-lat">Cross-node RDMA ~500\u03BCs class (G3.5)</div>' +
+        '<div class="cgp-res cgp-res-good">Shared G3.5: fast cross-node promotion. Intra-node still NVLink-class local tiers.</div>';
     }
   }
 
@@ -3035,7 +3169,7 @@
     if (isRunning && m && m.g4_avg_restore_ms != null) ms = Math.round(m.g4_avg_restore_ms);
     const tier = sc === 'file-g4' ? 'File/POSIX' : 'MinIO S3';
     warning.textContent =
-      'KV cache evicts to G4 (' + tier + ', ~' + ms + ' ms avg restore). Cross-GPU returns trigger full recomputation. Same-GPU returns from G4 add significant I/O wait.';
+      'KV cache evicts to G4 (' + tier + ', ~' + ms + ' ms avg restore). Cross-node returns can trigger full recomputation. Intra-node (NVLink-class) returns from G4 add I/O wait but avoid rack-to-rack latency.';
   }
 
   function buildSnapshot(m, gpus, scenario) {
@@ -3064,7 +3198,7 @@
       io_stall: avgStall,
       recompute_pct: avgRecomp,
       g4_pct: g4pct,
-      cross_gpu: m.cross_gpu_migrations || 0,
+      cross_gpu: (m.cross_node_migrations != null ? m.cross_node_migrations : m.cross_gpu_migrations) || 0,
       via: viaLabel,
     };
   }
@@ -3073,7 +3207,7 @@
     const strip = document.getElementById('mode-comparison');
     if (!strip) return;
     const scenarios = ['file-g4', 'minio-g4', 'minio-full'];
-    const labels = { 'file-g4': 'File / POSIX', 'minio-g4': 'G4 as MinIO Object Store', 'minio-full': 'MinIO G4 S3 + G3.5 CTX RDMA' };
+    const labels = { 'file-g4': 'File / POSIX Storage', 'minio-g4': 'G4 as MinIO AIStor', 'minio-full': 'MinIO MemKV (G3.5) + AIStor (G4)' };
 
     let html = '<div class="cmp-title">SCENARIO COMPARISON</div><div class="cmp-grid">';
     scenarios.forEach(scenario => {
@@ -3084,12 +3218,12 @@
       } else {
         html += '<div class="cmp-col ' + (isActive ? 'active' : '') + '">' +
           '<div class="cmp-col-hdr">' + labels[scenario] + (isActive ? ' <span class="cmp-live">\u25CF live</span>' : '') + '</div>' +
-          '<div class="cmp-row cmp-highlight"><span>GPU effective</span><span class="' + (snap.gpu_effective >= 80 ? 'val-good' : snap.gpu_effective >= 50 ? 'val-warn' : 'val-bad') + '">' + snap.gpu_effective + '%</span></div>' +
+          '<div class="cmp-row cmp-highlight"><span>Node effective</span><span class="' + (snap.gpu_effective >= 80 ? 'val-good' : snap.gpu_effective >= 50 ? 'val-warn' : 'val-bad') + '">' + snap.gpu_effective + '%</span></div>' +
           '<div class="cmp-row"><span>Avg TTFT</span><span class="' + (snap.ttft <= 100 ? 'val-good' : snap.ttft <= 500 ? 'val-warn' : 'val-bad') + '">' + snap.ttft + ' ms</span></div>' +
           '<div class="cmp-row"><span>I/O wait</span><span class="' + (snap.io_stall > 15 ? 'val-bad' : snap.io_stall > 5 ? 'val-warn' : 'val-good') + '">' + snap.io_stall + '%</span></div>' +
           '<div class="cmp-row"><span>Recompute</span><span class="' + (snap.recompute_pct > 10 ? 'val-bad' : snap.recompute_pct > 0 ? 'val-warn' : 'val-good') + '">' + snap.recompute_pct + '%</span></div>' +
           '<div class="cmp-row"><span>G4 load</span><span class="' + (snap.g4_pct > 30 ? 'val-warn' : 'val-good') + '">' + snap.g4_pct + '%</span></div>' +
-          '<div class="cmp-row"><span>Cross-GPU</span><span class="via-pill">' + snap.via + '</span></div>' +
+          '<div class="cmp-row"><span>Cross-node</span><span class="via-pill">' + snap.via + '</span></div>' +
           '</div>';
       }
     });
@@ -3102,9 +3236,9 @@
 
   function formatGpuLabel(gpuId) {
     if (!gpuId) return '';
-    if (gpuId === 'gpu-a') return 'H100 SXM (A)';
-    if (gpuId === 'gpu-b') return 'H100 SXM (B)';
-    return String(gpuId).replace('gpu-', '').toUpperCase();
+    if (gpuId === 'node-a' || gpuId === 'gpu-a') return 'DGX Node A';
+    if (gpuId === 'node-b' || gpuId === 'gpu-b') return 'DGX Node B';
+    return String(gpuId).replace(/^(gpu|node)-/, '').toUpperCase();
   }
 
   // --- Sessions ---
@@ -3114,7 +3248,7 @@
     sessionCount.textContent = '(' + total + ' total, showing last 20)';
     sessionsBody.innerHTML = last20.map(s => {
       const sid = (s.session_id || '').slice(0, 8);
-      const gpu = formatGpuLabel(s.gpu_id || '');
+      const gpu = formatGpuLabel(s.node_id || s.gpu_id || '');
       const tier = (s.tier || '').toLowerCase().replace('.', '');
       const isActive = s.status === 'active';
       const isG35 = tier === 'g35';
@@ -3137,16 +3271,18 @@
       const type = ev.type || '';
       let icon = '', cls = '', text = '';
       if (type.includes('EVICT')) {
-        icon = '\u2193'; text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.gpu || '');
+        icon = '\u2193'; text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.node || ev.gpu || '');
       } else if (type.includes('PROMOTE_CROSS')) {
         icon = '\u2191'; cls = 'cross-gpu';
-        text = type + ' ' + (ev.session || '') + ' ' + formatGpuLabel(ev.from_gpu || '') + ' \u2192 ' + formatGpuLabel(ev.to_gpu || '') + ' via ' + (ev.via || '') + ' (cross-GPU migration!)';
+        const fn = ev.from_node || ev.from_gpu || '';
+        const tn = ev.to_node || ev.to_gpu || '';
+        text = type + ' ' + (ev.session || '') + ' ' + formatGpuLabel(fn) + ' \u2192 ' + formatGpuLabel(tn) + ' via ' + (ev.via || '') + ' (cross-node)';
       } else if (type.includes('PROMOTE')) {
         icon = '\u2191'; cls = 'promotion';
-        text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.gpu || '');
+        text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.node || ev.gpu || '');
       } else if (type.includes('RECOMPUTE')) {
         icon = '\u26A1'; cls = 'recompute';
-        text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.gpu || '') + (ev.reason ? ' (' + ev.reason + ')' : '');
+        text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.node || ev.gpu || '') + (ev.reason ? ' (' + ev.reason + ')' : '');
       } else if (type.includes('NEW') || type.includes('ARRIVE')) {
         icon = '+';
         text = type + ' ' + (ev.session || '');
@@ -3176,7 +3312,7 @@
     recompRate:     { data: [], color: '#ef4444', label: 'Recomp/s', unit: '/s', visible: true },
     activeSessions: { data: [], color: '#22d3ee', label: 'Active', unit: '', visible: false },
     idleSessions:   { data: [], color: '#a78bfa', label: 'Idle', unit: '', visible: false },
-    gpuUtil:        { data: [], color: '#4ade80', label: 'GPU busy %', unit: '%', visible: false },
+    gpuUtil:        { data: [], color: '#4ade80', label: 'Avg node busy %', unit: '%', visible: false },
   };
 
   function trackHistory(m) {
@@ -3189,10 +3325,10 @@
     lastRecomp = recompNow;
     const active = m.active_sessions || 0;
     const idle = m.idle_sessions || 0;
-    const gpuA = m.gpu_a_utilization_flat != null ? m.gpu_a_utilization_flat : 0;
-    const gpuB = m.gpu_b_utilization_flat != null ? m.gpu_b_utilization_flat : 0;
-    const gpuAvg = Math.round((gpuA + gpuB) / 2);
-    const gpuBusyAvg = m.gpu_busy_avg != null ? m.gpu_busy_avg : gpuAvg;
+    const effA = m.gpu_a_utilization_flat != null ? m.gpu_a_utilization_flat : 0;
+    const effB = m.gpu_b_utilization_flat != null ? m.gpu_b_utilization_flat : 0;
+    const effAvg = Math.round((effA + effB) / 2);
+    const gpuBusyAvg = m.gpu_busy_avg != null ? m.gpu_busy_avg : effAvg;
 
     chartSeries.ttft.data.push(ttft);
     chartSeries.recompRate.data.push(recompDelta);
@@ -3405,7 +3541,7 @@
 
   // --- Scenario selector ---
   const SCENARIO_SUMMARIES = {
-    'file-g4':    { g4: 'File / POSIX', g35: 'Disabled', expect: '~99% GPU busy \u00B7 ~32% useful inference \u00B7 High TTFT + recompute' },
+    'file-g4':    { g4: 'File / POSIX Storage', g35: 'Disabled', expect: '~99% node busy \u00B7 ~32% useful inference \u00B7 High TTFT + recompute' },
     'minio-g4':   { g4: 'MinIO S3 (TCP)', g35: 'Disabled', expect: 'Strong inference \u00B7 High G4 use \u00B7 Much faster TTFT' },
     'minio-full': { g4: 'MinIO S3 (TCP)', g35: 'MinIO RDMA (BlueField-4)', expect: '90%+ inference \u00B7 Minimal I/O wait/recompute \u00B7 Lowest TTFT' },
   };
@@ -3449,7 +3585,7 @@
     const warning = document.getElementById('cmxWarning');
     const g35Row = document.getElementById('g35-tier-row');
     const g4Desc = document.getElementById('g4TierDesc');
-    if (g4Desc) g4Desc.textContent = scenario === 'file-g4' ? 'File / POSIX' : 'MinIO S3';
+    if (g4Desc) g4Desc.textContent = scenario === 'file-g4' ? 'File / POSIX Storage' : 'MinIO S3';
 
     if (!g35Enabled) {
       if (sharedCard) sharedCard.classList.add('cmx-off');
@@ -3472,6 +3608,7 @@
 
     updateScenarioSummary(scenario);
     refreshCmxWarning(latestMetrics);
+    applyTopologyUI({}, latestMemoryBudget || null);
     refreshMemoryBudgetInstant();
   }
 
@@ -3547,18 +3684,18 @@
 
   // --- Guided Demo Script (manually advancing) ---
   const GUIDED_SCRIPT = [
-    { phase: "tell", title: "The inference memory challenge", body: "Modern LLMs maintain a KV cache for every conversation \u2014 the model's short-term memory. As context windows grow to 128K+ tokens, this cache can reach tens of gigabytes per session.\n\nGPU HBM is fast but limited. When it fills up, cache gets evicted. If a user returns and their cache is gone, the GPU must recompute it from scratch.", icon: "\u26A1" },
-    { phase: "tell", title: "What you're about to see", body: "This simulation models two GPUs serving concurrent inference sessions. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. G4 as MinIO Object Store (S3/TCP — drop-in replacement)\n3. MinIO G4 S3 + G3.5 CTX RDMA (G4 MinIO S3/TCP + G3.5 Context Memory via BlueField-4)\n\nWatch the GPU utilization bar \u2014 it tells the whole story.", icon: "\uD83D\uDD2C" },
-    { phase: "tell", title: "Scenario 1: File / POSIX Storage", body: "Traditional NFS/Lustre as the G4 archive tier. POSIX metadata locks serialize reads under concurrent GPU access, causing non-linear latency collapse.\n\nClick Next to start. Watch for red 'recompute' segments and slow TTFT.", icon: "1", action: { scenario: "file-g4" } },
-    { phase: "show", mode: "file-g4", body: "Running: File / POSIX Storage. Watch red recompute segments in GPU bars, high TTFT, and G4 filling up under contention. Click Next when ready." },
+    { phase: "tell", title: "The inference memory challenge", body: "Modern LLMs maintain a KV cache for every conversation \u2014 the model's short-term memory. As context windows grow to 128K+ tokens, this cache can reach tens of gigabytes per session.\n\nNode HBM (8× H100 aggregate per DGX) is fast but limited. When it fills up, cache gets evicted. If a user returns and their cache is gone, the serving node must recompute it from scratch.", icon: "\u26A1" },
+    { phase: "tell", title: "What you're about to see", body: "This simulation models **2× DGX H100** (16 GPUs, 8 replicas) as two node pools with shared G3.5/G4. We'll run three scenarios:\n\n1. File / POSIX Storage (NFS/Lustre baseline)\n2. G4 as MinIO AIStor (S3/TCP — drop-in replacement)\n3. MinIO MemKV (G3.5) + AIStor (G4) (G4 MinIO S3/TCP + G3.5 Context Memory via BlueField-4)\n\nWatch the **per-node** utilization bars \u2014 they tell the whole story.", icon: "\uD83D\uDD2C" },
+    { phase: "tell", title: "Scenario 1: File / POSIX Storage", body: "Traditional NFS/Lustre as the G4 archive tier. POSIX metadata locks serialize reads under concurrent accelerator access, causing non-linear latency collapse.\n\nClick Next to start. Watch for red 'recompute' segments and slow TTFT.", icon: "1", action: { scenario: "file-g4" } },
+    { phase: "show", mode: "file-g4", body: "Running: File / POSIX Storage. Watch red recompute segments in the node bars, high TTFT, and G4 filling up under contention. Click Next when ready." },
     { phase: "tell", title: "Scenario 1 results", useCapture: "file-g4", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "Scenario 2: G4 as MinIO Object Store", body: "Now we switch to MinIO as the G4 tier \u2014 S3 over TCP. No hardware change needed. S3 GET is stateless, so parallel reads scale linearly and G4 fills productively.\n\nClick Next to start.", icon: "2", action: { scenario: "minio-g4" } },
-    { phase: "show", mode: "minio-g4", body: "Running: G4 as MinIO Object Store (S3/TCP). Watch inference climb, G4 utilization run high, and TTFT improve vs POSIX. Click Next when ready." },
+    { phase: "tell", title: "Scenario 2: G4 as MinIO AIStor", body: "Now we switch to MinIO as the G4 tier \u2014 S3 over TCP. No hardware change needed. S3 GET is stateless, so parallel reads scale linearly and G4 fills productively.\n\nClick Next to start.", icon: "2", action: { scenario: "minio-g4" } },
+    { phase: "show", mode: "minio-g4", body: "Running: G4 as MinIO AIStor (S3/TCP). Watch inference climb, G4 utilization run high, and TTFT improve vs POSIX. Click Next when ready." },
     { phase: "tell", title: "Scenario 2 results", useCapture: "minio-g4", prevCapture: "file-g4", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "Scenario 3: MinIO G4 S3 + G3.5 CTX RDMA", body: "G4 stays MinIO S3/TCP. We now add the G3.5 Context Memory tier \u2014 MinIO on BlueField-4 with NVMe-oF/RDMA at 800 Gb/s. Sub-millisecond cross-GPU KV cache sharing cuts recomputation and I/O wait.\n\nClick Next to start.", icon: "3", action: { scenario: "minio-full" } },
-    { phase: "show", mode: "minio-full", body: "Running: MinIO G4 S3 + G3.5 CTX RDMA. I/O wait nearly invisible. Cross-GPU migrations resolve in microseconds via RDMA. Click Next when ready." },
+    { phase: "tell", title: "Scenario 3: MinIO MemKV (G3.5) + AIStor (G4)", body: "G4 stays MinIO S3/TCP. We now add the G3.5 Context Memory tier \u2014 MinIO on BlueField-4 with NVMe-oF/RDMA at 800 Gb/s. Sub-millisecond **cross-node** KV sharing cuts recomputation and I/O wait.\n\nClick Next to start.", icon: "3", action: { scenario: "minio-full" } },
+    { phase: "show", mode: "minio-full", body: "Running: MinIO MemKV (G3.5) + AIStor (G4). I/O wait nearly invisible. Cross-node handoffs resolve in microseconds via RDMA. Click Next when ready." },
     { phase: "tell", title: "Scenario 3 results", useCapture: "minio-full", prevCapture: "minio-g4", baselineCapture: "file-g4", icon: "\uD83D\uDCCA" },
-    { phase: "tell", title: "The MinIO AIStor value", body: "MinIO AIStor transforms the AI storage stack:\n\n\u2022 Drop-in S3 replacement for file/POSIX G4 (immediate gain)\n\u2022 G3.5 NVMe-oF/RDMA via BlueField-4 (maximum gain)\n\u2022 Eliminates cross-GPU recomputation\n\u2022 Scales to petabytes\n\nOne storage platform for the entire AI lifecycle.", icon: "\uD83C\uDFC1", isFinale: true, baselineCapture: "file-g4" },
+    { phase: "tell", title: "The MinIO AIStor value", body: "MinIO AIStor transforms the AI storage stack:\n\n\u2022 Drop-in S3 replacement for file/POSIX G4 (immediate gain)\n\u2022 G3.5 NVMe-oF/RDMA via BlueField-4 (maximum gain)\n\u2022 Eliminates cross-node KV recomputation\n\u2022 Scales to petabytes\n\nOne storage platform for the entire AI lifecycle.", icon: "\uD83C\uDFC1", isFinale: true, baselineCapture: "file-g4" },
   ];
 
   // --- Guided Demo Runner (manual advancing) ---
@@ -3581,7 +3718,7 @@
       }
       return '';
     }
-    // Higher is better for GPU effective
+    // Higher is better for node effective (inference) %
     if (metric === 'gpu') {
       const pctGain = previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0;
       return pctGain > 0 ? ' <span class="gc-gain">+' + pctGain + '% gain</span>' : '';
@@ -3599,7 +3736,7 @@
     const base = step.baselineCapture ? guidedCaptures[step.baselineCapture] : null;
 
     let html = '<div style="margin:8px 0;">';
-    html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 GPU effective: <strong>' + snap.gpu_effective + '%</strong>';
+    html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 Node effective: <strong>' + snap.gpu_effective + '%</strong>';
     if (prev) html += ' (was ' + prev.gpu_effective + '%)' + guidedGain(snap.gpu_effective, prev.gpu_effective, 'gpu');
     html += '</div>';
     html += '<div class="gc-body" style="margin-bottom:4px;">\u2022 Avg TTFT: <strong>' + snap.ttft + ' ms</strong>';
@@ -3616,7 +3753,7 @@
 
     if (base && step.useCapture === 'minio-full') {
       html += '<div style="margin-top:8px;padding:8px;background:rgba(29,158,117,0.08);border-radius:6px;font-size:12px;color:rgba(255,255,255,0.7);">';
-      html += 'GPU utilization: <strong>' + base.gpu_effective + '%</strong> \u2192 ';
+      html += 'Node effective inference: <strong>' + base.gpu_effective + '%</strong> \u2192 ';
       if (guidedCaptures['minio-g4']) html += '<strong>' + guidedCaptures['minio-g4'].gpu_effective + '%</strong> \u2192 ';
       html += '<strong class="gc-gain">' + snap.gpu_effective + '%</strong>';
       html += '</div>';
@@ -3644,7 +3781,7 @@
       // Show phase: start simulation immediately
       sendCommand('reset', { skipConfirm: true });
       setTimeout(() => sendCommand('start'), 500);
-      const modeLabel = step.mode === 'file-g4' ? 'File / POSIX' : step.mode === 'minio-g4' ? 'G4 as MinIO Object Store' : 'MinIO RDMA';
+      const modeLabel = step.mode === 'file-g4' ? 'File / POSIX Storage' : step.mode === 'minio-g4' ? 'G4 as MinIO AIStor' : 'MinIO RDMA';
       guidedCardEl.innerHTML =
         '<div class="gc-card">' +
           '<div class="gc-drag-handle" id="gc-drag"><div class="gc-drag-dots"></div><div class="gc-step-indicator">' + (idx + 1) + '/' + GUIDED_SCRIPT.length + '</div></div>' +
@@ -3757,10 +3894,10 @@
 
   // --- SE Onboarding Tour ---
   const SE_TOUR_STEPS = [
-    { target: 'gpu-util-section', title: 'GPU utilization breakdown', body: "This stacked bar shows how each GPU spends its time. Green = useful inference. Amber = I/O wait on storage. Red = wasted recomputation. The goal is to maximize green.", position: 'left' },
-    { target: 'shared-g35-track', title: 'G3.5 \u2014 the MinIO tier (shared)', body: "This is MinIO AIStor. It's shared between both H100 SXM accelerators. When a session moves from GPU A to GPU B, the KV cache is pulled from G3.5 instead of being recomputed.", position: 'left' },
-    { target: 'scenarioSelector', title: 'The three scenarios \u2014 your main demo control', body: "File/POSIX: painful baseline. G4 as MinIO Object Store: S3 drop-in, higher inference + G4 utilization. MinIO G4 + G3.5 RDMA: highest inference, minimal I/O wait/recompute. Advance through these to show the progression.", position: 'left' },
-    { target: 'cross-gpu-path', title: 'Cross-GPU return path', body: "This diagram shows what happens when a user's session is routed to a different GPU. With G3.5: cache is shared, no recompute. Without: cache is lost, GPU must rebuild it.", position: 'left' },
+    { target: 'gpu-util-section', title: 'Node utilization breakdown', body: "Each bar is one DGX node (8× H100 aggregate). Green = useful inference. Amber = I/O wait on storage. Red = wasted recomputation.", position: 'left' },
+    { target: 'shared-g35-track', title: 'G3.5 \u2014 the MinIO tier (shared)', body: "MinIO AIStor is shared across both DGX nodes. Cross-node restores use G4 (S3/TCP) or G3.5 (RDMA) depending on scenario; intra-node stays on NVLink-class local memory.", position: 'left' },
+    { target: 'scenarioSelector', title: 'The three scenarios \u2014 your main demo control', body: "File/POSIX: painful baseline. G4 as MinIO AIStor: S3 drop-in, higher inference + G4 utilization. MinIO G4 + G3.5 RDMA: highest inference, minimal I/O wait/recompute. Advance through these to show the progression.", position: 'left' },
+    { target: 'cross-gpu-path', title: 'Cross-node return path', body: "When Dynamo routes a session to the other DGX, KV may need a cross-node restore from G4 or G3.5. Intra-node traffic stays on NVLink-class local tiers.", position: 'left' },
     { target: 'mode-comparison', title: 'Mode comparison \u2014 builds automatically', body: "As you switch between modes, metrics are captured here. After running all three modes, you have a side-by-side comparison. The 'Guided demo' button does this for you.", position: 'left' },
     { target: 'guided-demo-btn', title: 'Guided demo \u2014 autopilot mode', body: "Click this to run the full demo story automatically. It walks through all three modes with explanation cards. Perfect for narrating along without managing controls.", position: 'left' },
     { target: 'event-stream', title: 'Event stream \u2014 real-time narrative', body: "Every eviction, promotion, and recomputation appears here. Point customers at red RECOMPUTE events when G3.5 is off, then show how they disappear when enabled.", position: 'left' },

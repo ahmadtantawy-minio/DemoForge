@@ -115,19 +115,25 @@ class GPUTimeTracker:
             "idle": max(0, rounded[3]),
         }
 from app.models import (
-    SimConfig, SimStatus, TierState, GPUTierState, SharedTierState, SessionState,
+    SimConfig,
+    SimStatus,
+    TierState,
+    NodeTierState,
+    SharedTierState,
+    SessionState,
 )
-from app.simulation.kv_block_manager import KVBlockManager, GPU_IDS, effective_g4_ticks
+from app.simulation.kv_block_manager import KVBlockManager, effective_g4_ticks
 from app.simulation.kv_memory_model import (
     GPU_TYPE_LABEL,
     KV_PRECISION_NOTE,
     MODEL_NAME,
+    TENSOR_PARALLEL,
     kv_bytes_per_token_per_gpu_tp2,
     kv_per_session_gb,
     sessions_fit_in_kv_cap,
 )
 from app.simulation.session_manager import Session, SessionManager
-from app.simulation.request_generator import RequestGenerator
+from app.simulation.request_generator import RequestGenerator, arrival_target_users
 from app.simulation.minio_backend import MinIOBackend
 from app.simulation import metrics as sim_metrics
 
@@ -151,10 +157,12 @@ SCENARIO_PARAMS: dict[str, dict] = {
         "g35_enabled": False,
         "g35_ticks": None,
 
-        # Cross-GPU migration: devastating without G3.5 — heavy stall + recompute vs inference
-        "cross_gpu_recompute_chance": 0.55,  # POSIX path often loses race → recompute
-        "cross_gpu_restore_ticks": 56,       # Slow, jittery file reads when it does try
-        "cross_gpu_restore_jitter_pct": 0.30,
+        # Cross-node (DGX-to-DGX): devastating without G3.5 — heavy stall + recompute vs inference
+        "cross_node_recompute_chance": 0.55,
+        "cross_node_restore_ticks": 56,
+        "cross_node_restore_jitter_pct": 0.30,
+        # Same-node aggregate: NVLink-class G4 restore slightly faster than cross-node
+        "intra_node_g4_tick_multiplier": 0.88,
 
         # POSIX degrades non-linearly under concurrent access
         "concurrency_collapse_enabled": True,
@@ -171,10 +179,11 @@ SCENARIO_PARAMS: dict[str, dict] = {
         "g35_enabled": False,
         "g35_ticks": None,
 
-        # Cross-GPU migration: viable via G4 S3 restore — strong G4 path vs POSIX
-        "cross_gpu_recompute_chance": 0.07,  # rare recompute; inference time grows vs file/POSIX
-        "cross_gpu_restore_ticks": 16,       # S3/TCP cross-GPU: faster restore than POSIX
-        "cross_gpu_restore_jitter_pct": 0.15,
+        # Cross-node: viable via G4 S3 restore — strong G4 path vs POSIX
+        "cross_node_recompute_chance": 0.07,
+        "cross_node_restore_ticks": 16,
+        "cross_node_restore_jitter_pct": 0.15,
+        "intra_node_g4_tick_multiplier": 0.94,
 
         "concurrency_collapse_enabled": False,
     },
@@ -191,10 +200,11 @@ SCENARIO_PARAMS: dict[str, dict] = {
         "g35_ticks": 2,                 # ~20μs class (RDMA)
         "g35_label": "MinIO RDMA",
 
-        # Cross-GPU migration: cheap via G3.5 RDMA
-        "cross_gpu_recompute_chance": 0.002,  # <0.2% recompute — RDMA almost never fails
-        "cross_gpu_restore_ticks": 2,         # RDMA promotion: ~20μs class
-        "cross_gpu_restore_jitter_pct": 0.10,
+        # Cross-node: cheap via G3.5 RDMA when CMX enabled
+        "cross_node_recompute_chance": 0.002,
+        "cross_node_restore_ticks": 2,
+        "cross_node_restore_jitter_pct": 0.10,
+        "intra_node_g4_tick_multiplier": 0.97,
 
         "concurrency_collapse_enabled": False,
     },
@@ -251,6 +261,12 @@ _SCENARIO_G4_RESTORE_UI_MS: dict[str, float] = {
     "minio-full": 118.0,
 }
 
+_SCENARIO_QUEUE_PARAMS = {
+    "file-g4": {"per_ahead_min": 3.5, "per_ahead_span": 6.0, "fill_w": 10.0, "cap": 52},
+    "minio-g4": {"per_ahead_min": 0.9, "per_ahead_span": 2.2, "fill_w": 5.0, "cap": 22},
+    "minio-full": {"per_ahead_min": 0.25, "per_ahead_span": 0.55, "fill_w": 2.0, "cap": 10},
+}
+
 
 def _blend_scenario_utilization(raw: dict[str, int], scenario: str) -> dict[str, int]:
     """Blend tracker percentages toward scenario targets; normalize to sum 100."""
@@ -304,24 +320,24 @@ def _scenario_recompute_reason(scenario: str) -> str:
         return "Rare RDMA transfer timeout — fallback recompute"
 
 
-def _scenario_cross_gpu_labels(scenario: str, ticks: int) -> tuple[str, str, str]:
+def _scenario_cross_node_labels(scenario: str, ticks: int) -> tuple[str, str, str]:
     latency_ms = ticks * 200
     if scenario == "minio-full":
         return (
             "MinIO RDMA",
-            f"Cross-GPU via G3.5 (NVMe-oF/RDMA, ~{latency_ms}ms)",
+            f"Cross-node via G3.5 (NVMe-oF/RDMA, ~{latency_ms}ms)",
             "Dynamo router → NIXL RDMA from shared G3.5",
         )
     elif scenario == "minio-g4":
         return (
             "MinIO S3",
-            f"Cross-GPU restore via G4 (S3/TCP, ~{latency_ms}ms)",
+            f"Cross-node restore via G4 (S3/TCP, ~{latency_ms}ms)",
             "Dynamo router → S3 GET from G4",
         )
     else:  # file-g4
         return (
             "File/NFS",
-            f"Cross-GPU restore via G4 (File/NFS, ~{latency_ms}ms)",
+            f"Cross-node restore via G4 (File/NFS, ~{latency_ms}ms)",
             "File read from NFS/POSIX storage",
         )
 
@@ -351,8 +367,8 @@ class SimulationEngine:
         # End-to-end TTFT (ms): request accepted tick → first-token tick, including scheduler queue
         self._rolling_ttft_e2e_ms: collections.deque = collections.deque(maxlen=100)
 
-        # Dual-GPU tracking
-        self._cross_gpu_migrations = 0
+        # Cross-node (DGX-to-DGX) migration counter
+        self._cross_node_migrations = 0
         self._recomputations = 0
         self._cache_hits = 0
         self._cache_misses = 0
@@ -369,10 +385,10 @@ class SimulationEngine:
         # Rolling G4 restore latencies (ms); ticks * _TICK_MS from successful G4 read paths
         self._g4_restore_ms_samples: collections.deque = collections.deque(maxlen=120)
 
-        # Per-GPU time-budget trackers
-        self.gpu_trackers = {
-            gpu_id: GPUTimeTracker(window_size=100)
-            for gpu_id in GPU_IDS
+        # Per-node time-budget trackers (each node = aggregate of GPUS_PER_NODE devices)
+        self.node_trackers = {
+            node_id: GPUTimeTracker(window_size=100)
+            for node_id in settings.node_ids
         }
 
         self._init_components()
@@ -407,24 +423,26 @@ class SimulationEngine:
         use `reset()` for a full wipe.
 
         `self.config.scenario` is the single source of truth: `_get_params()` reads
-        `SCENARIO_PARAMS[scenario]` for every tick and both `gpu-a` / `gpu-b` paths
-        (shared block manager + per-GPU trackers). There is no per-GPU scenario.
+        `SCENARIO_PARAMS[scenario]` for every tick and all node paths
+        (shared block manager + per-node trackers). There is no per-node scenario split.
         """
         params = self._get_params()
         self.block_manager.cmx_enabled = params["g35_enabled"]
 
     def _init_components(self) -> None:
         params = self._get_params()
+        scale = float(max(1, settings.gpus_per_node))
         self.block_manager = KVBlockManager(
-            g1_cap=settings.g1_kv_capacity_gb,
-            g2_cap=settings.g2_capacity_gb,
-            g3_cap=settings.g3_capacity_gb,
+            g1_cap=settings.g1_kv_capacity_gb * scale,
+            g2_cap=settings.g2_capacity_gb * scale,
+            g3_cap=settings.g3_capacity_gb * scale,
             g35_cap=settings.g35_capacity_gb,
             g4_cap=settings.g4_capacity_gb,
             cmx_enabled=params["g35_enabled"],
-            g1_hbm_total_gb=settings.g1_hbm_total_gb,
-            g1_weights_gb=settings.g1_weights_gb_per_gpu,
-            g1_overhead_gb=settings.g1_overhead_gb_per_gpu,
+            g1_hbm_total_gb=settings.g1_hbm_total_gb * scale,
+            g1_weights_gb=settings.g1_weights_gb_per_gpu * scale,
+            g1_overhead_gb=settings.g1_overhead_gb_per_gpu * scale,
+            node_ids_override=list(settings.node_ids),
         )
         self.session_manager = SessionManager()
         self.request_gen = RequestGenerator()
@@ -513,39 +531,38 @@ class SimulationEngine:
         raw = max(1, base + jitter)
         return effective_g4_ticks(raw, n_concurrent_reads, params)
 
-    def _assign_initial_ttft_schedule(self, session: Session, gpu_id: str) -> None:
-        """Wall-clock TTFT for a new request: accepted tick → first token (queue + prefill ticks).
-
-        Queue depth uses G1 contention after allocate; each tick is _TICK_MS narrative ms.
-        """
-        scenario = self.config.scenario
-        session.request_sent_tick = self._tick
-        g1 = self.block_manager.gpu_tiers[gpu_id]["G1"]
+    def _compute_queue_ticks(self, node_id: str, scenario: str) -> int:
+        """Queue ticks from current G1 pressure for a target node."""
+        g1 = self.block_manager.node_tiers[node_id]["G1"]
         ahead = max(0, g1.block_count - 1)
         avg_kv = kv_per_session_gb(self.config.context_tokens)
         max_sess = max(1, int(g1.capacity_gb / avg_kv)) if avg_kv > 0 else 10
         denom = max(1, max_sess - 1)
         fill = min(1.0, ahead / float(denom))
-
-        if scenario == "file-g4":
-            per_ahead = 3.5 + random.random() * 6.0
-            cap = 52
-            fill_w = 10.0
-        elif scenario == "minio-g4":
-            per_ahead = 0.9 + random.random() * 2.2
-            cap = 22
-            fill_w = 5.0
-        else:
-            per_ahead = 0.25 + random.random() * 0.55
-            cap = 10
-            fill_w = 2.0
-
-        queue_ticks = min(
-            cap,
-            int(ahead * per_ahead + fill * fill_w + random.random() * 2),
+        q = _SCENARIO_QUEUE_PARAMS.get(scenario, _SCENARIO_QUEUE_PARAMS["file-g4"])
+        per_ahead = q["per_ahead_min"] + random.random() * q["per_ahead_span"]
+        return min(
+            int(q["cap"]),
+            int(ahead * per_ahead + fill * q["fill_w"] + random.random() * 2),
         )
-        prefill_ticks = 2 + random.randint(0, 4)
-        session.first_token_scheduled_tick = self._tick + queue_ticks + prefill_ticks
+
+    def _prefill_ticks(self) -> int:
+        """Prefill + first decode ticks."""
+        return 2 + random.randint(0, 4)
+
+    def _append_ttft_sample_ticks(self, total_ticks: int) -> None:
+        if total_ticks >= 0:
+            self._rolling_ttft_e2e_ms.append(float(total_ticks) * _TICK_MS)
+
+    def _assign_initial_ttft_schedule(self, session: Session, node_id: str) -> None:
+        """TTFT for a new request as explicit stage sum (queue + prefill)."""
+        session.request_sent_tick = self._tick
+        queue_ticks = self._compute_queue_ticks(node_id, self.config.scenario)
+        prefill_ticks = self._prefill_ticks()
+        total_ticks = queue_ticks + prefill_ticks
+        session.first_token_scheduled_tick = self._tick + total_ticks
+        self._append_ttft_sample_ticks(total_ticks)
+        session.initial_ttft_recorded = True
 
     async def reset(self) -> None:
         await self.stop()
@@ -561,7 +578,7 @@ class SimulationEngine:
             self._promotion_latency_ticks.clear()
             self._rolling_ttft.clear()
             self._rolling_ttft_e2e_ms.clear()
-            self._cross_gpu_migrations = 0
+            self._cross_node_migrations = 0
             self._recomputations = 0
             self._cache_hits = 0
             self._cache_misses = 0
@@ -571,7 +588,7 @@ class SimulationEngine:
             self._g4_restore_ms_samples.clear()
             self._event_history.clear()
             self._prev_s3_ops = 0
-            for t in self.gpu_trackers.values():
+            for t in self.node_trackers.values():
                 t.reset()
 
             # Restore workload + scenario defaults (matches cold start / env defaults)
@@ -599,14 +616,14 @@ class SimulationEngine:
         params = self._get_params()
         scenario = self.config.scenario
 
-        gpu_payload: dict[str, dict] = {}
-        for gid in GPU_IDS:
-            g1 = bm.gpu_tiers[gid]["G1"]
+        node_payload: dict[str, dict] = {}
+        for nid in settings.node_ids:
+            g1 = bm.node_tiers[nid]["G1"]
             used = float(g1.used_gb)
             cap = float(g1.capacity_gb)
             if cap > 0:
                 used = min(used, cap)
-            gpu_payload[gid] = {
+            node_payload[nid] = {
                 "g1_total_gb": bm.g1_hbm_total_gb,
                 "weights_gb": bm.g1_weights_gb,
                 "overhead_gb": bm.g1_overhead_gb,
@@ -616,8 +633,8 @@ class SimulationEngine:
                 "used_gb": round(used, 4),
             }
 
-        g2_agg = bm.aggregate_gpu_tier_across_gpus("G2")
-        g3_agg = bm.aggregate_gpu_tier_across_gpus("G3")
+        g2_agg = bm.aggregate_node_tier_across_nodes("G2")
+        g3_agg = bm.aggregate_node_tier_across_nodes("G3")
         g2_cap = float(g2_agg["capacity_gb"])
         g3_cap = float(g3_agg["capacity_gb"])
         g2_agg = {
@@ -653,20 +670,24 @@ class SimulationEngine:
             sessions_in_hbm_pct = 0.0
             sessions_hitting_g4_pct = 0.0
 
-        return {
+        out: dict = {
             "model": MODEL_NAME,
             "gpu_type": GPU_TYPE_LABEL,
-            "gpu_count": 2,
-            "tensor_parallel": 2,
+            "gpu_count": settings.gpu_count,
+            "node_count": settings.node_count,
+            "gpus_per_node": settings.gpus_per_node,
+            "replica_count": settings.replica_count,
+            "tensor_parallel": TENSOR_PARALLEL,
             "kv_precision_note": KV_PRECISION_NOTE,
             "kv_bytes_per_token": kv_bpt,
             "context_tokens": ctx,
             "kv_per_session_gb": round(kv_ps, 6),
-            "total_kv_demand_gb": round(float(self.config.users) * kv_ps, 4),
+            "total_kv_demand_gb": round(
+                float(arrival_target_users(self.config.users, settings.replica_count)) * kv_ps,
+                4,
+            ),
             "total_active_sessions": n_active,
             "scenario": scenario,
-            "gpu-a": gpu_payload["gpu-a"],
-            "gpu-b": gpu_payload["gpu-b"],
             "G2": dict(g2_agg),
             "G3": dict(g3_agg),
             "G3.5": {
@@ -685,45 +706,52 @@ class SimulationEngine:
             "sessions_hitting_g4_pct": sessions_hitting_g4_pct,
             "g35_enabled": bool(params["g35_enabled"]),
         }
+        for nid, payload in node_payload.items():
+            out[nid] = payload
+        return out
 
     def _build_status(self) -> SimStatus:
         scenario = self.config.scenario
+        node_ids = list(settings.node_ids)
+        n_nodes = max(1, len(node_ids))
 
-        # Per-GPU stacked utilization: blend live tracker with scenario narrative bands
-        gpu_util_breakdowns: dict[str, dict[str, int]] = {}
-        for gpu_id in GPU_IDS:
-            raw_u = self.gpu_trackers[gpu_id].utilization()
-            gpu_util_breakdowns[gpu_id] = _blend_scenario_utilization(raw_u, scenario)
+        # Per-node stacked utilization: blend live tracker with scenario narrative bands
+        node_util_breakdowns: dict[str, dict[str, int]] = {}
+        for node_id in node_ids:
+            raw_u = self.node_trackers[node_id].utilization()
+            node_util_breakdowns[node_id] = _blend_scenario_utilization(raw_u, scenario)
 
-        gpu_states = []
-        for gpu_id in GPU_IDS:
-            gpu_tiers = self.block_manager.get_gpu_tier_state(gpu_id)
-            tier_map = {t["name"]: t for t in gpu_tiers}
-            gpu_states.append(GPUTierState(
-                gpu_id=gpu_id,
-                g1=TierState(
-                    name="G1",
-                    capacity_gb=tier_map["G1"]["capacity_gb"],
-                    used_gb=tier_map["G1"]["used_gb"],
-                    block_count=tier_map["G1"]["block_count"],
-                    latency_ms=tier_map["G1"]["latency_ms"],
-                ),
-                g2=TierState(
-                    name="G2",
-                    capacity_gb=tier_map["G2"]["capacity_gb"],
-                    used_gb=tier_map["G2"]["used_gb"],
-                    block_count=tier_map["G2"]["block_count"],
-                    latency_ms=tier_map["G2"]["latency_ms"],
-                ),
-                g3=TierState(
-                    name="G3",
-                    capacity_gb=tier_map["G3"]["capacity_gb"],
-                    used_gb=tier_map["G3"]["used_gb"],
-                    block_count=tier_map["G3"]["block_count"],
-                    latency_ms=tier_map["G3"]["latency_ms"],
-                ),
-                utilization=gpu_util_breakdowns[gpu_id],
-            ))
+        node_states: list[NodeTierState] = []
+        for node_id in node_ids:
+            node_tiers = self.block_manager.get_node_tier_state(node_id)
+            tier_map = {t["name"]: t for t in node_tiers}
+            node_states.append(
+                NodeTierState(
+                    node_id=node_id,
+                    g1=TierState(
+                        name="G1",
+                        capacity_gb=tier_map["G1"]["capacity_gb"],
+                        used_gb=tier_map["G1"]["used_gb"],
+                        block_count=tier_map["G1"]["block_count"],
+                        latency_ms=tier_map["G1"]["latency_ms"],
+                    ),
+                    g2=TierState(
+                        name="G2",
+                        capacity_gb=tier_map["G2"]["capacity_gb"],
+                        used_gb=tier_map["G2"]["used_gb"],
+                        block_count=tier_map["G2"]["block_count"],
+                        latency_ms=tier_map["G2"]["latency_ms"],
+                    ),
+                    g3=TierState(
+                        name="G3",
+                        capacity_gb=tier_map["G3"]["capacity_gb"],
+                        used_gb=tier_map["G3"]["used_gb"],
+                        block_count=tier_map["G3"]["block_count"],
+                        latency_ms=tier_map["G3"]["latency_ms"],
+                    ),
+                    utilization=node_util_breakdowns[node_id],
+                )
+            )
 
         # Shared tiers — nudge G4 displayed fill for MinIO G4 scenario (healthy object-tier utilization)
         shared_tiers = self.block_manager.get_shared_tier_state()
@@ -762,7 +790,8 @@ class SimulationEngine:
                     status=s.status,
                     kv_size_gb=s.kv_size_gb,
                     idle_ticks=s.idle_ticks,
-                    gpu_id=s.gpu_id,
+                    node_id=s.node_id,
+                    gpu_id=s.node_id,
                 )
             )
 
@@ -771,9 +800,7 @@ class SimulationEngine:
             return min(100.0, max(0.0, val))
 
         # Effective utilization = active inference only (already scenario-blended above)
-        gpu_utils = {}
-        for gpu_id in GPU_IDS:
-            gpu_utils[gpu_id] = float(gpu_util_breakdowns[gpu_id]["active"])
+        node_utils = {nid: float(node_util_breakdowns[nid]["active"]) for nid in node_ids}
 
         # Cache hit rate: blend raw hit/(hit+miss) with scenario anchor so POSIX isn't ~90% while ~30%+ time is recompute
         total_lookups = self._cache_hits + self._cache_misses
@@ -784,26 +811,11 @@ class SimulationEngine:
         beta = _SCENARIO_CACHE_HIT_BLEND
         hit_rate = clamp((1.0 - beta) * raw_hit_pct + beta * anchor)
 
-        # TTFT: rolling mean of true send→first-token (queue + prefill in ticks × _TICK_MS).
-        # Fallback before enough samples: base LLM + scaled promotion I/O (restore-only proxy).
+        # TTFT: rolling mean of explicit per-request stage sums only.
         if self._rolling_ttft_e2e_ms:
             ttft = sum(self._rolling_ttft_e2e_ms) / len(self._rolling_ttft_e2e_ms)
         else:
-            avg_promo = (
-                sum(self._rolling_ttft) / len(self._rolling_ttft)
-                if self._rolling_ttft
-                else _SCENARIO_DEFAULT_PROMO_TICKS.get(scenario, 2.0)
-            )
-            io_scale = _SCENARIO_TTFT_IO_SCALE.get(scenario, 0.5)
-            io_latency_ms = avg_promo * _TICK_MS * io_scale
-            base_llm_ms = 30.0  # prefill + first token decode
-            ttft = base_llm_ms + io_latency_ms
-        if scenario == "file-g4":
-            ttft = min(3200.0, max(1100.0, ttft))
-        elif scenario == "minio-g4":
-            ttft = min(330.0, max(68.0, ttft))
-        else:
-            ttft = min(88.0, max(31.0, ttft))
+            ttft = 0.0
 
         now = time.monotonic()
         elapsed = now - self._last_rate_ts
@@ -813,23 +825,34 @@ class SimulationEngine:
             else 0.0
         )
 
-        combined_effective = round(
-            (gpu_utils.get("gpu-a", 0.0) + gpu_utils.get("gpu-b", 0.0)) / 2
-        )
+        combined_effective = round(sum(node_utils.values()) / float(n_nodes))
         def _busy_pct(u: dict[str, int]) -> float:
             idle = float(u.get("idle", 0))
             return max(0.0, min(100.0, 100.0 - idle))
 
         combined_busy = round(
-            (_busy_pct(gpu_util_breakdowns["gpu-a"]) + _busy_pct(gpu_util_breakdowns["gpu-b"]))
-            / 2.0
+            sum(_busy_pct(node_util_breakdowns[nid]) for nid in node_ids) / float(n_nodes)
         )
+
+        node_utilizations = [
+            {
+                "node_id": nid,
+                "utilization": int(round(_busy_pct(node_util_breakdowns[nid]))),
+            }
+            for nid in node_ids
+        ]
 
         g4_avg_ms, g4_restore_n = self._g4_avg_restore_ms_for_metrics(scenario)
 
+        na = node_ids[0]
+        nb = node_ids[1] if len(node_ids) > 1 else na
         metrics_dict = {
-            "gpu_a_utilization": gpu_util_breakdowns["gpu-a"],
-            "gpu_b_utilization": gpu_util_breakdowns["gpu-b"],
+            "node_count": n_nodes,
+            "node_a_utilization": node_util_breakdowns[na],
+            "node_b_utilization": node_util_breakdowns[nb],
+            "gpu_a_utilization": node_util_breakdowns[na],
+            "gpu_b_utilization": node_util_breakdowns[nb],
+            "node_utilizations": node_utilizations,
             "combined_effective_util": combined_effective,
             "combined_gpu_busy_util": combined_busy,
             "avg_ttft_ms": round(ttft, 1),
@@ -839,7 +862,8 @@ class SimulationEngine:
             "active_sessions": sum(1 for s in session_states if s.status == "active"),
             "idle_sessions": sum(1 for s in session_states if s.status == "idle"),
             "returning_sessions": sum(1 for s in session_states if s.status == "returning"),
-            "cross_gpu_migrations": self._cross_gpu_migrations,
+            "cross_node_migrations": self._cross_node_migrations,
+            "cross_gpu_migrations": self._cross_node_migrations,
             "recomputations": self._recomputations,
             "cache_hits": self._cache_hits,
             "cache_misses": self._cache_misses,
@@ -853,7 +877,8 @@ class SimulationEngine:
         return SimStatus(
             running=self._running,
             tick=self._tick,
-            gpus=gpu_states,
+            nodes=node_states,
+            gpus=node_states,
             shared=shared,
             sessions=session_states,
             metrics=metrics_dict,
@@ -870,6 +895,17 @@ class SimulationEngine:
                 "g4_type": "file-posix" if scenario == "file-g4" else "minio-s3",
                 "g35_enabled": params["g35_enabled"],
                 "g35_label": params.get("g35_label"),
+                "node_count": settings.node_count,
+                "gpus_per_node": settings.gpus_per_node,
+                "replica_count": settings.replica_count,
+                "gpu_count": settings.gpu_count,
+                "model_name": MODEL_NAME,
+                "tensor_parallel": TENSOR_PARALLEL,
+                "kv_precision_note": KV_PRECISION_NOTE,
+                "gpu_type_label": GPU_TYPE_LABEL,
+                "session_arrival_target": arrival_target_users(
+                    self.config.users, settings.replica_count
+                ),
                 # Backward compat
                 "g35_mode": g35_mode,
                 "cmx_enabled": params["g35_enabled"],
@@ -924,29 +960,31 @@ class SimulationEngine:
                 self._all_events = self._all_events[-50:]
         self._tick_events.clear()
 
-        # 1. New sessions — RequestGenerator.pick_gpu() uses G1 free headroom (tie → round-robin)
+        # 1. New sessions — pick_node() uses per-node G1 free headroom (tie → round-robin)
         active = self.session_manager.get_active_sessions()
         idle = self.session_manager.get_idle_sessions()
         returning = self.session_manager.get_returning_sessions()
+        # Concurrent session target capped by replica count (Dynamo-style deploy topology).
+        target_sessions = arrival_target_users(self.config.users, settings.replica_count)
         new_count = self.request_gen.generate(
             tick=self._tick,
-            num_users=self.config.users,
+            num_users=target_sessions,
             context_tokens=self.config.context_tokens,
             current_active=len(active),
             current_idle=len(idle),
             current_returning=len(returning),
         )
         for _ in range(new_count):
-            gpu_g1_free = {
-                gpu_id: self.block_manager.get_gpu_g1_free(gpu_id)
-                for gpu_id in GPU_IDS
+            node_g1_free = {
+                nid: self.block_manager.get_node_g1_free(nid)
+                for nid in settings.node_ids
             }
-            gpu_id = self.request_gen.pick_gpu(gpu_g1_free)
+            node_id = self.request_gen.pick_node(node_g1_free)
             session = self.session_manager.create_session(
-                self.config.context_tokens, gpu_id
+                self.config.context_tokens, node_id
             )
-            self.block_manager.allocate(session.id, session.kv_size_gb, gpu_id)
-            self._assign_initial_ttft_schedule(session, gpu_id)
+            self.block_manager.allocate(session.id, session.kv_size_gb, node_id)
+            self._assign_initial_ttft_schedule(session, node_id)
 
         # 2. Tick sessions
         terminated_ids = self.session_manager.tick_sessions()
@@ -957,26 +995,28 @@ class SimulationEngine:
 
         # 3.5. Proactive idle eviction (G1→G2 after idle timeout)
         idle_evicts = self.block_manager.idle_eviction()
-        for session_id, from_tier, to_tier, gpu_id, idle_ticks in idle_evicts:
+        for session_id, from_tier, to_tier, node_id, idle_ticks in idle_evicts:
             self._tick_events.append({
                 "type": "EVICT_IDLE",
                 "session": session_id,
-                "gpu": gpu_id,
+                "node": node_id,
+                "gpu": node_id,
                 "from_tier": from_tier,
                 "to_tier": to_tier,
                 "reason": f"Idle for {idle_ticks} ticks (timeout: 20)",
                 "policy": "Proactive idle eviction",
             })
 
-        # 4. Enforce capacity (cascade evictions across both GPUs)
+        # 4. Enforce capacity (cascade evictions across all nodes)
         evictions = self.block_manager.enforce_capacity()
 
         # 5. Handle evictions to G3.5/G4 via MinIO
-        for session_id, from_tier, to_tier, gpu_id in evictions:
+        for session_id, from_tier, to_tier, node_id in evictions:
             self._tick_events.append({
                 "type": f"EVICT_TO_{to_tier.replace('.', '')}",
                 "session": session_id,
-                "gpu": gpu_id,
+                "node": node_id,
+                "gpu": node_id,
                 "from_tier": from_tier,
                 "to_tier": to_tier,
             })
@@ -994,7 +1034,8 @@ class SimulationEngine:
                         {
                             "tier": to_tier,
                             "session": session_id,
-                            "gpu": gpu_id,
+                            "node": node_id,
+                            "gpu": node_id,
                             "tokens": str(self.config.context_tokens),
                             "created": str(self._tick),
                         },
@@ -1011,26 +1052,26 @@ class SimulationEngine:
 
         for s in _returning:
             current_tier = self.block_manager.get_block_tier(s.id)
-            current_gpu = self.block_manager.get_block_gpu(s.id)
+            current_node = self.block_manager.get_block_node(s.id)
 
             if current_tier is None:
                 # Block not found — recompute
                 self._recomputations += 1
                 self._cache_misses += 1
                 self._promotion_latency_ticks.append(50)
-                self.gpu_trackers[s.gpu_id].register_recompute(50)
+                self.node_trackers[s.node_id].register_recompute(50)
                 sim_metrics.recomputations_total.inc()
                 continue
 
-            # Decide target GPU: higher cross-GPU churn on POSIX (more painful restores)
-            target_gpu = s.gpu_id
+            # Dynamo-style routing: sometimes target another node (cross-node migration)
+            target_node = s.node_id
             cross_p = 0.34 if self.config.scenario == "file-g4" else 0.25
             if random.random() < cross_p:
-                other_gpu = [g for g in GPU_IDS if g != s.gpu_id]
-                if other_gpu:
-                    target_gpu = other_gpu[0]
+                others = [n for n in settings.node_ids if n != s.node_id]
+                if others:
+                    target_node = others[0]
 
-            is_cross_gpu = target_gpu != (current_gpu or s.gpu_id)
+            is_cross_node = target_node != (current_node or s.node_id)
 
             # S3 read for shared tiers
             if current_tier in ("G3.5", "G4"):
@@ -1045,71 +1086,83 @@ class SimulationEngine:
 
             params = self._get_params()
 
-            if is_cross_gpu:
-                self._cross_gpu_migrations += 1
+            if is_cross_node:
+                self._cross_node_migrations += 1
 
-                if random.random() < params["cross_gpu_recompute_chance"]:
-                    # Engine gives up on restore — recomputes from scratch
-                    # file-g4: 35% (file read too slow), minio-g4: 5%, minio-full: <1%
-                    self.block_manager.promote(s.id, target_gpu, "G1")
+                if random.random() < params["cross_node_recompute_chance"]:
+                    self.block_manager.promote(s.id, target_node, "G1")
                     ticks = 50
                     self._promotion_latency_ticks.append(ticks)
                     self._recomputations += 1
                     self._cache_misses += 1
-                    self.gpu_trackers[target_gpu].register_recompute(ticks)
+                    self.node_trackers[target_node].register_recompute(ticks)
                     sim_metrics.recomputations_total.inc()
                     reason = _scenario_recompute_reason(self.config.scenario)
                     self._tick_events.append({
-                        "type": "RECOMPUTE_CROSS_GPU",
+                        "type": "RECOMPUTE_CROSS_NODE",
                         "session": s.id,
-                        "from_gpu": current_gpu or s.gpu_id,
-                        "to_gpu": target_gpu,
+                        "from_node": current_node or s.node_id,
+                        "to_node": target_node,
+                        "from_gpu": current_node or s.node_id,
+                        "to_gpu": target_node,
                         "reason": reason,
                         "policy": "Full KV cache recomputation required",
                     })
+                    queue_ticks = self._compute_queue_ticks(target_node, self.config.scenario)
+                    prefill_ticks = self._prefill_ticks()
+                    self._append_ttft_sample_ticks(ticks + queue_ticks + prefill_ticks)
                 else:
-                    # Restore path — latency depends on scenario
-                    base_restore = params["cross_gpu_restore_ticks"]
-                    jitter_range = int(base_restore * params["cross_gpu_restore_jitter_pct"])
+                    base_restore = params["cross_node_restore_ticks"]
+                    jitter_range = int(base_restore * params["cross_node_restore_jitter_pct"])
                     jitter = random.randint(-jitter_range, jitter_range) if jitter_range > 0 else 0
-                    ticks = self.block_manager.promote(s.id, target_gpu, "G1")
+                    ticks = self.block_manager.promote(s.id, target_node, "G1")
                     ticks = max(ticks, base_restore + jitter)
-                    via, reason, policy = _scenario_cross_gpu_labels(self.config.scenario, ticks)
+                    via, reason, policy = _scenario_cross_node_labels(self.config.scenario, ticks)
                     self._promotion_latency_ticks.append(ticks)
-                    self.gpu_trackers[target_gpu].register_io_stall(ticks)
+                    self.node_trackers[target_node].register_io_stall(ticks)
                     self._cache_hits += 1
                     if current_tier == "G4":
                         self._record_g4_restore_ms(ticks)
                     self._tick_events.append({
-                        "type": "PROMOTE_CROSS_GPU",
+                        "type": "PROMOTE_CROSS_NODE",
                         "session": s.id,
-                        "from_gpu": current_gpu or s.gpu_id,
-                        "to_gpu": target_gpu,
+                        "from_node": current_node or s.node_id,
+                        "to_node": target_node,
+                        "from_gpu": current_node or s.node_id,
+                        "to_gpu": target_node,
                         "via": via,
                         "reason": reason,
                         "policy": policy,
                     })
+                    queue_ticks = self._compute_queue_ticks(target_node, self.config.scenario)
+                    prefill_ticks = self._prefill_ticks()
+                    self._append_ttft_sample_ticks(ticks + queue_ticks + prefill_ticks)
             else:
-                # Same-GPU promotion
-                ticks = self.block_manager.promote(s.id, target_gpu, "G1")
-                # Override G4 ticks with scenario-aware jitter + concurrency collapse
+                # Intra-node promotion (NVLink-class local tier path)
+                ticks = self.block_manager.promote(s.id, target_node, "G1")
                 if current_tier == "G4":
-                    ticks = max(ticks, self.jittered_g4_ticks(_n_concurrent_g4_reads))
+                    mult = float(params.get("intra_node_g4_tick_multiplier", 1.0))
+                    ticks = max(
+                        ticks,
+                        int(self.jittered_g4_ticks(_n_concurrent_g4_reads) * mult),
+                    )
                     self._record_g4_restore_ms(ticks)
                 self._promotion_latency_ticks.append(ticks)
                 if ticks == 50:
                     self._recomputations += 1
                     self._cache_misses += 1
-                    self.gpu_trackers[target_gpu].register_recompute(ticks)
+                    self.node_trackers[target_node].register_recompute(ticks)
                     sim_metrics.recomputations_total.inc()
                 elif ticks > 0:
-                    self.gpu_trackers[target_gpu].register_io_stall(ticks)
+                    self.node_trackers[target_node].register_io_stall(ticks)
                     self._cache_hits += 1
                 else:
                     self._cache_hits += 1
+                queue_ticks = self._compute_queue_ticks(target_node, self.config.scenario)
+                prefill_ticks = self._prefill_ticks()
+                self._append_ttft_sample_ticks(ticks + queue_ticks + prefill_ticks)
 
-            # Update session gpu_id if migrated
-            s.gpu_id = target_gpu
+            s.node_id = target_node
 
         # 6.5. Accumulate promotion latencies into rolling TTFT window
         for lat in self._promotion_latency_ticks:
@@ -1124,7 +1177,7 @@ class SimulationEngine:
                 self._s3_ops_count += 1
             self.block_manager.free(sid)
 
-        # 7.5 End-to-end TTFT samples (request accepted → first token, includes queue wait)
+        # 7.5 Legacy scheduled-TTFT sampler disabled (samples are recorded at request handling time)
         for s in self.session_manager.get_all():
             if s.initial_ttft_recorded or s.first_token_scheduled_tick is None:
                 continue
@@ -1134,16 +1187,14 @@ class SimulationEngine:
                     self._rolling_ttft_e2e_ms.append(float(dt) * _TICK_MS)
                 s.initial_ttft_recorded = True
 
-        # 8. Record GPU time budgets for this tick
-        for gpu_id in GPU_IDS:
-            tracker = self.gpu_trackers[gpu_id]
-            # Count active sessions on this GPU's G1 (doing inference)
-            g1 = self.block_manager.gpu_tiers[gpu_id]["G1"]
-            active_on_gpu = g1.block_count
-            # Max sessions = G1 KV capacity / per-session KV
+        # 8. Record per-node time budgets for this tick
+        for node_id in settings.node_ids:
+            tracker = self.node_trackers[node_id]
+            g1 = self.block_manager.node_tiers[node_id]["G1"]
+            active_on_node = g1.block_count
             avg_kv = kv_per_session_gb(self.config.context_tokens)
             max_sessions = max(1, int(g1.capacity_gb / avg_kv)) if avg_kv > 0 else 10
-            tracker.record_tick(active_on_gpu, max_sessions)
+            tracker.record_tick(active_on_node, max_sessions)
 
         # 9. Update S3 ops rate snapshot
         now = time.monotonic()

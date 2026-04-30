@@ -12,52 +12,51 @@ _template:
   - memory-hierarchy
   - bluefield-4
   - h100-sxm
-  description: 'Dual **NVIDIA H100 SXM** GPUs (2×) with per-GPU tiers **G1 80 GB HBM3,
-    G2 512 GB system DRAM, G3 4 TB local NVMe**, shared **G4 50 GB** (simulation scale),
-    and MinIO G3.5/G4. Three scenarios: **File/POSIX** baseline → **MinIO S3 (G4)** →
-    **MinIO G4 + G3.5 RDMA** — storage modernization compounding GPU busy time, TTFT,
-    recompute rate, and G4 restore latency.'
+  description: 'Two **NVIDIA DGX H100** racks (**2×8 GPUs = 16**, **8 replicas** story) with
+    **per-node** tiers (capacities scale 8× per-GPU G1/G2/G3), shared **G3.5/G4** via MinIO,
+    and three scenarios: **File/POSIX** baseline → **MinIO S3 (G4)** → **MinIO G4 + G3.5 RDMA**
+    — storage modernization compounding node busy time, TTFT, recompute, and G4 restore latency.'
   objective: Show how each storage upgrade reduces **I/O wait** and **recompute** while
-    increasing **effective inference** (vs raw GPU busy time), using live metrics, stacked
-    GPU utilization, G4 avg response, and optional chart view.
+    increasing **effective inference** (vs raw node busy time), using live metrics, stacked
+    per-node utilization (8× H100 aggregate), G4 avg response, and optional chart view.
   minio_value: MinIO AIStor serves dual roles in NVIDIA STX — **G4** archive (S3/TCP)
     and **G3.5** context memory (NVMe-oF/RDMA on BlueField-4), giving petabyte-scale KV
-    storage with sub-millisecond class access on the RDMA path.
+    storage with sub-millisecond class access on the RDMA path for **cross-node** restores.
   estimated_resources:
     memory: 3GB
     cpu: 2.5
     containers: 6
   walkthrough:
   - step: Deploy the simulation
-    description: Click **Deploy**. Brings up the **GPU Server (dual H100 SXM)** group,
-      inference client, **Inference Simulator** (with tier capacities above), two MinIO
-      clusters, and Prometheus.
+    description: Click **Deploy**. Brings up **two DGX H100 node groups** (16 GPUs total),
+      inference client, **Inference Simulator** (NODE_COUNT×GPUS_PER_NODE tier capacities),
+      two MinIO clusters, and Prometheus.
   - step: Open the simulation
     description: Click **Simulation** on the **Inference Simulator** node. The UI opens
       with scenario **File / POSIX Storage** selected by default.
   - step: Scenario 1 — File / POSIX baseline
-    description: 'Run **Start**. Watch **GPU busy %**, stacked bar (inference vs I/O wait
+    description: 'Run **Start**. Watch **node busy %**, stacked bars (inference vs I/O wait
       vs recompute), **Avg TTFT**, **Recomputations** (with / SEC or / MIN rate), and the
       **G4 avg response** line in the shared-storage warning. This is the POSIX pain baseline.'
   - step: Switch to Scenario 2 — G4 as MinIO Object Store
     description: In the simulator, pick **G4 as MinIO Object Store**. Same G4 tier as
       S3-native object storage — lower I/O wait, fewer recomputations, better TTFT vs POSIX.
   - step: Switch to Scenario 3 — MinIO G4 + G3.5 CTX RDMA
-    description: Pick **MinIO G4 S3 + G3.5 CTX RDMA** so G3.5 (CMX) is on. Cross-GPU
-      restores use the fast path; I/O wait and recompute drop toward the floor.
+    description: Pick **MinIO G4 S3 + G3.5 CTX RDMA** so G3.5 (CMX) is on. Cross-node
+      restores use the RDMA path; I/O wait and recompute drop toward the floor.
   - step: Reset and defaults
     description: Use **Reset** (confirms first) to wipe sim state, clear charts/events,
       and restore **default env** on the server — including scenario and capacity overrides
       from this demo''s node **config** when saved as a template.
   - step: Read the chart
     description: Toggle the chart icon for time series. Background bands follow scenario
-      switches — compare TTFT, recompute deltas, sessions, and GPU busy % across runs.
+      switches — compare TTFT, recompute deltas, sessions, and node busy % across runs.
   external_dependencies: []
   fa_ready: true
 id: experience-stx-inference
 name: 'NVIDIA STX: Storage Tier Comparison'
-description: 'Dual H100 SXM (2×): per-GPU 80 GB HBM3 / 512 GB DRAM / 4 TB NVMe; shared G4
-  50 GB (sim scale). File/POSIX → MinIO G4 S3 → MinIO G4 + G3.5 RDMA — live metrics show
+description: 'Two DGX H100 (2×8 GPUs, 16 total, 8 replicas): per-node aggregate G1/G2/G3;
+  shared G4 at sim scale. File/POSIX → MinIO G4 S3 → MinIO G4 + G3.5 RDMA — metrics show
   I/O wait, recompute, TTFT, and G4 response.'
 mode: experience
 networks:
@@ -84,7 +83,10 @@ nodes:
     x: 150.0
     y: 260.0
   config:
-    GPU_COUNT: '2'
+    NODE_COUNT: '2'
+    GPUS_PER_NODE: '8'
+    REPLICA_COUNT: '8'
+    GPU_COUNT: '16'
     G1_CAPACITY_GB: '80'
     G2_CAPACITY_GB: '512'
     G3_CAPACITY_GB: '4000'
@@ -191,10 +193,10 @@ edges:
   target_handle: null
 groups:
 - id: gpu-server
-  label: GPU Server — dual NVIDIA H100 SXM
-  description: 'Contains the Inference Simulator (this template pins **GPU_COUNT=2** and
-    per-GPU **G1/G2/G3** plus shared **G4** capacities via node **config** — override when
-    you save a copy).'
+  label: STX rack — 2× NVIDIA DGX H100 (16 GPUs)
+  description: 'Two DGX-class groups (Node A / Node B), **8 H100 per node**, **8 replicas**
+    narrative. Inference Simulator uses **NODE_COUNT**, **GPUS_PER_NODE**, **REPLICA_COUNT**,
+    and **GPU_COUNT=16** via node **config** — override when you save a copy.'
   color: '#a855f7'
   style: dashed
   position:
@@ -234,8 +236,8 @@ annotations:
     **800 Gb/s** with sub-millisecond latency.
 
 
-    G4 uses standard **S3 over TCP** — 10-100x slower. Without G3.5, every cross-GPU
-    cache miss means a full recomputation.'
+    G4 uses standard **S3 over TCP** — 10-100x slower. Without G3.5, painful **cross-node**
+    restores from G4 can force full recomputation; **intra-node** traffic stays NVLink-class.'
   style: callout
   step_number: null
   pointer_target: null
@@ -244,13 +246,14 @@ annotations:
   position:
     x: 783.4486313124647
     y: -22.432481964386568
-  width: 240
-  title: GPU memory is isolated
-  body: 'Each **H100 SXM** accelerator (GPU A / GPU B) has its own G1/G2/G3 memory (HBM3, system DRAM, local
-    NVMe). **GPU B** cannot access **GPU A**''s HBM directly.
+  width: 260
+  title: Memory is isolated per DGX node
+  body: 'Each **DGX node** aggregates **8× H100** with a local G1/G2/G3 cascade in the simulator.
+    Another node cannot access a peer''s HBM directly.
 
 
-    G3.5 (MinIO CMX) bridges this gap — shared, pod-level storage both GPUs can access.'
+    **G3.5** (MinIO CMX) is shared — both nodes read/write the same context tier; **G4** is
+    the cold archive path for cross-node restores when blocks leave local NVMe.'
   style: callout
   step_number: null
   pointer_target: null
@@ -273,7 +276,7 @@ annotations:
   width: 220
   title: Step through the scenarios
   body: 'Use the **scenario cards** in the simulator: **File / POSIX Storage** → **G4 as
-    MinIO Object Store** → **MinIO G4 S3 + G3.5 CTX RDMA**. Each switch is live — watch **GPU
+    MinIO Object Store** → **MinIO G4 S3 + G3.5 CTX RDMA**. Each switch is live — watch **node
     busy**, **effective inference**, **TTFT**, **recomputations** (rate suffix), and **G4 avg
     response** update immediately.'
   style: step
@@ -304,7 +307,7 @@ annotations:
   body: 'Long-term archival tier for cold KV cache. Higher latency than G3.5.
 
 
-    Without G3.5, blocks evict straight to G4 — more **I/O wait** and **recompute** on the GPUs.'
+    Without G3.5, blocks evict straight to G4 — more **I/O wait** and **recompute** on the nodes.'
   style: info
   step_number: null
   pointer_target: minio-g4
@@ -328,7 +331,7 @@ annotations:
   width: 220
   title: Inference workload
   body: Simulates multi-turn chat sessions, agentic reasoning, and code generation
-    requests hitting the GPU server.
+    requests hitting the DGX inference cluster.
   style: info
   step_number: null
   pointer_target: inference-client
@@ -350,48 +353,48 @@ annotations:
   pointer_target: null
   collapsed: false
 schematics:
-- id: sch-gpu-a
+- id: sch-dgx-a
   position:
     x: 28.054060245548328
     y: 50.0
-  label: H100 SXM
-  sublabel: GPU A
+  label: DGX H100
+  sublabel: Node A · 8× aggregate · NVLink
   variant: gpu
   children:
   - id: g1a
-    label: G1 — HBM3
-    detail: 80 GB · ~1 ns access
+    label: G1 — HBM3 (×8)
+    detail: 640 GB HBM class · per-GPU KV math ×8
     color: red
   - id: g2a
     label: G2 — system DRAM
-    detail: 512 GB · ~100 ns access
+    detail: ~4 TB aggregate · ~100 ns access
     color: amber
   - id: g3a
     label: G3 — local NVMe
-    detail: 4000 GB · ~100 μs access
+    detail: ~32 TB aggregate · ~100 μs access
     color: blue
   parent_group: gpu-server
   width: 200
   height: 190
-- id: sch-gpu-b
+- id: sch-dgx-b
   position:
     x: 260.0
     y: 50.0
-  label: H100 SXM
-  sublabel: GPU B
+  label: DGX H100
+  sublabel: Node B · 8× aggregate · NVLink
   variant: gpu
   children:
   - id: g1b
-    label: G1 — HBM3
-    detail: 80 GB · ~1 ns access
+    label: G1 — HBM3 (×8)
+    detail: 640 GB HBM class · per-GPU KV math ×8
     color: red
   - id: g2b
     label: G2 — system DRAM
-    detail: 512 GB · ~100 ns access
+    detail: ~4 TB aggregate · ~100 ns access
     color: amber
   - id: g3b
     label: G3 — local NVMe
-    detail: 4000 GB · ~100 μs access
+    detail: ~32 TB aggregate · ~100 μs access
     color: blue
   parent_group: gpu-server
   width: 200

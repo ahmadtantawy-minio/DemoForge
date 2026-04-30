@@ -1,6 +1,7 @@
 /**
  * Upgrade persisted STX inference experience layouts from Vera Rubin / Rubin Ultra
- * naming to H100 SXM + GPU A/B (matches current demo-templates/experience-stx-inference.yaml).
+ * naming through H100 SXM GPU A/B to **2× DGX H100** node schematics (matches
+ * demo-templates/experience-stx-inference.yaml).
  */
 const LEGACY_GROUP_LABEL = /vera\s*rubin|compute\s*tray/i;
 const LEGACY_GPU_SUB = /\brubin\b/i;
@@ -23,8 +24,8 @@ function migrateGpuSchematic(s: Record<string, unknown>): Record<string, unknown
 
   const id = String(s.id ?? "");
   let slot: "A" | "B" | null = null;
-  if (/sch-gpu-a$/i.test(id) || /^GPU-A$/i.test(lab)) slot = "A";
-  else if (/sch-gpu-b$/i.test(id) || /^GPU-B$/i.test(lab)) slot = "B";
+  if (/sch-(gpu|dgx)-a$/i.test(id) || /^GPU-A$/i.test(lab)) slot = "A";
+  else if (/sch-(gpu|dgx)-b$/i.test(id) || /^GPU-B$/i.test(lab)) slot = "B";
   if (!slot) return s;
 
   const children = Array.isArray(s.children)
@@ -43,19 +44,59 @@ function migrateGpuSchematic(s: Record<string, unknown>): Record<string, unknown
   };
 }
 
-/** Match tops of sch-gpu-a / sch-gpu-b (legacy template had mismatched y). */
+/** Match tops of paired DGX/GPU schematics (legacy template had mismatched y). */
 function alignStxGpuSchematicTops(schematics: Record<string, unknown>[]): Record<string, unknown>[] {
-  const a = schematics.find((s) => s.id === "sch-gpu-a");
-  const b = schematics.find((s) => s.id === "sch-gpu-b");
+  const idsA = ["sch-dgx-a", "sch-gpu-a"];
+  const idsB = ["sch-dgx-b", "sch-gpu-b"];
+  const a = schematics.find((s) => idsA.includes(String(s.id)));
+  const b = schematics.find((s) => idsB.includes(String(s.id)));
   if (!a || !b) return schematics;
   const posA = (a.position as { y?: number } | undefined) || {};
   const posB = (b.position as { y?: number } | undefined) || {};
   if (typeof posA.y !== "number" || typeof posB.y !== "number") return schematics;
   const y = Math.min(posA.y, posB.y);
+  const alignIds = new Set([...idsA, ...idsB]);
   return schematics.map((s) => {
-    if (s.id !== "sch-gpu-a" && s.id !== "sch-gpu-b") return s;
+    if (!alignIds.has(String(s.id))) return s;
     const pos = (typeof s.position === "object" && s.position ? s.position : {}) as Record<string, unknown>;
     return { ...s, position: { ...pos, y } };
+  });
+}
+
+const DGX_SCHEMATIC_CHILDREN_A = [
+  { id: "g1a", label: "G1 — HBM3 (×8)", detail: "640 GB HBM class · per-GPU KV math ×8", color: "red" },
+  { id: "g2a", label: "G2 — system DRAM", detail: "~4 TB aggregate · ~100 ns access", color: "amber" },
+  { id: "g3a", label: "G3 — local NVMe", detail: "~32 TB aggregate · ~100 μs access", color: "blue" },
+];
+const DGX_SCHEMATIC_CHILDREN_B = [
+  { id: "g1b", label: "G1 — HBM3 (×8)", detail: "640 GB HBM class · per-GPU KV math ×8", color: "red" },
+  { id: "g2b", label: "G2 — system DRAM", detail: "~4 TB aggregate · ~100 ns access", color: "amber" },
+  { id: "g3b", label: "G3 — local NVMe", detail: "~32 TB aggregate · ~100 μs access", color: "blue" },
+];
+
+/** Rename legacy sch-gpu-* to sch-dgx-* and refresh labels for 2×8 topology. */
+function migrateSchGpuToDgxSchematics(schematics: Record<string, unknown>[]): Record<string, unknown>[] {
+  return schematics.map((s) => {
+    const id = String(s.id ?? "");
+    if (id === "sch-gpu-a") {
+      return {
+        ...s,
+        id: "sch-dgx-a",
+        label: "DGX H100",
+        sublabel: "Node A · 8× aggregate · NVLink",
+        children: DGX_SCHEMATIC_CHILDREN_A,
+      };
+    }
+    if (id === "sch-gpu-b") {
+      return {
+        ...s,
+        id: "sch-dgx-b",
+        label: "DGX H100",
+        sublabel: "Node B · 8× aggregate · NVLink",
+        children: DGX_SCHEMATIC_CHILDREN_B,
+      };
+    }
+    return s;
   });
 }
 
@@ -147,6 +188,25 @@ function migrateStxG4DisplayCopy(demo: Record<string, unknown>): Record<string, 
   return { ...demo, ...(clusters !== undefined ? { clusters } : {}), ...(edges !== undefined ? { edges } : {}) };
 }
 
+function migrateStxInferenceSimNodeConfig(nodes: unknown[]): unknown[] {
+  return nodes.map((raw) => {
+    const n = raw as Record<string, unknown>;
+    if (String(n.component ?? "") !== "inference-sim" || String(n.id ?? "") !== "sim-1") return n;
+    const cfg = (
+      typeof n.config === "object" && n.config ? { ...(n.config as Record<string, unknown>) } : {}
+    ) as Record<string, unknown>;
+    const gc = String(cfg.GPU_COUNT ?? "").trim();
+    const hasNodeCount = cfg.NODE_COUNT != null && String(cfg.NODE_COUNT).trim().length > 0;
+    if (gc === "2" && !hasNodeCount) {
+      cfg.NODE_COUNT = "2";
+      cfg.GPUS_PER_NODE = "8";
+      cfg.REPLICA_COUNT = "8";
+      cfg.GPU_COUNT = "16";
+    }
+    return { ...n, config: cfg };
+  });
+}
+
 export function migrateStxInferenceDemoGraphics<T extends Record<string, unknown>>(demo: T): T {
   if (!demo || demo.mode !== "experience") return demo;
   const nodes = demo.nodes as { component?: string }[] | undefined;
@@ -154,21 +214,37 @@ export function migrateStxInferenceDemoGraphics<T extends Record<string, unknown
     return demo;
   }
 
+  const migratedNodes = migrateStxInferenceSimNodeConfig(nodes as unknown[]);
+
   const groups = Array.isArray(demo.groups)
     ? (demo.groups as Record<string, unknown>[]).map((g) => {
         if (g.id !== "gpu-server" || typeof g.label !== "string") return g;
-        if (!LEGACY_GROUP_LABEL.test(g.label)) return g;
-        return { ...g, label: "GPU Server — dual NVIDIA H100 SXM" };
+        const lab = g.label as string;
+        if (LEGACY_GROUP_LABEL.test(lab)) {
+          return { ...g, label: "STX rack — 2× NVIDIA DGX H100 (16 GPUs)" };
+        }
+        if (/GPU\s*Server|dual\s*NVIDIA\s*H100|dual\s*H100/i.test(lab)) {
+          return { ...g, label: "STX rack — 2× NVIDIA DGX H100 (16 GPUs)" };
+        }
+        return g;
       })
     : demo.groups;
 
   const schematics = Array.isArray(demo.schematics)
     ? alignStxGpuSchematicTops(
-        (demo.schematics as Record<string, unknown>[]).map(migrateGpuSchematic)
+        migrateSchGpuToDgxSchematics(
+          (demo.schematics as Record<string, unknown>[]).map(migrateGpuSchematic)
+        )
       )
     : demo.schematics;
 
   const edges = Array.isArray(demo.edges) ? migrateStxGpuStorageEdges(demo.edges as unknown[]) : demo.edges;
 
-  return migrateStxG4DisplayCopy({ ...demo, groups, schematics, edges } as Record<string, unknown>) as T;
+  return migrateStxG4DisplayCopy({
+    ...demo,
+    nodes: migratedNodes,
+    groups,
+    schematics,
+    edges,
+  } as Record<string, unknown>) as T;
 }

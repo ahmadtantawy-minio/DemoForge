@@ -5,7 +5,7 @@ icon: inference-sim
 version: '1.0'
 image: demoforge/inference-sim:latest
 build_context: .
-description: Simulates LLM inference KV cache lifecycle on dual NVIDIA H100 SXM GPUs across the NVIDIA STX 5-tier memory hierarchy
+description: Simulates LLM inference KV cache lifecycle on two NVIDIA DGX H100 racks (16 GPUs, 8 replicas story) across the NVIDIA STX 5-tier memory hierarchy
 resources:
   memory: 512m
   cpu: 0.5
@@ -26,7 +26,10 @@ environment:
   G3_CAPACITY_GB: '4000'
   G35_CAPACITY_GB: '500000'
   G4_CAPACITY_GB: '1000000'
-  GPU_COUNT: '2'
+  NODE_COUNT: '2'
+  GPUS_PER_NODE: '8'
+  REPLICA_COUNT: '8'
+  GPU_COUNT: '16'
   SIM_DEFAULT_USERS: '100'
   SIM_DEFAULT_CONTEXT: '65536'
   SIM_DEFAULT_SCENARIO: 'file-g4'

@@ -1,6 +1,17 @@
 import random
 
-from app.simulation.kv_block_manager import GPU_IDS
+from app.config import settings
+
+
+def arrival_target_users(requested_users: int, replica_count: int) -> int:
+    """Cap concurrent-session target for Poisson arrivals (cluster replica story).
+
+    The UI "Concurrent sessions" slider is *desired* load; the simulator only
+    tries to sustain up to `replica_count` live sessions toward that target.
+    """
+    ru = max(0, int(requested_users))
+    rc = max(1, int(replica_count))
+    return min(ru, rc)
 
 
 class RequestGenerator:
@@ -37,25 +48,15 @@ class RequestGenerator:
                 count += 1
         return count
 
-    def pick_gpu(self, gpu_g1_free: dict[str, float]) -> str:
-        """Place new work on the GPU with the most G1 headroom; tie-break with round-robin.
-
-        Pure round-robin (old behavior) ignored `gpu_g1_free` and could skew load when:
-        - one GPU had more evictions / fuller G1 from random session lifecycles;
-        - cross-GPU returns (25% in engine) moved sessions to the *other* GPU;
-        - random idle/return/terminate left unequal active counts.
-
-        Scenario selection still applies the same `SCENARIO_PARAMS` to both GPUs; imbalance
-        was from scheduling, not from config failing to cascade.
-        """
-        ids = list(GPU_IDS)
-        if not gpu_g1_free:
+    def pick_node(self, node_g1_free: dict[str, float]) -> str:
+        """Place new work on the node with the most aggregate G1 headroom; tie-break with round-robin."""
+        ids = list(settings.node_ids)
+        if not node_g1_free:
             g = ids[self._rr_index % len(ids)]
             self._rr_index += 1
             return g
-        max_free = max(gpu_g1_free.get(g, 0.0) for g in ids)
-        # All tied at ~0 or equal headroom → fall back to round-robin
-        tied = [g for g in ids if gpu_g1_free.get(g, 0.0) >= max_free - 1e-6]
+        max_free = max(node_g1_free.get(g, 0.0) for g in ids)
+        tied = [g for g in ids if node_g1_free.get(g, 0.0) >= max_free - 1e-6]
         if not tied:
             g = ids[self._rr_index % len(ids)]
             self._rr_index += 1

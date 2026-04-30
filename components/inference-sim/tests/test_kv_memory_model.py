@@ -24,3 +24,11 @@ def test_sessions_fit_g1_41gb():
 
 def test_g1_kv_capacity():
     assert kvm.G1_KV_CAPACITY_GB == 41.0
+
+
+def test_g1_layout_per_node_scales():
+    lay = kvm.g1_layout_per_node(8)
+    assert abs(lay["weights_gb"] - 280.0) < 1e-6
+    assert abs(lay["overhead_gb"] - 32.0) < 1e-6
+    assert abs(lay["kv_capacity_gb"] - 328.0) < 1e-6
+    assert abs(lay["hbm_total_gb"] - 640.0) < 1e-6

@@ -21,8 +21,8 @@ class TierState(BaseModel):
     latency_ms: float
 
 
-class GPUTierState(BaseModel):
-    gpu_id: str
+class NodeTierState(BaseModel):
+    node_id: str
     g1: TierState
     g2: TierState
     g3: TierState
@@ -40,13 +40,15 @@ class SessionState(BaseModel):
     status: str  # active | idle | returning | terminated
     kv_size_gb: float
     idle_ticks: int
-    gpu_id: str
+    node_id: str
+    gpu_id: str | None = None  # deprecated mirror of node_id for older clients
 
 
 class SimStatus(BaseModel):
     running: bool
     tick: int
-    gpus: list[GPUTierState]
+    nodes: list[NodeTierState]
+    gpus: list[NodeTierState] | None = None  # deprecated; mirror of nodes for older clients
     shared: SharedTierState
     sessions: list[SessionState]
     metrics: dict[str, Any]

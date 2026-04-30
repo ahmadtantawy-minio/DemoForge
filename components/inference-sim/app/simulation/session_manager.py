@@ -12,7 +12,7 @@ class Session:
     id: str
     status: str  # active | idle | returning | terminated
     kv_size_gb: float
-    gpu_id: str
+    node_id: str
     active_ticks: int = 0
     idle_ticks: int = 0
     return_latency_remaining: int = 0
@@ -26,8 +26,8 @@ class SessionManager:
     def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
 
-    def create_session(self, context_tokens: int, gpu_id: str) -> Session:
-        """Create new session assigned to a specific GPU.
+    def create_session(self, context_tokens: int, node_id: str) -> Session:
+        """Create new session assigned to a specific node (DGX aggregate).
 
         KV size from TP=2 per-GPU formula (see kv_memory_model).
         """
@@ -36,7 +36,7 @@ class SessionManager:
             id=str(uuid.uuid4())[:8],
             status="active",
             kv_size_gb=kv_gb,
-            gpu_id=gpu_id,
+            node_id=node_id,
         )
         self.sessions[session.id] = session
         return session

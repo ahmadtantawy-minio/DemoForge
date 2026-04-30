@@ -16,7 +16,7 @@ TENSOR_PARALLEL = 2
 
 GPU_TYPE = "H100 SXM"
 GPU_TYPE_LABEL = GPU_TYPE  # alias for API/UI
-GPU_COUNT = 2
+# TP degree for KV shard math is TENSOR_PARALLEL — cluster GPU/node counts live in settings.
 GPU_HBM_GB = 80.0
 
 # FP8 model weights per GPU (TP shard)
@@ -75,4 +75,23 @@ def g1_layout() -> dict[str, float]:
         "weights_gb": G1_WEIGHTS_GB_PER_GPU,
         "overhead_gb": G1_OVERHEAD_GB_PER_GPU,
         "kv_capacity_gb": G1_KV_CAPACITY_GB,
+    }
+
+
+def g1_layout_per_node(gpus_per_node: float) -> dict[str, float]:
+    """Per-node G1 layout (GB): per-GPU constants × GPUs aggregated on one logical node."""
+    n = float(max(1.0, gpus_per_node))
+    weights_gb = G1_WEIGHTS_GB_PER_GPU * n
+    overhead_gb = G1_OVERHEAD_GB_PER_GPU * n
+    hbm_total_gb = G1_HBM_TOTAL_GB * n
+    kv_capacity_gb = hbm_total_gb - weights_gb - overhead_gb
+    return {
+        "g1_total_gb": hbm_total_gb,
+        "g1_weights_gb": weights_gb,
+        "g1_overhead_gb": overhead_gb,
+        "g1_kv_capacity_gb": kv_capacity_gb,
+        "hbm_total_gb": hbm_total_gb,
+        "weights_gb": weights_gb,
+        "overhead_gb": overhead_gb,
+        "kv_capacity_gb": kv_capacity_gb,
     }
