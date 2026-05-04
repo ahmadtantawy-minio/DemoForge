@@ -227,8 +227,10 @@ _SCENARIO_UTIL_TARGETS: dict[str, dict[str, int]] = {
     "minio-full": {"active": 92, "io_stall": 5, "recompute": 2, "idle": 1},
 }
 
-# Weight on narrative targets vs raw simulation (0..1). Higher = clearer scenario story.
-_SCENARIO_UTIL_BLEND = 0.48
+# Weight on narrative targets vs raw simulation (0..1).
+# Keep at 0 so node-util bars reflect live tracker state only and do not
+# jump immediately when the scenario toggle changes.
+_SCENARIO_UTIL_BLEND = 0.0
 
 # Default promotion-latency ticks when rolling window empty (cold start).
 _SCENARIO_DEFAULT_PROMO_TICKS = {
@@ -366,6 +368,13 @@ class SimulationEngine:
         self._rolling_ttft: collections.deque = collections.deque(maxlen=100)
         # End-to-end TTFT (ms): request accepted tick → first-token tick, including scheduler queue
         self._rolling_ttft_e2e_ms: collections.deque = collections.deque(maxlen=100)
+        # Explicit queue wait metrics for sessions waiting admission.
+        self._rolling_queue_wait_ms: collections.deque = collections.deque(maxlen=200)
+        self._admitted_total = 0
+        self._queued_total = 0
+        self._dropped_total = 0
+        self._admitted_last_tick = 0
+        self._queued_last_tick = 0
 
         # Cross-node (DGX-to-DGX) migration counter
         self._cross_node_migrations = 0
@@ -564,6 +573,66 @@ class SimulationEngine:
         self._append_ttft_sample_ticks(total_ticks)
         session.initial_ttft_recorded = True
 
+    def _queue_wait_percentiles_ms(self) -> dict[str, float]:
+        vals = sorted(float(v) for v in self._rolling_queue_wait_ms if v >= 0.0)
+        if not vals:
+            return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
+
+        def pct(p: float) -> float:
+            idx = max(0, min(len(vals) - 1, int((len(vals) - 1) * p)))
+            return round(vals[idx], 1)
+
+        return {"p50": pct(0.50), "p95": pct(0.95), "p99": pct(0.99)}
+
+    def _admit_queued_sessions(self) -> int:
+        """Admit queued sessions when per-node G1 has headroom for their KV footprint."""
+        queued = self.session_manager.get_queued_sessions()
+        if not queued:
+            return 0
+
+        queued_ids = [s.id for s in queued]
+        admitted = 0
+        for sid in queued_ids:
+            s = self.session_manager.sessions.get(sid)
+            if not s or s.status != "queued":
+                continue
+            node_free = {
+                nid: self.block_manager.get_node_g1_free(nid) for nid in settings.node_ids
+            }
+            preferred = s.node_id
+            target_node = None
+            if node_free.get(preferred, 0.0) >= s.kv_size_gb:
+                target_node = preferred
+            else:
+                eligible = [nid for nid, free in node_free.items() if free >= s.kv_size_gb]
+                if eligible:
+                    target_node = max(eligible, key=lambda nid: node_free.get(nid, 0.0))
+            if not target_node:
+                continue
+
+            self.block_manager.allocate(s.id, s.kv_size_gb, target_node)
+            s.status = "active"
+            s.node_id = target_node
+            queue_wait_ticks = max(0, self._tick - int(s.request_sent_tick or self._tick))
+            self._rolling_queue_wait_ms.append(float(queue_wait_ticks) * _TICK_MS)
+            prefill_ticks = self._prefill_ticks()
+            s.first_token_scheduled_tick = self._tick + prefill_ticks
+            self._append_ttft_sample_ticks(queue_wait_ticks + prefill_ticks)
+            s.initial_ttft_recorded = True
+            self._admitted_total += 1
+            admitted += 1
+            self._tick_events.append(
+                {
+                    "type": "ADMIT_QUEUED",
+                    "session": s.id,
+                    "node": target_node,
+                    "gpu": target_node,
+                    "queue_wait_ticks": queue_wait_ticks,
+                    "queue_wait_ms": round(float(queue_wait_ticks) * _TICK_MS, 1),
+                }
+            )
+        return admitted
+
     async def reset(self) -> None:
         await self.stop()
         async with self._lock:
@@ -578,6 +647,12 @@ class SimulationEngine:
             self._promotion_latency_ticks.clear()
             self._rolling_ttft.clear()
             self._rolling_ttft_e2e_ms.clear()
+            self._rolling_queue_wait_ms.clear()
+            self._admitted_total = 0
+            self._queued_total = 0
+            self._dropped_total = 0
+            self._admitted_last_tick = 0
+            self._queued_last_tick = 0
             self._cross_node_migrations = 0
             self._recomputations = 0
             self._cache_hits = 0
@@ -683,7 +758,7 @@ class SimulationEngine:
             "context_tokens": ctx,
             "kv_per_session_gb": round(kv_ps, 6),
             "total_kv_demand_gb": round(
-                float(arrival_target_users(self.config.users, settings.replica_count)) * kv_ps,
+                float(arrival_target_users(self.config.users)) * kv_ps,
                 4,
             ),
             "total_active_sessions": n_active,
@@ -783,6 +858,9 @@ class SimulationEngine:
         session_states = []
         for s in self.session_manager.get_all():
             tier = self.block_manager.get_block_tier(s.id) or "unknown"
+            queue_wait_ticks = 0
+            if s.status == "queued":
+                queue_wait_ticks = max(0, self._tick - int(s.request_sent_tick or self._tick))
             session_states.append(
                 SessionState(
                     session_id=s.id,
@@ -792,6 +870,7 @@ class SimulationEngine:
                     idle_ticks=s.idle_ticks,
                     node_id=s.node_id,
                     gpu_id=s.node_id,
+                    queue_wait_ticks=queue_wait_ticks,
                 )
             )
 
@@ -843,6 +922,8 @@ class SimulationEngine:
         ]
 
         g4_avg_ms, g4_restore_n = self._g4_avg_restore_ms_for_metrics(scenario)
+        queue_wait_p = self._queue_wait_percentiles_ms()
+        queued_sessions = sum(1 for s in session_states if s.status == "queued")
 
         na = node_ids[0]
         nb = node_ids[1] if len(node_ids) > 1 else na
@@ -862,6 +943,15 @@ class SimulationEngine:
             "active_sessions": sum(1 for s in session_states if s.status == "active"),
             "idle_sessions": sum(1 for s in session_states if s.status == "idle"),
             "returning_sessions": sum(1 for s in session_states if s.status == "returning"),
+            "queued_sessions": queued_sessions,
+            "queue_wait_ms_p50": queue_wait_p["p50"],
+            "queue_wait_ms_p95": queue_wait_p["p95"],
+            "queue_wait_ms_p99": queue_wait_p["p99"],
+            "admitted_this_tick": self._admitted_last_tick,
+            "queued_this_tick": self._queued_last_tick,
+            "admitted_total": self._admitted_total,
+            "queued_total": self._queued_total,
+            "dropped_total": self._dropped_total,
             "cross_node_migrations": self._cross_node_migrations,
             "cross_gpu_migrations": self._cross_node_migrations,
             "recomputations": self._recomputations,
@@ -903,9 +993,8 @@ class SimulationEngine:
                 "tensor_parallel": TENSOR_PARALLEL,
                 "kv_precision_note": KV_PRECISION_NOTE,
                 "gpu_type_label": GPU_TYPE_LABEL,
-                "session_arrival_target": arrival_target_users(
-                    self.config.users, settings.replica_count
-                ),
+                "session_arrival_target": arrival_target_users(self.config.users),
+                "queue_tracking_enabled": True,
                 # Backward compat
                 "g35_mode": g35_mode,
                 "cmx_enabled": params["g35_enabled"],
@@ -959,13 +1048,16 @@ class SimulationEngine:
             if len(self._all_events) > 50:
                 self._all_events = self._all_events[-50:]
         self._tick_events.clear()
+        self._admitted_last_tick = 0
+        self._queued_last_tick = 0
 
-        # 1. New sessions — pick_node() uses per-node G1 free headroom (tie → round-robin)
+        # 1. New sessions: enqueue arrivals (explicit queue), then admit by G1 headroom.
         active = self.session_manager.get_active_sessions()
         idle = self.session_manager.get_idle_sessions()
         returning = self.session_manager.get_returning_sessions()
-        # Concurrent session target capped by replica count (Dynamo-style deploy topology).
-        target_sessions = arrival_target_users(self.config.users, settings.replica_count)
+        queued = self.session_manager.get_queued_sessions()
+        # Concurrent session target from slider (no replica/GPU-wide artificial cap).
+        target_sessions = arrival_target_users(self.config.users)
         new_count = self.request_gen.generate(
             tick=self._tick,
             num_users=target_sessions,
@@ -973,6 +1065,7 @@ class SimulationEngine:
             current_active=len(active),
             current_idle=len(idle),
             current_returning=len(returning),
+            current_queued=len(queued),
         )
         for _ in range(new_count):
             node_g1_free = {
@@ -981,10 +1074,20 @@ class SimulationEngine:
             }
             node_id = self.request_gen.pick_node(node_g1_free)
             session = self.session_manager.create_session(
-                self.config.context_tokens, node_id
+                self.config.context_tokens, node_id, status="queued"
             )
-            self.block_manager.allocate(session.id, session.kv_size_gb, node_id)
-            self._assign_initial_ttft_schedule(session, node_id)
+            session.request_sent_tick = self._tick
+            self._queued_total += 1
+            self._queued_last_tick += 1
+            self._tick_events.append(
+                {
+                    "type": "QUEUED_NEW",
+                    "session": session.id,
+                    "node": node_id,
+                    "gpu": node_id,
+                }
+            )
+        self._admitted_last_tick = self._admit_queued_sessions()
 
         # 2. Tick sessions
         terminated_ids = self.session_manager.tick_sessions()
@@ -993,27 +1096,27 @@ class SimulationEngine:
         for s in self.session_manager.get_idle_sessions():
             self.block_manager.increment_idle_ticks(s.id)
 
-        # 3.5. Proactive idle eviction (G1→G2 after idle timeout)
+        # 3.5. Proactive idle demotion (G1→G2→G3 after idle timeout; blocks are never deleted here)
         idle_evicts = self.block_manager.idle_eviction()
         for session_id, from_tier, to_tier, node_id, idle_ticks in idle_evicts:
             self._tick_events.append({
-                "type": "EVICT_IDLE",
+                "type": "DEMOTE_IDLE",
                 "session": session_id,
                 "node": node_id,
                 "gpu": node_id,
                 "from_tier": from_tier,
                 "to_tier": to_tier,
-                "reason": f"Idle for {idle_ticks} ticks (timeout: 20)",
-                "policy": "Proactive idle eviction",
+                "reason": f"Idle for {idle_ticks} ticks (timeout: 4)",
+                "policy": "Proactive idle demotion (tier push-down)",
             })
 
         # 4. Enforce capacity (cascade evictions across all nodes)
         evictions = self.block_manager.enforce_capacity()
 
-        # 5. Handle evictions to G3.5/G4 via MinIO
+        # 5. Demotions to G3.5/G4 via MinIO (object persist); tier move is not a delete
         for session_id, from_tier, to_tier, node_id in evictions:
             self._tick_events.append({
-                "type": f"EVICT_TO_{to_tier.replace('.', '')}",
+                "type": f"DEMOTE_TO_{to_tier.replace('.', '')}",
                 "session": session_id,
                 "node": node_id,
                 "gpu": node_id,

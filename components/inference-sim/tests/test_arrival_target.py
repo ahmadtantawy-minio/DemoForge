@@ -1,12 +1,9 @@
-"""Replica-capped session arrival target."""
+"""Session arrival target follows the configured concurrent-users slider only."""
 
 from app.simulation.request_generator import arrival_target_users
 
 
-def test_arrival_target_users_caps_high_slider():
-    assert arrival_target_users(500, 8) == 8
-    assert arrival_target_users(3, 8) == 3
-
-
-def test_arrival_target_users_minimum_replica_one():
-    assert arrival_target_users(100, 0) == 1
+def test_arrival_target_users_is_non_negative_slider_value() -> None:
+    assert arrival_target_users(500) == 500
+    assert arrival_target_users(3) == 3
+    assert arrival_target_users(0) == 0

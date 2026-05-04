@@ -211,9 +211,30 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text);
-    margin-bottom: 14px;
+    margin-bottom: 8px;
     padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
+  }
+  .gpu-card-node-meta {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .gpu-card-node-meta-line {
+    font-size: 10px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.72);
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+  }
+  .gpu-card-node-meta-line + .gpu-card-node-meta-line {
+    margin-top: 4px;
+  }
+  .gpu-card-node-meta-hint {
+    font-size: 9px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.52);
+    letter-spacing: 0.02em;
   }
   .tier-row {
     margin-bottom: 12px;
@@ -1606,6 +1627,11 @@
     <div class="gpu-grid">
         <div class="gpu-card" id="gpuA">
         <div class="gpu-card-header">DGX Node A <span id="gpu-card-sub-a" style="font-weight:500;opacity:0.55;font-size:10px;">8× H100</span></div>
+        <div class="gpu-card-node-meta" id="node-card-meta-a" aria-live="polite">
+          <div class="gpu-card-node-meta-line" id="node-meta-kv-a">&mdash;</div>
+          <div class="gpu-card-node-meta-line" id="node-meta-sess-a">&mdash;</div>
+          <div class="gpu-card-node-meta-line gpu-card-node-meta-hint" id="node-meta-pool-a">&mdash;</div>
+        </div>
         <div class="tier-row">
           <div class="tier-label">
             <div><span class="tier-name" style="color:var(--g1)">G1</span><span class="tier-desc">HBM3 (hot)</span></div>
@@ -1637,6 +1663,11 @@
 
       <div class="gpu-card" id="gpuB">
         <div class="gpu-card-header">DGX Node B <span id="gpu-card-sub-b" style="font-weight:500;opacity:0.55;font-size:10px;">8× H100</span></div>
+        <div class="gpu-card-node-meta" id="node-card-meta-b" aria-live="polite">
+          <div class="gpu-card-node-meta-line" id="node-meta-kv-b">&mdash;</div>
+          <div class="gpu-card-node-meta-line" id="node-meta-sess-b">&mdash;</div>
+          <div class="gpu-card-node-meta-line gpu-card-node-meta-hint" id="node-meta-pool-b">&mdash;</div>
+        </div>
         <div class="tier-row">
           <div class="tier-label">
             <div><span class="tier-name" style="color:var(--g1)">G1</span><span class="tier-desc">HBM3 (hot)</span></div>
@@ -1831,7 +1862,7 @@
             </div>
             <div class="metric-card metric-card-trend">
               <div class="metric-value-row"><span class="metric-num muted" id="m-sessions">&mdash;</span><span class="metric-trend neu" id="m-sessions-tr"></span></div>
-              <div class="metric-rate-line metric-rate-line--spacer" aria-hidden="true"></div>
+              <div class="metric-rate-line" id="m-sessions-rate"></div>
               <div class="metric-label">Active sessions</div>
             </div>
           </div>
@@ -1921,7 +1952,7 @@
           </div>
           <div class="control-subtitle">Number of inference sessions</div>
           <div class="control-subtitle" id="sessionsReplicaHint" style="opacity:0.75;font-size:11px;margin-top:2px;"></div>
-          <input type="range" id="sessionsSlider" min="10" max="500" value="100" step="10">
+          <input type="range" id="sessionsSlider" min="50" max="2000" value="100" step="50">
         </div>
 
         <!-- Context Length -->
@@ -2115,7 +2146,7 @@
             <div class="policy-tier" data-tier="g35" id="pol-g35-tier"><div class="policy-tier-name" style="color:var(--g35)">G3.5 MinIO CMX</div><div class="policy-rule">Evict &gt; <span id="pol-g35">95</span>%</div><div class="policy-arrow">&#8595; G4</div></div>
             <div class="policy-tier" data-tier="g4"><div class="policy-tier-name" style="color:var(--g4)">G4 Enterprise</div><div class="policy-rule">Last resort</div></div>
           </div>
-          <div class="policy-idle">Idle timeout: <strong id="pol-idle">20</strong> ticks &#8594; evict G1&#8594;G2</div>
+          <div class="policy-idle">Idle timeout: <strong id="pol-idle">4</strong> ticks &#8594; demote G1&#8594;G2&#8594;G3</div>
           <div id="cross-gpu-path"></div>
         </div>
       </div>
@@ -2146,6 +2177,7 @@
   let metricsWasRunning = false;
   let recompRateState = { lastT: null, lastV: null, emaPerSec: null };
   let latestMemoryBudget = null;
+  let latestSessions = [];
   const MB_KV_BPT_DEFAULT = 163840;
   const MB_GPUS_PER_NODE_DEFAULT = 8;
   const MB_G1_KV_CAP_DEFAULT = 41 * MB_GPUS_PER_NODE_DEFAULT;
@@ -2186,9 +2218,10 @@
     if (hm) hm.textContent = '\u00B7 ' + t.model + ' · TP=' + t.tp + ' · ' + t.kvNote;
     const srh = document.getElementById('sessionsReplicaHint');
     const c0 = cfg || {};
-    const sat = c0.session_arrival_target != null ? Number(c0.session_arrival_target) : Math.min(100, Math.max(1, t.replicas));
+    const sat = c0.session_arrival_target != null ? Number(c0.session_arrival_target)
+      : (c0.users != null ? Number(c0.users) : 130);
     if (srh) {
-      srh.textContent = 'Live arrival target: min(slider, replicas) = ' + sat + ' concurrent sessions (cluster-wide cap).';
+      srh.textContent = 'Target concurrent sessions: ' + sat + ' (slider). Per-node G1 headroom and KV tiers bound what actually fits; replica count is not an arrival cap.';
     }
     const chip = t.gpn + '\u00D7H100';
     const subA = document.getElementById('gpu-card-sub-a');
@@ -2257,6 +2290,77 @@
       return Math.max(0, Math.min(100, Math.round(100 - (u.idle || 0))));
     }
     return Math.max(0, Math.min(100, Math.round((u.active || 0) + (u.io_stall || 0) + (u.recompute || 0))));
+  }
+
+  function sessionCountsForNode(sessions, nodeId) {
+    const legacy = nodeId === 'node-a' ? 'gpu-a' : 'gpu-b';
+    let active = 0, idle = 0, returning = 0;
+    for (let i = 0; i < (sessions || []).length; i++) {
+      const s = sessions[i];
+      const nid = String(s.node_id || s.gpu_id || '');
+      if (nid !== nodeId && nid !== legacy) continue;
+      const st = String(s.status || '').toLowerCase();
+      if (st === 'active') active++;
+      else if (st === 'idle') idle++;
+      else if (st === 'returning') returning++;
+    }
+    return { active: active, idle: idle, returning: returning, total: active + idle + returning };
+  }
+
+  function formatCtxShort(tokens) {
+    const t = Number(tokens);
+    if (!Number.isFinite(t) || t <= 0) return '';
+    if (t >= 1048576) return String(Math.round(t / 1048576)) + 'M';
+    if (t >= 1024) return Math.round(t / 1024) + 'K';
+    return String(t);
+  }
+
+  function updateNodeCardMeta(d) {
+    const mb = (d && d.memory_budget) || latestMemoryBudget || null;
+    const cfg = (d && d.config) || {};
+    const sessions = (d && d.sessions) ? d.sessions : [];
+    let ctx = 65536;
+    const ctxSel = document.getElementById('contextSelect');
+    if (ctxSel && ctxSel.value) ctx = parseInt(ctxSel.value, 10) || ctx;
+    else if (mb && mb.context_tokens != null) ctx = Number(mb.context_tokens);
+    else if (cfg.context_tokens != null) ctx = Number(cfg.context_tokens);
+    let kvGb = null;
+    if (mb && mb.kv_per_session_gb != null && Number.isFinite(Number(mb.kv_per_session_gb))) {
+      kvGb = Number(mb.kv_per_session_gb);
+    } else {
+      kvGb = kvPerSessionGbFromCtx(ctx);
+    }
+    let prec = 'BF16 KV';
+    const noteSrc = (mb && mb.kv_precision_note) || (typeof window !== 'undefined' && window.__mbKvNote) || '';
+    if (noteSrc) {
+      const m = String(noteSrc).match(/\b(BF16|FP16|FP8|INT8)\b/i);
+      if (m) prec = m[1].toUpperCase() + ' KV';
+    }
+    const ctxStr = formatCtxShort(ctx);
+    const kvLine = kvGb != null && Number.isFinite(kvGb)
+      ? ('KV entry \u2248 ' + (kvGb >= 10 ? kvGb.toFixed(1) : kvGb.toFixed(2)) + ' GB/session · ' + prec + (ctxStr ? ' · ' + ctxStr + ' ctx' : ''))
+      : '\u2014';
+    let gpn = 8;
+    if (cfg.gpus_per_node != null && Number.isFinite(Number(cfg.gpus_per_node))) gpn = Math.max(1, Math.round(Number(cfg.gpus_per_node)));
+    else if (typeof window !== 'undefined' && window.__mbGpusPerNode != null) gpn = Math.max(1, Math.round(Number(window.__mbGpusPerNode)));
+    const poolLine = 'G1 KV bar is pooled across ' + gpn + ' GPUs (one TP KV shard per session, not \u00D7' + gpn + ' per session).';
+
+    [['a', 'node-a'], ['b', 'node-b']].forEach(function (pair) {
+      const suf = pair[0];
+      const nid = pair[1];
+      const c = sessionCountsForNode(sessions, nid);
+      const elKv = document.getElementById('node-meta-kv-' + suf);
+      const elS = document.getElementById('node-meta-sess-' + suf);
+      const elP = document.getElementById('node-meta-pool-' + suf);
+      if (elKv) elKv.textContent = kvLine;
+      if (elS) {
+        if (c.total <= 0) elS.textContent = 'Sessions on node: 0';
+        else {
+          elS.textContent = 'Sessions on node: ' + c.total + ' (' + c.active + ' active · ' + c.idle + ' idle · ' + c.returning + ' returning)';
+        }
+      }
+      if (elP) elP.textContent = poolLine;
+    });
   }
 
   // --- DOM refs ---
@@ -2463,9 +2567,7 @@
     const kvb = kvBytesPerTokenLive();
     const kvKb = kvb / 1024;
     const kvSess = kvPerSessionGbFromCtx(ct);
-    const repCap = window.__mbReplicaCount != null ? Math.max(1, Number(window.__mbReplicaCount)) : 8;
-    const effUsers = Math.min(users, repCap);
-    const demand = effUsers * kvSess;
+    const demand = users * kvSess;
     const perNodeCap = window.__mbG1KvPerNode != null ? window.__mbG1KvPerNode : MB_G1_KV_CAP_DEFAULT;
     const nNodesMb = window.__mbNodeCount != null ? window.__mbNodeCount : 2;
     const aggKvCap = perNodeCap * nNodesMb;
@@ -2474,7 +2576,7 @@
     if (kb) kb.textContent = kvKb.toFixed(2);
     if (ks) ks.textContent = kvSess.toFixed(3);
     if (kvCard) kvCard.classList.toggle('kv-over-cap', kvSess > perNodeCap + 1e-9);
-    if (dm) dm.textContent = demand.toFixed(2) + ' GB (min(slider, ' + repCap + ' replicas))';
+    if (dm) dm.textContent = demand.toFixed(2) + ' GB (slider concurrent sessions \u00D7 KV/session)';
     if (sub) {
       const nn = window.__mbNodeCount != null ? window.__mbNodeCount : 2;
       const gpn = window.__mbGpusPerNode != null ? window.__mbGpusPerNode : MB_GPUS_PER_NODE_DEFAULT;
@@ -2511,6 +2613,11 @@
     }
     updateContextHintBar();
     applyMemoryBudgetPoll(latestMemoryBudget);
+    updateNodeCardMeta({
+      memory_budget: latestMemoryBudget,
+      config: {},
+      sessions: latestSessions
+    });
   }
 
   function updateContextHintBar() {
@@ -2793,7 +2900,15 @@
     if (isRunning) renderComparisonStrip();
 
     // Sessions
-    if (d.sessions) renderSessions(d.sessions);
+    if (d.sessions) {
+      latestSessions = d.sessions;
+      renderSessions(d.sessions);
+    }
+    updateNodeCardMeta({
+      memory_budget: d.memory_budget || latestMemoryBudget,
+      config: d.config || {},
+      sessions: d.sessions || latestSessions
+    });
 
     // Eviction policy
     if (d.eviction_policy) {
@@ -2991,6 +3106,16 @@
       }
     }
     setMetric('m-sessions', m.active_sessions, '', () => 'muted');
+    const sRateEl = $('m-sessions-rate');
+    if (sRateEl) {
+      if (!isRunning) {
+        sRateEl.textContent = '';
+      } else {
+        const q = m.queued_sessions != null ? Number(m.queued_sessions) : 0;
+        const p95 = m.queue_wait_ms_p95 != null ? Number(m.queue_wait_ms_p95) : 0;
+        sRateEl.textContent = 'Queued: ' + q + ' · p95 wait: ' + Math.round(p95) + ' ms';
+      }
+    }
     const g4Lat = $('g4AvgLatency');
     if (g4Lat) {
       if (!isRunning || m.g4_avg_restore_ms == null) {
@@ -3244,8 +3369,9 @@
   // --- Sessions ---
   function renderSessions(sessions) {
     const total = sessions.length;
+    const queued = sessions.filter(s => s.status === 'queued').length;
     const last20 = sessions.slice(-20);
-    sessionCount.textContent = '(' + total + ' total, showing last 20)';
+    sessionCount.textContent = '(' + total + ' total · ' + queued + ' queued, showing last 20)';
     sessionsBody.innerHTML = last20.map(s => {
       const sid = (s.session_id || '').slice(0, 8);
       const gpu = formatGpuLabel(s.node_id || s.gpu_id || '');
@@ -3253,12 +3379,15 @@
       const isActive = s.status === 'active';
       const isG35 = tier === 'g35';
       const cls = (isActive ? ' active' : '') + (isG35 ? ' g35-row' : '');
+      const cacheCell = s.status === 'queued'
+        ? ('waiting ' + (s.queue_wait_ticks != null ? Number(s.queue_wait_ticks) * 200 : 0) + ' ms')
+        : (s.kv_size_gb != null ? s.kv_size_gb.toFixed(2) + ' GB' : '');
       return '<tr class="' + cls.trim() + '">' +
         '<td>' + sid + '</td>' +
         '<td>' + gpu + '</td>' +
         '<td><span class="tier-badge ' + tier + '">' + (s.tier || '').toUpperCase() + '</span></td>' +
         '<td>' + (s.status || '') + '</td>' +
-        '<td>' + (s.kv_size_gb != null ? s.kv_size_gb.toFixed(2) + ' GB' : '') + '</td>' +
+        '<td>' + cacheCell + '</td>' +
         '</tr>';
     }).join('');
   }
@@ -3270,7 +3399,7 @@
     eventList.innerHTML = last10.map(ev => {
       const type = ev.type || '';
       let icon = '', cls = '', text = '';
-      if (type.includes('EVICT')) {
+      if (type.includes('EVICT') || type.includes('DEMOTE')) {
         icon = '\u2193'; text = type + ' ' + (ev.session || '') + ' @ ' + formatGpuLabel(ev.node || ev.gpu || '');
       } else if (type.includes('PROMOTE_CROSS')) {
         icon = '\u2191'; cls = 'cross-gpu';

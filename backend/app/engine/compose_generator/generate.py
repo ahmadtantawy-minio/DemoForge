@@ -21,6 +21,37 @@ from .helpers import (
 
 logger = logging.getLogger(__name__)
 
+_MINIO_LICENSE_GUARD_ENV: dict[str, str] = {
+    "MINIO_CALLHOME_ENABLE": "off",
+    "MINIO_SUBNET_DISABLE_ALERT": "on",
+    "MINIO_SUBNET_RENEWAL": "off",
+}
+
+
+def _validate_minio_license_env_or_raise(node_id: str, env: dict[str, str]) -> None:
+    """Fail-fast if required MinIO license guard env is unavailable/mismatched."""
+    missing_or_bad: list[str] = []
+    for k, expected in _MINIO_LICENSE_GUARD_ENV.items():
+        got = env.get(k)
+        if got is None:
+            missing_or_bad.append(f"{k}=<missing> (expected {expected})")
+            continue
+        got_s = str(got).strip().strip("'").strip('"').lower()
+        if got_s != expected:
+            missing_or_bad.append(f"{k}={got!r} (expected {expected!r})")
+    if missing_or_bad:
+        detail = "; ".join(missing_or_bad)
+        logger.error(
+            "[MINIO-LICENSE-BLOCK] Refusing deploy for node '%s': required MinIO "
+            "license guard env not validated before license injection: %s",
+            node_id,
+            detail,
+        )
+        raise ValueError(
+            f"[MINIO-LICENSE-BLOCK] Node '{node_id}' failed MinIO license guard "
+            f"env validation: {detail}. Cluster start is blocked."
+        )
+
 
 def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str = "./components") -> tuple[str, DemoDefinition]:
     """
@@ -315,9 +346,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     resolved = secret.default
             env[key] = resolved
 
-        # Inject license keys (before node.config overrides)
         node_edition = node.config.get("MINIO_EDITION", "ce")
         is_cluster_node = node.variant == "cluster"
+        if node.id in cluster_credentials:
+            env.update(cluster_credentials[node.id])
+
+        env.update(node.config)
+
+        # Force MinIO license guard env on every MinIO node so cluster-wide behavior
+        # stays consistent across standalone and distributed topologies.
+        if node.component == "minio":
+            env.update(_MINIO_LICENSE_GUARD_ENV)
+
+        # Inject license keys only after validating guard env.
         for lic_req in manifest.license_requirements:
             # Skip edition-gated licenses that don't match
             if lic_req.edition and lic_req.edition != node_edition:
@@ -330,18 +371,17 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     continue  # Single nodes use aistor-free license
             entry = license_store.get(lic_req.license_id)
             if entry and lic_req.injection_type == "env_var" and lic_req.env_var:
+                if node.component == "minio":
+                    _validate_minio_license_env_or_raise(node.id, env)
                 env[lic_req.env_var] = entry.value
             elif entry and lic_req.injection_type == "file_mount" and lic_req.mount_path:
+                if node.component == "minio":
+                    _validate_minio_license_env_or_raise(node.id, env)
                 lic_file = os.path.join(output_dir, project_name, node.id, "license.key")
                 os.makedirs(os.path.dirname(lic_file), exist_ok=True)
                 with open(lic_file, "w") as f:
                     f.write(entry.value)
                 # Volume added later after service_volumes is built
-
-        if node.id in cluster_credentials:
-            env.update(cluster_credentials[node.id])
-
-        env.update(node.config)
 
         # Auto-resolve S3 endpoint from s3/structured-data/file-push edges
         s3_edge_types = ("s3", "structured-data", "file-push", "aistor-tables")

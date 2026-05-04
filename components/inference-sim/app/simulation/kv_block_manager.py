@@ -148,6 +148,7 @@ class KVBlockManager:
         return None
 
     def evict(self, node_id: str, from_tier: str) -> tuple[str, str, str] | None:
+        """Move one block down one tier (demotion). Never deletes the block."""
         tier = self._get_tier(node_id, from_tier)
         if not tier.blocks:
             return None
@@ -363,7 +364,12 @@ class KVBlockManager:
         """Deprecated alias."""
         return self.get_block_node_id(session_id)
 
-    def idle_eviction(self, idle_timeout: int = 20) -> list[tuple[str, str, str, str, int]]:
+    def idle_eviction(self, idle_timeout: int = 4) -> list[tuple[str, str, str, str, int]]:
+        """Demote KV blocks for idle sessions down local tiers (never delete).
+
+        G1→G2 and G2→G3 use the same idle tick threshold on the *current* tier.
+        After each move, block idle_ticks reset so the next tier gets a fresh window.
+        """
         events: list[tuple[str, str, str, str, int]] = []
         for node_id in self.node_ids:
             g1 = self.node_tiers[node_id]["G1"]
@@ -378,11 +384,31 @@ class KVBlockManager:
                     continue
                 g2 = self.node_tiers[node_id]["G2"]
                 block.tier = "G2"
+                block.idle_ticks = 0
                 g2.blocks[sid] = block
                 self._location[sid] = (node_id, "G2")
                 self._reconcile_tier_used(g1)
                 self._reconcile_tier_used(g2)
                 events.append((sid, "G1", "G2", node_id, idle_ticks))
+
+            g2 = self.node_tiers[node_id]["G2"]
+            g2_idle = [
+                (sid, block.idle_ticks)
+                for sid, block in g2.blocks.items()
+                if block.idle_ticks > idle_timeout
+            ]
+            for sid, idle_ticks in g2_idle:
+                block = g2.blocks.pop(sid, None)
+                if block is None:
+                    continue
+                g3 = self.node_tiers[node_id]["G3"]
+                block.tier = "G3"
+                block.idle_ticks = 0
+                g3.blocks[sid] = block
+                self._location[sid] = (node_id, "G3")
+                self._reconcile_tier_used(g2)
+                self._reconcile_tier_used(g3)
+                events.append((sid, "G2", "G3", node_id, idle_ticks))
         return events
 
     def get_eviction_policy(self, scenario: str = "file-g4") -> dict:
@@ -392,8 +418,8 @@ class KVBlockManager:
             "g2_threshold": f"{int(self.EVICTION_THRESHOLDS['G2'] * 100)}%",
             "g3_threshold": f"{int(self.EVICTION_THRESHOLDS['G3'] * 100)}%",
             "g35_threshold": f"{int(self.EVICTION_THRESHOLDS['G3.5'] * 100)}%",
-            "idle_timeout_ticks": 20,
-            "strategy": "LRU (coldest idle session evicted first)",
+            "idle_timeout_ticks": 4,
+            "strategy": "LRU demotion (coldest block first; tier moves only — delete on session end)",
             "scenario": scenario,
             "g35_mode": _SCENARIO_TO_G35.get(scenario, "disabled"),
         }

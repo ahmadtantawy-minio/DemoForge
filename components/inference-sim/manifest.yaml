@@ -22,7 +22,8 @@ environment:
   KV_BUCKET_WARM: kv-cache-warm
   KV_BUCKET_COLD: kv-cache-cold
   G1_CAPACITY_GB: '80'
-  G2_CAPACITY_GB: '512'
+  # 225 GB/GPU => 1.8 TB usable per node (8 GPUs), with ~0.2 TB reserved for OS.
+  G2_CAPACITY_GB: '225'
   G3_CAPACITY_GB: '4000'
   G35_CAPACITY_GB: '500000'
   G4_CAPACITY_GB: '1000000'

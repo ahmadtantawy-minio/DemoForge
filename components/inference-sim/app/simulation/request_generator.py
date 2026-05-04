@@ -3,15 +3,13 @@ import random
 from app.config import settings
 
 
-def arrival_target_users(requested_users: int, replica_count: int) -> int:
-    """Cap concurrent-session target for Poisson arrivals (cluster replica story).
+def arrival_target_users(requested_users: int) -> int:
+    """Concurrent-session target for Poisson arrivals (UI slider / SimConfig.users).
 
-    The UI "Concurrent sessions" slider is *desired* load; the simulator only
-    tries to sustain up to `replica_count` live sessions toward that target.
+    There is no separate cluster-wide cap from replica or GPU counts; effective
+    limits come from per-node G1 KV / tiering and the simulator tick budget.
     """
-    ru = max(0, int(requested_users))
-    rc = max(1, int(replica_count))
-    return min(ru, rc)
+    return max(0, int(requested_users))
 
 
 class RequestGenerator:
@@ -28,22 +26,23 @@ class RequestGenerator:
         current_active: int,
         current_idle: int,
         current_returning: int,
+        current_queued: int = 0,
     ) -> int:
         """Return the number of new sessions to create this tick.
 
         Uses a Poisson-like arrival: spawn sessions proportional to deficit
         relative to target num_users.
         """
-        total_live = current_active + current_idle + current_returning
+        total_live = current_active + current_idle + current_returning + current_queued
         deficit = num_users - total_live
         if deficit <= 0:
             return 0
 
-        # Probability of spawning a new session this tick, proportional to deficit
-        spawn_prob = min(1.0, deficit / max(num_users, 1) * 2.0)
+        # Probability of spawning a new session this tick (higher when far below target).
+        spawn_prob = min(1.0, deficit / max(num_users, 1) * 4.0)
         count = 0
-        # Allow spawning up to min(deficit, 5) sessions per tick
-        for _ in range(min(deficit, 5)):
+        # Try more births per tick so the cluster reaches the target under the cap faster.
+        for _ in range(min(deficit, 14)):
             if random.random() < spawn_prob:
                 count += 1
         return count

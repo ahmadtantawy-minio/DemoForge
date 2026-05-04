@@ -10,7 +10,7 @@ from app.simulation.kv_memory_model import kv_per_session_gb
 @dataclass
 class Session:
     id: str
-    status: str  # active | idle | returning | terminated
+    status: str  # queued | active | idle | returning | terminated
     kv_size_gb: float
     node_id: str
     active_ticks: int = 0
@@ -26,7 +26,9 @@ class SessionManager:
     def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
 
-    def create_session(self, context_tokens: int, node_id: str) -> Session:
+    def create_session(
+        self, context_tokens: int, node_id: str, status: str = "active"
+    ) -> Session:
         """Create new session assigned to a specific node (DGX aggregate).
 
         KV size from TP=2 per-GPU formula (see kv_memory_model).
@@ -34,7 +36,7 @@ class SessionManager:
         kv_gb = kv_per_session_gb(context_tokens)
         session = Session(
             id=str(uuid.uuid4())[:8],
-            status="active",
+            status=status,
             kv_size_gb=kv_gb,
             node_id=node_id,
         )
@@ -68,6 +70,9 @@ class SessionManager:
                 if session.return_latency_remaining <= 0:
                     session.status = "active"
                     session.idle_ticks = 0
+            elif session.status == "queued":
+                # Admission is handled by SimulationEngine._admit_queued_sessions().
+                pass
 
         # Clean up terminated sessions from dict
         for sid in terminated:
@@ -83,6 +88,9 @@ class SessionManager:
 
     def get_active_sessions(self) -> list[Session]:
         return [s for s in self.sessions.values() if s.status == "active"]
+
+    def get_queued_sessions(self) -> list[Session]:
+        return [s for s in self.sessions.values() if s.status == "queued"]
 
     def get_idle_sessions(self) -> list[Session]:
         return [s for s in self.sessions.values() if s.status == "idle"]

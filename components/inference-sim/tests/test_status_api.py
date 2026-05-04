@@ -37,7 +37,8 @@ def test_status_has_nodes_and_memory_budget_keys():
     assert "model_name" in cfg and cfg["model_name"]
     assert cfg.get("tensor_parallel") == 2
     assert "session_arrival_target" in cfg
-    assert cfg["session_arrival_target"] == min(cfg["users"], cfg["replica_count"])
+    assert cfg["session_arrival_target"] == cfg["users"]
+    assert cfg.get("queue_tracking_enabled") is True
 
     m = data.get("metrics") or {}
     assert m.get("node_count") == 2
@@ -60,13 +61,15 @@ def test_status_has_nodes_and_memory_budget_keys():
     assert isinstance(nu, list) and len(nu) == 2
     assert {e["node_id"] for e in nu} == {"node-a", "node-b"}
     assert all(isinstance(e.get("utilization"), int) for e in nu)
+    assert "queued_sessions" in metrics
+    assert "queue_wait_ms_p95" in metrics
 
 
-def test_tick_passes_replica_capped_target_to_request_generator(monkeypatch):
+def test_tick_passes_arrival_target_to_request_generator(monkeypatch):
     monkeypatch.setattr(settings, "replica_count", 6)
     captured: list[int] = []
 
-    def capture_generate(self, tick, num_users, context_tokens, current_active, current_idle, current_returning):
+    def capture_generate(self, tick, num_users, context_tokens, current_active, current_idle, current_returning, current_queued=0):
         captured.append(num_users)
         return 0
 
@@ -79,20 +82,21 @@ def test_tick_passes_replica_capped_target_to_request_generator(monkeypatch):
             await eng._tick_once(loop)
 
     asyncio.run(run_once())
-    assert captured == [6]
+    assert captured == [300]
 
 
-def test_live_session_count_never_exceeds_replica_cap(monkeypatch):
+def test_live_session_count_respects_slider_not_replica_count(monkeypatch):
+    """Slider caps live sessions; replica_count does not impose a cluster ceiling."""
     monkeypatch.setattr(settings, "replica_count", 4)
     monkeypatch.setattr("app.simulation.request_generator.random.random", lambda: 0.001)
 
     async def run_ticks():
         eng = SimulationEngine()
-        eng.config = SimConfig(users=500, context_tokens=4096, scenario="minio-g4")
+        eng.config = SimConfig(users=12, context_tokens=4096, scenario="minio-g4")
         eng._apply_scenario()
         loop = asyncio.get_event_loop()
         peak = 0
-        for _ in range(50):
+        for _ in range(120):
             async with eng._lock:
                 await eng._tick_once(loop)
                 active = len(eng.session_manager.get_active_sessions())
@@ -101,4 +105,4 @@ def test_live_session_count_never_exceeds_replica_cap(monkeypatch):
                 peak = max(peak, active + idle + ret)
         return peak
 
-    assert asyncio.run(run_ticks()) <= 4
+    assert asyncio.run(run_ticks()) <= 12

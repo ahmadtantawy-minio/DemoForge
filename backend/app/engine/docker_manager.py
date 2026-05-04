@@ -339,7 +339,20 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         logger.info(f"Demo {demo.id}: cluster topology changed for: {changed_clusters}")
 
     await progress("compose", "running", "Generating docker-compose file...")
-    compose_path, demo = generate_compose(demo, data_dir, components_dir)
+    try:
+        compose_path, demo = generate_compose(demo, data_dir, components_dir)
+    except Exception as exc:
+        msg = str(exc)
+        if "[MINIO-LICENSE-BLOCK]" in msg:
+            await progress(
+                "compose",
+                "error",
+                f"{msg} Required env: MINIO_CALLHOME_ENABLE=off, "
+                "MINIO_SUBNET_DISABLE_ALERT=on, MINIO_SUBNET_RENEWAL=off",
+            )
+        else:
+            await progress("compose", "error", msg)
+        raise
     await progress("compose", "done", f"Generated {compose_path}")
 
     running = RunningDemo(

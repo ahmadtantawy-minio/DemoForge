@@ -37,11 +37,12 @@ class SharedTierState(BaseModel):
 class SessionState(BaseModel):
     session_id: str
     tier: str
-    status: str  # active | idle | returning | terminated
+    status: str  # queued | active | idle | returning | terminated
     kv_size_gb: float
     idle_ticks: int
     node_id: str
     gpu_id: str | None = None  # deprecated mirror of node_id for older clients
+    queue_wait_ticks: int = 0
 
 
 class SimStatus(BaseModel):

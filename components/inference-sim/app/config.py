@@ -42,7 +42,9 @@ class Settings:
             ),
         )
     )
-    g2_capacity_gb: float = float(os.getenv("G2_CAPACITY_GB", "480"))
+    # G2 DRAM usable budget (per GPU): 225 GB => 1.8 TB per 8-GPU node
+    # (modeled from ~2.0 TB physical/node minus ~0.2 TB reserved for OS/system).
+    g2_capacity_gb: float = float(os.getenv("G2_CAPACITY_GB", "225"))
     g3_capacity_gb: float = float(os.getenv("G3_CAPACITY_GB", "3600"))
 
     @property
