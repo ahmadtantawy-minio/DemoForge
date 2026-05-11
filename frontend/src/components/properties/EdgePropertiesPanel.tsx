@@ -6,6 +6,18 @@ import { nonemptyTrim } from "../../lib/utils";
 import type { ComponentEdgeData, ConnectionConfigField, ConnectionsDef } from "../../types";
 import { clusterConfigSchemas } from "./clusterConfigSchemas";
 
+/** Map legacy `tier_bucket`-only configs to `cold_bucket` + empty prefix for the form. */
+function clusterTieringFormValues(raw: Record<string, unknown> | undefined): Record<string, unknown> {
+  const c = { ...(raw ?? {}) };
+  const hasCold = Object.prototype.hasOwnProperty.call(c, "cold_bucket");
+  const hasPrefix = Object.prototype.hasOwnProperty.call(c, "tier_prefix");
+  const legacyTb = c["tier_bucket"];
+  if (!hasCold && !hasPrefix && legacyTb != null && String(legacyTb).trim() !== "") {
+    return { ...c, cold_bucket: legacyTb, tier_prefix: "" };
+  }
+  return c;
+}
+
 interface EdgePropertiesPanelProps {
   selectedEdgeId: string;
   edges: Edge[];
@@ -105,9 +117,19 @@ export function EdgePropertiesPanel({
               updateEdgeData({ label: t });
             }
           }}
-          placeholder="Optional label"
+          placeholder={
+            targetComponentId === "spark-etl-job" && (connType === "s3" || connType === "aistor-tables")
+              ? "Auto: CSV|JSON → table (from job)"
+              : "Optional label"
+          }
           className="h-8 text-sm"
         />
+        {targetComponentId === "spark-etl-job" && (connType === "s3" || connType === "aistor-tables") && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Leave empty to show a dynamic label from the Apache Spark job (raw format → target table; output edges
+            show Iceberg → table).
+          </p>
+        )}
       </div>
 
       <div className="mb-3">
@@ -130,7 +152,11 @@ export function EdgePropertiesPanel({
           <div className="text-xs text-muted-foreground mb-2">Configuration</div>
           <ConfigSchemaForm
             fields={configFields}
-            values={edgeData.connectionConfig ?? {}}
+            values={
+              connType === "cluster-tiering"
+                ? clusterTieringFormValues((edgeData.connectionConfig ?? {}) as Record<string, unknown>)
+                : edgeData.connectionConfig ?? {}
+            }
             onChange={(key, value) =>
               updateEdgeData({
                 connectionConfig: { ...(edgeData.connectionConfig ?? {}), [key]: value },

@@ -56,6 +56,36 @@ def _safe(value: str) -> str:
     return shlex.quote(str(value))
 
 
+def _tier_remote_bucket_and_prefix(config: dict | None) -> tuple[str, str]:
+    """Resolve ``mc admin tier add --bucket`` and optional ``--prefix`` from edge config.
+
+    Legacy: only ``tier_bucket`` was the remote bucket name (no prefix).
+    Current: ``cold_bucket`` defaults to ``tiered``; ``tier_prefix`` is the key prefix under that bucket.
+    """
+    c = config or {}
+    default_remote = "tiered"
+    has_cold = "cold_bucket" in c
+    has_prefix = "tier_prefix" in c
+    legacy = str(c.get("tier_bucket") or "").strip()
+
+    if not has_cold and not has_prefix and legacy:
+        return legacy, ""
+
+    cold = str(c.get("cold_bucket") or default_remote).strip() or default_remote
+    prefix = str(c.get("tier_prefix") or "").strip()
+    return cold, prefix
+
+
+def _tier_prefix_mc_flag(prefix: str) -> str:
+    """Shell fragment `` --prefix 'foo/'`` or empty when no prefix (mc examples use a trailing ``/``)."""
+    p = prefix.strip()
+    if not p:
+        return ""
+    if not p.endswith("/"):
+        p = p + "/"
+    return f" --prefix {_safe(p)}"
+
+
 def generate_edge_scripts(demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     """Generate init scripts for all auto-configure edges in a demo."""
     scripts = []
@@ -224,18 +254,24 @@ def _gen_ilm_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str) ->
     source_host = f"{project_name}-{source_node.id}"
     target_host = f"{project_name}-{target_node.id}"
 
+    cold_bucket, tier_prefix = _tier_remote_bucket_and_prefix(config)
+    source_bucket = _safe(config.get("source_bucket", "data"))
+    cold_q = _safe(cold_bucket)
+    prefix_flag = _tier_prefix_mc_flag(tier_prefix)
+    tier_name = _safe(config.get("tier_name", "COLD-TIER"))
+
     command = (
         f"mc alias set hot http://{source_host}:9000 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set cold http://{target_host}:9000 {_safe(target_user)} {_safe(target_pass)} && "
-        f"mc mb hot/data --ignore-existing && "
-        f"mc mb cold/tiered --ignore-existing && "
-        f"mc admin tier add minio hot COLD-TIER "
+        f"mc mb hot/{source_bucket} --ignore-existing && "
+        f"mc mb cold/{cold_q} --ignore-existing && "
+        f"mc admin tier add minio hot {tier_name} "
         f"--endpoint http://{target_host}:9000 "
         f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-        f"--bucket tiered 2>/dev/null; "
-        f"mc ilm rule add hot/data "
+        f"--bucket {cold_q}{prefix_flag} 2>/dev/null; "
+        f"mc ilm rule add hot/{source_bucket} "
         f"--transition-days {transition_days} "
-        f"--transition-tier COLD-TIER"
+        f"--transition-tier {tier_name}"
     )
 
     return [EdgeInitScript(
@@ -244,7 +280,9 @@ def _gen_ilm_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str) ->
         container_name=f"{project_name}-{source_node.id}",
         command=command,
         order=30,
-        description=f"Set up ILM tiering: {source_node.id}/data -> {target_node.id}/tiered (after {config.get('transition_days', '30')} days)",
+        description=f"Set up ILM tiering: {source_node.id}/{config.get('source_bucket', 'data')} -> {target_node.id}/{cold_bucket}"
+        + (f" (prefix {tier_prefix})" if tier_prefix else "")
+        + f" (after {config.get('transition_days', '30')} days)",
         wait_for_healthy=True,
         timeout=60,
     )]
@@ -348,6 +386,11 @@ def _resolve_cluster_endpoint(cluster: DemoCluster, project_name: str) -> str:
     return f"{project_name}-{cluster.id}-lb"
 
 
+def _cluster_first_minio_container_name(project_name: str, cluster: DemoCluster) -> str:
+    """Docker service name for the first MinIO member (matches compose_generator: …-pool1-node-1)."""
+    return f"{project_name}-{cluster.id}-pool1-node-1"
+
+
 # ---------------------------------------------------------------------------
 # Generator: cluster-replication (bucket replication between clusters)
 # ---------------------------------------------------------------------------
@@ -414,7 +457,7 @@ def _gen_cluster_replication(edge: DemoEdge, demo: DemoDefinition, project_name:
     scripts = [EdgeInitScript(
         edge_id=edge.id,
         connection_type="cluster-replication",
-        container_name=f"{project_name}-{source_cluster.id}-node-1",
+        container_name=_cluster_first_minio_container_name(project_name, source_cluster),
         command=command,
         order=20,
         description=f"Cluster replication: {source_cluster.label}/{config.get('source_bucket', 'demo-bucket')} -> {target_cluster.label}/{config.get('target_bucket', 'demo-bucket')}",
@@ -435,7 +478,7 @@ def _gen_cluster_replication(edge: DemoEdge, demo: DemoDefinition, project_name:
         scripts.append(EdgeInitScript(
             edge_id=f"{edge.id}-reverse",
             connection_type="cluster-replication",
-            container_name=f"{project_name}-{target_cluster.id}-node-1",
+            container_name=_cluster_first_minio_container_name(project_name, target_cluster),
             command=reverse_cmd,
             order=21,
             description=f"Cluster replication (reverse): {target_cluster.label}/{config.get('target_bucket', 'demo-bucket')} -> {source_cluster.label}/{config.get('source_bucket', 'demo-bucket')}",
@@ -567,8 +610,11 @@ def _gen_cluster_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str
     source_host = _resolve_cluster_endpoint(source_cluster, project_name)
     target_host = _resolve_cluster_endpoint(target_cluster, project_name)
 
+    # Hot-side bucket where ILM rule runs (objects age here before transition).
     source_bucket = _safe(config.get("source_bucket", "data"))
-    tier_bucket = _safe(config.get("tier_bucket", "tiered"))
+    cold_bucket, tier_prefix = _tier_remote_bucket_and_prefix(config)
+    cold_q = _safe(cold_bucket)
+    prefix_flag = _tier_prefix_mc_flag(tier_prefix)
     tier_name = _safe(config.get("tier_name", "COLD-TIER"))
     transition_days = _safe(config.get("transition_days", "30"))
     policy_name = _safe(config.get("policy_name", "auto-tier"))
@@ -577,23 +623,27 @@ def _gen_cluster_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str
         f"mc alias set hot http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set cold http://{target_host}:80 {_safe(target_user)} {_safe(target_pass)} && "
         f"mc mb hot/{source_bucket} --ignore-existing && "
-        f"mc mb cold/{tier_bucket} --ignore-existing && "
+        f"mc mb cold/{cold_q} --ignore-existing && "
         f"mc admin tier add minio hot {tier_name} "
         f"--endpoint http://{target_host}:80 "
         f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-        f"--bucket {tier_bucket} 2>/dev/null; "
+        f"--bucket {cold_q}{prefix_flag} 2>/dev/null; "
         f"mc ilm rule add hot/{source_bucket} "
         f"--transition-days {transition_days} "
         f"--transition-tier {tier_name}"
     )
 
+    dest_bits = cold_bucket + (f", prefix {tier_prefix}" if tier_prefix else "")
     return [EdgeInitScript(
         edge_id=edge.id,
         connection_type="cluster-tiering",
-        container_name=f"{project_name}-{source_cluster.id}-node-1",
+        container_name=_cluster_first_minio_container_name(project_name, source_cluster),
         command=command,
         order=30,
-        description=f"ILM tiering: {source_cluster.label}/{config.get('source_bucket', 'data')} -> {target_cluster.label}/{config.get('tier_bucket', 'tiered')} (after {config.get('transition_days', '30')} days)",
+        description=(
+            f"ILM tiering: {source_cluster.label}/{config.get('source_bucket', 'data')} "
+            f"-> {target_cluster.label}/{dest_bits} (after {config.get('transition_days', '30')} days)"
+        ),
         wait_for_healthy=True,
         timeout=180,
     )]

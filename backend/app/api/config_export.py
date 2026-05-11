@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from fastapi import APIRouter, HTTPException
 from ..models.demo import DemoDefinition, DemoEdge, DemoNode, DemoCluster
 from ..registry.loader import get_component
+from ..engine.edge_automation import _tier_prefix_mc_flag, _tier_remote_bucket_and_prefix
 from ..models.component import ComponentManifest
 from .demos import _load_demo
 
@@ -123,10 +124,10 @@ def _gen_bucket_creation(demo: DemoDefinition, project_name: str) -> ScriptSecti
 
         elif edge.connection_type in ("tiering", "cluster-tiering"):
             source_bucket = config.get("source_bucket", "data")
-            tier_bucket = config.get("tier_bucket", "tiered")
+            cold_bucket, _ = _tier_remote_bucket_and_prefix(config)
             source_alias = _resolve_alias_for_node(demo, edge.source, project_name)
             target_alias = _resolve_alias_for_node(demo, edge.target, project_name)
-            for alias, bucket in [(source_alias, source_bucket), (target_alias, tier_bucket)]:
+            for alias, bucket in [(source_alias, source_bucket), (target_alias, cold_bucket)]:
                 key = f"{alias}/{bucket}"
                 if key not in seen:
                     seen.add(key)
@@ -240,19 +241,24 @@ def _gen_ilm_tiering(demo: DemoDefinition, project_name: str) -> ScriptSection:
 
         config = edge.connection_config or {}
         source_bucket = _safe(config.get("source_bucket", "data"))
-        tier_bucket = _safe(config.get("tier_bucket", "tiered"))
+        cold_bucket, tier_prefix = _tier_remote_bucket_and_prefix(config)
+        cold_bucket_q = _safe(cold_bucket)
+        prefix_flag = _tier_prefix_mc_flag(tier_prefix)
         tier_name = _safe(config.get("tier_name", "COLD-TIER"))
         transition_days = _safe(config.get("transition_days", "30"))
 
         source_alias = _resolve_alias_for_node(demo, edge.source, project_name)
         target_endpoint, target_user, target_pass = _resolve_endpoint_creds(demo, edge.target, project_name)
 
-        section.comments.append(f"# Add remote tier '{tier_name}' pointing to the cold storage cluster")
+        section.comments.append(
+            f"# Add remote tier '{tier_name}' on the hot cluster; ILM rule uses {source_alias}/{source_bucket}. "
+            f"--bucket is the cold bucket (default tiered); optional --prefix scopes keys under that bucket."
+        )
         section.commands.append(
             f"mc admin tier add minio {source_alias} {tier_name} "
             f"--endpoint http://{target_endpoint} "
             f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-            f"--bucket {tier_bucket}"
+            f"--bucket {cold_bucket_q}{prefix_flag}"
         )
 
         section.comments.append(f"# Transition objects in {source_alias}/{source_bucket} after {transition_days} days")
