@@ -4,7 +4,7 @@ import re
 import logging
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from ...models.demo import DemoDefinition, DemoNode, DemoEdge, NodePosition
+from ...models.demo import DemoCluster, DemoDefinition, DemoNode, DemoEdge, NodePosition
 from ...registry.loader import get_component
 from ...config.license_store import license_store
 
@@ -87,6 +87,96 @@ def _to_host_path(container_path: str, path_type: str) -> str:
     return container_path
 
 
+def _sanitize_trino_catalog_file_stem(name: str, *, fallback: str = "aistor") -> str:
+    """Trino catalog id = basename of catalog/*.properties (limited charset)."""
+    raw = (name or "").strip()
+    if not raw:
+        return fallback
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", raw).strip("_") or fallback
+    reserved = {"iceberg", "hive", "memory", "system"}
+    if safe.lower() in reserved:
+        logger.warning(
+            "Trino AIStor catalog name %r resolves to reserved id %r — using %r instead "
+            "(rename MinIO \"Default Trino catalog\" or remove conflicting catalog/*.properties).",
+            raw,
+            safe,
+            fallback,
+        )
+        return fallback
+    return safe
+
+
+def resolve_minio_peer_aistor_catalog_name(demo: DemoDefinition, peer_id: str) -> str:
+    """Trino catalog id for AIStor on a MinIO cluster LB, cluster id, or standalone MinIO node.
+
+    Source of truth: MinIO cluster / standalone ``AISTOR_TABLES_CATALOG_NAME``, then ``aistor``.
+    MinIO→Trino ``aistor-tables`` edges must not override this (compose + UI stay aligned).
+    Must stay consistent with :func:`resolve_trino_aistor_catalog_name` (same *.properties stem).
+    """
+    default = "aistor"
+
+    if peer_id.endswith("-lb"):
+        cid = peer_id[:-3]
+        cl = next((c for c in demo.clusters if c.id == cid), None)
+        if cl:
+            cfg = cl.config or {}
+            node_cat = str(cfg.get("AISTOR_TABLES_CATALOG_NAME") or "").strip()
+            chosen = node_cat or default
+            return _sanitize_trino_catalog_file_stem(chosen)
+
+    cl = next((c for c in demo.clusters if c.id == peer_id), None)
+    if cl:
+        cfg = cl.config or {}
+        node_cat = str(cfg.get("AISTOR_TABLES_CATALOG_NAME") or "").strip()
+        chosen = node_cat or default
+        return _sanitize_trino_catalog_file_stem(chosen)
+
+    nd = next((n for n in demo.nodes if n.id == peer_id), None)
+    if nd and nd.component == "minio":
+        cfg = nd.config or {}
+        node_cat = str(cfg.get("AISTOR_TABLES_CATALOG_NAME") or "").strip()
+        chosen = node_cat or default
+        return _sanitize_trino_catalog_file_stem(chosen)
+
+    return _sanitize_trino_catalog_file_stem(default)
+
+
+def resolve_trino_aistor_catalog_name(demo: DemoDefinition, trino_node_id: str) -> str:
+    """
+    SQL catalog name for the AIStor Iceberg REST connector on Trino.
+
+    Must match the catalog *.properties filename DemoForge mounts. Resolved from the MinIO peer
+    on each incoming ``aistor-tables`` edge (cluster or standalone config only).
+    """
+    for e in demo.edges:
+        if e.target != trino_node_id or e.connection_type != "aistor-tables":
+            continue
+        return resolve_minio_peer_aistor_catalog_name(demo, e.source)
+    return "aistor"
+
+
+def apply_default_trino_catalog_env(env: dict, demo: DemoDefinition, trino_node_id: str) -> None:
+    """Set ``TRINO_CATALOG`` when unset: AIStor catalog from MinIO config, else other edges' ``catalog_name``."""
+    if env.get("TRINO_CATALOG"):
+        return
+    if any(e.target == trino_node_id and e.connection_type == "aistor-tables" for e in demo.edges):
+        env["TRINO_CATALOG"] = resolve_trino_aistor_catalog_name(demo, trino_node_id)
+        return
+    for e in demo.edges:
+        if e.target == trino_node_id and e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+            cat = (e.connection_config or {}).get("catalog_name")
+            if cat:
+                env["TRINO_CATALOG"] = str(cat)
+                return
+    for e in demo.edges:
+        if e.source == trino_node_id or e.target == trino_node_id:
+            if e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+                cat = (e.connection_config or {}).get("catalog_name")
+                if cat:
+                    env["TRINO_CATALOG"] = str(cat)
+                    return
+
+
 def _render_templates(template_dir, node, demo, output_dir, project_name, manifest):
     env = Environment(loader=FileSystemLoader(template_dir))
     results = []
@@ -96,11 +186,18 @@ def _render_templates(template_dir, node, demo, output_dir, project_name, manife
             node=node, demo=demo, nodes=demo.nodes,
             edges=demo.edges, project_name=project_name,
         )
-        host_path = os.path.join(output_dir, project_name, node.id, tm.template.removesuffix(".j2"))
+        mount_path = tm.mount_path
+        base_slug = tm.template.removesuffix(".j2")
+        host_path = os.path.join(output_dir, project_name, node.id, base_slug)
+        # Trino: AIStor REST catalog file must be named {catalog}.properties so SQL uses MinIO catalog setting.
+        if getattr(node, "component", None) == "trino" and tm.template == "aistor-iceberg.properties.j2":
+            cat = resolve_trino_aistor_catalog_name(demo, node.id)
+            mount_path = f"/etc/trino/catalog/{cat}.properties"
+            host_path = os.path.join(output_dir, project_name, node.id, f"aistor-iceberg-{cat}.properties")
         os.makedirs(os.path.dirname(host_path), exist_ok=True)
         with open(host_path, "w") as f:
             f.write(rendered)
-        results.append((os.path.abspath(host_path), tm.mount_path))
+        results.append((os.path.abspath(host_path), mount_path))
     return results
 
 
@@ -224,6 +321,8 @@ def _event_processor_s3_from_edges(demo: DemoDefinition, node: DemoNode, env: di
                 env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
                 env["ICEBERG_SIGV4"] = "true"
                 env["ICEBERG_WAREHOUSE"] = peer_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
+        if env.get("ICEBERG_SIGV4") == "true":
+            env["ICEBERG_CATALOG_NAME"] = resolve_minio_peer_aistor_catalog_name(demo, peer_id)
         break
 
 
@@ -267,5 +366,77 @@ def _event_processor_s3_fallback_from_webhook_peer(demo: DemoDefinition, node: D
             env["S3_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
             env["S3_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
         break
+
+
+def _iceberg_browser_peer_services(
+    demo: DemoDefinition, peer_id: str, project_name: str
+) -> tuple[str | None, int | None, DemoCluster | None, DemoNode | None]:
+    """Resolve (svc, port, peer_cluster, peer_minio_node) for a MinIO peer or cluster LB."""
+    peer_cluster = next((c for c in demo.clusters if c.id == peer_id), None)
+    peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+    is_cluster_lb = peer_id.endswith("-lb")
+    if is_cluster_lb:
+        cluster_id_from_lb = peer_id[:-3]
+        peer_cluster = next((c for c in demo.clusters if c.id == cluster_id_from_lb), None)
+    if peer_cluster:
+        return f"{project_name}-{peer_cluster.id}-lb", 80, peer_cluster, None
+    if is_cluster_lb:
+        return f"{project_name}-{peer_id}", 80, None, None
+    if peer_node_obj and peer_node_obj.component == "minio":
+        return f"{project_name}-{peer_id}", 9000, None, peer_node_obj
+    return None, None, None, None
+
+
+def _iceberg_browser_env_from_edges(demo: DemoDefinition, node: DemoNode, env: dict, project_name: str) -> None:
+    """Inject Iceberg REST + S3 env for iceberg-browser from diagram edges."""
+    for edge in demo.edges:
+        if edge.connection_type not in ("aistor-tables", "iceberg-catalog", "s3"):
+            continue
+        if edge.target != node.id and edge.source != node.id:
+            continue
+        peer_id = edge.source if edge.target == node.id else edge.target
+        peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
+
+        if edge.connection_type == "iceberg-catalog" and peer_node_obj and peer_node_obj.component == "iceberg-rest":
+            env["ICEBERG_REST_URI"] = f"http://{project_name}-{peer_id}:8181"
+            env["ICEBERG_SIGV4"] = "false"
+            if not str(env.get("ICEBERG_WAREHOUSE", "") or "").strip():
+                env["ICEBERG_WAREHOUSE"] = "s3://warehouse/"
+            continue
+
+        svc, port, peer_cluster, peer_minio = _iceberg_browser_peer_services(demo, peer_id, project_name)
+        if not svc or port is None:
+            continue
+        s3_url = f"http://{svc}:{port}"
+
+        if edge.connection_type == "aistor-tables":
+            rest_uri = f"{s3_url}/_iceberg"
+            if "-lb:80" in rest_uri:
+                rest_uri = rest_uri.replace("-lb:80", "-pool1-node-1:9000")
+            env["ICEBERG_REST_URI"] = rest_uri
+            env["ICEBERG_SIGV4"] = "true"
+            if peer_cluster:
+                env["ICEBERG_WAREHOUSE"] = str(
+                    (peer_cluster.config or {}).get("ICEBERG_WAREHOUSE", "analytics")
+                )
+            elif peer_minio:
+                env["ICEBERG_WAREHOUSE"] = str((peer_minio.config or {}).get("ICEBERG_WAREHOUSE", "analytics"))
+
+        if edge.connection_type in ("s3", "aistor-tables"):
+            env["S3_ENDPOINT"] = s3_url
+            if peer_cluster:
+                env["S3_ACCESS_KEY"] = peer_cluster.credentials.get("root_user", "minioadmin")
+                env["S3_SECRET_KEY"] = peer_cluster.credentials.get("root_password", "minioadmin")
+            elif peer_minio:
+                env["S3_ACCESS_KEY"] = peer_minio.config.get("MINIO_ROOT_USER", "minioadmin")
+                env["S3_SECRET_KEY"] = peer_minio.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+            if not str(env.get("TRINO_CATALOG", "") or "").strip():
+                env["TRINO_CATALOG"] = resolve_minio_peer_aistor_catalog_name(demo, peer_id)
+
+    trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
+    if trino_node and not str(env.get("TRINO_WEB_URL", "") or "").strip():
+        nc = node.config or {}
+        if not str(nc.get("TRINO_WEB_URL", "") or "").strip():
+            env["TRINO_WEB_URL"] = f"http://{project_name}-{trino_node.id}:8080"
 
 

@@ -3,7 +3,7 @@ import os
 import re
 import logging
 import yaml
-from ...models.demo import DemoDefinition, DemoNode, DemoEdge, NodePosition
+from ...models.demo import DemoCluster, DemoDefinition, DemoNode, DemoEdge, NodePosition
 from ...registry.loader import get_component
 from ...config.license_store import license_store
 
@@ -17,15 +17,312 @@ from .helpers import (
     _event_processor_webhook_and_suffix,
     _event_processor_s3_from_edges,
     _event_processor_s3_fallback_from_webhook_peer,
+    _iceberg_browser_env_from_edges,
+    apply_default_trino_catalog_env,
+    resolve_minio_peer_aistor_catalog_name,
+    resolve_trino_aistor_catalog_name,
 )
 
 logger = logging.getLogger(__name__)
 
-_MINIO_LICENSE_GUARD_ENV: dict[str, str] = {
+
+def _escape_compose_dollar_in_command(parts: list[str]) -> list[str]:
+    """Compose treats $VAR and ${VAR} as file-level interpolation; use $$ so the container sees shell $vars (e.g. awk $i)."""
+    return [p.replace("$", "$$") if isinstance(p, str) else p for p in parts]
+
+
+_SPARK_START_SCRIPT_NAME = "demoforge-start-standalone.sh"
+# Not passed into the container env — only used to set compose mem_limit from the properties panel.
+_SPARK_COMPOSE_ONLY_PROPERTY_KEYS = frozenset({"DEMOFORGE_SPARK_CONTAINER_MEM"})
+
+
+def _apply_spark_properties_to_env(manifest, env: dict[str, str]) -> None:
+    """Fill Spark env defaults from manifest.properties when node.config omitted a key."""
+    for p in manifest.properties:
+        if p.key in _SPARK_COMPOSE_ONLY_PROPERTY_KEYS:
+            continue
+        cur = env.get(p.key)
+        if cur is None or str(cur).strip() == "":
+            env[p.key] = str(p.default)
+
+
+def _spark_container_mem_from_properties(manifest, node_config: dict | None) -> str | None:
+    """Docker mem_limit override from properties panel (string like 3g)."""
+    cfg = node_config or {}
+    raw = (cfg.get("DEMOFORGE_SPARK_CONTAINER_MEM") or "").strip()
+    if not raw:
+        for p in manifest.properties:
+            if p.key == "DEMOFORGE_SPARK_CONTAINER_MEM":
+                raw = str(p.default or "").strip()
+                break
+    return raw or None
+
+
+def _spark_standalone_compose_command(component_dir: str) -> list[str]:
+    """Spark master+worker command for compose.
+
+    Prefer ``/opt/spark/demoforge-start-standalone.sh`` inside the image when present (smaller, single source in image).
+    Otherwise run the same logic inline so older ``demoforge/spark-s3a`` tags without that file still start (avoids exit 127).
+    """
+    path = os.path.join(component_dir, _SPARK_START_SCRIPT_NAME)
+    with open(path, encoding="utf-8") as f:
+        raw = f.read()
+    lines = raw.strip().splitlines()
+    if lines and lines[0].startswith("#!"):
+        lines = lines[1:]
+    body = "\n".join(lines).strip() + "\n"
+    script = (
+        "if [[ -f /opt/spark/"
+        + _SPARK_START_SCRIPT_NAME
+        + " ]]; then exec bash /opt/spark/"
+        + _SPARK_START_SCRIPT_NAME
+        + "; fi\n"
+    ) + body
+    return ["bash", "-c", script]
+
+
+# Enforced on every MinIO service so demos stay offline: no MinIO SUBNET registration / call-home licensing prompts.
+MINIO_SUBNET_REGISTRATION_SKIP_ENV: dict[str, str] = {
     "MINIO_CALLHOME_ENABLE": "off",
     "MINIO_SUBNET_DISABLE_ALERT": "on",
     "MINIO_SUBNET_RENEWAL": "off",
 }
+_MINIO_LICENSE_GUARD_ENV = MINIO_SUBNET_REGISTRATION_SKIP_ENV
+
+
+def _spark_etl_job_tables_enabled_for_minio_peer(demo: DemoDefinition, peer_id: str) -> bool:
+    """True when the MinIO cluster or standalone node for this peer has AIStor Tables enabled."""
+    cluster_id: str | None = None
+    if peer_id.endswith("-lb"):
+        cluster_id = peer_id[:-3]
+    else:
+        cl = next((c for c in demo.clusters if c.id == peer_id), None)
+        if cl:
+            cluster_id = cl.id
+    if cluster_id:
+        cl = next((c for c in demo.clusters if c.id == cluster_id), None)
+        return bool(cl and getattr(cl, "aistor_tables_enabled", False))
+    peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+    if peer_node and peer_node.component == "minio":
+        return bool(getattr(peer_node, "aistor_tables_enabled", False))
+    return False
+
+
+def _spark_etl_job_resolve_minio_endpoint_creds(
+    demo: DemoDefinition, peer_id: str, project_name: str
+) -> tuple[str, str, str] | None:
+    """HTTP S3 endpoint URL and root credentials for a MinIO cluster LB or standalone node."""
+    cluster: DemoCluster | None = None
+    if peer_id.endswith("-lb"):
+        cid = peer_id[:-3]
+        cluster = next((c for c in demo.clusters if c.id == cid), None)
+    if cluster is None:
+        cluster = next((c for c in demo.clusters if c.id == peer_id), None)
+    if cluster:
+        host = f"{project_name}-{cluster.id}-lb"
+        ep = f"http://{host}:80"
+        ak = cluster.credentials.get("root_user", "minioadmin")
+        sk = cluster.credentials.get("root_password", "minioadmin")
+        return (ep, ak, sk)
+    peer_node = next((n for n in demo.nodes if n.id == peer_id), None)
+    if peer_node and peer_node.component == "minio":
+        host = f"{project_name}-{peer_id}"
+        ep = f"http://{host}:9000"
+        ak = peer_node.config.get("MINIO_ROOT_USER", "minioadmin")
+        sk = peer_node.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+        return (ep, ak, sk)
+    return None
+
+
+def _rewrite_spark_minio_lb_iceberg_rest_uri(rest_uri: str) -> str:
+    """AIStor Tables REST catalog + SigV4: catalog calls must reach MinIO :9000; nginx LB :80 often returns 403 unsigned."""
+    if "-lb:80" in rest_uri:
+        return rest_uri.replace("-lb:80", "-pool1-node-1:9000")
+    return rest_uri
+
+
+def _spark_etl_job_s3_region_from_peer(demo: DemoDefinition, peer_id: str) -> str:
+    """Region string for Iceberg REST SigV4 signing (AwsProperties rest.signing-region)."""
+    if peer_id.endswith("-lb"):
+        cid = peer_id[:-3]
+        cl = next((c for c in demo.clusters if c.id == cid), None)
+        if cl:
+            return str((cl.config or {}).get("S3_REGION", "") or "").strip() or "us-east-1"
+    cl = next((c for c in demo.clusters if c.id == peer_id), None)
+    if cl:
+        return str((cl.config or {}).get("S3_REGION", "") or "").strip() or "us-east-1"
+    nd = next((n for n in demo.nodes if n.id == peer_id), None)
+    if nd:
+        return str((nd.config or {}).get("S3_REGION", "") or "").strip() or "us-east-1"
+    return "us-east-1"
+
+
+def _spark_etl_job_spark_catalog_name_from_peer(demo: DemoDefinition, peer_id: str) -> str:
+    """Spark Iceberg catalog name from MinIO node or cluster config (ICEBERG_SPARK_CATALOG_NAME)."""
+    raw = ""
+    if peer_id.endswith("-lb"):
+        cid = peer_id[:-3]
+        cl = next((c for c in demo.clusters if c.id == cid), None)
+        if cl:
+            raw = str((cl.config or {}).get("ICEBERG_SPARK_CATALOG_NAME", "") or "").strip()
+    if not raw:
+        cl = next((c for c in demo.clusters if c.id == peer_id), None)
+        if cl:
+            raw = str((cl.config or {}).get("ICEBERG_SPARK_CATALOG_NAME", "") or "").strip()
+    if not raw:
+        nd = next((n for n in demo.nodes if n.id == peer_id), None)
+        if nd:
+            raw = str((nd.config or {}).get("ICEBERG_SPARK_CATALOG_NAME", "") or "").strip()
+    return raw or "iceberg"
+
+
+def _spark_etl_job_iceberg_wh_from_peer(demo: DemoDefinition, peer_id: str) -> str:
+    """Default ICEBERG_WAREHOUSE / catalog warehouse string from cluster or node config."""
+    if peer_id.endswith("-lb"):
+        cid = peer_id[:-3]
+        cl = next((c for c in demo.clusters if c.id == cid), None)
+        if cl:
+            return str((cl.config or {}).get("ICEBERG_WAREHOUSE", "warehouse"))
+    cl = next((c for c in demo.clusters if c.id == peer_id), None)
+    if cl:
+        return str((cl.config or {}).get("ICEBERG_WAREHOUSE", "warehouse"))
+    nd = next((n for n in demo.nodes if n.id == peer_id), None)
+    if nd:
+        return str((nd.config or {}).get("ICEBERG_WAREHOUSE", "warehouse"))
+    return "warehouse"
+
+
+def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, project_name: str) -> None:
+    """Wire spark-etl-job container env from diagram edges (Spark master, MinIO S3/cluster LB, Iceberg REST)."""
+    cfg = node.config or {}
+    env.setdefault("JOB_SCHEDULE", cfg.get("JOB_SCHEDULE", "on_deploy_once"))
+    env.setdefault("JOB_INTERVAL_SEC", str(cfg.get("JOB_INTERVAL_SEC", "300")))
+    tpl_raw = (cfg.get("JOB_TEMPLATE") or "raw_to_iceberg").strip().lower()
+    if tpl_raw == "csv_glob_to_iceberg":
+        tpl_raw = "raw_to_iceberg"
+    env.setdefault("JOB_TEMPLATE", tpl_raw if tpl_raw == "raw_to_iceberg" else "raw_to_iceberg")
+    _ns = str(cfg.get("ICEBERG_TARGET_NAMESPACE", "") or "").strip() or "analytics"
+    _tbl = str(cfg.get("ICEBERG_TARGET_TABLE", "") or "").strip() or "events_from_raw"
+    env["ICEBERG_TARGET_NAMESPACE"] = _ns
+    env["ICEBERG_TARGET_TABLE"] = _tbl
+    fmt = (cfg.get("RAW_INPUT_FORMAT") or cfg.get("INPUT_FORMAT") or "csv").strip().lower()
+    if fmt not in ("csv", "json"):
+        fmt = "csv"
+    env["RAW_INPUT_FORMAT"] = fmt
+    jm = str(cfg.get("JSON_MULTILINE", "false")).strip().lower()
+    env["JSON_MULTILINE"] = "true" if jm in ("1", "true", "yes") else "false"
+    input_glob = (cfg.get("INPUT_GLOB") or "").strip()
+    if not input_glob:
+        input_glob = "*.json" if fmt == "json" else "*.csv"
+
+    for e in demo.edges:
+        if e.connection_type != "spark-submit":
+            continue
+        spark_id = None
+        if e.source == node.id:
+            spark_id = e.target
+        elif e.target == node.id:
+            spark_id = e.source
+        if spark_id:
+            env["SPARK_MASTER_URL"] = f"spark://{project_name}-{spark_id}:7077"
+            break
+
+    rest_from_minio: str | None = None
+    rest_catalog_peer_id: str | None = None
+    spark_minio_edge_types = ("s3", "aistor-tables")
+    saw_minio_data_edge = False
+
+    for e in demo.edges:
+        if e.connection_type not in spark_minio_edge_types:
+            continue
+        peer_id = None
+        if e.source == node.id:
+            peer_id = e.target
+        elif e.target == node.id:
+            peer_id = e.source
+        if not peer_id:
+            continue
+        resolved = _spark_etl_job_resolve_minio_endpoint_creds(demo, peer_id, project_name)
+        if not resolved:
+            continue
+        saw_minio_data_edge = True
+        if not _spark_etl_job_tables_enabled_for_minio_peer(demo, peer_id):
+            raise ValueError(
+                f"Apache Spark job '{node.id}' edge '{e.id}' references MinIO peer '{peer_id}' without AIStor Tables. "
+                "Enable AIStor Tables on that MinIO node or cluster (Raw → Iceberg requires Tables)."
+            )
+        endpoint, ak, sk = resolved
+        cc = e.connection_config or {}
+        role_raw = (cc.get("spark_sink_role") or "").lower()
+        bucket_role = (cc.get("spark_bucket_role") or "").lower()
+        if bucket_role in ("raw", "landing", "input"):
+            role = "input"
+        elif bucket_role in ("warehouse", "output", "curated"):
+            role = "output"
+        else:
+            role = role_raw or "input"
+        if role not in ("input", "output"):
+            role = "input"
+        if role == "input":
+            bucket = (
+                str(cfg.get("RAW_LANDING_BUCKET", "") or "").strip()
+                or str(cc.get("landing_bucket", "") or "").strip()
+                or "raw-logs"
+            )
+            prefix_raw = str(cfg.get("INPUT_OBJECT_PREFIX", "") or "").strip() or str(
+                cc.get("object_prefix", "") or ""
+            ).strip()
+            prefix = prefix_raw.lstrip("/")
+            if prefix and not prefix.endswith("/"):
+                prefix = prefix + "/"
+            env["INPUT_S3A_URI"] = f"s3a://{bucket}/{prefix}{input_glob}"
+            env["S3_ENDPOINT"] = endpoint
+            env["S3_ACCESS_KEY"] = ak
+            env["S3_SECRET_KEY"] = sk
+        elif role == "output":
+            wb = (
+                str(cfg.get("WAREHOUSE_BUCKET", "") or "").strip()
+                or str(cc.get("warehouse_bucket", "") or "").strip()
+                or "warehouse"
+            )
+            env.setdefault("ICEBERG_WAREHOUSE", f"s3://{wb}/")
+            env.setdefault("S3_ENDPOINT", endpoint)
+            env.setdefault("S3_ACCESS_KEY", ak)
+            env.setdefault("S3_SECRET_KEY", sk)
+        rest_from_minio = f"{endpoint.rstrip('/')}/_iceberg"
+        rest_catalog_peer_id = peer_id
+        env["ICEBERG_SPARK_CATALOG_NAME"] = _spark_etl_job_spark_catalog_name_from_peer(demo, peer_id)
+        env["ICEBERG_SIGV4"] = "true"
+        wh_cat = _spark_etl_job_iceberg_wh_from_peer(demo, peer_id)
+        if not str(env.get("ICEBERG_WAREHOUSE") or "").startswith("s3:"):
+            env["ICEBERG_WAREHOUSE"] = wh_cat
+
+    if rest_from_minio:
+        env["ICEBERG_REST_URI"] = _rewrite_spark_minio_lb_iceberg_rest_uri(rest_from_minio)
+        if rest_catalog_peer_id:
+            env["ICEBERG_REST_SIGNING_REGION"] = _spark_etl_job_s3_region_from_peer(demo, rest_catalog_peer_id)
+        env.setdefault("ICEBERG_REST_SIGNING_NAME", "s3tables")
+
+    if not saw_minio_data_edge:
+        raise ValueError(
+            f"Apache Spark job '{node.id}' must connect to a MinIO node or MinIO cluster (S3 or AIStor Tables edge) "
+            "with AIStor Tables enabled for Raw → Iceberg."
+        )
+    if not env.get("SPARK_MASTER_URL"):
+        raise ValueError(f"Apache Spark job '{node.id}' requires a spark-submit edge to an Apache Spark master.")
+    env["RAW_LANDING_BUCKET"] = str(cfg.get("RAW_LANDING_BUCKET", "") or "").strip() or "raw-logs"
+    env["WAREHOUSE_BUCKET"] = str(cfg.get("WAREHOUSE_BUCKET", "") or "").strip() or "warehouse"
+    env["INPUT_OBJECT_PREFIX"] = str(cfg.get("INPUT_OBJECT_PREFIX", "") or "").strip()
+
+    if not env.get("INPUT_S3A_URI"):
+        raise ValueError(
+            f"Apache Spark job '{node.id}' needs an input MinIO edge (spark_sink_role or spark_bucket_role = input / raw). "
+            "Set RAW_LANDING_BUCKET and INPUT_OBJECT_PREFIX on the job node."
+        )
+    if not env.get("ICEBERG_REST_URI"):
+        raise ValueError(
+            f"Apache Spark job '{node.id}' could not resolve ICEBERG_REST_URI from MinIO /_iceberg (check S3 or AIStor Tables edges to MinIO with Tables enabled)."
+        )
 
 
 def _validate_minio_license_env_or_raise(node_id: str, env: dict[str, str]) -> None:
@@ -332,6 +629,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             variant = manifest.variants.get(node.variant)
             command = variant.command if variant and variant.command else manifest.command
 
+        # Spark: always inject resilient startup (manifest `command` ignored). Uses image script when present,
+        # else inlines components/spark/demoforge-start-standalone.sh so stale image tags do not exit 127.
+        if node.component == "spark":
+            command = _spark_standalone_compose_command(component_dir)
+
         # Merge environment: manifest defaults → node overrides
         env = {}
         for key, val in manifest.environment.items():
@@ -353,10 +655,17 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         env.update(node.config)
 
+        if node.component == "spark":
+            _apply_spark_properties_to_env(manifest, env)
+            env.pop("DEMOFORGE_SPARK_CONTAINER_MEM", None)
+
         # Force MinIO license guard env on every MinIO node so cluster-wide behavior
         # stays consistent across standalone and distributed topologies.
         if node.component == "minio":
             env.update(_MINIO_LICENSE_GUARD_ENV)
+
+        if node.component == "spark-etl-job":
+            _inject_spark_etl_job_env(demo, node, env, project_name)
 
         # Inject license keys only after validating guard env.
         for lic_req in manifest.license_requirements:
@@ -437,6 +746,17 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if "S3_ENDPOINT" in env:
                 env["S3_ENDPOINT"] = s3_endpoint_url
 
+            # S3 File Browser: plain S3 only — always use MinIO root creds from the peer (no AIStor Tables / Iceberg).
+            if node.component == "s3-file-browser":
+                if peer_cluster:
+                    env["S3_ACCESS_KEY"] = peer_cluster.credentials.get("root_user", "minioadmin")
+                    env["S3_SECRET_KEY"] = peer_cluster.credentials.get("root_password", "minioadmin")
+                else:
+                    s3fb_peer = next((n for n in demo.nodes if n.id == peer_id), None)
+                    if s3fb_peer and s3fb_peer.component == "minio":
+                        env["S3_ACCESS_KEY"] = s3fb_peer.config.get("MINIO_ROOT_USER", "minioadmin")
+                        env["S3_SECRET_KEY"] = s3fb_peer.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+
             # Forward MinIO endpoint + credentials for inference-sim (tier_role based)
             if node.component == "inference-sim":
                 edge_cfg = edge.connection_config or {}
@@ -514,7 +834,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         # Strategy: follow the generator's edge to its target MinIO cluster, then:
         #   - If the cluster has aistor_tables_enabled → use cluster LB's /_iceberg endpoint
         #   - Otherwise → find iceberg-rest node connected to that cluster
-        if node.component == "data-generator" and "ICEBERG_CATALOG_URI" not in env:
+        if node.component in ("data-generator", "external-system") and "ICEBERG_CATALOG_URI" not in env:
             # Find this generator's target cluster/node via edges
             target_cluster_id = None
             target_lb_id = None
@@ -545,6 +865,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{standalone.id}:9000/_iceberg"
                         env["ICEBERG_WAREHOUSE"] = node_cfg.get("ICEBERG_WAREHOUSE", "analytics")
                         env["ICEBERG_SIGV4"] = "true"
+                        env["ICEBERG_CATALOG_NAME"] = resolve_minio_peer_aistor_catalog_name(
+                            demo, standalone.id
+                        )
 
             if target_cluster_id:
                 target_cluster = next((c for c in demo.clusters if c.id == target_cluster_id), None)
@@ -553,6 +876,9 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{target_lb_id or target_cluster_id + '-lb'}:80/_iceberg"
                     env["ICEBERG_WAREHOUSE"] = target_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
                     env["ICEBERG_SIGV4"] = "true"
+                    env["ICEBERG_CATALOG_NAME"] = resolve_minio_peer_aistor_catalog_name(
+                        demo, target_cluster_id
+                    )
                 else:
                     # External Iceberg REST: find iceberg-rest connected to this cluster
                     for edge in demo.edges:
@@ -574,20 +900,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         if iceberg_node:
                             env["ICEBERG_CATALOG_URI"] = f"http://{project_name}-{iceberg_node.id}:8181"
 
-        # Auto-inject TRINO_HOST for data generators if a Trino node exists in the demo
-        if node.component == "data-generator":
+        # Auto-inject TRINO_HOST for data generators / external-system (DG scenario mode uses Trino writer too)
+        if node.component in ("data-generator", "external-system"):
             trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
             if trino_node:
                 if "TRINO_HOST" not in env:
                     env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
-                # Inject TRINO_CATALOG from the MinIO↔Trino edge catalog_name if not already set
-                if "TRINO_CATALOG" not in env:
-                    for e in demo.edges:
-                        if e.target == trino_node.id and e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
-                            cat = (e.connection_config or {}).get("catalog_name")
-                            if cat:
-                                env["TRINO_CATALOG"] = cat
-                                break
+                apply_default_trino_catalog_env(env, demo, trino_node.id)
 
         # external-system: inject env vars from connected edges
         if node.component == "external-system":
@@ -596,6 +915,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 env["ES_SCENARIO"] = node.config["ES_SCENARIO"]
             if "ES_STARTUP_DELAY" not in env and node.config.get("ES_STARTUP_DELAY"):
                 env["ES_STARTUP_DELAY"] = node.config["ES_STARTUP_DELAY"]
+            env["ES_SINK_MODE"] = (node.config or {}).get("ES_SINK_MODE") or "files_and_iceberg"
 
             # Inject S3/AIStor env vars from s3 or aistor-tables edges to a MinIO node
             es_s3_edge_types = ("s3", "aistor-tables")
@@ -656,6 +976,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
                         env["ICEBERG_SIGV4"] = "true"
                         env["ICEBERG_WAREHOUSE"] = peer_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
+                if env.get("ICEBERG_SIGV4") == "true":
+                    env["ICEBERG_CATALOG_NAME"] = resolve_minio_peer_aistor_catalog_name(demo, peer_id)
                 break
 
             # Inject TRINO_HOST and TRINO_CATALOG if a Trino node exists
@@ -663,23 +985,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if trino_node:
                 if "TRINO_HOST" not in env or not env["TRINO_HOST"]:
                     env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
-                if "TRINO_CATALOG" not in env:
-                    # Check edges on any s3/aistor-tables edge from this node (catalog_name set there)
-                    for e in demo.edges:
-                        if e.source == node.id or e.target == node.id:
-                            cat = (e.connection_config or {}).get("catalog_name")
-                            if cat:
-                                env["TRINO_CATALOG"] = cat
-                                break
-                    # Fallback: check edges connected to Trino node
-                    if "TRINO_CATALOG" not in env:
-                        for e in demo.edges:
-                            if e.source == trino_node.id or e.target == trino_node.id:
-                                if e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
-                                    cat = (e.connection_config or {}).get("catalog_name")
-                                    if cat:
-                                        env["TRINO_CATALOG"] = cat
-                                        break
+                apply_default_trino_catalog_env(env, demo, trino_node.id)
 
             # Inject METABASE_URL from dashboard-provision edges
             for edge in demo.edges:
@@ -696,6 +1002,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     env["METABASE_URL"] = f"http://{project_name}-{peer_id}:3000"
                 break
 
+            # Raw / Data Generator output format: prefer node (ES_DG_FORMAT / DG_FORMAT) over legacy edge format.
+            nc = node.config or {}
+            fmt_override = (nc.get("ES_DG_FORMAT") or nc.get("DG_FORMAT") or "").strip().lower()
+            if fmt_override in ("csv", "json", "parquet"):
+                env["DG_FORMAT"] = fmt_override
+                env["ES_DG_FORMAT"] = fmt_override
+
         # event-processor: webhook edge config + S3/Iceberg from outgoing edges (external-system parity)
         if node.component == "event-processor":
             _event_processor_webhook_and_suffix(demo, node, env, container_name)
@@ -706,21 +1019,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if trino_node:
                 if "TRINO_HOST" not in env or not env["TRINO_HOST"]:
                     env["TRINO_HOST"] = f"{project_name}-{trino_node.id}:8080"
-                if "TRINO_CATALOG" not in env:
-                    for e in demo.edges:
-                        if e.source == node.id or e.target == node.id:
-                            cat = (e.connection_config or {}).get("catalog_name")
-                            if cat:
-                                env["TRINO_CATALOG"] = cat
-                                break
-                    if "TRINO_CATALOG" not in env:
-                        for e in demo.edges:
-                            if e.source == trino_node.id or e.target == trino_node.id:
-                                if e.connection_type in ("sql-query", "aistor-tables", "iceberg"):
-                                    cat = (e.connection_config or {}).get("catalog_name")
-                                    if cat:
-                                        env["TRINO_CATALOG"] = cat
-                                        break
+                apply_default_trino_catalog_env(env, demo, trino_node.id)
+
+        if node.component == "iceberg-browser":
+            _iceberg_browser_env_from_edges(demo, node, env, project_name)
 
         # Auto-resolve LLM API endpoint from llm-api edges
         for edge in demo.edges:
@@ -1080,6 +1382,11 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         if res.max_cpu and cpu > res.max_cpu:
             cpu = res.max_cpu
 
+        if node.component == "spark":
+            extra_mem = _spark_container_mem_from_properties(manifest, node.config)
+            if extra_mem:
+                mem = max(mem, extra_mem, key=_mem_bytes)
+
         # Resolve image — allow edition override for MinIO nodes
         image = manifest.image
         if node.component == "minio":
@@ -1107,6 +1414,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         }
 
         if command:
+            if node.component == "spark":
+                command = _escape_compose_dollar_in_command(list(command))
             service["command"] = command
 
         if manifest.entrypoint:
@@ -1190,6 +1499,23 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             service["volumes"] = service_volumes
 
         services[service_name] = service
+
+    # spark-etl-job: depend on the specific Spark master connected via spark-submit edge
+    for sj_node in demo.nodes:
+        if sj_node.component != "spark-etl-job" or sj_node.id not in services:
+            continue
+        spark_peer = None
+        for e in demo.edges:
+            if e.connection_type != "spark-submit":
+                continue
+            if e.source == sj_node.id:
+                spark_peer = e.target
+                break
+            if e.target == sj_node.id:
+                spark_peer = e.source
+                break
+        if spark_peer and spark_peer in services:
+            services[sj_node.id]["depends_on"] = {spark_peer: {"condition": "service_healthy"}}
 
     # Resolve depends_on_components: map component names to actual node IDs
     for node in demo.nodes:
@@ -1420,13 +1746,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         metabase_host = f"{project_name}-{metabase_node.id}"
         trino_host = f"{project_name}-{trino_node.id}" if trino_node else ""
         catalog_override = trino_edge.connection_config.get("catalog_name", "") if trino_edge else ""
-        if catalog_override:
-            catalog = catalog_override
-        elif trino_node and any(
+        if trino_node and any(
             e.target == trino_node.id and e.connection_type == "aistor-tables"
             for e in demo.edges
         ):
-            catalog = "aistor"
+            catalog = resolve_trino_aistor_catalog_name(demo, trino_node.id)
+        elif catalog_override:
+            catalog = catalog_override
         else:
             catalog = "iceberg"
         schema = trino_edge.connection_config.get("schema", "analytics") if trino_edge else "analytics"
@@ -1589,9 +1915,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             "name": docker_net_name,
         }
 
-    # Compose file structure
+    # Compose file structure (omit obsolete top-level version — Compose V2 warns if present)
     compose = {
-        "version": "3.8",
         "services": services,
         "networks": compose_networks,
     }

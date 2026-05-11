@@ -11,7 +11,9 @@ import os
 import yaml
 
 from ..models.demo import DemoDefinition
-from .docker_manager import exec_in_container
+from .compose_generator.generate import MINIO_SUBNET_REGISTRATION_SKIP_ENV
+from .compose_generator.helpers import resolve_trino_aistor_catalog_name
+from .docker_manager import demo_includes_minio, exec_in_container
 
 logger = logging.getLogger(__name__)
 
@@ -136,23 +138,21 @@ async def validate_and_reconcile(
             "bucket": bucket,
         })
 
-    # ── Determine Trino catalog from edges ────────────────────────────
-    # Collect all catalog names from Trino's incoming edges, prefer non-iceberg if present
+    # ── Determine Trino catalog from edges / MinIO AIStor config ───────
+    # AIStor Tables→Trino: catalog id comes only from MinIO/cluster config (not edge overrides).
     trino_catalogs: list[str] = []
     trino_node_id = next((n.id for n in demo.nodes if n.component == "trino"), None)
     if trino_node_id:
+        if any(e.target == trino_node_id and e.connection_type == "aistor-tables" for e in demo.edges):
+            cat = resolve_trino_aistor_catalog_name(demo, trino_node_id)
+            if cat not in trino_catalogs:
+                trino_catalogs.append(cat)
         for edge in demo.edges:
-            if edge.target == trino_node_id:
-                cat = (edge.connection_config or {}).get("catalog_name")
-                if cat and cat not in trino_catalogs:
-                    trino_catalogs.append(cat)
-    # Also detect AIStor via node config (standalone or cluster)
-    has_aistor = any(
-        n.component == "minio" and n.config.get("MINIO_EDITION", "ce") == "aistor"
-        for n in demo.nodes
-    ) or any(getattr(c, 'aistor_tables_enabled', False) for c in demo.clusters)
-    if has_aistor and "aistor" not in trino_catalogs:
-        trino_catalogs.append("aistor")
+            if edge.target != trino_node_id or edge.connection_type == "aistor-tables":
+                continue
+            cat = (edge.connection_config or {}).get("catalog_name")
+            if cat and cat not in trino_catalogs:
+                trino_catalogs.append(cat)
     # Primary catalog: first non-iceberg if available, else iceberg
     primary_catalog = next((c for c in trino_catalogs if c != "iceberg"), None) or "iceberg"
 
@@ -160,8 +160,15 @@ async def validate_and_reconcile(
     await progress("validation", "running", f"Validating deployment: {len(generators)} generator(s), trino={'yes' if trino_container else 'no'}")
 
     # ── Step 1: Wait for MinIO health ──────────────────────────────
-    _log("Step 1/5: Checking MinIO cluster health...")
-    await progress("validation", "running", "Step 1/5: Checking MinIO cluster health...")
+    step1_minio_note = ""
+    if demo_includes_minio(demo):
+        step1_minio_note = (
+            " Deploy injected MinIO SUBNET opt-out ("
+            + ", ".join(f"{k}={v}" for k, v in sorted(MINIO_SUBNET_REGISTRATION_SKIP_ENV.items()))
+            + ") — cluster is not registered with MinIO SUBNET."
+        )
+    _log(f"Step 1/5: Checking MinIO cluster health...{step1_minio_note}")
+    await progress("validation", "running", f"Step 1/5: Checking MinIO cluster health...{step1_minio_note}")
     if mc_shell_container:
         for attempt in range(6):
             exit_code, stdout, _ = await _exec(mc_shell_container, "mc alias list --json", progress)

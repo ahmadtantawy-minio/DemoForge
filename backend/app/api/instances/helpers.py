@@ -25,6 +25,7 @@ from ...engine.proxy_gateway import get_http_client
 from ...engine.edge_automation import (
     generate_edge_scripts, _get_credential, _safe, _find_cluster,
     _get_cluster_credentials, _resolve_cluster_endpoint,
+    _cluster_first_minio_container_name,
 )
 from ...engine.compose_generator import generate_compose
 from ...models.api_models import (
@@ -216,7 +217,7 @@ def _build_replication_state_cmd(
             f"mc alias set source http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
             f"mc replicate update source/{source_bucket} --state {desired_state}"
         )
-        return {"container": f"{project_name}-{source_cluster.id}-node-1", "command": command}
+        return {"container": _cluster_first_minio_container_name(project_name, source_cluster), "command": command}
 
     return None
 

@@ -25,6 +25,7 @@ from ...engine.edge_automation import (
     _get_cluster_credentials, _resolve_cluster_endpoint,
 )
 from ...engine.compose_generator import generate_compose
+from ...engine.compose_generator.helpers import resolve_trino_aistor_catalog_name
 from ...models.api_models import (
     InstancesResponse, ContainerInstance, WebUILink,
     ExecRequest, ExecResponse, NetworkMembership, CredentialInfo,
@@ -161,22 +162,24 @@ async def setup_tables(demo_id: str):
     if demo_def:
         trino_node_id = next((n.id for n in demo_def.nodes if n.component == "trino"), None)
         if trino_node_id:
-            for edge in demo_def.edges:
-                if edge.target == trino_node_id:
-                    cat = (edge.connection_config or {}).get("catalog_name")
-                    if cat:
-                        primary_catalog = cat
-                        break
-        if primary_catalog == "iceberg":
-            # Also detect AIStor via node config
-            for n in demo_def.nodes:
-                if n.component == "minio" and n.config.get("MINIO_EDITION", "ce") == "aistor":
-                    primary_catalog = "aistor"
-                    break
-            for c in demo_def.clusters:
-                if getattr(c, 'aistor_tables_enabled', False):
-                    primary_catalog = "aistor"
-                    break
+            if any(e.target == trino_node_id and e.connection_type == "aistor-tables" for e in demo_def.edges):
+                primary_catalog = resolve_trino_aistor_catalog_name(demo_def, trino_node_id)
+            else:
+                for edge in demo_def.edges:
+                    if edge.target == trino_node_id:
+                        cat = (edge.connection_config or {}).get("catalog_name")
+                        if cat:
+                            primary_catalog = cat
+                            break
+                if primary_catalog == "iceberg":
+                    for n in demo_def.nodes:
+                        if n.component == "minio" and n.config.get("MINIO_EDITION", "ce") == "aistor":
+                            primary_catalog = "aistor"
+                            break
+                    for c in demo_def.clusters:
+                        if getattr(c, "aistor_tables_enabled", False):
+                            primary_catalog = "aistor"
+                            break
 
     # Load all scenario YAMLs
     datasets_dir = _os.path.join(

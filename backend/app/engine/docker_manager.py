@@ -9,11 +9,23 @@ from ..models.demo import DemoDefinition
 from ..state.store import state, RunningDemo, RunningContainer
 from ..models.api_models import ContainerHealthStatus
 from .compose_generator import generate_compose
+from .compose_generator.generate import MINIO_SUBNET_REGISTRATION_SKIP_ENV
 from .network_manager import join_network, leave_all_networks
 from ..registry.loader import get_component
 
 logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
+
+
+def demo_includes_minio(demo: DemoDefinition) -> bool:
+    """True when the demo has standalone MinIO nodes or MinIO-backed clusters."""
+    if any(getattr(n, "component", None) == "minio" for n in demo.nodes):
+        return True
+    return any(getattr(c, "component", None) == "minio" for c in (demo.clusters or []))
+
+
+def _minio_subnet_skip_env_inline() -> str:
+    return ", ".join(f"{k}={v}" for k, v in sorted(MINIO_SUBNET_REGISTRATION_SKIP_ENV.items()))
 
 
 def _demo_has_pool_decommissioning(demo: DemoDefinition) -> bool:
@@ -338,7 +350,13 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
     if changed_clusters:
         logger.info(f"Demo {demo.id}: cluster topology changed for: {changed_clusters}")
 
-    await progress("compose", "running", "Generating docker-compose file...")
+    compose_running = "Generating docker-compose file..."
+    if demo_includes_minio(demo):
+        compose_running += (
+            " Injecting MinIO env so this demo does not register with MinIO SUBNET "
+            f"({_minio_subnet_skip_env_inline()})."
+        )
+    await progress("compose", "running", compose_running)
     try:
         compose_path, demo = generate_compose(demo, data_dir, components_dir)
     except Exception as exc:
@@ -347,13 +365,23 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
             await progress(
                 "compose",
                 "error",
-                f"{msg} Required env: MINIO_CALLHOME_ENABLE=off, "
-                "MINIO_SUBNET_DISABLE_ALERT=on, MINIO_SUBNET_RENEWAL=off",
+                f"{msg} Required MinIO SUBNET opt-out / license guard env: {_minio_subnet_skip_env_inline()}",
             )
         else:
             await progress("compose", "error", msg)
         raise
-    await progress("compose", "done", f"Generated {compose_path}")
+    compose_done = f"Generated {compose_path}"
+    if demo_includes_minio(demo):
+        compose_done += (
+            ". All MinIO services use SUBNET opt-out (offline demo — no registration with MinIO SUBNET): "
+            f"{_minio_subnet_skip_env_inline()}."
+        )
+        logger.info(
+            "Deploy [%s]: MinIO SUBNET registration skipped via injected env: %s",
+            demo.id,
+            _minio_subnet_skip_env_inline(),
+        )
+    await progress("compose", "done", compose_done)
 
     running = RunningDemo(
         demo_id=demo.id,
@@ -396,7 +424,13 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         await progress("cleanup", "done", "Cleanup complete")
 
         # Run docker compose up with timeout
-        await progress("containers", "running", f"Starting {len(demo.nodes)} containers...")
+        containers_running = f"Starting {len(demo.nodes)} containers..."
+        if demo_includes_minio(demo):
+            containers_running += (
+                " MinIO nodes use compose env that skips MinIO SUBNET registration "
+                f"({_minio_subnet_skip_env_inline()})."
+            )
+        await progress("containers", "running", containers_running)
         proc = await asyncio.create_subprocess_exec(
             "docker", "compose", "-f", compose_path, "-p", project_name, "up", "-d",
             stdout=asyncio.subprocess.PIPE,

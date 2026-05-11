@@ -7,6 +7,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..engine.compose_generator.helpers import resolve_trino_aistor_catalog_name
 from ..state.store import state
 
 router = APIRouter()
@@ -84,11 +85,12 @@ def _resolve_catalog_namespace(demo_id: str, scenario_id: str) -> tuple[str, str
     if wm == "raw":
         return ("hive", "raw")
 
-    # Prefer catalog_name from the MinIO↔Trino edge if defined
     trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
     if trino_node:
+        if any(e.target == trino_node.id and e.connection_type == "aistor-tables" for e in demo.edges):
+            return (resolve_trino_aistor_catalog_name(demo, trino_node.id), "demo")
         for edge in demo.edges:
-            if edge.target == trino_node.id and edge.connection_type in ("sql-query", "aistor-tables", "iceberg"):
+            if edge.target == trino_node.id and edge.connection_type in ("sql-query", "iceberg"):
                 cat = (edge.connection_config or {}).get("catalog_name")
                 if cat:
                     return (cat, "demo")

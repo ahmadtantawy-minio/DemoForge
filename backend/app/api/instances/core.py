@@ -9,6 +9,7 @@ from .minio_scenario import router as minio_scenario_router
 from .trino_tables import router as trino_tables_router
 from .metabase_setup import router as metabase_setup_router
 from .superset_setup import router as superset_setup_router
+from .spark_etl_job import router as spark_etl_job_router
 
 router = APIRouter()
 router.include_router(list_lifecycle_router)
@@ -19,3 +20,4 @@ router.include_router(minio_scenario_router)
 router.include_router(trino_tables_router)
 router.include_router(metabase_setup_router)
 router.include_router(superset_setup_router)
+router.include_router(spark_etl_job_router)
