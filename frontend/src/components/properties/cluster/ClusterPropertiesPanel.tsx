@@ -12,6 +12,10 @@ import {
 import type { ClusterNodeData, ContainerInstance } from "../../../types";
 import { computeClusterAggregates } from "../../../lib/clusterUtils";
 import { proxyUrl } from "../../../api/client";
+import {
+  AISTOR_TABLES_DEFAULT_CATALOG_NAME,
+  AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE,
+} from "../../../lib/aistorTablesDefaults";
 
 interface Props {
   nodeId: string;
@@ -144,7 +148,23 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
               checked={data.aistorTablesEnabled === true}
               onChange={(e) => {
                 const enabled = e.target.checked;
-                onUpdate({ aistorTablesEnabled: enabled });
+                const wh =
+                  (data.config?.ICEBERG_WAREHOUSE || "").trim() || AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE;
+                const catalogHint =
+                  (data.config?.AISTOR_TABLES_CATALOG_NAME || "").trim() ||
+                  AISTOR_TABLES_DEFAULT_CATALOG_NAME;
+                onUpdate(
+                  enabled
+                    ? {
+                        aistorTablesEnabled: true,
+                        config: {
+                          ...data.config,
+                          ICEBERG_WAREHOUSE: wh,
+                          AISTOR_TABLES_CATALOG_NAME: catalogHint,
+                        },
+                      }
+                    : { aistorTablesEnabled: false }
+                );
                 // Auto-update existing edges from this cluster to Trino nodes
                 const trinoNodeIds = nodes.filter((n) => (n.data as any)?.componentId === "trino").map((n) => n.id);
                 if (trinoNodeIds.length > 0) {
@@ -153,7 +173,13 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
                       const ed = edge.data as any;
                       const newType = enabled ? "aistor-tables" : "s3";
                       if (ed?.connectionType === "s3" || ed?.connectionType === "aistor-tables") {
-                        return { ...edge, data: { ...ed, connectionType: newType } };
+                        const prevCfg = (ed.connectionConfig || {}) as Record<string, unknown>;
+                        const { catalog_name: _omit, ...restCfg } = prevCfg;
+                        const nextCfg = enabled ? restCfg : { ...prevCfg };
+                        return {
+                          ...edge,
+                          data: { ...ed, connectionType: newType, connectionConfig: nextCfg },
+                        };
                       }
                     }
                     return edge;
@@ -171,6 +197,48 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
           <p className="text-[10px] text-muted-foreground mt-0.5 ml-5">
             Allows direct connection to Trino via AIStor Tables
           </p>
+          {data.aistorTablesEnabled === true && (
+            <div className="mt-2 ml-5 space-y-2 border-l border-border pl-2">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Catalog name</label>
+                <Input
+                  type="text"
+                  value={data.config?.AISTOR_TABLES_CATALOG_NAME ?? ""}
+                  placeholder={AISTOR_TABLES_DEFAULT_CATALOG_NAME}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    onUpdate({
+                      config: { ...data.config, AISTOR_TABLES_CATALOG_NAME: v },
+                    });
+                  }}
+                  className="h-8 text-sm font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Single source of truth for MinIO→Trino AIStor Tables: Trino mounts{" "}
+                  <span className="font-mono">/etc/trino/catalog/&lt;name&gt;.properties</span> and DemoForge sets{" "}
+                  <span className="font-mono">TRINO_CATALOG</span> from this field — use{" "}
+                  <span className="font-mono">catalog.schema.table</span> in SQL (avoid reserved names iceberg / hive).
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Namespace/warehouse name</label>
+                <Input
+                  type="text"
+                  value={data.config?.ICEBERG_WAREHOUSE ?? ""}
+                  placeholder={AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE}
+                  onChange={(e) =>
+                    onUpdate({
+                      config: { ...data.config, ICEBERG_WAREHOUSE: e.target.value },
+                    })
+                  }
+                  className="h-8 text-sm font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  REST catalog warehouse (default {AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE}, same as Spark job manifest).
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

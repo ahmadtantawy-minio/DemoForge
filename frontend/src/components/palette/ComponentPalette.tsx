@@ -69,6 +69,35 @@ export default function ComponentPalette() {
     return cat;
   };
 
+  /** Keep Apache Spark Job next to Apache Spark in the analytics palette (no BI tools between them). */
+  const sortPaletteItems = (category: string, items: ComponentSummary[]): ComponentSummary[] => {
+    if (category.toLowerCase() !== "analytics") {
+      return [...items].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    const order = [
+      "trino",
+      "iceberg-rest",
+      "iceberg-browser",
+      "nessie",
+      "dremio",
+      "clickhouse",
+      "spark-etl-job",
+      "spark",
+      "superset",
+      "metabase",
+    ];
+    const rank = (id: string) => {
+      const i = order.indexOf(id);
+      return i === -1 ? 1000 : i;
+    };
+    return [...items].sort((a, b) => {
+      const ra = rank(a.id);
+      const rb = rank(b.id);
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
+  };
+
   // Returns the missing license label for a component, or null if all met
   const getMissingLicense = (componentId: string): LicenseEntry | null => {
     for (const entry of licenses) {
@@ -178,7 +207,9 @@ export default function ComponentPalette() {
             <span className="font-medium text-foreground truncate flex-1">Visual</span>
           </div>
         </div>}
-        {sortedCategories.map((category) => { const items = grouped[category]; return (
+        {sortedCategories.map((category) => {
+          const items = sortPaletteItems(category, grouped[category]);
+          return (
           <div key={category} className="mb-3">
             <div className="text-xs text-muted-foreground font-medium uppercase px-1 mb-1">
               {categoryLabel(category)}

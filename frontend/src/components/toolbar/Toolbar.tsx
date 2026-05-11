@@ -356,7 +356,7 @@ export default function Toolbar() {
                 : activeDemo.status === "deploying"
                 ? "bg-yellow-500/15 text-yellow-400"
                 : activeDemo.status === "stopping"
-                ? "bg-orange-500/15 text-orange-400"
+                ? "bg-amber-950/70 text-amber-100 ring-1 ring-amber-800/50"
                 : activeDemo.status === "error"
                 ? "bg-red-500/15 text-red-400"
                 : "bg-muted text-muted-foreground"

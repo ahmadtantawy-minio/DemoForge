@@ -8,7 +8,7 @@ import { useDemoStore } from "../../../stores/demoStore";
 
 
 export default function AnimatedDataEdge({
-  id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
+  id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
 }: EdgeProps) {
   const { deleteElements, getNode } = useReactFlow();
   const { demos, activeDemoId } = useDemoStore();
@@ -87,7 +87,9 @@ export default function AnimatedDataEdge({
 
   // External-system data flow animation
   const sourceNode = getNode(source);
+  const targetNode = target ? getNode(target) : undefined;
   const sourceComponentId = (sourceNode?.data as any)?.componentId as string | undefined;
+  const targetComponentId = (targetNode?.data as any)?.componentId as string | undefined;
   const sourceHealth = (sourceNode?.data as any)?.health as string | undefined;
   const isExternalSystem = sourceComponentId === "external-system";
   const isExternalActive = isExternalSystem && isDemoRunning && (sourceHealth === "healthy");
@@ -98,9 +100,83 @@ export default function AnimatedDataEdge({
   const paceDur = generationMode === "stream" ? 1.0 : generationMode === "batch" ? 3.5 : 1.8;
   const paceParticles = generationMode === "stream" ? 4 : generationMode === "batch" ? 2 : 3;
 
-  const isBidirectional = (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
+  let externalSystemEdgeFallback: string | null = null;
+  if (
+    (connectionType === "s3" || connectionType === "aistor-tables") &&
+    sourceComponentId === "external-system"
+  ) {
+    const sinkRaw =
+      (connConfig?.es_sink_mode as string | undefined) ?? (sourceNode?.data as { config?: Record<string, string> } | undefined)?.config?.ES_SINK_MODE;
+    const sink = sinkRaw === "files_only" ? "files_only" : "files_and_iceberg";
+    const sinkTag =
+      sink === "files_only" ? "Raw only" : connectionType === "aistor-tables" ? "Iceberg" : "Catalog";
+    const parts: string[] = [sinkTag];
+    if (sink === "files_only") {
+      const srcCfg = (sourceNode?.data as { config?: Record<string, string> } | undefined)?.config ?? {};
+      const fmt = (
+        nonemptyTrim(srcCfg.ES_DG_FORMAT) ??
+        nonemptyTrim(srcCfg.DG_FORMAT) ??
+        nonemptyTrim(connConfig?.format as string | undefined) ??
+        "csv"
+      ).toUpperCase();
+      const b = nonemptyTrim(connConfig?.target_bucket as string | undefined) ?? nonemptyTrim(connConfig?.bucket as string | undefined);
+      parts.push(fmt);
+      if (b) parts.push(b);
+    } else if (generationMode) {
+      parts.push(String(generationMode));
+    }
+    externalSystemEdgeFallback = parts.join(" · ");
+  }
+
+  let sparkJobS3Fallback: string | null = null;
+  if (
+    (connectionType === "s3" || connectionType === "aistor-tables") &&
+    targetComponentId === "spark-etl-job" &&
+    targetNode
+  ) {
+    const jc = ((targetNode.data as any)?.config ?? {}) as Record<string, string>;
+    const rawFmt = String(jc.RAW_INPUT_FORMAT || jc.INPUT_FORMAT || "csv").toLowerCase();
+    const fileLabel = rawFmt === "json" ? "JSON" : "CSV";
+    const table = String(jc.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw";
+    const br = (connConfig?.spark_bucket_role as string | undefined)?.toLowerCase() || "";
+    const sr = (connConfig?.spark_sink_role as string | undefined)?.toLowerCase() || "";
+    const isOut =
+      sr === "output" || br === "warehouse" || br === "curated" || br === "output";
+    sparkJobS3Fallback = isOut ? `Iceberg → ${table}` : `${fileLabel} → ${table}`;
+  }
+
+  let sparkSparkS3Fallback: string | null = null;
+  if (connectionType === "s3" && targetComponentId === "spark" && sourceComponentId === "minio") {
+    const br = (connConfig?.spark_bucket_role as string | undefined)?.toLowerCase() || "";
+    const rawB = (connConfig?.raw_bucket as string | undefined)?.trim();
+    const wh = (connConfig?.warehouse_bucket as string | undefined)?.trim() || "warehouse";
+    if (br === "raw" || br === "landing") {
+      sparkSparkS3Fallback = rawB ? `S3 · raw (${rawB})` : "S3 · raw";
+    } else if (br === "warehouse" || br === "curated") {
+      sparkSparkS3Fallback = `S3 · warehouse (${wh})`;
+    } else if (rawB) {
+      sparkSparkS3Fallback = wh ? `S3 · raw (${rawB}) + wh (${wh})` : `S3 · raw (${rawB})`;
+    } else {
+      sparkSparkS3Fallback = `S3 · warehouse (${wh})`;
+    }
+  }
+
+  let sparkSubmitFallback: string | null = null;
+  if (connectionType === "spark-submit") {
+    sparkSubmitFallback = "Spark submit";
+  }
+
+  // Spark ETL jobs read from MinIO (raw/landing) and write back (warehouse/Iceberg) over the same S3/Tables path.
+  const isSparkEtlMinioDataEdge =
+    (connectionType === "s3" || connectionType === "aistor-tables") &&
+    ((sourceComponentId === "spark-etl-job" && targetComponentId === "minio") ||
+      (targetComponentId === "spark-etl-job" && sourceComponentId === "minio"));
+
+  const isBidirectional =
+    (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
     connectionType === "site-replication" ||
-    connectionType === "cluster-site-replication";
+    connectionType === "cluster-site-replication" ||
+    isSparkEtlMinioDataEdge;
   const isFailover = connectionType === "failover";
   const failoverRole = (edgeData as any)?.connectionConfig?.role as string | undefined;
   const failoverActive = (edgeData as any)?.failoverActive as boolean | undefined;
@@ -130,7 +206,15 @@ export default function AnimatedDataEdge({
 
   // Text shown in the pill: custom label and/or derived labels only — no default connection-type name (e.g. "S3").
   const labelText =
-    nonemptyTrim(edgeData?.label) ?? formatLabel ?? webhookEdgeLabel ?? nginxLabel ?? "";
+    nonemptyTrim(edgeData?.label) ??
+    formatLabel ??
+    webhookEdgeLabel ??
+    nginxLabel ??
+    externalSystemEdgeFallback ??
+    sparkJobS3Fallback ??
+    sparkSparkS3Fallback ??
+    sparkSubmitFallback ??
+    "";
 
   const hasInlineStatus =
     configStatus === "applied" ||

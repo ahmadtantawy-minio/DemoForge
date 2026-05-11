@@ -307,6 +307,36 @@ export const execContainerLog = (demoId: string, nodeId: string, command: string
     { method: "POST", body: JSON.stringify({ command }) }
   );
 
+/** Compose-aligned PySpark script + effective env (secrets redacted) + spark-submit line. */
+export const fetchSparkEtlJobPreview = (demoId: string, nodeId: string) =>
+  apiFetch<{
+    node_id: string;
+    job_script_path: string;
+    job_script: string;
+    spark_submit_command: string;
+    environment: Record<string, string>;
+    job_schedule: string;
+    job_template: string;
+  }>(`/api/demos/${demoId}/instances/${nodeId}/spark-etl-job/preview`);
+
+/** NDJSON run history from the spark-etl-job container (/tmp/demoforge-spark-runs.ndjson). */
+export const fetchSparkEtlJobRuns = (demoId: string, nodeId: string) =>
+  apiFetch<{
+    runs: Array<{
+      ts: string;
+      phase: string;
+      schedule: string;
+      exit_code: number | null;
+      status: string;
+      success: boolean | null;
+    }>;
+    log_path: string;
+    container_running: boolean;
+    message: string;
+    last_finished_exit_code: number | null;
+    last_finished_success: boolean | null;
+  }>(`/api/demos/${demoId}/instances/${nodeId}/spark-etl-job/runs`);
+
 // Terminal WebSocket URL
 export const terminalWsUrl = (demoId: string, nodeId: string) =>
   apiWsUrl(`/api/demos/${demoId}/instances/${nodeId}/terminal`);

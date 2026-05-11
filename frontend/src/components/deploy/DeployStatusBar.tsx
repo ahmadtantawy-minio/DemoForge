@@ -104,7 +104,7 @@ export default function DeployStatusBar({ demoId }: Props) {
         isRunning
           ? "bg-green-950/60 border-green-800/60 text-green-400"
           : isStopping
-          ? "bg-orange-950/40 border-orange-800/50 text-orange-400"
+          ? "bg-zinc-950 border-amber-900/55 text-amber-100"
           : "bg-zinc-900 border-zinc-800 text-zinc-300"
       }`}
     >
@@ -112,7 +112,9 @@ export default function DeployStatusBar({ demoId }: Props) {
       {isRunning ? (
         <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
       ) : (
-        <Loader2 className="w-3 h-3 flex-shrink-0 animate-spin text-current" />
+        <Loader2
+          className={`w-3 h-3 flex-shrink-0 animate-spin ${isStopping ? "text-amber-300" : "text-current"}`}
+        />
       )}
 
       {/* Status label */}
@@ -121,8 +123,8 @@ export default function DeployStatusBar({ demoId }: Props) {
       {/* Detail text with separator */}
       {detailText && (
         <>
-          <span className="text-zinc-600 select-none">&middot;</span>
-          <span className="text-zinc-400">{detailText}</span>
+          <span className={`select-none ${isStopping ? "text-amber-700/80" : "text-zinc-600"}`}>&middot;</span>
+          <span className={isStopping ? "text-amber-200/85" : "text-zinc-400"}>{detailText}</span>
         </>
       )}
 
@@ -141,7 +143,11 @@ export default function DeployStatusBar({ demoId }: Props) {
       {/* Dismiss button */}
       <button
         onClick={() => setDismissed(true)}
-        className="ml-1 rounded hover:bg-zinc-700/60 p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+        className={`ml-1 rounded p-0.5 transition-colors ${
+          isStopping
+            ? "text-amber-400/80 hover:bg-amber-950/80 hover:text-amber-100"
+            : "text-zinc-500 hover:bg-zinc-700/60 hover:text-zinc-300"
+        }`}
         aria-label="Dismiss deployment status"
       >
         <X className="w-3 h-3" />

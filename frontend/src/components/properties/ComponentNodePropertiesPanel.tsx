@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { Edge } from "@xyflow/react";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,8 +13,15 @@ import ScenarioPicker from "./ScenarioPicker";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
 import HealthBadge from "../control-plane/HealthBadge";
 import { proxyUrl } from "../../api/client";
-import type { ComponentNodeData, ComponentSummary, ContainerInstance } from "../../types";
+import type { ComponentNodeData, ComponentSummary, ContainerInstance, ScenarioOption } from "../../types";
 import { useDiagramStore } from "../../stores/diagramStore";
+import { fetchComponentScenarios } from "../../api/client";
+import { mapEdgesForExternalSystemLabels, normalizeEsSinkMode } from "../../lib/externalSystemEdgeLabels";
+import { nonemptyTrim } from "../../lib/utils";
+import {
+  AISTOR_TABLES_DEFAULT_CATALOG_NAME,
+  AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE,
+} from "../../lib/aistorTablesDefaults";
 import { DataGeneratorPanel } from "./DataGeneratorPanel";
 import { RagAppPanel } from "./RagAppPanel";
 import { OllamaPanel } from "./OllamaPanel";
@@ -67,6 +75,55 @@ export function ComponentNodePropertiesPanel({
   setSqlEditorScenarioId,
   setDesignerWebUiOverlay,
 }: ComponentNodePropertiesPanelProps) {
+  const [esScenarios, setEsScenarios] = useState<ScenarioOption[]>([]);
+
+  useEffect(() => {
+    if (data.componentId !== "external-system") {
+      setEsScenarios([]);
+      return;
+    }
+    void fetchComponentScenarios("external-system")
+      .then((res) => setEsScenarios(res.scenarios))
+      .catch(() => setEsScenarios([]));
+  }, [data.componentId]);
+
+  useEffect(() => {
+    if (data.componentId !== "external-system" || isExperience) return;
+    const scenario = esScenarios.find((s) => s.id === (data.config?.ES_SCENARIO ?? ""));
+    const sink = normalizeEsSinkMode(data.config?.ES_SINK_MODE);
+    const nodeRawFmt =
+      nonemptyTrim(data.config?.ES_DG_FORMAT as string | undefined) ??
+      nonemptyTrim(data.config?.DG_FORMAT as string | undefined) ??
+      null;
+    const cur = useDiagramStore.getState().edges;
+    const next = mapEdgesForExternalSystemLabels(cur, selectedNodeId, sink, scenario, nodeRawFmt);
+    let changed = false;
+    for (const e of cur) {
+      if (e.source !== selectedNodeId) continue;
+      const ct = (e.data as { connectionType?: string } | undefined)?.connectionType;
+      if (ct !== "s3" && ct !== "aistor-tables") continue;
+      const ne = next.find((x) => x.id === e.id);
+      const oldLabel = (e.data as { label?: string } | undefined)?.label ?? "";
+      const newLabel = (ne?.data as { label?: string } | undefined)?.label ?? "";
+      const oldSink = (e.data as { connectionConfig?: { es_sink_mode?: string } } | undefined)?.connectionConfig?.es_sink_mode;
+      if (oldLabel !== newLabel || oldSink !== sink) {
+        changed = true;
+        break;
+      }
+    }
+    if (changed) setEdges(next);
+  }, [
+    data.componentId,
+    data.config?.ES_SCENARIO,
+    data.config?.ES_SINK_MODE,
+    data.config?.ES_DG_FORMAT,
+    data.config?.DG_FORMAT,
+    esScenarios,
+    isExperience,
+    selectedNodeId,
+    setEdges,
+  ]);
+
   const minioEdition = data.config?.MINIO_EDITION || "ce";
   const isAIStorEdition = minioEdition === "aistor" || minioEdition === "aistor-edge";
   const minioImageRef =
@@ -124,7 +181,27 @@ export function ComponentNodePropertiesPanel({
                     type="checkbox"
                     className="h-3.5 w-3.5 accent-primary"
                     checked={!!data.aistorTablesEnabled}
-                    onChange={(e) => updateData({ aistorTablesEnabled: e.target.checked })}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      const wh =
+                        (data.config?.ICEBERG_WAREHOUSE || "").trim() ||
+                        AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE;
+                      const catalogHint =
+                        (data.config?.AISTOR_TABLES_CATALOG_NAME || "").trim() ||
+                        AISTOR_TABLES_DEFAULT_CATALOG_NAME;
+                      updateData(
+                        enabled
+                          ? {
+                              aistorTablesEnabled: true,
+                              config: {
+                                ...data.config,
+                                ICEBERG_WAREHOUSE: wh,
+                                AISTOR_TABLES_CATALOG_NAME: catalogHint,
+                              },
+                            }
+                          : { aistorTablesEnabled: false }
+                      );
+                    }}
                   />
                   <span className="text-xs text-foreground">AIStor Tables (Iceberg REST)</span>
                 </label>
@@ -137,6 +214,37 @@ export function ComponentNodePropertiesPanel({
                   />
                   <span className="text-xs text-foreground">MCP Server</span>
                 </label>
+                {data.aistorTablesEnabled && (
+                  <div className="mt-2 space-y-2 border border-border rounded-md p-2 bg-muted/20">
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-1">Catalog name</label>
+                      <Input
+                        type="text"
+                        value={data.config?.AISTOR_TABLES_CATALOG_NAME ?? ""}
+                        placeholder={AISTOR_TABLES_DEFAULT_CATALOG_NAME}
+                        onChange={(e) => updateConfig("AISTOR_TABLES_CATALOG_NAME", e.target.value)}
+                        className="h-8 text-sm font-mono"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Used for Trino when this MinIO connects via AIStor Tables (default{" "}
+                        {AISTOR_TABLES_DEFAULT_CATALOG_NAME}).
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-1">Namespace/warehouse name</label>
+                      <Input
+                        type="text"
+                        value={data.config?.ICEBERG_WAREHOUSE ?? ""}
+                        placeholder={AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE}
+                        onChange={(e) => updateConfig("ICEBERG_WAREHOUSE", e.target.value)}
+                        className="h-8 text-sm font-mono"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        REST catalog warehouse (default {AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE}).
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -177,47 +285,251 @@ export function ComponentNodePropertiesPanel({
       </div>
 
       {data.componentId === "external-system" && !isExperience && (
-        <ScenarioPicker
-          currentScenario={data.config?.ES_SCENARIO ?? ""}
-          catalogName={
-            (edges.find((e) => e.source === selectedNodeId && (e.data as { connectionConfig?: { catalog_name?: string } })?.connectionConfig?.catalog_name)?.data as {
-              connectionConfig?: { catalog_name?: string };
-            })?.connectionConfig?.catalog_name
-          }
-          onScenarioChange={(scenarioId, scenario) => {
-            const currentDisplayName = data.displayName ?? "";
-            const needsNameUpdate =
-              !currentDisplayName ||
-              currentDisplayName === "External System" ||
-              currentDisplayName === (data.label ?? "");
-            updateData({
-              config: { ...data.config, ES_SCENARIO: scenarioId },
-              ...(needsNameUpdate ? { displayName: scenario.default_name } : {}),
-            });
-            const currentEdges = useDiagramStore.getState().edges;
-            const primaryMode = scenario.datasets?.[0]?.generation_mode ?? "";
-            setEdges(
-              currentEdges.map((e) => {
-                if (e.source !== selectedNodeId) return e;
-                const ct = (e.data as { connectionType?: string } | undefined)?.connectionType as string | undefined;
-                const prefix = ct === "aistor-tables" ? "Iceberg" : ct === "s3" ? "S3" : null;
-                const parts = [prefix, scenario.format, scenario.primary_table].filter(Boolean);
-                const label = parts.length > 0 ? parts.join(" · ") : (e.data as { label?: string })?.label;
-                return {
-                  ...e,
-                  data: {
-                    ...e.data,
-                    ...(label ? { label } : {}),
-                    connectionConfig: {
-                      ...((e.data as { connectionConfig?: Record<string, string> })?.connectionConfig ?? {}),
-                      generation_mode: primaryMode,
-                    },
+        <>
+          <ScenarioPicker
+            currentScenario={data.config?.ES_SCENARIO ?? ""}
+            catalogName={
+              (edges.find((e) => e.source === selectedNodeId && (e.data as { connectionConfig?: { catalog_name?: string } })?.connectionConfig?.catalog_name)?.data as {
+                connectionConfig?: { catalog_name?: string };
+              })?.connectionConfig?.catalog_name
+            }
+            onScenarioChange={(scenarioId, scenario) => {
+              const currentDisplayName = data.displayName ?? "";
+              const needsNameUpdate =
+                !currentDisplayName ||
+                currentDisplayName === "External System" ||
+                currentDisplayName === (data.label ?? "");
+              const sink = normalizeEsSinkMode(data.config?.ES_SINK_MODE);
+              const nodeRawFmt =
+                nonemptyTrim(data.config?.ES_DG_FORMAT as string | undefined) ??
+                nonemptyTrim(data.config?.DG_FORMAT as string | undefined) ??
+                null;
+              updateData({
+                config: { ...data.config, ES_SCENARIO: scenarioId },
+                ...(needsNameUpdate ? { displayName: scenario.default_name } : {}),
+              });
+              const currentEdges = useDiagramStore.getState().edges;
+              setEdges(mapEdgesForExternalSystemLabels(currentEdges, selectedNodeId, sink, scenario, nodeRawFmt));
+            }}
+          />
+          <div className="mb-3">
+            <label className="text-xs text-muted-foreground block mb-1">Data sink</label>
+            <p className="text-[10px] text-muted-foreground/90 mb-1.5 leading-snug">
+              Files only lands CSV/objects in MinIO for Spark or downstream ETL. Files + catalog also registers Iceberg tables when the catalog is available (PyIceberg when supported, otherwise Trino).
+            </p>
+            <Select
+              value={normalizeEsSinkMode(data.config?.ES_SINK_MODE)}
+              onValueChange={(v) => {
+                const sink = normalizeEsSinkMode(v);
+                const scenario = esScenarios.find((s) => s.id === (data.config?.ES_SCENARIO ?? ""));
+                const nodeRawFmt =
+                  nonemptyTrim(data.config?.ES_DG_FORMAT as string | undefined) ??
+                  nonemptyTrim(data.config?.DG_FORMAT as string | undefined) ??
+                  null;
+                updateData({ config: { ...data.config, ES_SINK_MODE: v } });
+                const currentEdges = useDiagramStore.getState().edges;
+                setEdges(mapEdgesForExternalSystemLabels(currentEdges, selectedNodeId, sink, scenario, nodeRawFmt));
+              }}
+            >
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="files_and_iceberg">Files + Iceberg (default)</SelectItem>
+                <SelectItem value="files_only">Files only (raw landing / objects)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="mb-3">
+            <label className="text-xs text-muted-foreground block mb-1">Raw file format</label>
+            <p className="text-[10px] text-muted-foreground/90 mb-1.5 leading-snug">
+              Object format for Files only mode and for Data Generator scenarios (sets{" "}
+              <span className="font-mono">DG_FORMAT</span> / <span className="font-mono">ES_DG_FORMAT</span> in the
+              container). Configure here instead of on the MinIO connection.
+            </p>
+            <Select
+              value={(data.config?.ES_DG_FORMAT || data.config?.DG_FORMAT || "csv").toLowerCase()}
+              onValueChange={(v) => {
+                const sink = normalizeEsSinkMode(data.config?.ES_SINK_MODE);
+                const scenario = esScenarios.find((s) => s.id === (data.config?.ES_SCENARIO ?? ""));
+                updateData({ config: { ...data.config, ES_DG_FORMAT: v, DG_FORMAT: v } });
+                const currentEdges = useDiagramStore.getState().edges;
+                setEdges(mapEdgesForExternalSystemLabels(currentEdges, selectedNodeId, sink, scenario, v));
+              }}
+            >
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="csv">csv</SelectItem>
+                <SelectItem value="json">json</SelectItem>
+                <SelectItem value="parquet">parquet</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+
+      {data.componentId === "spark-etl-job" && !isExperience && (
+        <div className="mb-3 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Schedule</label>
+            <p className="text-[10px] text-muted-foreground/90 mb-1 leading-snug">
+              on_deploy_once runs spark-submit once after Spark is healthy. interval re-runs on a timer. manual idles the container for a narrated demo.
+            </p>
+            <Select value={data.config?.JOB_SCHEDULE ?? "on_deploy_once"} onValueChange={(v) => updateConfig("JOB_SCHEDULE", v)}>
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="on_deploy_once">On deploy (once)</SelectItem>
+                <SelectItem value="interval">Interval (repeat)</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {(data.config?.JOB_SCHEDULE ?? "on_deploy_once") === "interval" && (
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Interval (seconds)</label>
+              <Input
+                type="number"
+                min={60}
+                step={60}
+                value={data.config?.JOB_INTERVAL_SEC ?? "300"}
+                onChange={(e) => updateConfig("JOB_INTERVAL_SEC", e.target.value)}
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Job type</label>
+            <p className="text-xs text-muted-foreground border rounded-md px-2 py-1.5 bg-muted/30">
+              Raw → Iceberg — load CSV or JSON from MinIO (S3A) and write into the Iceberg REST catalog (
+              <code className="text-[10px]">/_iceberg</code> on AIStor Tables).
+            </p>
+          </div>
+          <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Target Iceberg table (catalog write)
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Namespace (schema)</label>
+              <Input
+                value={data.config?.ICEBERG_TARGET_NAMESPACE ?? ""}
+                placeholder="analytics"
+                onChange={(e) => updateConfig("ICEBERG_TARGET_NAMESPACE", e.target.value)}
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Target table name</label>
+              <Input
+                value={data.config?.ICEBERG_TARGET_TABLE ?? ""}
+                placeholder="events_from_raw"
+                onChange={(e) => updateConfig("ICEBERG_TARGET_TABLE", e.target.value)}
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground font-mono break-all">
+              Spark catalog <span className="text-foreground">demoforge_rest</span> →{" "}
+              <span className="text-foreground">
+                {(data.config?.ICEBERG_TARGET_NAMESPACE || "analytics").trim() || "analytics"}.
+                {(data.config?.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw"}
+              </span>
+            </p>
+          </div>
+          <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              MinIO buckets (S3A)
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-snug">
+              Configure landing and warehouse buckets on the job — MinIO→job edges only set input vs output.
+            </p>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Raw landing bucket</label>
+              <Input
+                value={data.config?.RAW_LANDING_BUCKET ?? ""}
+                placeholder="raw-logs"
+                onChange={(e) => updateConfig("RAW_LANDING_BUCKET", e.target.value)}
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Warehouse bucket</label>
+              <Input
+                value={data.config?.WAREHOUSE_BUCKET ?? ""}
+                placeholder="warehouse"
+                onChange={(e) => updateConfig("WAREHOUSE_BUCKET", e.target.value)}
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Object key prefix (optional)</label>
+              <Input
+                value={data.config?.INPUT_OBJECT_PREFIX ?? ""}
+                onChange={(e) => updateConfig("INPUT_OBJECT_PREFIX", e.target.value)}
+                placeholder="folder/subfolder/"
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Raw input format</label>
+            <Select
+              value={(data.config?.RAW_INPUT_FORMAT || data.config?.INPUT_FORMAT || "csv").toLowerCase()}
+              onValueChange={(v) => {
+                const next = v === "json" ? "json" : "csv";
+                const curGlob = (data.config?.INPUT_GLOB || "").trim();
+                let nextGlob = curGlob;
+                if (next === "json" && (curGlob === "*.csv" || curGlob === "")) nextGlob = "*.json";
+                if (next === "csv" && (curGlob === "*.json" || curGlob === "")) nextGlob = "*.csv";
+                updateData({
+                  config: {
+                    ...data.config,
+                    RAW_INPUT_FORMAT: next,
+                    ...(nextGlob !== curGlob ? { INPUT_GLOB: nextGlob } : {}),
                   },
-                };
-              })
-            );
-          }}
-        />
+                });
+              }}
+            >
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="csv">CSV</SelectItem>
+                <SelectItem value="json">JSON (JSON Lines or multi-line)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Input object glob</label>
+            <Input
+              value={data.config?.INPUT_GLOB ?? ""}
+              onChange={(e) => updateConfig("INPUT_GLOB", e.target.value)}
+              placeholder={
+                (data.config?.RAW_INPUT_FORMAT || data.config?.INPUT_FORMAT || "csv").toLowerCase() === "json"
+                  ? "*.json"
+                  : "*.csv"
+              }
+              className="h-8 text-sm font-mono"
+            />
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Path under the raw landing bucket, e.g. <span className="font-mono">*.csv</span> or{" "}
+              <span className="font-mono">landing/*.json</span>.
+            </p>
+          </div>
+          {(data.config?.RAW_INPUT_FORMAT || data.config?.INPUT_FORMAT || "csv").toLowerCase() === "json" && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={(data.config?.JSON_MULTILINE || "").toLowerCase() === "true"}
+                onChange={(e) => updateConfig("JSON_MULTILINE", e.target.checked ? "true" : "false")}
+              />
+              <span className="text-xs text-foreground">JSON: multi-line documents (Spark multiLine)</span>
+            </label>
+          )}
+        </div>
       )}
 
       {data.componentId === "event-processor" && !isExperience && (

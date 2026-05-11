@@ -114,7 +114,9 @@ export default function ComponentNode({ id, data }: NodeProps) {
   const resilienceProbe = isResilienceTester ? resilienceProbes.find((p) => p.node_id === id) : null;
 
   const solidToolingCard =
-    nodeData.componentId === "external-system" || nodeData.componentId === "event-processor";
+    nodeData.componentId === "external-system" ||
+    nodeData.componentId === "event-processor" ||
+    nodeData.componentId === "spark-etl-job";
 
   const healthColors: Record<string, string> = {
     healthy: "bg-green-500",

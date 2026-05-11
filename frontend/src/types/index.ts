@@ -255,6 +255,10 @@ export interface ScenarioOption {
   default_subtitle: string;
   format?: string;
   primary_table?: string;
+  /** Default MinIO bucket for Files only (from scenario YAML or derived). */
+  default_raw_bucket?: string;
+  /** Default object format for Files only labels and DG_FORMAT (csv/json/parquet). */
+  default_raw_format?: string;
   datasets?: ScenarioDataset[];
 }
 

@@ -30,6 +30,8 @@ import AnnotationPointerEdge from "./edges/AnnotationPointerEdge";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
 import LogViewer from "../logs/LogViewer";
+import SparkJobCodeDialog from "../spark/SparkJobCodeDialog";
+import SparkJobRunsDialog from "../spark/SparkJobRunsDialog";
 import MinioAdminPanel from "../minio/MinioAdminPanel";
 import McpPanel from "../minio/McpPanel";
 import SqlEditorPanel from "../sql/SqlEditorPanel";
@@ -43,7 +45,7 @@ import { MousePointerClick, Group, Save, Check, X, Loader2, Copy, Clipboard } fr
 const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode, "canvas-image": CanvasImageNode };
 const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
 
-/** Tooling nodes (external-system, event-processor) sit above annotation callouts */
+/** Tooling nodes (external-system, event-processor, spark-etl-job) sit above annotation callouts */
 const COMPONENT_ABOVE_ANNOTATIONS_Z = 20;
 
 let nodeCounter = 0;
@@ -62,7 +64,22 @@ interface DiagramCanvasProps {
 }
 
 function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setNodes, setEdges, setSelectedEdge, setComponentManifests, setDirty, clipboard, setClipboard } = useDiagramStore();
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    addNode,
+    setNodes,
+    setEdges,
+    setSelectedEdge,
+    setComponentManifests,
+    setDirty,
+    clipboard,
+    setClipboard,
+    pendingConnection,
+  } = useDiagramStore();
   const { activeDemoId, instances, demos, faMode, showFaNotes } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
   const isRunning = activeDemo?.status === "running";
@@ -112,6 +129,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const [mcpPanel, setMcpPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: "mcp-tools" | "ai-chat" } | null>(null);
   const [sqlEditorPanel, setSqlEditorPanel] = useState<{ scenarioId: string } | null>(null);
   const [logViewer, setLogViewer] = useState<{ nodeId: string; componentId?: string } | null>(null);
+  const [sparkJobCodeFor, setSparkJobCodeFor] = useState<string | null>(null);
+  const [sparkJobRunsFor, setSparkJobRunsFor] = useState<string | null>(null);
 
   // Track selected nodes for multi-select grouping
   const onSelectionChange = useCallback(({ nodes: selectedNodes }: OnSelectionChangeParams) => {
@@ -126,6 +145,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       return n && n.type !== "group";
     });
     if (componentSelection.length >= 2) {
+      setContextMenu(null);
+      setEdgeContextMenu(null);
+      setPaneMenu(null);
       setSelectionMenu({ x: event.clientX, y: event.clientY });
     }
   }, [selectedNodeIds]);
@@ -265,7 +287,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: n.id,
         type: "component",
         position: n.position || { x: 0, y: 0 },
-        ...(n.component === "external-system" || n.component === "event-processor"
+        ...(n.component === "external-system" || n.component === "event-processor" || n.component === "spark-etl-job"
           ? { zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z }
           : {}),
         ...(n.group_id ? { parentId: n.group_id } : {}),
@@ -480,6 +502,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       setEdgeContextMenu({ x: event.clientX, y: event.clientY, edgeId: edge.id, confirm: false });
       setContextMenu(null);
       setSelectionMenu(null);
+      setPaneMenu(null);
     },
     []
   );
@@ -643,7 +666,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         id: `${componentId}-${nodeCounter}`,
         type: "component",
         position: { x, y },
-        ...(componentId === "external-system" || componentId === "event-processor"
+        ...(componentId === "external-system" || componentId === "event-processor" || componentId === "spark-etl-job"
           ? { zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z }
           : {}),
         data: {
@@ -845,6 +868,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
 
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: any) => {
     event.preventDefault();
+    setEdgeContextMenu(null);
+    setSelectionMenu(null);
+    setPaneMenu(null);
     setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
   }, []);
 
@@ -870,7 +896,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       id: newId,
       position: { x: clipboard.position.x + offset, y: clipboard.position.y + offset },
       selected: false,
-      ...(pastedCid === "external-system" || pastedCid === "event-processor"
+      ...(pastedCid === "external-system" || pastedCid === "event-processor" || pastedCid === "spark-etl-job"
         ? { zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z }
         : {}),
       data: { ...((clipboard.data as any) || {}), componentId: base },
@@ -943,23 +969,36 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     return () => window.removeEventListener("keydown", handler, true);
   }, [isRunning, selectedNodeIds]);
 
-  useEffect(() => {
-    const handler = () => {
-      setContextMenu(null);
-      setEdgeContextMenu(null);
-      setSelectionMenu(null);
-      setPaneMenu(null);
-    };
-    if (contextMenu || selectionMenu || paneMenu) window.addEventListener("click", handler);
-    return () => window.removeEventListener("click", handler);
-  }, [contextMenu, selectionMenu, paneMenu]);
-
-  // Also close NodeContextMenu when canvas:close-menus fires (same event that closes ClusterNode menus)
-  useEffect(() => {
-    const handler = () => setContextMenu(null);
-    window.addEventListener("canvas:close-menus", handler);
-    return () => window.removeEventListener("canvas:close-menus", handler);
+  /** Close all diagram floating menus + connection picker (cluster menus listen to the same event). */
+  const dismissAllCanvasMenus = useCallback(() => {
+    setContextMenu(null);
+    setEdgeContextMenu(null);
+    setSelectionMenu(null);
+    setPaneMenu(null);
+    useDiagramStore.getState().setPendingConnection(null);
   }, []);
+
+  useEffect(() => {
+    const onCanvasCloseMenus = () => dismissAllCanvasMenus();
+    window.addEventListener("canvas:close-menus", onCanvasCloseMenus);
+    return () => window.removeEventListener("canvas:close-menus", onCanvasCloseMenus);
+  }, [dismissAllCanvasMenus]);
+
+  useEffect(() => {
+    const anyOpen =
+      contextMenu || edgeContextMenu || selectionMenu || paneMenu || pendingConnection;
+    if (!anyOpen) return;
+    const onWindowClick = () => dismissAllCanvasMenus();
+    window.addEventListener("click", onWindowClick);
+    return () => window.removeEventListener("click", onWindowClick);
+  }, [
+    contextMenu,
+    edgeContextMenu,
+    selectionMenu,
+    paneMenu,
+    pendingConnection,
+    dismissAllCanvasMenus,
+  ]);
 
   // Filter nodes/edges by visibility toggles in experience mode
   // Also make hidden FA-internal stickies non-selectable/non-draggable without touching the store
@@ -976,7 +1015,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       }
       if (n.type === "component") {
         const cid = (n.data as any)?.componentId as string | undefined;
-        if ((cid === "external-system" || cid === "event-processor") && n.zIndex === undefined) {
+        if ((cid === "external-system" || cid === "event-processor" || cid === "spark-etl-job") && n.zIndex === undefined) {
           return { ...n, zIndex: COMPONENT_ABOVE_ANNOTATIONS_Z };
         }
       }
@@ -1043,7 +1082,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         edges={visibleEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
-        onConnect={isExperience || isRunning ? undefined : onConnect}
+        // Keep wiring new edges while the demo is running (handles stay connectable).
+        // Previously `onConnect` was cleared when `isRunning`, so drags completed with no edge — e.g. MinIO cluster → S3 File Browser looked "broken".
+        onConnect={isExperience ? undefined : onConnect}
         onEdgeClick={handleEdgeClick}
         onEdgeContextMenu={isExperience ? undefined : handleEdgeContextMenu}
         nodeTypes={nodeTypes}
@@ -1057,6 +1098,9 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         }}
         onPaneContextMenu={(e) => {
           e.preventDefault();
+          setContextMenu(null);
+          setEdgeContextMenu(null);
+          setSelectionMenu(null);
           setPaneMenu({ x: e.clientX, y: e.clientY });
         }}
         colorMode={isDark ? "dark" : "light"}
@@ -1146,6 +1190,16 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             onDeleteNode={handleDeleteNode}
             onCopyNode={() => handleCopyNode(contextMenu.nodeId)}
             onViewLogs={() => setLogViewer({ nodeId: contextMenu.nodeId, componentId: (ctxNode?.data as any)?.componentId })}
+            onShowSparkJobCode={
+              (ctxNode?.data as any)?.componentId === "spark-etl-job" && activeDemoId
+                ? () => setSparkJobCodeFor(contextMenu.nodeId)
+                : undefined
+            }
+            onShowSparkJobRuns={
+              (ctxNode?.data as any)?.componentId === "spark-etl-job" && activeDemoId
+                ? () => setSparkJobRunsFor(contextMenu.nodeId)
+                : undefined
+            }
             onClose={() => setContextMenu(null)}
           />
         );
@@ -1378,6 +1432,31 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           nodeId={logViewer.nodeId}
           componentId={logViewer.componentId}
           onClose={() => setLogViewer(null)}
+        />
+      )}
+
+      {sparkJobCodeFor && activeDemoId && (
+        <SparkJobCodeDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setSparkJobCodeFor(null);
+          }}
+          demoId={activeDemoId}
+          nodeId={sparkJobCodeFor}
+        />
+      )}
+
+      {sparkJobRunsFor && activeDemoId && (
+        <SparkJobRunsDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setSparkJobRunsFor(null);
+          }}
+          demoId={activeDemoId}
+          nodeId={sparkJobRunsFor}
+          onViewContainerLogs={() =>
+            setLogViewer({ nodeId: sparkJobRunsFor, componentId: "spark-etl-job" })
+          }
         />
       )}
 

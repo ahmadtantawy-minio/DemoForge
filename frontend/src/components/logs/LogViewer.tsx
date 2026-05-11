@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { X, RefreshCw, CornerDownRight } from "lucide-react";
+import { X, RefreshCw, CornerDownRight, Copy, Check } from "lucide-react";
 import { fetchContainerLogs, execContainerLog, fetchComponentManifest, fetchInstances } from "../../api/client";
 import {
   type IntegrationEventRow,
@@ -149,6 +149,8 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
   const [bounds, setBounds] = useState<PanelBounds>(() => loadStoredBounds());
   const boundsRef = useRef(bounds);
   boundsRef.current = bounds;
+  /** Transient label after copy attempt (success, failure, or empty). */
+  const [copyHint, setCopyHint] = useState<string | null>(null);
 
   const dragRef = useRef<{ dragging: boolean; offsetX: number; offsetY: number }>({
     dragging: false,
@@ -351,6 +353,51 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
     persistBounds(next);
   };
 
+  const buildLogsCopyText = useCallback((): string => {
+    const tab = tabs[activeTab];
+    if (!tab) return "";
+    if (tab.kind === "minio-config") {
+      if (!minioSnapshot) return "";
+      return JSON.stringify(
+        {
+          tab: tab.name,
+          node_id: activeNodeId,
+          demo_id: demoId,
+          edge_configs: minioSnapshot.edge_configs,
+          init_results: minioSnapshot.init_results,
+          integration_events: minioSnapshot.integration_events,
+          error: minioSnapshot.error,
+        },
+        null,
+        2
+      );
+    }
+    const header = `# DemoForge logs — ${activeNodeId} — ${tab.name}\n# demo_id=${demoId}\n\n`;
+    return header + (lines.length ? lines.join("\n") : "(no lines)");
+  }, [tabs, activeTab, minioSnapshot, lines, activeNodeId, demoId]);
+
+  const handleCopyLogs = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const text = buildLogsCopyText();
+      if (!text.trim()) {
+        setCopyHint("Nothing to copy yet");
+        window.setTimeout(() => setCopyHint(null), 2200);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyHint("Copied");
+        window.setTimeout(() => setCopyHint(null), 2000);
+      } catch {
+        setCopyHint("Copy failed");
+        window.setTimeout(() => setCopyHint(null), 2500);
+      }
+    },
+    [buildLogsCopyText]
+  );
+
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (resizeRef.current.resizing) {
@@ -438,6 +485,19 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-muted-foreground">{lastFetch && `Updated ${lastFetch}`}</span>
+            {copyHint && (
+              <span
+                className={`text-[10px] whitespace-nowrap ${
+                  copyHint === "Copied"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : copyHint === "Nothing to copy yet"
+                      ? "text-muted-foreground"
+                      : "text-red-500 dark:text-red-400"
+                }`}
+              >
+                {copyHint}
+              </span>
+            )}
             <button
               type="button"
               onClick={snapBottomRight}
@@ -445,6 +505,18 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
               title="Snap to bottom-right (default size)"
             >
               <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyLogs}
+              className="p-1 rounded hover:bg-accent transition-colors"
+              title="Copy visible tab content to clipboard (logs as text; Integrations as JSON)"
+            >
+              {copyHint === "Copied" ? (
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
             </button>
             <button
               type="button"

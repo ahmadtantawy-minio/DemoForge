@@ -94,6 +94,19 @@ function S3FileBrowserIcon({ size }: { size: number }) {
   );
 }
 
+function IcebergBrowserIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="4" fill="#0e7490" />
+      <polygon points="16,6 22,17 10,17" fill="white" />
+      <polygon points="9,18 23,18 26,26 6,26" fill="white" opacity="0.55" />
+      <rect x="18" y="8" width="10" height="10" rx="1" fill="#164e63" stroke="#99f6e4" strokeWidth="1" />
+      <line x1="20" y1="11" x2="26" y2="11" stroke="#99f6e4" strokeWidth="0.8" />
+      <line x1="20" y1="14" x2="25" y2="14" stroke="#99f6e4" strokeWidth="0.8" />
+    </svg>
+  );
+}
+
 function IcebergIcon({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -612,6 +625,7 @@ export default function ComponentIcon({ icon, size = 24, className }: ComponentI
     if (id.includes("data-generator") || id.includes("data-gen")) return <DataGeneratorIcon size={size} />;
     if (id.includes("file-generator")) return <FileGeneratorIcon size={size} />;
     if (id.includes("s3-file-browser") || id.includes("s3-browser")) return <S3FileBrowserIcon size={size} />;
+    if (id.includes("iceberg-browser")) return <IcebergBrowserIcon size={size} />;
     if (id.includes("iceberg")) return <IcebergIcon size={size} />;
     if (id.includes("trino")) return <TrinoIcon size={size} />;
     if (id.includes("clickhouse")) return <ClickHouseIcon size={size} />;

@@ -35,11 +35,15 @@ interface Props {
   onOpenSqlEditor?: () => void;
   onCopyNode?: () => void;
   onViewLogs?: () => void;
+  /** Apache Spark job (spark-etl-job): compose-aligned script + env preview */
+  onShowSparkJobCode?: () => void;
+  /** Per-run NDJSON history + link to full container logs */
+  onShowSparkJobRuns?: () => void;
   onClose: () => void;
 }
 
 export default function NodeContextMenu({
-  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, canViewLogs, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onViewLogs, onClose,
+  x, y, nodeId, componentId, isCluster, clusterLabel, mcpEnabled, instance, demoId, isRunning, canViewLogs, nodeConfig, onOpenTerminal, onDeleteNode, onOpenAdmin, onOpenMcpTools, onOpenAiChat, onOpenSqlEditor, onCopyNode, onViewLogs, onShowSparkJobCode, onShowSparkJobRuns, onClose,
 }: Props) {
 
   const [esOnDemandMeta, setEsOnDemandMeta] = useState<{
@@ -272,6 +276,33 @@ export default function NodeContextMenu({
           >
             Setup Dashboards
           </button>
+        </>
+      )}
+      {componentId === "spark-etl-job" && demoId && (onShowSparkJobCode || onShowSparkJobRuns) && (
+        <>
+          <div className="border-t border-border my-1" />
+          {onShowSparkJobCode && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
+              onClick={() => {
+                onShowSparkJobCode();
+                onClose();
+              }}
+            >
+              Show job code
+            </button>
+          )}
+          {onShowSparkJobRuns && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-orange-300 hover:bg-orange-500/10 transition-colors"
+              onClick={() => {
+                onShowSparkJobRuns();
+                onClose();
+              }}
+            >
+              Job run history
+            </button>
+          )}
         </>
       )}
       {(canViewLogs ?? isRunning) && onViewLogs && (

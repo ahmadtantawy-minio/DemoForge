@@ -17,6 +17,16 @@ export interface PendingConnection {
   targetPos: { x: number; y: number };
 }
 
+/** Default edge pill label when the connection targets Iceberg browser or S3 file browser. */
+function defaultEdgeLabelForTarget(targetId: string | null | undefined, nodes: Node[]): string {
+  if (!targetId) return "";
+  const node = nodes.find((n) => n.id === targetId);
+  const componentId = (node?.data as { componentId?: string } | undefined)?.componentId;
+  if (componentId === "iceberg-browser") return "iceberg v4";
+  if (componentId === "s3-file-browser") return "S3";
+  return "";
+}
+
 export type SelectedClusterElement =
   | { type: "cluster" }
   | { type: "pool"; poolId: string }
@@ -99,7 +109,58 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     if (isNginxSource || isNginxTarget) {
       set({
         edges: addEdge(
-          { ...connection, type: "animated", data: { connectionType: "nginx-backend", network: "default", label: "", status: "idle" } },
+          {
+            ...connection,
+            type: "animated",
+            data: {
+              connectionType: "nginx-backend",
+              network: "default",
+              label: defaultEdgeLabelForTarget(connection.target, state.nodes),
+              status: "idle",
+            },
+          },
+          state.edges
+        ),
+      });
+      return;
+    }
+
+    const sourceComponentId = (sourceNode.data as any)?.componentId;
+    const targetComponentId = (targetNode.data as any)?.componentId;
+
+    // MinIO (cluster or standalone) ↔ S3 File Browser — always plain `s3`.
+    // Handled before Trino / Spark / generator paths so it never depends on AIStor Tables, MCP, or edition.
+    const isS3FileBrowser = (cid: string | undefined) => cid === "s3-file-browser";
+    const isMinioS3Peer = (n: (typeof state.nodes)[0]) =>
+      n.type === "cluster" || (n.data as { componentId?: string } | undefined)?.componentId === "minio";
+
+    if (
+      (isMinioS3Peer(sourceNode) && isS3FileBrowser(targetComponentId)) ||
+      (isS3FileBrowser(sourceComponentId) && isMinioS3Peer(targetNode))
+    ) {
+      const minioFirst = isMinioS3Peer(sourceNode) && isS3FileBrowser(targetComponentId);
+      const browserNode = minioFirst ? targetNode : sourceNode;
+      const conn = minioFirst
+        ? connection
+        : {
+            ...connection,
+            source: connection.target,
+            target: connection.source,
+            sourceHandle: connection.targetHandle,
+            targetHandle: connection.sourceHandle,
+          };
+      set({
+        edges: addEdge(
+          {
+            ...conn,
+            type: "animated",
+            data: {
+              connectionType: "s3",
+              network: "default",
+              label: defaultEdgeLabelForTarget(browserNode.id, state.nodes),
+              status: "idle",
+            },
+          },
           state.edges
         ),
       });
@@ -118,16 +179,21 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       // Add aistor-tables edge directly
       set({
         edges: addEdge(
-          { ...connection, type: "animated", data: { connectionType: "aistor-tables", network: "default", label: "", status: "idle" } },
+          {
+            ...connection,
+            type: "animated",
+            data: {
+              connectionType: "aistor-tables",
+              network: "default",
+              label: defaultEdgeLabelForTarget(connection.target, state.nodes),
+              status: "idle",
+            },
+          },
           state.edges
         ),
       });
       return;
     }
-
-    // For cluster nodes, use the underlying componentId for manifest lookup
-    const sourceComponentId = (sourceNode.data as any)?.componentId;
-    const targetComponentId = (targetNode.data as any)?.componentId;
 
     // --- External System / Data Generator → MinIO Node or Cluster ---
     const SOURCE_ES_DG = ["external-system", "data-generator"];
@@ -137,6 +203,31 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     ) {
       const aistorEnabled = (targetNode.data as any).aistorTablesEnabled === true;
 
+      // External System → MinIO: integration follows Data sink (ES_SINK_MODE), not a connection-type picker.
+      if (sourceComponentId === "external-system") {
+        const sinkMode = (sourceNode.data as { config?: Record<string, string> } | undefined)?.config?.ES_SINK_MODE;
+        const filesOnly = sinkMode === "files_only";
+        const connType =
+          filesOnly || !aistorEnabled ? "s3" : "aistor-tables";
+        set({
+          edges: addEdge(
+            {
+              ...connection,
+              type: "animated",
+              data: {
+                connectionType: connType,
+                network: "default",
+                label: defaultEdgeLabelForTarget(connection.target, state.nodes),
+                status: "idle",
+              },
+            },
+            state.edges
+          ),
+        });
+        return;
+      }
+
+      // data-generator: offer S3 vs AIStor Tables when the target supports Tables
       if (aistorEnabled) {
         set({
           pendingConnection: {
@@ -154,11 +245,53 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
         // Auto-complete with s3 — add edge directly without showing picker
         set({
           edges: addEdge(
-            { ...connection, type: "animated", data: { connectionType: "s3", network: "default", label: "", status: "idle" } },
+            {
+              ...connection,
+              type: "animated",
+              data: {
+                connectionType: "s3",
+                network: "default",
+                label: defaultEdgeLabelForTarget(connection.target, state.nodes),
+                status: "idle",
+              },
+            },
             state.edges
           ),
         });
       }
+      return;
+    }
+
+    // MinIO / MinIO cluster ↔ Apache Spark Job (Raw → Iceberg requires AIStor Tables on the MinIO side)
+    const isMinioPeerNode = (n: (typeof state.nodes)[0] | undefined) =>
+      !!n && (n.type === "cluster" || (n.data as any)?.componentId === "minio");
+    const minioPeerHasTables = (n: (typeof state.nodes)[0] | undefined) =>
+      (n?.data as any)?.aistorTablesEnabled === true;
+    const sparkJobId = "spark-etl-job";
+    const towardSparkJob =
+      targetComponentId === sparkJobId && isMinioPeerNode(sourceNode);
+    const fromSparkJob =
+      sourceComponentId === sparkJobId && isMinioPeerNode(targetNode);
+    if (towardSparkJob || fromSparkJob) {
+      const minioSide = towardSparkJob ? sourceNode : targetNode;
+      if (!minioPeerHasTables(minioSide)) {
+        toast.warning("Enable AIStor Tables on this MinIO node or cluster to connect the Apache Spark job", {
+          description: "Raw → Iceberg is only wired when AIStor Tables is enabled in MinIO or cluster properties.",
+        });
+        return;
+      }
+      set({
+        pendingConnection: {
+          connection,
+          validTypes: ["s3", "aistor-tables"],
+          directedOptions: [
+            { type: "s3", direction: "forward", label: "S3 (raw + warehouse buckets)" },
+            { type: "aistor-tables", direction: "forward", label: "AIStor Tables (Iceberg catalog path)" },
+          ],
+          sourcePos: sourceNode.position,
+          targetPos: targetNode.position,
+        },
+      });
       return;
     }
 
@@ -169,7 +302,16 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     if (!sourceConnections || !targetConnections) {
       set({
         edges: addEdge(
-          { ...connection, type: "animated", data: { connectionType: "data", network: "default", label: "", status: "idle" } },
+          {
+            ...connection,
+            type: "animated",
+            data: {
+              connectionType: "data",
+              network: "default",
+              label: defaultEdgeLabelForTarget(connection.target, state.nodes),
+              status: "idle",
+            },
+          },
           state.edges
         ),
       });
@@ -216,7 +358,16 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       };
       set({
         edges: addEdge(
-          { ...conn, type: "animated", data: { connectionType: opt.type, network: "default", label: "", status: "idle" } },
+          {
+            ...conn,
+            type: "animated",
+            data: {
+              connectionType: opt.type,
+              network: "default",
+              label: defaultEdgeLabelForTarget(conn.target, state.nodes),
+              status: "idle",
+            },
+          },
           state.edges
         ),
       });
@@ -320,7 +471,12 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       sourceHandle: conn.sourceHandle,
       targetHandle: conn.targetHandle,
       type: "animated",
-      data: { connectionType, network: "default", label: "", status: "idle" },
+      data: {
+        connectionType,
+        network: "default",
+        label: defaultEdgeLabelForTarget(conn.target, state.nodes),
+        status: "idle",
+      },
     };
 
     set({
