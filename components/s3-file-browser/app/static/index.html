@@ -26,7 +26,8 @@
 
   /* Sidebar */
   .sidebar { width: 240px; background: #27272a; border-right: 1px solid #3f3f46; display: flex; flex-direction: column; overflow-y: auto; }
-  .sidebar-header { padding: 12px 16px; font-size: 12px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #3f3f46; }
+  .sidebar-header { padding: 12px 16px; font-size: 12px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #3f3f46; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .sidebar-header .btn { padding: 4px 10px; font-size: 11px; text-transform: none; letter-spacing: normal; font-weight: 500; }
   .bucket-item { padding: 10px 16px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #3f3f4633; transition: background 0.15s; }
   .bucket-item:hover { background: #3f3f46; }
   .bucket-item.active { background: #3f3f46; border-left: 2px solid #60a5fa; }
@@ -34,8 +35,20 @@
   /* Content */
   .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
+  /* Main view tabs (Browse vs overview) */
+  .content-view-tabs { display: flex; gap: 0; padding: 0 12px; background: #1e1e22; border-bottom: 1px solid #3f3f46; }
+  .content-view-tab { padding: 10px 18px; font-size: 12px; font-weight: 500; cursor: pointer; color: #a1a1aa; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s; }
+  .content-view-tab:hover { color: #fafafa; }
+  .content-view-tab.active { color: #fafafa; border-bottom-color: #60a5fa; }
+  .view-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .view-panel.hidden { display: none !important; }
+  .overview-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid #3f3f46; gap: 12px; flex-wrap: wrap; }
+  .overview-toolbar .toolbar-toggles { margin-right: auto; }
+  .overview-summary { font-size: 12px; color: #a1a1aa; }
+  .trunc-note { font-size: 10px; color: #eab308; margin-left: 6px; }
+
   /* Breadcrumb + actions */
-  .content-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid #3f3f46; min-height: 44px; }
+  .content-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid #3f3f46; min-height: 44px; flex-wrap: wrap; gap: 8px; }
   .breadcrumb { display: flex; align-items: center; gap: 4px; font-size: 13px; flex-wrap: wrap; }
   .breadcrumb a { color: #60a5fa; cursor: pointer; text-decoration: none; }
   .breadcrumb a:hover { text-decoration: underline; }
@@ -64,6 +77,13 @@
   .size { color: #a1a1aa; font-variant-numeric: tabular-nums; }
   .date { color: #71717a; }
   .empty-state { padding: 40px 20px; text-align: center; color: #71717a; font-size: 13px; }
+
+  .toolbar-toggles { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-right: auto; }
+  .toolbar-toggles label { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #a1a1aa; cursor: pointer; user-select: none; }
+  .toolbar-toggles input { accent-color: #60a5fa; cursor: pointer; }
+  .meta-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-family: ui-monospace, monospace; color: #a1a1aa; }
+  .etag-cell { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-family: ui-monospace, monospace; color: #a1a1aa; }
+  .sc-cell { font-size: 12px; color: #cbd5e1; }
 
   /* Bottom panel — tabs */
   .bottom-panel { border-top: 1px solid #3f3f46; background: #27272a; }
@@ -99,6 +119,11 @@
   .modal h3 { margin-bottom: 16px; font-size: 15px; }
   .modal input[type="file"] { margin-bottom: 12px; font-size: 13px; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .upload-progress { margin-top: 12px; display: none; }
+  .upload-progress.active { display: block; }
+  .upload-progress-bar { height: 8px; background: #3f3f46; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  .upload-progress-bar > div { height: 100%; background: #60a5fa; width: 0%; transition: width 0.1s; }
+  .upload-progress-text { font-size: 11px; color: #a1a1aa; margin-top: 4px; }
 
   /* Loading */
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #3f3f46; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.6s linear infinite; }
@@ -128,27 +153,74 @@
 <div class="main">
   <!-- Sidebar -->
   <div class="sidebar">
-    <div class="sidebar-header">Buckets</div>
+    <div class="sidebar-header">
+      <span>Buckets</span>
+      <button type="button" class="btn" id="refreshBucketsBtn" title="Reload bucket list">Refresh</button>
+    </div>
     <div id="bucketList"><div class="empty-state">Loading...</div></div>
   </div>
 
   <!-- Content -->
   <div class="content">
-    <div class="content-header">
-      <div class="breadcrumb" id="breadcrumb"></div>
-      <div class="actions">
-        <button class="btn btn-primary" id="uploadBtn" disabled>Upload</button>
+    <div class="content-view-tabs">
+      <div class="content-view-tab active" data-main-view="browse" id="tabMainBrowse">Browse</div>
+      <div class="content-view-tab" data-main-view="overview" id="tabMainOverview">Bucket overview</div>
+    </div>
+
+    <div class="view-panel" id="view-browse">
+      <div class="content-header">
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="toolbar-toggles">
+          <label title="Adds ETag, content type, storage class (tier hint on MinIO), and user metadata columns using the list API">
+            <input type="checkbox" id="browseExtendedToggle" />
+            Show metadata
+          </label>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn" id="refreshObjectsBtn" disabled title="Reload objects in the current folder">Refresh folder</button>
+          <button type="button" class="btn" id="presignToolbarBtn" disabled title="Generate presigned S3 URLs">Presign</button>
+          <button type="button" class="btn btn-primary" id="uploadBtn" disabled>Upload</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr id="browseTableHeadRow"><th>Name</th><th>Size</th><th>Last Modified</th><th style="min-width:100px">Actions</th></tr>
+          </thead>
+          <tbody id="objectTable">
+            <tr><td colspan="4" class="empty-state">Select a bucket to browse</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Size</th><th>Last Modified</th><th style="width:100px">Actions</th></tr>
-        </thead>
-        <tbody id="objectTable">
-          <tr><td colspan="4" class="empty-state">Select a bucket to browse</td></tr>
-        </tbody>
-      </table>
+
+    <div class="view-panel hidden" id="view-overview">
+      <div class="overview-toolbar">
+        <div class="toolbar-toggles">
+          <label title="Split each bucket into rows by S3 storage class (on MinIO, often reflects ILM / remote tier)">
+            <input type="checkbox" id="overviewGroupScToggle" />
+            Group by storage class
+          </label>
+        </div>
+        <div class="overview-summary" id="overviewSummary">Load bucket stats (object counts and sizes).</div>
+        <button type="button" class="btn" id="refreshOverviewBtn">Refresh overview</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr id="overviewTableHeadRow">
+              <th>Bucket</th>
+              <th>Objects</th>
+              <th>Total size</th>
+              <th>Created</th>
+              <th style="min-width:100px"></th>
+            </tr>
+          </thead>
+          <tbody id="overviewTable">
+            <tr><td colspan="5" class="empty-state">Open this tab to scan buckets.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -189,11 +261,67 @@
 <div class="modal-overlay hidden" id="uploadModal">
   <div class="modal">
     <h3>Upload File</h3>
+    <p style="font-size:11px;color:#a1a1aa;margin-bottom:8px">Large files use multipart uploads to MinIO (chunked on the server).</p>
     <input type="file" id="uploadFile">
     <div style="font-size:12px;color:#a1a1aa;margin-top:4px" id="uploadTarget"></div>
+    <div class="upload-progress" id="uploadProgress">
+      <div class="upload-progress-text" id="uploadProgressText">0%</div>
+      <div class="upload-progress-bar"><div id="uploadProgressBar"></div></div>
+    </div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeUpload()">Cancel</button>
-      <button class="btn btn-primary" onclick="doUpload()">Upload</button>
+      <button class="btn" id="uploadCancelBtn" onclick="closeUpload()">Cancel</button>
+      <button class="btn btn-primary" id="uploadSubmitBtn" onclick="doUpload()">Upload</button>
+    </div>
+  </div>
+</div>
+
+<!-- Presigned URLs modal -->
+<div class="modal-overlay hidden" id="presignModal">
+  <div class="modal" style="width:min(560px,96vw)">
+    <h3>Presigned URLs</h3>
+    <p style="font-size:11px;color:#a1a1aa;margin-bottom:12px;line-height:1.45">
+      Short-lived signed URLs that clients can use directly against S3/MinIO (no DemoForge cookie).
+      <strong>GET</strong> for download or streaming; <strong>PUT</strong> to upload bytes (e.g. <code style="font-size:10px">curl -T file.dat &quot;URL&quot;</code>).
+    </p>
+    <label style="display:block;font-size:11px;color:#a1a1aa;margin-bottom:4px">Object key</label>
+    <input type="text" id="presignKey" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #3f3f46;background:#18181b;color:#fafafa;font-size:12px;font-family:monospace;margin-bottom:10px" placeholder="path/to/object.ext" />
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px">
+      <label style="font-size:12px;color:#e4e4e7">Expires (s)
+        <input type="number" id="presignExpires" value="3600" min="60" max="604800" style="width:88px;margin-left:6px;padding:6px 8px;border-radius:6px;border:1px solid #3f3f46;background:#18181b;color:#fafafa" />
+      </label>
+      <label style="font-size:12px;color:#e4e4e7;display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="presignInline" /> Inline (browser/media)
+      </label>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <button type="button" class="btn btn-primary" id="btnPresignGet">Generate GET (download)</button>
+      <button type="button" class="btn btn-primary" id="btnPresignPut">Generate PUT (upload)</button>
+    </div>
+    <div id="presignErr" style="color:#f87171;font-size:12px;margin-bottom:8px"></div>
+    <div style="margin-bottom:10px">
+      <div style="font-size:10px;color:#a1a1aa;text-transform:uppercase;margin-bottom:4px">GET URL</div>
+      <input type="text" readonly id="presignGetOut" style="width:100%;padding:8px;border-radius:6px;border:1px solid #3f3f46;background:#0f0f10;color:#e4e4e7;font-size:11px;font-family:monospace" value="" />
+      <button type="button" class="btn" style="margin-top:6px" id="btnCopyGet">Copy GET URL</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:10px;color:#a1a1aa;text-transform:uppercase;margin-bottom:4px">PUT URL</div>
+      <input type="text" readonly id="presignPutOut" style="width:100%;padding:8px;border-radius:6px;border:1px solid #3f3f46;background:#0f0f10;color:#e4e4e7;font-size:11px;font-family:monospace" value="" />
+      <button type="button" class="btn" style="margin-top:6px" id="btnCopyPut">Copy PUT URL</button>
+    </div>
+    <div class="modal-actions" style="margin-top:4px">
+      <button type="button" class="btn" id="presignCloseBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Video preview modal -->
+<div class="modal-overlay hidden" id="videoModal">
+  <div class="modal" style="width:min(900px,96vw)">
+    <h3 style="margin-bottom:12px">Play video</h3>
+    <video id="videoPlayer" controls playsinline style="width:100%;max-height:70vh;background:#000;border-radius:8px" crossorigin="anonymous"></video>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn" onclick="closeVideo()">Close</button>
+      <a class="btn btn-primary" id="videoDownloadLink" href="#" download>Download</a>
     </div>
   </div>
 </div>
@@ -236,6 +364,179 @@ function formatDate(iso) {
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 }
 
+const LS_BROWSE_EXT = 's3fb_browse_extended';
+const LS_OVERVIEW_GROUP = 's3fb_overview_group_sc';
+
+function isBrowseExtended() {
+  const el = document.getElementById('browseExtendedToggle');
+  return !!(el && el.checked);
+}
+
+function isOverviewGrouped() {
+  const el = document.getElementById('overviewGroupScToggle');
+  return !!(el && el.checked);
+}
+
+function browseColCount() {
+  return isBrowseExtended() ? 8 : 4;
+}
+
+function syncBrowseTableHead() {
+  const tr = document.getElementById('browseTableHeadRow');
+  if (!tr) return;
+  if (isBrowseExtended()) {
+    tr.innerHTML = '<th>Name</th><th>Size</th><th>Modified</th><th>ETag</th><th>Content-Type</th><th>Storage class</th><th>User metadata</th><th style="min-width:100px">Actions</th>';
+  } else {
+    tr.innerHTML = '<th>Name</th><th>Size</th><th>Last Modified</th><th style="min-width:100px">Actions</th>';
+  }
+}
+
+function formatUserMetaCell(meta) {
+  if (!meta || typeof meta !== 'object') return '—';
+  const keys = Object.keys(meta);
+  if (!keys.length) return '—';
+  const full = JSON.stringify(meta);
+  const short = keys.length <= 2
+    ? keys.map(k => `${k}=${String(meta[k]).slice(0, 24)}`).join(', ')
+    : `${keys.length} keys`;
+  return `<span class="meta-cell" title="${escapeAttr(full)}">${escapeHtml(short)}</span>`;
+}
+
+function formatEtagCell(etag) {
+  if (!etag) return '—';
+  const e = String(etag).replace(/^"|"$/g, '');
+  const short = e.length > 16 ? e.slice(0, 14) + '…' : e;
+  return `<span class="etag-cell" title="${escapeAttr(e)}">${escapeHtml(short)}</span>`;
+}
+
+function setMainView(view) {
+  document.querySelectorAll('.content-view-tab').forEach(t => t.classList.toggle('active', t.dataset.mainView === view));
+  const browse = document.getElementById('view-browse');
+  const overview = document.getElementById('view-overview');
+  browse.classList.toggle('hidden', view !== 'browse');
+  overview.classList.toggle('hidden', view !== 'overview');
+  if (view === 'overview') loadOverview();
+}
+
+async function loadOverview() {
+  const tbody = document.getElementById('overviewTable');
+  const headRow = document.getElementById('overviewTableHeadRow');
+  const sumEl = document.getElementById('overviewSummary');
+  const btn = document.getElementById('refreshOverviewBtn');
+  const groupSc = isOverviewGrouped();
+  const oc = groupSc ? 6 : 5;
+  if (headRow) {
+    headRow.innerHTML = groupSc
+      ? '<th>Bucket</th><th>Storage class</th><th>Objects</th><th>Size</th><th>Created</th><th style="min-width:100px"></th>'
+      : '<th>Bucket</th><th>Objects</th><th>Total size</th><th>Created</th><th style="min-width:100px"></th>';
+  }
+  if (btn) btn.disabled = true;
+  tbody.innerHTML = `<tr><td colspan="${oc}" class="empty-state"><span class="spinner"></span> Scanning buckets…</td></tr>`;
+  sumEl.textContent = '';
+  try {
+    const q = groupSc ? '?group_by_storage_class=true' : '';
+    const data = await api('GET', `/api/buckets/overview${q}`);
+    const buckets = data.buckets || [];
+    const s = data.summary || {};
+    let summary =
+      `${s.bucket_count || 0} buckets · ${(s.total_objects_counted ?? 0).toLocaleString()} objects · ${formatSize(s.total_bytes_counted || 0)} combined (successful scans)`;
+    if (s.max_objects_per_bucket) {
+      summary += ` · per-bucket cap ${Number(s.max_objects_per_bucket).toLocaleString()} objects`;
+    }
+    if (groupSc) summary += ' · grouped by storage class';
+    sumEl.textContent = summary;
+    if (!buckets.length) {
+      tbody.innerHTML = `<tr><td colspan="${oc}" class="empty-state">No buckets</td></tr>`;
+      return;
+    }
+
+    const rows = [];
+    for (const b of buckets) {
+      const errHtml = b.error ? `<div style="color:#f87171;font-size:11px;margin-top:4px">${escapeHtml(b.error)}</div>` : '';
+      const created = b.created ? formatDate(b.created) : '—';
+      const truncNote = b.count_truncated ? '<span class="trunc-note" title="Count stopped at cap; true total may be higher">≥ cap</span>' : '';
+
+      if (!groupSc) {
+        const cnt = b.error ? '—' : `${(b.object_count ?? 0).toLocaleString()}${truncNote}`;
+        const sz = b.error ? '—' : formatSize(b.total_size_bytes || 0);
+        rows.push(`<tr>
+          <td><strong>${escapeHtml(b.name)}</strong>${errHtml}</td>
+          <td class="size">${cnt}</td>
+          <td class="size">${sz}</td>
+          <td class="date">${created}</td>
+          <td><button type="button" class="btn" style="padding:4px 10px;font-size:11px" data-open-bucket="${escapeAttr(b.name)}">Open</button></td>
+        </tr>`);
+        continue;
+      }
+
+      if (b.error) {
+        rows.push(`<tr>
+          <td><strong>${escapeHtml(b.name)}</strong>${errHtml}</td>
+          <td class="sc-cell">—</td>
+          <td class="size">—</td>
+          <td class="size">—</td>
+          <td class="date">${created}</td>
+          <td><button type="button" class="btn" style="padding:4px 10px;font-size:11px" data-open-bucket="${escapeAttr(b.name)}">Open</button></td>
+        </tr>`);
+        continue;
+      }
+
+      const groups = Array.isArray(b.by_storage_class) ? b.by_storage_class : [];
+      if (!groups.length) {
+        const cnt = `${(b.object_count ?? 0).toLocaleString()}${truncNote}`;
+        rows.push(`<tr>
+          <td><strong>${escapeHtml(b.name)}</strong></td>
+          <td class="sc-cell">—</td>
+          <td class="size">${cnt}</td>
+          <td class="size">${formatSize(b.total_size_bytes || 0)}</td>
+          <td class="date">${created}</td>
+          <td><button type="button" class="btn" style="padding:4px 10px;font-size:11px" data-open-bucket="${escapeAttr(b.name)}">Open</button></td>
+        </tr>`);
+        continue;
+      }
+
+      groups.forEach((g, idx) => {
+        const cnt = `${(g.object_count ?? 0).toLocaleString()}`;
+        const sz = formatSize(g.total_size_bytes || 0);
+        const scLabel = escapeHtml(g.display_class || g.storage_class || '—');
+        const bucketCell = idx === 0
+          ? `<td rowspan="${groups.length}"><strong>${escapeHtml(b.name)}</strong>${truncNote ? `<div style="margin-top:4px">${truncNote}</div>` : ''}</td>`
+          : '';
+        const createdCell = idx === 0 ? `<td rowspan="${groups.length}" class="date">${created}</td>` : '';
+        const openCell = idx === 0
+          ? `<td rowspan="${groups.length}"><button type="button" class="btn" style="padding:4px 10px;font-size:11px" data-open-bucket="${escapeAttr(b.name)}">Open</button></td>`
+          : '';
+        rows.push(`<tr>
+          ${bucketCell}
+          <td class="sc-cell">${scLabel}</td>
+          <td class="size">${cnt}</td>
+          <td class="size">${sz}</td>
+          ${createdCell}
+          ${openCell}
+        </tr>`);
+      });
+    }
+
+    tbody.innerHTML = rows.join('');
+    tbody.querySelectorAll('button[data-open-bucket]').forEach(btn2 => {
+      btn2.addEventListener('click', () => {
+        const name = btn2.getAttribute('data-open-bucket');
+        setMainView('browse');
+        selectBucket(name);
+      });
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="${oc}" class="empty-state" style="color:#f87171">${escapeHtml(e.message || String(e))}</td></tr>`;
+    sumEl.textContent = 'Overview failed to load.';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function isVideoKey(key) {
+  return /\.(mp4|webm|ogg|ogv|mov|m4v|mkv)$/i.test(key);
+}
+
 // Update served-by banner
 function updateServedBy(servedBy) {
   const el = document.getElementById('servedBy');
@@ -255,14 +556,23 @@ async function api(method, path, body) {
   if (body instanceof FormData) { opts.body = body; }
   else if (body) { opts.body = JSON.stringify(body); opts.headers = {'Content-Type':'application/json'}; }
   const resp = await fetch(BASE + path, opts);
-  const data = await resp.json();
+  const data = await resp.json().catch(() => ({}));
   if (data.served_by !== undefined) updateServedBy(data.served_by);
+  if (!resp.ok) {
+    const msg = data.error || (Array.isArray(data.detail) ? data.detail.map(d => d.msg || d).join('; ') : data.detail) || resp.statusText || String(resp.status);
+    throw new Error(msg);
+  }
   updateHistogram();
   return data;
 }
 
 // Init
 async function init() {
+  syncBrowseTableHead();
+  const obInit = document.getElementById('objectTable');
+  const tdInit = obInit && obInit.querySelector('td.empty-state[colspan]');
+  if (tdInit && !currentBucket) tdInit.setAttribute('colspan', String(browseColCount()));
+
   try {
     const cfg = await (await fetch(BASE + '/api/config')).json();
     const badge = document.getElementById('connBadge');
@@ -279,18 +589,32 @@ async function init() {
 
 // Buckets
 async function loadBuckets() {
+  const el = document.getElementById('bucketList');
+  const btn = document.getElementById('refreshBucketsBtn');
+  if (btn) { btn.disabled = true; }
   try {
     const data = await api('GET', '/api/buckets');
-    const el = document.getElementById('bucketList');
     if (!data.buckets || !data.buckets.length) {
       el.innerHTML = '<div class="empty-state">No buckets found</div>';
       return;
     }
-    el.innerHTML = data.buckets.map(b =>
-      `<div class="bucket-item" onclick="selectBucket('${b.name}')">${b.name}</div>`
-    ).join('');
+    el.innerHTML = '';
+    data.buckets.forEach(b => {
+      const div = document.createElement('div');
+      div.className = 'bucket-item';
+      div.textContent = b.name;
+      div.onclick = () => selectBucket(b.name);
+      el.appendChild(div);
+    });
+    if (currentBucket) {
+      el.querySelectorAll('.bucket-item').forEach(item => {
+        item.classList.toggle('active', item.textContent === currentBucket);
+      });
+    }
   } catch(e) {
-    document.getElementById('bucketList').innerHTML = '<div class="empty-state" style="color:#f87171">Connection error</div>';
+    el.innerHTML = '<div class="empty-state" style="color:#f87171">Connection error</div>';
+  } finally {
+    if (btn) { btn.disabled = false; }
   }
 }
 
@@ -299,44 +623,73 @@ function selectBucket(name) {
   currentPrefix = '';
   document.querySelectorAll('.bucket-item').forEach(el => el.classList.toggle('active', el.textContent === name));
   document.getElementById('uploadBtn').disabled = false;
+  document.getElementById('refreshObjectsBtn').disabled = false;
+  document.getElementById('presignToolbarBtn').disabled = false;
   loadObjects();
 }
 
 // Objects
 async function loadObjects() {
   const tbody = document.getElementById('objectTable');
-  tbody.innerHTML = '<tr><td colspan="4" class="empty-state"><span class="spinner"></span> Loading...</td></tr>';
+  const ext = isBrowseExtended();
+  const cols = browseColCount();
+  syncBrowseTableHead();
+  tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-state"><span class="spinner"></span> Loading...</td></tr>`;
   updateBreadcrumb();
 
   try {
-    const data = await api('GET', `/api/objects?bucket=${encodeURIComponent(currentBucket)}&prefix=${encodeURIComponent(currentPrefix)}`);
+    const extQ = ext ? '&extended=true' : '';
+    const data = await api('GET', `/api/objects?bucket=${encodeURIComponent(currentBucket)}&prefix=${encodeURIComponent(currentPrefix)}${extQ}`);
     let html = '';
 
-    // Prefixes (folders)
+    // Prefixes (folders) — pad non-name columns (size, modified, [metadata…], actions)
+    const folderTail = ext ? '<td></td>'.repeat(7) : '<td></td>'.repeat(3);
     for (const p of (data.prefixes || [])) {
       const name = p.prefix.replace(currentPrefix, '').replace(/\/$/, '');
-      html += `<tr><td class="folder-icon" onclick="navigateTo('${p.prefix}')">📁 ${name}/</td><td></td><td></td><td></td></tr>`;
+      html += `<tr><td class="folder-icon" onclick="navigateTo('${p.prefix}')">📁 ${name}/</td>${folderTail}</tr>`;
     }
 
     // Objects
     for (const o of (data.objects || [])) {
       const name = o.key.replace(currentPrefix, '');
       if (name.endsWith('/')) continue; // skip prefix markers
+      const playBtn = isVideoKey(o.key)
+        ? `<button type="button" class="btn" style="padding:2px 8px;font-size:11px" data-act="play" data-key="${escapeAttr(o.key)}">▶</button>`
+        : '';
+      const metaCols = ext
+        ? `<td class="etag-cell">${formatEtagCell(o.etag)}</td>
+           <td class="meta-cell" title="${escapeAttr(o.content_type || '')}">${o.content_type ? escapeHtml(o.content_type) : '—'}</td>
+           <td class="sc-cell">${o.storage_class ? escapeHtml(o.storage_class) : '—'}</td>
+           <td>${formatUserMetaCell(o.metadata)}</td>`
+        : '';
       html += `<tr>
-        <td class="file-icon">📄 ${name}</td>
+        <td class="file-icon">📄 ${escapeHtml(name)}</td>
         <td class="size">${formatSize(o.size)}</td>
         <td class="date">${formatDate(o.last_modified)}</td>
+        ${metaCols}
         <td>
-          <button class="btn" style="padding:2px 8px;font-size:11px" onclick="downloadFile('${o.key}')">↓</button>
-          <button class="btn btn-danger" style="padding:2px 8px;font-size:11px" onclick="deleteFile('${o.key}')">✕</button>
+          ${playBtn}
+          <button type="button" class="btn" style="padding:2px 8px;font-size:11px" title="Presign" data-act="presign" data-key="${escapeAttr(o.key)}">🔗</button>
+          <button type="button" class="btn" style="padding:2px 8px;font-size:11px" data-act="dl" data-key="${escapeAttr(o.key)}">↓</button>
+          <button type="button" class="btn btn-danger" style="padding:2px 8px;font-size:11px" data-act="del" data-key="${escapeAttr(o.key)}">✕</button>
         </td>
       </tr>`;
     }
 
-    if (!html) html = '<tr><td colspan="4" class="empty-state">Empty</td></tr>';
+    if (!html) html = `<tr><td colspan="${cols}" class="empty-state">Empty</td></tr>`;
     tbody.innerHTML = html;
+    tbody.querySelectorAll('button[data-act]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.getAttribute('data-key');
+        const act = btn.getAttribute('data-act');
+        if (act === 'play') openVideo(key);
+        else if (act === 'presign') openPresignModal(key);
+        else if (act === 'dl') downloadFile(key);
+        else if (act === 'del') deleteFile(key);
+      });
+    });
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="color:#f87171">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${browseColCount()}" class="empty-state" style="color:#f87171">Error: ${escapeHtml(e.message || String(e))}</td></tr>`;
   }
 }
 
@@ -358,40 +711,181 @@ function updateBreadcrumb() {
   el.innerHTML = html;
 }
 
-// Download
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// Download (full object; browser may use Range resume — server sends Accept-Ranges)
 function downloadFile(key) {
   window.open(`${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`, '_blank');
+}
+
+function openVideo(key) {
+  const url = `${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`;
+  document.getElementById('videoModal').classList.remove('hidden');
+  const v = document.getElementById('videoPlayer');
+  v.src = url;
+  v.load();
+  const a = document.getElementById('videoDownloadLink');
+  a.href = url;
+  a.setAttribute('download', key.split('/').pop() || 'video');
+}
+
+function closeVideo() {
+  const v = document.getElementById('videoPlayer');
+  v.pause();
+  v.removeAttribute('src');
+  v.load();
+  document.getElementById('videoModal').classList.add('hidden');
 }
 
 // Delete
 async function deleteFile(key) {
   if (!confirm(`Delete ${key}?`)) return;
-  await api('DELETE', `/api/delete?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`);
-  loadObjects();
+  try {
+    await api('DELETE', `/api/delete?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`);
+    loadObjects();
+  } catch (e) {
+    alert(e.message || String(e));
+  }
+}
+
+function openPresignModal(prefillKey) {
+  document.getElementById('presignErr').textContent = '';
+  document.getElementById('presignGetOut').value = '';
+  document.getElementById('presignPutOut').value = '';
+  const k = (prefillKey != null && prefillKey !== '') ? prefillKey : (currentPrefix || '');
+  document.getElementById('presignKey').value = k;
+  document.getElementById('presignModal').classList.remove('hidden');
+}
+
+function closePresignModal() {
+  document.getElementById('presignModal').classList.add('hidden');
+}
+
+async function runPresignGet() {
+  document.getElementById('presignErr').textContent = '';
+  const key = document.getElementById('presignKey').value.trim();
+  if (!currentBucket || !key) {
+    document.getElementById('presignErr').textContent = 'Select a bucket and enter an object key.';
+    return;
+  }
+  const exp = document.getElementById('presignExpires').value;
+  const inline = document.getElementById('presignInline').checked;
+  try {
+    const data = await api('GET', `/api/presign/get?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}&expires_sec=${encodeURIComponent(exp)}&inline=${inline ? 'true' : 'false'}`);
+    document.getElementById('presignGetOut').value = data.url || '';
+  } catch (e) {
+    document.getElementById('presignErr').textContent = e.message || String(e);
+  }
+}
+
+async function runPresignPut() {
+  document.getElementById('presignErr').textContent = '';
+  const key = document.getElementById('presignKey').value.trim();
+  if (!currentBucket || !key) {
+    document.getElementById('presignErr').textContent = 'Select a bucket and enter an object key.';
+    return;
+  }
+  const exp = document.getElementById('presignExpires').value;
+  try {
+    const data = await api('GET', `/api/presign/put?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}&expires_sec=${encodeURIComponent(exp)}`);
+    document.getElementById('presignPutOut').value = data.url || '';
+  } catch (e) {
+    document.getElementById('presignErr').textContent = e.message || String(e);
+  }
+}
+
+async function copyInput(id) {
+  const el = document.getElementById(id);
+  const t = el.value.trim();
+  if (!t) return;
+  try {
+    await navigator.clipboard.writeText(t);
+  } catch (_) {
+    el.select();
+    document.execCommand('copy');
+  }
 }
 
 // Upload
 document.getElementById('uploadBtn').onclick = () => {
   document.getElementById('uploadTarget').textContent = `Bucket: ${currentBucket}/${currentPrefix}`;
+  document.getElementById('uploadProgressBar').style.width = '0%';
+  document.getElementById('uploadProgressBar').style.background = '#60a5fa';
+  document.getElementById('uploadProgress').classList.remove('active');
   document.getElementById('uploadModal').classList.remove('hidden');
 };
 
-function closeUpload() { document.getElementById('uploadModal').classList.add('hidden'); }
+function closeUpload() {
+  document.getElementById('uploadModal').classList.add('hidden');
+  document.getElementById('uploadProgress').classList.remove('active');
+  document.getElementById('uploadSubmitBtn').disabled = false;
+  document.getElementById('uploadCancelBtn').disabled = false;
+}
 
-async function doUpload() {
+function doUpload() {
   const fileInput = document.getElementById('uploadFile');
   if (!fileInput.files.length) return;
   const file = fileInput.files[0];
   const key = currentPrefix + file.name;
   const form = new FormData();
   form.append('file', file);
-  await fetch(`${BASE}/api/upload?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`, {
-    method: 'POST', body: form
+
+  const url = `${BASE}/api/upload?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`;
+  const xhr = new XMLHttpRequest();
+  const prog = document.getElementById('uploadProgress');
+  const progBar = document.getElementById('uploadProgressBar');
+  const progText = document.getElementById('uploadProgressText');
+
+  prog.classList.add('active');
+  progBar.style.width = '0%';
+  progText.textContent = 'Starting…';
+  document.getElementById('uploadSubmitBtn').disabled = true;
+  document.getElementById('uploadCancelBtn').disabled = true;
+
+  xhr.upload.addEventListener('progress', (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      progBar.style.width = pct + '%';
+      progText.textContent = pct + '% · ' + formatSize(e.loaded) + ' / ' + formatSize(e.total);
+    } else {
+      progText.textContent = formatSize(e.loaded) + ' uploaded…';
+    }
   });
-  closeUpload();
-  fileInput.value = '';
-  loadObjects();
-  updateHistogram();
+
+  xhr.addEventListener('load', () => {
+    document.getElementById('uploadSubmitBtn').disabled = false;
+    document.getElementById('uploadCancelBtn').disabled = false;
+    let j = {};
+    try { j = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+    if (xhr.status >= 200 && xhr.status < 300) {
+      closeUpload();
+      fileInput.value = '';
+      prog.classList.remove('active');
+      loadObjects();
+      updateHistogram();
+      if (j.served_by) updateServedBy(j.served_by);
+    } else {
+      progText.textContent = 'Error: ' + (j.error || xhr.statusText || xhr.status);
+      progBar.style.background = '#f87171';
+    }
+  });
+
+  xhr.addEventListener('error', () => {
+    document.getElementById('uploadSubmitBtn').disabled = false;
+    document.getElementById('uploadCancelBtn').disabled = false;
+    progText.textContent = 'Network error';
+  });
+
+  xhr.open('POST', url);
+  xhr.send(form);
 }
 
 // Histogram
@@ -466,6 +960,52 @@ async function runHealthCheck(scenario) {
     el.innerHTML = `<span class="health-status health-fail">ERROR</span> <span style="color:#f87171;font-size:12px">${e.message}</span>`;
   }
 }
+
+document.getElementById('refreshBucketsBtn').onclick = () => loadBuckets().catch(e => alert(e.message));
+
+document.querySelectorAll('.content-view-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const v = tab.dataset.mainView;
+    if (v === 'browse' || v === 'overview') setMainView(v);
+  });
+});
+document.getElementById('refreshOverviewBtn').addEventListener('click', () => loadOverview());
+
+(function wireTogglePersistence() {
+  const b = document.getElementById('browseExtendedToggle');
+  const o = document.getElementById('overviewGroupScToggle');
+  if (b) {
+    b.checked = localStorage.getItem(LS_BROWSE_EXT) === '1';
+    b.addEventListener('change', () => {
+      localStorage.setItem(LS_BROWSE_EXT, b.checked ? '1' : '0');
+      syncBrowseTableHead();
+      const ob = document.getElementById('objectTable');
+      const td = ob && ob.querySelector('td.empty-state[colspan]');
+      if (td && !currentBucket) td.setAttribute('colspan', String(browseColCount()));
+      if (currentBucket) loadObjects().catch(() => {});
+    });
+  }
+  if (o) {
+    o.checked = localStorage.getItem(LS_OVERVIEW_GROUP) === '1';
+    o.addEventListener('change', () => {
+      localStorage.setItem(LS_OVERVIEW_GROUP, o.checked ? '1' : '0');
+      const overview = document.getElementById('view-overview');
+      if (overview && !overview.classList.contains('hidden')) loadOverview().catch(() => {});
+    });
+  }
+})();
+
+document.getElementById('refreshObjectsBtn').onclick = () => {
+  if (!currentBucket) return;
+  loadObjects();
+};
+
+document.getElementById('presignToolbarBtn').onclick = () => openPresignModal('');
+document.getElementById('presignCloseBtn').onclick = closePresignModal;
+document.getElementById('btnPresignGet').onclick = () => runPresignGet();
+document.getElementById('btnPresignPut').onclick = () => runPresignPut();
+document.getElementById('btnCopyGet').onclick = () => copyInput('presignGetOut');
+document.getElementById('btnCopyPut').onclick = () => copyInput('presignPutOut');
 
 init();
 </script>

@@ -7,24 +7,39 @@ behind an NGINX load balancer.
 
 import io
 import json
+import mimetypes
 import os
 import time
 import urllib.request
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Query, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from collections import defaultdict
+
+from fastapi import FastAPI, File, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from minio import Minio
-from minio.error import S3Error
 
 app = FastAPI()
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
+def _endpoint_looks_like_cluster_lb(url: str) -> bool:
+    """Compose uses http://{project}-{clusterId}-lb:80 for distributed MinIO; only that path gets X-Upstream-Server."""
+    try:
+        p = urlparse(url)
+        port = p.port or (80 if p.scheme == "http" else 443)
+        host = p.hostname or ""
+        return port == 80 and host.endswith("-lb")
+    except Exception:
+        return False
+
 
 def load_config() -> dict:
     """Load config from /app/config.json, fall back to env vars."""
@@ -49,6 +64,17 @@ def load_config() -> dict:
         cfg["endpoint"] = os.getenv("S3_ENDPOINT", "http://localhost:9000")
         cfg["access_key"] = os.getenv("S3_ACCESS_KEY", "minioadmin")
         cfg["secret_key"] = os.getenv("S3_SECRET_KEY", "minioadmin")
+    elif os.getenv("S3_ENDPOINT"):
+        # When compose injects LB URL but an older config.json still pointed at :9000, prefer the live env.
+        env_ep = os.getenv("S3_ENDPOINT", "").strip()
+        if env_ep and env_ep != cfg.get("endpoint") and _endpoint_looks_like_cluster_lb(env_ep):
+            cfg["endpoint"] = env_ep
+            if os.getenv("S3_ACCESS_KEY"):
+                cfg["access_key"] = os.getenv("S3_ACCESS_KEY", "minioadmin")
+            if os.getenv("S3_SECRET_KEY"):
+                cfg["secret_key"] = os.getenv("S3_SECRET_KEY", "minioadmin")
+    if cfg.get("endpoint") and _endpoint_looks_like_cluster_lb(cfg["endpoint"]):
+        cfg["via_loadbalancer"] = True
     return cfg
 
 
@@ -115,12 +141,114 @@ def health():
 def _format_bucket(b):
     return {"name": b.name, "created": b.creation_date.isoformat() if b.creation_date else ""}
 
-def _format_object(o):
-    return {
+def _normalize_user_metadata(meta) -> dict[str, str]:
+    """Turn SDK metadata mapping into JSON-safe ``str -> str``."""
+    out: dict[str, str] = {}
+    if not meta or not isinstance(meta, dict):
+        return out
+    for k, v in meta.items():
+        kk = k.decode() if isinstance(k, bytes) else str(k)
+        if v is None:
+            out[kk] = ""
+        elif isinstance(v, bytes):
+            out[kk] = v.decode(errors="replace")
+        else:
+            out[kk] = str(v)
+    return out
+
+
+def _format_object(o, *, extended: bool = False) -> dict:
+    base: dict = {
         "key": o.object_name,
         "size": o.size or 0,
         "last_modified": o.last_modified.isoformat() if o.last_modified else "",
     }
+    if not extended:
+        return base
+    etag = getattr(o, "etag", None) or ""
+    if isinstance(etag, bytes):
+        etag = etag.decode(errors="replace")
+    base["etag"] = etag
+    base["content_type"] = getattr(o, "content_type", None) or ""
+    base["storage_class"] = getattr(o, "storage_class", None) or ""
+    base["metadata"] = _normalize_user_metadata(getattr(o, "metadata", None))
+    vid = getattr(o, "version_id", None)
+    if vid:
+        base["version_id"] = str(vid)
+    return base
+
+
+# ~16 MiB — MinIO / S3 default multipart threshold; put_object shards beyond this.
+_MULTIPART_PART_SIZE = 16 * 1024 * 1024
+
+# Presigned URL expiry bounds (seconds)
+_PRESIGN_MIN_SEC = 60
+_PRESIGN_MAX_SEC = 7 * 24 * 60 * 60  # 7 days (SDK default window)
+
+
+def _content_type_for_key(key: str) -> str:
+    mt, _ = mimetypes.guess_type(key)
+    return mt or "application/octet-stream"
+
+
+def _is_video_content_type(ct: str) -> bool:
+    return bool(ct and ct.startswith("video/"))
+
+
+def _filename_from_key(key: str) -> str:
+    return key.rstrip("/").split("/")[-1] or "object"
+
+
+def _parse_range_header(range_hdr: str | None, total: int) -> tuple[int, int] | None:
+    """Parse single ``Range: bytes=…`` into inclusive (start, end). ``None`` if not a range request."""
+    if not range_hdr or not range_hdr.startswith("bytes="):
+        return None
+    spec = range_hdr.split("=", 1)[1].strip()
+    if "," in spec:
+        spec = spec.split(",", 1)[0].strip()
+    try:
+        if spec.startswith("-"):
+            suffix = int(spec[1:])
+            if suffix <= 0 or total <= 0:
+                return None
+            start = max(0, total - suffix)
+            end = total - 1
+            return start, end
+        if "-" not in spec:
+            return None
+        left, right = spec.split("-", 1)
+        start = int(left) if left.strip() else 0
+        end = int(right) if right.strip() else total - 1
+        if total > 0:
+            end = min(end, total - 1)
+        if start > end or start < 0:
+            return None
+        return start, end
+    except ValueError:
+        return None
+
+
+def _stream_minio_response(resp):
+    """Yield chunks from urllib3 response and always release the connection."""
+    try:
+        # urllib3 HTTPResponse
+        if hasattr(resp, "stream"):
+            for chunk in resp.stream(amt=1024 * 1024):
+                if chunk:
+                    yield chunk
+        else:
+            data = resp.read()
+            if data:
+                yield data
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+        try:
+            resp.release_conn()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -146,12 +274,141 @@ def list_buckets():
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
 
+# Cap per-bucket walk so very large buckets do not hang the UI thread unbounded.
+_DEFAULT_OVERVIEW_MAX = 200_000
+
+
+def _bucket_overview_row(
+    client: Minio,
+    bucket_name: str,
+    created: str,
+    max_objects: int,
+    *,
+    group_by_storage_class: bool = False,
+) -> dict:
+    """Count objects (non-dir) and summed size under bucket; may truncate at max_objects."""
+    row: dict = {
+        "name": bucket_name,
+        "created": created,
+        "object_count": 0,
+        "total_size_bytes": 0,
+        "count_truncated": False,
+        "error": None,
+        "by_storage_class": None,
+    }
+    try:
+        if not group_by_storage_class:
+            n = 0
+            total = 0
+            for obj in client.list_objects(bucket_name, recursive=True):
+                if getattr(obj, "is_dir", False):
+                    continue
+                n += 1
+                total += int(obj.size or 0)
+                if n >= max_objects:
+                    row["count_truncated"] = True
+                    break
+            row["object_count"] = n
+            row["total_size_bytes"] = total
+            return row
+
+        groups: dict[str, dict[str, int]] = defaultdict(lambda: {"object_count": 0, "total_size_bytes": 0})
+        n = 0
+        for obj in client.list_objects(bucket_name, recursive=True):
+            if getattr(obj, "is_dir", False):
+                continue
+            sc = getattr(obj, "storage_class", None) or ""
+            sc_key = str(sc)
+            g = groups[sc_key]
+            g["object_count"] += 1
+            g["total_size_bytes"] += int(obj.size or 0)
+            n += 1
+            if n >= max_objects:
+                row["count_truncated"] = True
+                break
+        row["object_count"] = n
+        row["total_size_bytes"] = sum(int(x["total_size_bytes"]) for x in groups.values())
+        breakdown: list[dict] = []
+        for sc_key in sorted(groups.keys(), key=lambda k: (-groups[k]["object_count"], k)):
+            breakdown.append(
+                {
+                    "storage_class": sc_key,
+                    "display_class": sc_key if sc_key else "(default / unset)",
+                    "object_count": groups[sc_key]["object_count"],
+                    "total_size_bytes": groups[sc_key]["total_size_bytes"],
+                }
+            )
+        row["by_storage_class"] = breakdown
+    except Exception as e:
+        row["error"] = str(e)
+    return row
+
+
+@app.get("/api/buckets/overview")
+async def buckets_overview(
+    max_objects_per_bucket: int = Query(
+        _DEFAULT_OVERVIEW_MAX,
+        ge=1,
+        le=2_000_000,
+        description="Stop counting after this many objects per bucket (high-level scan cap).",
+    ),
+    group_by_storage_class: bool = Query(
+        False,
+        description="When true, each bucket includes ``by_storage_class`` counts (uses list object metadata).",
+    ),
+):
+    """High-level list: every bucket with object count and total size (best-effort; may truncate)."""
+    served_by = track(probe_upstream())
+
+    def _work() -> dict:
+        client = get_s3_client()
+        rows: list[dict] = []
+        raw = client.list_buckets()
+        for b in raw:
+            created = b.creation_date.isoformat() if b.creation_date else ""
+            rows.append(
+                _bucket_overview_row(
+                    client,
+                    b.name,
+                    created,
+                    max_objects_per_bucket,
+                    group_by_storage_class=group_by_storage_class,
+                )
+            )
+        total_objects = sum(r["object_count"] for r in rows if not r.get("error"))
+        total_bytes = sum(int(r.get("total_size_bytes") or 0) for r in rows if not r.get("error"))
+        return {
+            "buckets": rows,
+            "summary": {
+                "bucket_count": len(rows),
+                "total_objects_counted": total_objects,
+                "total_bytes_counted": total_bytes,
+                "max_objects_per_bucket": max_objects_per_bucket,
+                "group_by_storage_class": group_by_storage_class,
+            },
+        }
+
+    try:
+        data = await run_in_threadpool(_work)
+        data["served_by"] = served_by
+        return data
+    except Exception as e:
+        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+
+
 # ---------------------------------------------------------------------------
 # Object operations
 # ---------------------------------------------------------------------------
 
 @app.get("/api/objects")
-def list_objects(bucket: str, prefix: str = ""):
+def list_objects(
+    bucket: str,
+    prefix: str = "",
+    extended: bool = Query(
+        False,
+        description="Include etag, content_type, storage_class, and user metadata per object (from list API).",
+    ),
+):
     served_by = track(probe_upstream())
     try:
         objects_iter = s3.list_objects(bucket, prefix=prefix or None, recursive=False)
@@ -161,35 +418,219 @@ def list_objects(bucket: str, prefix: str = ""):
             if obj.is_dir:
                 prefixes.append({"prefix": obj.object_name})
             else:
-                objects.append(_format_object(obj))
-        return {"prefixes": prefixes, "objects": objects, "served_by": served_by}
+                objects.append(_format_object(obj, extended=extended))
+        return {"prefixes": prefixes, "objects": objects, "extended": extended, "served_by": served_by}
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
 
 @app.post("/api/upload")
 async def upload_file(bucket: str, key: str, file: UploadFile = File(...)):
+    """Upload object; large streams use multipart uploads inside the MinIO SDK (see part_size)."""
     served_by = track(probe_upstream())
+    ct = file.content_type or "application/octet-stream"
+
+    def _put():
+        try:
+            file.file.seek(0)
+        except Exception:
+            pass
+        sz = getattr(file, "size", None)
+        if sz is not None:
+            return s3.put_object(
+                bucket,
+                key,
+                file.file,
+                sz,
+                content_type=ct,
+                part_size=_MULTIPART_PART_SIZE,
+            )
+        data = file.file.read()
+        return s3.put_object(
+            bucket,
+            key,
+            io.BytesIO(data),
+            len(data),
+            content_type=ct,
+            part_size=_MULTIPART_PART_SIZE,
+        )
+
     try:
-        data = await file.read()
-        s3.put_object(bucket, key, io.BytesIO(data), length=len(data))
-        return {"message": f"Uploaded {key}", "size": len(data), "served_by": served_by}
+        await file.seek(0)
+        result = await run_in_threadpool(_put)
+        etag = getattr(result, "etag", "") or ""
+        sz = getattr(file, "size", None)
+        if sz is None:
+            try:
+                file.file.seek(0, os.SEEK_END)
+                sz = file.file.tell()
+            except Exception:
+                sz = None
+        return {
+            "message": f"Uploaded {key}",
+            "size": sz,
+            "etag": etag,
+            "multipart": bool(sz and sz >= _MULTIPART_PART_SIZE),
+            "served_by": served_by,
+        }
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
 
 @app.get("/api/download")
-def download_file(bucket: str, key: str):
+def download_file(bucket: str, key: str, request: Request):
+    """Download object. Supports ``Range`` for large files and video seeking (HTTP 206)."""
+    served_by = track(probe_upstream())
+    filename = _filename_from_key(key)
+    content_type = _content_type_for_key(key)
+    video = _is_video_content_type(content_type)
+
     try:
-        resp = s3.get_object(bucket, key)
-        filename = key.split("/")[-1]
-        return StreamingResponse(
-            resp,
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        stat = s3.stat_object(bucket, key)
+        total = int(stat.size or 0)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+    range_pair = _parse_range_header(request.headers.get("range"), total)
+
+    if range_pair is not None:
+        start, end = range_pair
+        if total <= 0 or start >= total:
+            return Response(
+                status_code=416,
+                headers={
+                    "Content-Range": f"bytes */{total}",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+        end = min(end, total - 1)
+        length = end - start + 1
+        try:
+            resp = s3.get_object(bucket, key, offset=start, length=length)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+        disp = (
+            f'inline; filename="{filename}"'
+            if video
+            else f'attachment; filename="{filename}"'
+        )
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{total}",
+            "Content-Length": str(length),
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": disp,
+            "X-Served-By-Upstream": served_by or "",
+        }
+        return StreamingResponse(
+            _stream_minio_response(resp),
+            status_code=206,
+            media_type=content_type,
+            headers=headers,
+        )
+
+    try:
+        resp = s3.get_object(bucket, key)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    disp = (
+        f'inline; filename="{filename}"'
+        if video
+        else f'attachment; filename="{filename}"'
+    )
+    headers = {
+        "Content-Length": str(total) if total > 0 else None,
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": disp,
+        "Content-Type": content_type,
+        "X-Served-By-Upstream": served_by or "",
+    }
+    headers = {k: v for k, v in headers.items() if v is not None}
+
+    return StreamingResponse(
+        _stream_minio_response(resp),
+        media_type=content_type,
+        headers=headers,
+    )
+
+
+@app.get("/api/presign/get")
+def presign_get(
+    bucket: str = Query(...),
+    key: str = Query(...),
+    expires_sec: int = Query(
+        3600,
+        ge=_PRESIGN_MIN_SEC,
+        le=_PRESIGN_MAX_SEC,
+        description="URL lifetime in seconds",
+    ),
+    inline: bool = Query(
+        False,
+        description="If true, set response-content-disposition to inline (e.g. media in browser)",
+    ),
+):
+    """Return a time-limited presigned **GET** URL (download / open in browser)."""
+    served_by = track(probe_upstream())
+    try:
+        exp = timedelta(seconds=expires_sec)
+        ct = _content_type_for_key(key)
+        fn = _filename_from_key(key)
+        disp = (
+            f'inline; filename="{fn}"'
+            if inline
+            else f'attachment; filename="{fn}"'
+        )
+        response_headers = {
+            "response-content-type": ct,
+            "response-content-disposition": disp,
+        }
+        url = s3.presigned_get_object(
+            bucket,
+            key,
+            expires=exp,
+            response_headers=response_headers,
+        )
+        return {
+            "url": url,
+            "method": "GET",
+            "expires_seconds": expires_sec,
+            "bucket": bucket,
+            "key": key,
+            "inline": inline,
+            "served_by": served_by,
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+
+
+@app.get("/api/presign/put")
+def presign_put(
+    bucket: str = Query(...),
+    key: str = Query(...),
+    expires_sec: int = Query(
+        3600,
+        ge=_PRESIGN_MIN_SEC,
+        le=_PRESIGN_MAX_SEC,
+        description="URL lifetime in seconds",
+    ),
+):
+    """Return a time-limited presigned **PUT** URL (upload bytes with HTTP PUT)."""
+    served_by = track(probe_upstream())
+    try:
+        exp = timedelta(seconds=expires_sec)
+        url = s3.presigned_put_object(bucket, key, expires=exp)
+        return {
+            "url": url,
+            "method": "PUT",
+            "expires_seconds": expires_sec,
+            "bucket": bucket,
+            "key": key,
+            "usage_note": "HTTP PUT the file bytes as the request body (e.g. curl -T my.dat <url>).",
+            "served_by": served_by,
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
 
 @app.delete("/api/delete")
