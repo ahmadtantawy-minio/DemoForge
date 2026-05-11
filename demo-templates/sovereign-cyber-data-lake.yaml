@@ -606,6 +606,8 @@ clusters:
     root_password: minioadmin
   config:
     MINIO_EDITION: aistor
+    ICEBERG_WAREHOUSE: analytics
+    AISTOR_TABLES_CATALOG_NAME: iceberg
   width: 380.0
   height: 200.0
   mcp_enabled: false

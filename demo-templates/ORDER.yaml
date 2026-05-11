@@ -4,6 +4,7 @@
 # Edit in dev mode via the gallery UI, or update this file directly.
 
 order:
+- lakehouse-spark-etl
 - sovereign-cyber-data-lake
 - experience-stx-inference
 - active-active-replication

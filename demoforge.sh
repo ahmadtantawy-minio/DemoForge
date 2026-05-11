@@ -244,6 +244,11 @@ build_component_images() {
         [ -z "$image" ] && continue
 
         local build_path="$comp_dir/$build_ctx"
+        local dockerfile_path=""
+        if [[ "$(basename "$comp_dir")" == "external-system" ]]; then
+            build_path="$SCRIPT_DIR/components"
+            dockerfile_path="$comp_dir/Dockerfile"
+        fi
         if [ ! -d "$build_path" ]; then
             warn "Build context not found: $build_path (skipping)"
             continue
@@ -254,13 +259,28 @@ build_component_images() {
 
         # Skip if image exists AND no source file is newer than the last build marker.
         if docker image inspect "$image" &>/dev/null && [[ -f "$marker" ]]; then
-            if ! find "$build_path" -newer "$marker" -type f | grep -q .; then
+            if [[ "$(basename "$comp_dir")" == "external-system" ]]; then
+                if ! find "$comp_dir" \
+                    "$SCRIPT_DIR/components/data-generator/datasets" \
+                    "$SCRIPT_DIR/components/data-generator/src" \
+                    "$SCRIPT_DIR/components/data-generator/generate.py" \
+                    -newer "$marker" -type f 2>/dev/null | grep -q .; then
+                    continue
+                fi
+            elif ! find "$build_path" -newer "$marker" -type f | grep -q .; then
                 continue
             fi
         fi
 
         log "Building component image: $image from $build_path"
-        if docker build -t "$image" "$build_path"; then
+        if [[ -n "$dockerfile_path" ]]; then
+            if docker build -f "$dockerfile_path" -t "$image" "$build_path"; then
+                touch "$marker"
+                count=$((count + 1))
+            else
+                warn "Build failed for $image"
+            fi
+        elif docker build -t "$image" "$build_path"; then
             touch "$marker"
             count=$((count + 1))
         else

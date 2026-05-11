@@ -36,7 +36,7 @@ _template:
     description: Open Trino terminal → CREATE SCHEMA iceberg.analytics; CREATE TABLE iceberg.analytics.events AS SELECT * FROM ... — tables stored as Parquet on MinIO.
   - step: Explore HDFS (legacy source)
     description: Open HDFS NameNode UI to see the legacy file system. Create sample data in /data/demo/.
-  - step: Run Spark ETL (HDFS → MinIO)
+  - step: Run Apache Spark job (HDFS → MinIO)
     description: Open Spark terminal → submit a PySpark job that reads from HDFS and writes transformed Parquet to MinIO via S3A connector.
   - step: Monitor with Grafana
     description: Open Grafana to see MinIO throughput, ClickHouse queries, and Spark metrics in real-time dashboards.
@@ -46,7 +46,7 @@ _template:
   updated_at: "2026-03-31"
 id: template-full-analytics-pipeline
 name: Full Analytics Pipeline
-description: 'Comprehensive analytics pipeline: HDFS → Spark ETL → MinIO data lake → Iceberg + Trino SQL + ClickHouse OLAP'
+description: 'Comprehensive analytics pipeline: HDFS → Apache Spark job → MinIO data lake → Iceberg + Trino SQL + ClickHouse OLAP'
 networks:
 - name: default
   subnet: 172.20.0.0/16

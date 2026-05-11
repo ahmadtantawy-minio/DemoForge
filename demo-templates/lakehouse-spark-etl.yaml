@@ -1,0 +1,165 @@
+_template:
+  name: Lakehouse Apache Spark job
+  tier: advanced
+  category: lakehouse
+  tags:
+  - spark
+  - iceberg
+  - trino
+  - minio
+  - etl
+  description: >
+    Minimal lakehouse wiring: MinIO AIStor with AIStor Tables (raw + warehouse S3A paths into Spark),
+    Iceberg REST at MinIO /_iceberg for the Apache Spark job client (Raw → Iceberg), plus a separate
+    Iceberg REST service for Trino. Land CSV under raw-logs (e.g. file-generator or mc cp) before the job runs.
+  objective: Show separate canvas links for raw landing vs warehouse and a first-class Apache Spark job node
+  minio_value: MinIO holds both raw CSV landing and Iceberg warehouse objects; Spark reads and writes via S3A per-bucket settings
+  estimated_resources:
+    memory: 4GB
+    cpu: 5
+    containers: 6
+  external_dependencies: []
+  walkthrough:
+  - step: Deploy
+    description: Deploy the demo and wait for green health (Spark master may take ~60s).
+  - step: Seed raw CSV
+    description: Use MinIO Console or mc to put CSV files under the raw-logs bucket (or connect a file-generator) so the Spark job has input.
+  - step: Run Spark job
+    description: The Apache Spark job container submits on_deploy_once after Spark is healthy; check its logs for spark-submit output.
+  - step: Query Trino
+    description: Open Trino and query the Iceberg namespace.table configured on the job node (default analytics.events_from_raw).
+  fa_ready: false
+  updated_at: "2026-05-09"
+id: lakehouse-spark-etl
+name: Lakehouse Apache Spark job (CSV → Iceberg)
+description: "MinIO + Spark + Iceberg REST + Apache Spark job + Trino — dual S3A paths and templated batch"
+networks:
+  - name: default
+    subnet: 172.28.0.0/16
+    driver: bridge
+nodes:
+  - id: minio-1
+    component: minio
+    position: { x: 100, y: 200 }
+    display_name: MinIO
+    aistor_tables_enabled: true
+    config:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_EDITION: aistor
+  - id: spark-1
+    component: spark
+    variant: standalone
+    position: { x: 400, y: 80 }
+    display_name: Spark
+    config: {}
+  - id: iceberg-1
+    component: iceberg-rest
+    variant: default
+    position: { x: 400, y: 320 }
+    display_name: Iceberg REST
+    config: {}
+  - id: spark-job-1
+    component: spark-etl-job
+    variant: default
+    position: { x: 700, y: 200 }
+    display_name: Apache Spark Job
+    config:
+      JOB_SCHEDULE: on_deploy_once
+      JOB_TEMPLATE: raw_to_iceberg
+      INPUT_GLOB: "*.csv"
+      ICEBERG_TARGET_NAMESPACE: analytics
+      ICEBERG_TARGET_TABLE: events_from_raw
+      RAW_LANDING_BUCKET: raw-logs
+      WAREHOUSE_BUCKET: warehouse
+      INPUT_OBJECT_PREFIX: ""
+  - id: trino-1
+    component: trino
+    variant: default
+    position: { x: 1000, y: 80 }
+    display_name: Trino
+    config: {}
+clusters: []
+edges:
+  - id: e-minio-iceberg
+    source: minio-1
+    target: iceberg-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: S3 warehouse
+    connection_config:
+      warehouse_bucket: warehouse
+  - id: e-iceberg-trino
+    source: iceberg-1
+    target: trino-1
+    connection_type: iceberg-catalog
+    network: default
+    auto_configure: true
+    label: Iceberg catalog
+    connection_config:
+      catalog_name: iceberg
+  - id: e-minio-trino
+    source: minio-1
+    target: trino-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: S3 direct
+    connection_config:
+      catalog_name: minio
+  - id: e-minio-spark-raw
+    source: minio-1
+    target: spark-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: ""
+    connection_config:
+      spark_bucket_role: raw
+      raw_bucket: raw-logs
+      warehouse_bucket: warehouse
+  - id: e-minio-spark-wh
+    source: minio-1
+    target: spark-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: ""
+    connection_config:
+      spark_bucket_role: warehouse
+      warehouse_bucket: warehouse
+  - id: e-sparkjob-spark
+    source: spark-job-1
+    target: spark-1
+    connection_type: spark-submit
+    network: default
+    auto_configure: true
+    label: ""
+  - id: e-minio-sparkjob-in
+    source: minio-1
+    target: spark-job-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: ""
+    connection_config:
+      spark_sink_role: input
+  - id: e-minio-sparkjob-out
+    source: minio-1
+    target: spark-job-1
+    connection_type: s3
+    network: default
+    auto_configure: true
+    label: ""
+    connection_config:
+      spark_sink_role: output
+groups: []
+sticky_notes: []
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 6g
+  total_cpu: 6.0
