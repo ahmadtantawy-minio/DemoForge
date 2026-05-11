@@ -9,7 +9,8 @@
   body { font-family: system-ui, -apple-system, sans-serif; background: #18181b; color: #fafafa; min-height: 100vh; display: flex; flex-direction: column; }
 
   /* Top bar */
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #27272a; border-bottom: 1px solid #3f3f46; }
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 12px 20px; background: #27272a; border-bottom: 1px solid #3f3f46; }
+  .topbar-brand { display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1 1 280px; max-width: min(100%, 720px); }
   .topbar h1 { font-size: 16px; font-weight: 600; }
   .badge { padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
   .badge-direct { background: #16a34a22; color: #22c55e; border: 1px solid #22c55e44; }
@@ -136,17 +137,116 @@
 
   /* Hidden */
   .hidden { display: none !important; }
+
+  .topbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .identity-wrap { display: flex; align-items: center; gap: 8px; }
+  .identity-wrap .identity-label { font-size: 11px; color: #a1a1aa; white-space: nowrap; }
+  .identity-wrap select {
+    min-width: 160px; max-width: 260px; padding: 6px 10px; font-size: 12px; border-radius: 6px;
+    border: 1px solid #3f3f46; background: #18181b; color: #fafafa;
+  }
+
+  /* Active identity + IAM confirmation (simulated users) */
+  .identity-panel {
+    border-radius: 8px;
+    border: 1px solid #3f3f46;
+    background: linear-gradient(145deg, #1c1c22 0%, #16161a 100%);
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .identity-panel.hidden { display: none !important; }
+  .identity-panel-row { display: flex; align-items: flex-start; gap: 10px; }
+  .identity-mode-badge {
+    flex-shrink: 0;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 4px 8px; border-radius: 6px; text-transform: uppercase;
+  }
+  .identity-mode-badge.iam { background: #14532d; color: #86efac; border: 1px solid #22c55e55; }
+  .identity-mode-badge.root { background: #713f12; color: #fcd34d; border: 1px solid #f59e0b55; }
+  .identity-panel-text { min-width: 0; flex: 1; }
+  .identity-line1 { color: #e4e4e7; font-size: 13px; }
+  .identity-line1 .muted { color: #71717a; font-size: 11px; font-weight: 500; margin-right: 6px; }
+  .identity-line1 strong { color: #fafafa; font-weight: 600; }
+  .identity-line2 { margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .identity-line2 code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    color: #a5b4fc; background: #18181b; padding: 2px 8px; border-radius: 4px; border: 1px solid #3f3f46;
+  }
+  .identity-line2 .muted { font-size: 10px; color: #71717a; }
+  .identity-policy-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid #3f3f4644; }
+  .identity-policy-row.hidden { display: none !important; }
+  .policy-verified {
+    display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #86efac; margin-bottom: 6px;
+  }
+  .policy-verified .policy-check {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%; background: #166534; color: #fff; font-size: 11px; line-height: 1;
+  }
+  .policy-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .policy-pill {
+    font-size: 10px; font-family: ui-monospace, Menlo, monospace;
+    padding: 3px 8px; border-radius: 999px; background: #312e81; color: #c7d2fe; border: 1px solid #6366f144;
+  }
+  .identity-tech-note { margin-top: 6px; font-size: 10px; color: #71717a; line-height: 1.4; }
+
+  /* IAM / policy scope banner */
+  .iam-scope-bar {
+    padding: 8px 20px 10px;
+    background: #161618;
+    border-bottom: 1px solid #3f3f46;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #d4d4d8;
+  }
+  .iam-scope-bar.hidden { display: none !important; }
+  .iam-scope-bar.sim { border-left: 3px solid #22c55e; padding-left: 17px; }
+  .iam-scope-bar.root { border-left: 3px solid #f59e0b; padding-left: 17px; }
+  .iam-scope-bar .iam-title { font-weight: 600; color: #fafafa; margin-right: 6px; }
+  .iam-scope-bar .iam-policies { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #a5b4fc; font-size: 10px; }
 </style>
 </head>
 <body>
 
 <!-- Top bar -->
 <div class="topbar">
-  <h1>S3 File Browser</h1>
-  <div>
+  <div class="topbar-brand">
+    <h1>S3 File Browser</h1>
+    <div id="identityPanel" class="identity-panel hidden" role="region" aria-label="Active S3 identity">
+      <div class="identity-panel-row">
+        <span id="identityModeBadge" class="identity-mode-badge iam" aria-hidden="true">IAM</span>
+        <div class="identity-panel-text">
+          <div class="identity-line1">
+            <span class="muted">Signed in as</span>
+            <strong id="identityDisplayName">—</strong>
+          </div>
+          <div class="identity-line2">
+            <span class="muted">Access key</span>
+            <code id="identityAccessKey" title="Access key ID used for all S3 API calls in this browser">—</code>
+            <span id="identityKeyHint" class="muted"></span>
+          </div>
+        </div>
+      </div>
+      <div id="identityPolicyRow" class="identity-policy-row hidden">
+        <div class="policy-verified">
+          <span class="policy-check" aria-hidden="true">✓</span>
+          <span>IAM policies enforced — browse, upload, download, delete, and presigned URLs all use this identity</span>
+        </div>
+        <div id="identityPolicyPills" class="policy-pills"></div>
+      </div>
+      <p id="identityTechNote" class="identity-tech-note hidden"></p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div id="identityWrap" class="identity-wrap hidden">
+      <label for="identitySelect" class="identity-label">Switch identity</label>
+      <select id="identitySelect" title="Switch simulated IAM user (requires IAM simulation on MinIO)"></select>
+    </div>
     <span id="connBadge" class="badge badge-none">Not Connected</span>
   </div>
 </div>
+
+<div id="iamScopeBar" class="iam-scope-bar hidden" role="status" aria-live="polite"></div>
 
 <!-- Served-by banner -->
 <div class="served-banner">
@@ -179,7 +279,7 @@
           <button type="button" class="btn" id="refreshFileListBtn" disabled title="Reload files in the current folder">↻ Refresh</button>
         </div>
         <div class="toolbar-toggles">
-          <label title="Adds ETag, content type, storage class (tier hint on MinIO), and user metadata columns using the list API">
+          <label title="Uses MinIO enriched list (metadata=true): ETag, content type, storage class, user metadata (x-amz-meta-*), and S3 object tags (e.g. mc cp --tags from generators)">
             <input type="checkbox" id="browseExtendedToggle" />
             Show metadata
           </label>
@@ -325,11 +425,40 @@
 <!-- Video preview modal -->
 <div class="modal-overlay hidden" id="videoModal">
   <div class="modal" style="width:min(900px,96vw)">
-    <h3 style="margin-bottom:12px">Play video</h3>
-    <video id="videoPlayer" controls playsinline style="width:100%;max-height:70vh;background:#000;border-radius:8px" crossorigin="anonymous"></video>
-    <div class="modal-actions" style="margin-top:12px">
-      <button class="btn" onclick="closeVideo()">Close</button>
-      <a class="btn btn-primary" id="videoDownloadLink" href="#" download>Download</a>
+    <h3 style="margin-bottom:6px">Play video</h3>
+    <p id="videoModalKey" style="font-size:11px;color:#a1a1aa;font-family:monospace;word-break:break-all;margin-bottom:14px"></p>
+
+    <div id="videoSourcePick">
+      <div style="font-size:11px;color:#a1a1aa;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.04em">Stream source</div>
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;font-size:13px">
+        <input type="radio" name="videoSrcMode" value="direct" checked style="margin-top:3px" />
+        <span><strong>Direct GET</strong> — this app’s <code style="font-size:10px;color:#93c5fd">/api/download</code> (proxied Range streaming; same site as the UI).</span>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:12px;font-size:13px">
+        <input type="radio" name="videoSrcMode" value="presign" style="margin-top:3px" />
+        <span><strong>Presigned URL</strong> — time-limited GET signed by MinIO/S3 (browser hits storage directly; needs CORS if the origin differs).</span>
+      </label>
+      <div id="videoPresignOpts" style="display:none;margin-bottom:12px;padding-left:26px">
+        <label style="font-size:12px;color:#e4e4e7">Expires (seconds)
+          <input type="number" id="videoPresignExpires" value="3600" min="60" max="604800" style="width:88px;margin-left:8px;padding:6px 8px;border-radius:6px;border:1px solid #3f3f46;background:#18181b;color:#fafafa" />
+        </label>
+      </div>
+      <div id="videoPickErr" style="color:#f87171;font-size:12px;margin-bottom:10px;min-height:1.2em"></div>
+      <button type="button" class="btn btn-primary" id="videoStartBtn">Play video</button>
+    </div>
+
+    <div id="videoPlaybackSection" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid #3f3f46">
+      <div style="font-size:10px;color:#a1a1aa;text-transform:uppercase;margin-bottom:6px">URL used for playback</div>
+      <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:12px;flex-wrap:wrap">
+        <input type="text" readonly id="videoUrlDisplay" style="flex:1;min-width:200px;padding:8px 10px;border-radius:6px;border:1px solid #3f3f46;background:#0f0f10;color:#e4e4e7;font-size:11px;font-family:monospace" value="" />
+        <button type="button" class="btn" id="videoCopyUrlBtn">Copy URL</button>
+      </div>
+      <video id="videoPlayer" controls playsinline style="width:100%;max-height:58vh;background:#000;border-radius:8px"></video>
+      <div class="modal-actions" style="margin-top:12px">
+        <button type="button" class="btn" id="videoChangeSourceBtn">Change source</button>
+        <button type="button" class="btn" onclick="closeVideo()">Close</button>
+        <a class="btn btn-primary" id="videoDownloadLink" href="#" download>Download</a>
+      </div>
     </div>
   </div>
 </div>
@@ -444,14 +573,14 @@ function isOverviewGrouped() {
 }
 
 function browseColCount() {
-  return isBrowseExtended() ? 8 : 4;
+  return isBrowseExtended() ? 9 : 4;
 }
 
 function syncBrowseTableHead() {
   const tr = document.getElementById('browseTableHeadRow');
   if (!tr) return;
   if (isBrowseExtended()) {
-    tr.innerHTML = '<th>Name</th><th>Size</th><th>Modified</th><th>ETag</th><th>Content-Type</th><th>Storage class</th><th>User metadata</th><th style="min-width:100px">Actions</th>';
+    tr.innerHTML = '<th>Name</th><th>Size</th><th>Modified</th><th>ETag</th><th>Content-Type</th><th>Storage class</th><th>User metadata</th><th>Object tags</th><th style="min-width:100px">Actions</th>';
   } else {
     tr.innerHTML = '<th>Name</th><th>Size</th><th>Last Modified</th><th style="min-width:100px">Actions</th>';
   }
@@ -632,6 +761,66 @@ async function api(method, path, body) {
   return data;
 }
 
+function resetBrowseForIdentitySwitch() {
+  currentBucket = null;
+  currentPrefix = '';
+  const tbody = document.getElementById('objectTable');
+  const cols = browseColCount();
+  if (tbody) tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-state">Select a bucket to browse</td></tr>`;
+  const ub = document.getElementById('uploadBtn');
+  const ro = document.getElementById('refreshObjectsBtn');
+  const rfb = document.getElementById('refreshFileListBtn');
+  const ps = document.getElementById('presignToolbarBtn');
+  if (ub) ub.disabled = true;
+  if (ro) ro.disabled = true;
+  if (rfb) rfb.disabled = true;
+  if (ps) ps.disabled = true;
+  updateBreadcrumb();
+}
+
+function setupIdentityFromConfig(cfg) {
+  const wrap = document.getElementById('identityWrap');
+  const sel = document.getElementById('identitySelect');
+  if (!wrap || !sel) return;
+  const idents = Array.isArray(cfg.identities) ? cfg.identities : [];
+  if (idents.length <= 1) {
+    wrap.classList.add('hidden');
+    sel.innerHTML = '';
+    return;
+  }
+  wrap.classList.remove('hidden');
+  sel.innerHTML = '';
+  for (const row of idents) {
+    const opt = document.createElement('option');
+    let id = row.id === undefined || row.id === null ? '' : String(row.id);
+    if (id === '' && (String(row.label || '').toLowerCase().includes('root') || String(row.label || '').toLowerCase().includes('administrator'))) {
+      id = '__root__';
+    }
+    opt.value = id;
+    opt.textContent = row.label ? String(row.label) : (id === '__root__' ? 'Root (MinIO administrator)' : id);
+    sel.appendChild(opt);
+  }
+  const want = cfg.active_identity !== undefined && cfg.active_identity !== null ? String(cfg.active_identity) : '';
+  const idStr = (i) => String(i.id === undefined || i.id === null ? '' : i.id);
+  const valid = idents.some((i) => idStr(i) === want);
+  sel.value = valid ? want : String(idents[0].id === undefined || idents[0].id === null ? '' : idents[0].id);
+  sel.onchange = async () => {
+    try {
+      await api('POST', '/api/session', { identity: sel.value });
+      resetBrowseForIdentitySwitch();
+      const cfg3 = await (await fetch(BASE + '/api/config')).json();
+      refreshIdentityAndIamUi(cfg3);
+      await loadBuckets();
+    } catch (e) {
+      alert(e.message || String(e));
+      const cfg2 = await (await fetch(BASE + '/api/config')).json();
+      const w = cfg2.active_identity !== undefined && cfg2.active_identity !== null ? String(cfg2.active_identity) : '';
+      if (idents.some((i) => idStr(i) === w)) sel.value = w;
+      refreshIdentityAndIamUi(cfg2);
+    }
+  };
+}
+
 // Init
 async function init() {
   syncBrowseTableHead();
@@ -649,6 +838,8 @@ async function init() {
     } else {
       badge.className = 'badge badge-direct'; badge.textContent = 'Direct S3';
     }
+    setupIdentityFromConfig(cfg);
+    refreshIdentityAndIamUi(cfg);
   } catch(e) {}
   loadBuckets();
 }
@@ -712,7 +903,7 @@ async function loadObjects() {
     let html = '';
 
     // Prefixes (folders) — pad non-name columns (size, modified, [metadata…], actions)
-    const folderTail = ext ? '<td></td>'.repeat(7) : '<td></td>'.repeat(3);
+    const folderTail = ext ? '<td></td>'.repeat(8) : '<td></td>'.repeat(3);
     for (const p of (data.prefixes || [])) {
       const name = p.prefix.replace(currentPrefix, '').replace(/\/$/, '');
       html += `<tr><td class="folder-icon" onclick="navigateTo('${p.prefix}')">📁 ${name}/</td>${folderTail}</tr>`;
@@ -729,7 +920,8 @@ async function loadObjects() {
         ? `<td class="etag-cell">${formatEtagCell(o.etag)}</td>
            <td class="meta-cell" title="${escapeAttr(o.content_type || '')}">${o.content_type ? escapeHtml(o.content_type) : '—'}</td>
            <td class="sc-cell">${o.storage_class ? escapeHtml(o.storage_class) : '—'}</td>
-           <td>${formatUserMetaCell(o.metadata)}</td>`
+           <td>${formatUserMetaCell(o.metadata)}</td>
+           <td>${formatUserMetaCell(o.object_tags)}</td>`
         : '';
       html += `<tr>
         <td class="file-icon">📄 ${escapeHtml(name)}</td>
@@ -789,6 +981,135 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+function resolveIdentityDisplayLabel(cfg, act, accessKey) {
+  const fromApi = cfg.active_identity_label && String(cfg.active_identity_label).trim();
+  if (fromApi) return fromApi;
+  const idents = Array.isArray(cfg.identities) ? cfg.identities : [];
+  for (let i = 0; i < idents.length; i++) {
+    const row = idents[i];
+    const id = row.id !== undefined && row.id !== null ? String(row.id) : '';
+    if (id && (id === act || id === accessKey)) {
+      const lb = row.label && String(row.label).trim();
+      return lb || id;
+    }
+  }
+  return '—';
+}
+
+function formatPrincipalAccessKey(cfg) {
+  if (cfg.iam_effective_root === true) {
+    const u = String(cfg.access_key || '').trim() || '—';
+    return {
+      key: u.length > 26 ? u.slice(0, 14) + '…' + u.slice(-6) : u,
+      hint: 'MinIO root user (full access)',
+    };
+  }
+  const id = cfg.active_identity !== undefined && cfg.active_identity !== null ? String(cfg.active_identity).trim() : '';
+  if (!id) return { key: '—', hint: '' };
+  if (id === '__first__') return { key: '__first__', hint: 'First user in IAM simulation (spec order)' };
+  if (id.length > 22) return { key: id.slice(0, 8) + '…' + id.slice(-6), hint: 'Simulated IAM access key ID' };
+  return { key: id, hint: 'Simulated IAM access key ID' };
+}
+
+function updateIdentityPanel(cfg) {
+  const panel = document.getElementById('identityPanel');
+  if (!panel || !cfg) return;
+  const idents = Array.isArray(cfg.identities) ? cfg.identities : [];
+  const multiIdentity = idents.length > 1;
+  const act = cfg.active_identity !== undefined && cfg.active_identity !== null ? String(cfg.active_identity).trim() : '';
+  const accessKey = cfg.access_key !== undefined && cfg.access_key !== null ? String(cfg.access_key).trim() : '';
+  const serverSaysSim = cfg.iam_effective_root === false;
+  const nonRootActive = !!(act && act !== '__root__');
+  const accessKeyMatchesSimRow =
+    !!accessKey &&
+    idents.some(function (row) {
+      const id = row.id !== undefined && row.id !== null ? String(row.id) : '';
+      return id && id !== '__root__' && id !== '__first__' && id === accessKey;
+    });
+  const showPanel = multiIdentity || serverSaysSim || nonRootActive || accessKeyMatchesSimRow;
+  if (!showPanel) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  const badge = document.getElementById('identityModeBadge');
+  const isRoot =
+    cfg.iam_effective_root === true &&
+    (!act || act === '__root__') &&
+    !accessKeyMatchesSimRow;
+  if (badge) {
+    badge.className = 'identity-mode-badge ' + (isRoot ? 'root' : 'iam');
+    badge.textContent = isRoot ? 'Root' : 'IAM user';
+  }
+  const nameEl = document.getElementById('identityDisplayName');
+  if (nameEl) nameEl.textContent = resolveIdentityDisplayLabel(cfg, act, accessKey);
+  const pr = formatPrincipalAccessKey(cfg);
+  const keyEl = document.getElementById('identityAccessKey');
+  if (keyEl) {
+    keyEl.textContent = pr.key;
+    keyEl.title = pr.hint || 'Access key ID used for all S3 API calls in this browser';
+  }
+  const hintEl = document.getElementById('identityKeyHint');
+  if (hintEl) hintEl.textContent = pr.hint ? '· ' + pr.hint : '';
+  const policyRow = document.getElementById('identityPolicyRow');
+  const pillsWrap = document.getElementById('identityPolicyPills');
+  if (policyRow && pillsWrap) {
+    if (isRoot) {
+      policyRow.classList.add('hidden');
+      pillsWrap.innerHTML = '';
+    } else {
+      policyRow.classList.remove('hidden');
+      pillsWrap.innerHTML = '';
+      const pols = Array.isArray(cfg.active_identity_policies) ? cfg.active_identity_policies : [];
+      if (pols.length) {
+        pols.forEach(function (p) {
+          const span = document.createElement('span');
+          span.className = 'policy-pill';
+          span.textContent = String(p);
+          pillsWrap.appendChild(span);
+        });
+      } else {
+        const span = document.createElement('span');
+        span.className = 'muted';
+        span.style.fontSize = '11px';
+        span.textContent =
+          'No policy names listed for this identity in the IAM spec — MinIO still evaluates IAM for this access key.';
+        pillsWrap.appendChild(span);
+      }
+    }
+  }
+  const tech = document.getElementById('identityTechNote');
+  if (tech) {
+    const summary = cfg.iam_policy_scope_summary;
+    if (summary && !String(summary).includes('not loaded')) {
+      tech.classList.remove('hidden');
+      tech.textContent = summary;
+    } else {
+      tech.classList.add('hidden');
+      tech.textContent = '';
+    }
+  }
+}
+
+function refreshIdentityAndIamUi(cfg) {
+  updateIdentityPanel(cfg);
+  updateIamScopeHeader(cfg);
+}
+
+function updateIamScopeHeader(cfg) {
+  const bar = document.getElementById('iamScopeBar');
+  if (!bar || !cfg) return;
+  const summary = cfg.iam_policy_scope_summary;
+  if (!summary || String(summary).includes('not loaded')) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  const isRoot = cfg.iam_effective_root === true;
+  bar.className = 'iam-scope-bar ' + (isRoot ? 'root' : 'sim');
+  bar.innerHTML = `<span class="iam-title">${isRoot ? 'Access scope' : 'IAM policy scope'}</span>${escapeHtml(summary)}`;
+}
+
 function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
@@ -798,22 +1119,113 @@ function downloadFile(key) {
   window.open(`${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`, '_blank');
 }
 
-function openVideo(key) {
-  const url = `${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}`;
-  document.getElementById('videoModal').classList.remove('hidden');
-  const v = document.getElementById('videoPlayer');
-  v.src = url;
-  v.load();
-  const a = document.getElementById('videoDownloadLink');
-  a.href = url;
-  a.setAttribute('download', key.split('/').pop() || 'video');
+let videoModalKey = '';
+
+function _videoDirectDownloadPath() {
+  return `${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(videoModalKey)}`;
 }
 
-function closeVideo() {
+/** Full URL string for display (and for opening in new tab). */
+function absoluteUrlFromPath(pathOrUrl) {
+  try {
+    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) return pathOrUrl;
+    return new URL(pathOrUrl, window.location.href).href;
+  } catch (_) {
+    return pathOrUrl;
+  }
+}
+
+function openVideo(key) {
+  videoModalKey = key;
+  const modal = document.getElementById('videoModal');
+  const pick = document.getElementById('videoSourcePick');
+  const playSec = document.getElementById('videoPlaybackSection');
+  const err = document.getElementById('videoPickErr');
+  const v = document.getElementById('videoPlayer');
+  err.textContent = '';
+  document.getElementById('videoModalKey').textContent = key;
+  pick.classList.remove('hidden');
+  playSec.classList.add('hidden');
+  document.getElementById('videoUrlDisplay').value = '';
+  v.pause();
+  v.removeAttribute('src');
+  v.removeAttribute('crossorigin');
+  v.load();
+  const direct = document.querySelector('input[name="videoSrcMode"][value="direct"]');
+  if (direct) direct.checked = true;
+  document.getElementById('videoPresignOpts').style.display = 'none';
+  const startBtn = document.getElementById('videoStartBtn');
+  if (startBtn) startBtn.disabled = false;
+  modal.classList.remove('hidden');
+}
+
+async function startVideoPlayback() {
+  const err = document.getElementById('videoPickErr');
+  const startBtn = document.getElementById('videoStartBtn');
+  err.textContent = '';
+  if (!currentBucket || !videoModalKey) {
+    err.textContent = 'No bucket or object selected.';
+    return;
+  }
+  const mode = (document.querySelector('input[name="videoSrcMode"]:checked') || {}).value || 'direct';
+  const v = document.getElementById('videoPlayer');
+  const urlInput = document.getElementById('videoUrlDisplay');
+  const playSec = document.getElementById('videoPlaybackSection');
+  const pick = document.getElementById('videoSourcePick');
+  let streamUrl = '';
+  let displayUrl = '';
+
+  try {
+    if (mode === 'direct') {
+      streamUrl = _videoDirectDownloadPath();
+      displayUrl = absoluteUrlFromPath(streamUrl);
+      v.crossOrigin = 'anonymous';
+      v.src = streamUrl;
+    } else {
+      if (startBtn) startBtn.disabled = true;
+      const exp = document.getElementById('videoPresignExpires').value || '3600';
+      const data = await api(
+        'GET',
+        `/api/presign/get?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(videoModalKey)}&expires_sec=${encodeURIComponent(exp)}&inline=true`
+      );
+      streamUrl = data.url || '';
+      if (!streamUrl) throw new Error('Presign response missing url');
+      displayUrl = streamUrl;
+      v.removeAttribute('crossorigin');
+      v.src = streamUrl;
+    }
+    v.load();
+    urlInput.value = displayUrl;
+    const a = document.getElementById('videoDownloadLink');
+    a.href = streamUrl;
+    a.setAttribute('download', videoModalKey.split('/').pop() || 'video');
+    pick.classList.add('hidden');
+    playSec.classList.remove('hidden');
+  } catch (e) {
+    err.textContent = e.message || String(e);
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+  } finally {
+    if (startBtn) startBtn.disabled = false;
+  }
+}
+
+function videoBackToSourcePick() {
   const v = document.getElementById('videoPlayer');
   v.pause();
   v.removeAttribute('src');
+  v.removeAttribute('crossorigin');
   v.load();
+  document.getElementById('videoUrlDisplay').value = '';
+  document.getElementById('videoPlaybackSection').classList.add('hidden');
+  document.getElementById('videoSourcePick').classList.remove('hidden');
+  document.getElementById('videoPickErr').textContent = '';
+}
+
+function closeVideo() {
+  videoBackToSourcePick();
+  videoModalKey = '';
   document.getElementById('videoModal').classList.add('hidden');
 }
 
@@ -1075,6 +1487,20 @@ function refreshCurrentFileList() {
 document.getElementById('refreshObjectsBtn').onclick = refreshCurrentFileList;
 const refreshFileListBtn = document.getElementById('refreshFileListBtn');
 if (refreshFileListBtn) refreshFileListBtn.addEventListener('click', refreshCurrentFileList);
+
+document.querySelectorAll('input[name="videoSrcMode"]').forEach((r) => {
+  r.addEventListener('change', () => {
+    const presign = document.querySelector('input[name="videoSrcMode"]:checked')?.value === 'presign';
+    const row = document.getElementById('videoPresignOpts');
+    if (row) row.style.display = presign ? 'block' : 'none';
+  });
+});
+const videoStartBtn = document.getElementById('videoStartBtn');
+if (videoStartBtn) videoStartBtn.addEventListener('click', () => startVideoPlayback().catch(() => {}));
+const videoChangeSourceBtn = document.getElementById('videoChangeSourceBtn');
+if (videoChangeSourceBtn) videoChangeSourceBtn.addEventListener('click', () => videoBackToSourcePick());
+const videoCopyUrlBtn = document.getElementById('videoCopyUrlBtn');
+if (videoCopyUrlBtn) videoCopyUrlBtn.addEventListener('click', () => copyInput('videoUrlDisplay'));
 
 document.getElementById('presignToolbarBtn').onclick = () => openPresignModal('');
 document.getElementById('presignCloseBtn').onclick = closePresignModal;

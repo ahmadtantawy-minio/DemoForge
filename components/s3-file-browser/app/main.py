@@ -7,6 +7,7 @@ behind an NGINX load balancer.
 
 import io
 import json
+import logging
 import mimetypes
 import os
 import time
@@ -17,12 +18,16 @@ from urllib.parse import urlparse
 
 from collections import defaultdict
 
+from pydantic import BaseModel
+
 from fastapi import FastAPI, File, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from minio import Minio
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -50,6 +55,7 @@ def load_config() -> dict:
         "secret_key": "minioadmin",
         "connection_type": "none",
         "source_component": "",
+        "identities": [],
     }
     config_path = Path("/app/config.json")
     if config_path.exists():
@@ -75,28 +81,120 @@ def load_config() -> dict:
                 cfg["secret_key"] = os.getenv("S3_SECRET_KEY", "minioadmin")
     if cfg.get("endpoint") and _endpoint_looks_like_cluster_lb(cfg["endpoint"]):
         cfg["via_loadbalancer"] = True
+    idents_raw = os.getenv("S3_BROWSER_IDENTITIES_JSON", "").strip()
+    if idents_raw:
+        try:
+            parsed = json.loads(idents_raw)
+            if isinstance(parsed, list):
+                cfg["identities"] = parsed
+        except json.JSONDecodeError:
+            pass
+    if not cfg.get("identities"):
+        cfg["identities"] = [{"id": "__root__", "label": "Root (MinIO administrator)", "policies": []}]
+    # Generated config.json always carries MinIO root keys; compose injects simulated-user keys via env.
+    # Prefer env whenever set (with or without S3_IDENTITY_MAP_JSON) so CONFIG matches real S3 credentials.
+    env_ak = os.getenv("S3_ACCESS_KEY", "").strip()
+    env_sk = os.getenv("S3_SECRET_KEY", "").strip()
+    if env_ak:
+        cfg["access_key"] = env_ak
+    if env_sk:
+        cfg["secret_key"] = env_sk
     return cfg
 
 
 CONFIG = load_config()
 
-# ---------------------------------------------------------------------------
-# S3 client (minio SDK)
-# ---------------------------------------------------------------------------
 
-def get_s3_client() -> Minio:
+def _parse_identity_map() -> dict[str, dict[str, str]]:
+    raw = os.getenv("S3_IDENTITY_MAP_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        m = json.loads(raw)
+        return m if isinstance(m, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+IDENTITY_MAP: dict[str, dict[str, str]] = _parse_identity_map()
+ACTIVE_IDENTITY: str = os.getenv("S3_ACTIVE_IDENTITY", "").strip()
+_s3_holder: dict[str, object | None] = {"client": None, "cache_key": None}
+
+# Root is keyed ``__root__`` in the identity map (legacy ``""`` may still exist).
+_ROOT_KEYS = frozenset({"", "__root__"})
+
+
+def _infer_active_identity_from_credentials() -> None:
+    """If compose omits ``S3_ACTIVE_IDENTITY``, derive it from ``CONFIG`` keys + ``IDENTITY_MAP``."""
+    global ACTIVE_IDENTITY
+    cur = (ACTIVE_IDENTITY or "").strip()
+    if cur == "__first__":
+        return
+    if cur and cur not in _ROOT_KEYS:
+        return
+    if cur == "__root__":
+        return
+    ak = str(CONFIG.get("access_key") or "").strip()
+    if not ak or not IDENTITY_MAP:
+        return
+    root_ent = IDENTITY_MAP.get("__root__") or IDENTITY_MAP.get("") or {}
+    root_ak = str(root_ent.get("access_key", "")).strip() if isinstance(root_ent, dict) else ""
+    if root_ak and ak == root_ak:
+        ACTIVE_IDENTITY = "__root__" if "__root__" in IDENTITY_MAP else ""
+        return
+    for key, ent in IDENTITY_MAP.items():
+        if key in _ROOT_KEYS or key == "__first__":
+            continue
+        if isinstance(ent, dict) and str(ent.get("access_key", "")).strip() == ak:
+            ACTIVE_IDENTITY = key
+            return
+
+
+_infer_active_identity_from_credentials()
+
+
+def _endpoint_secure_host() -> tuple[str, bool]:
     parsed = urlparse(CONFIG["endpoint"])
-    host = parsed.netloc or parsed.path  # handle with/without scheme
+    host = parsed.netloc or parsed.path
     secure = parsed.scheme == "https"
-    return Minio(
-        host,
-        access_key=CONFIG["access_key"],
-        secret_key=CONFIG["secret_key"],
-        secure=secure,
+    return host, secure
+
+
+def _resolve_s3_credentials() -> tuple[str, str]:
+    """Return (access_key, secret_key) for the active simulated identity.
+
+    MinIO evaluates IAM policies server-side for every S3 call made with these keys
+    (including presigned URLs produced by this process). Root keys bypass simulation scope.
+    """
+    if not IDENTITY_MAP:
+        return str(CONFIG.get("access_key", "minioadmin")), str(CONFIG.get("secret_key", "minioadmin"))
+    raw = (ACTIVE_IDENTITY or "").strip()
+    if raw in _ROOT_KEYS:
+        key = "__root__" if "__root__" in IDENTITY_MAP else ("" if "" in IDENTITY_MAP else raw)
+    else:
+        key = raw
+    if key not in IDENTITY_MAP:
+        for cand in IDENTITY_MAP:
+            if cand not in _ROOT_KEYS:
+                key = cand
+                break
+    if key not in IDENTITY_MAP:
+        key = "__root__" if "__root__" in IDENTITY_MAP else ""
+    ent = IDENTITY_MAP.get(key) or {}
+    return str(ent.get("access_key", CONFIG.get("access_key", "minioadmin"))), str(
+        ent.get("secret_key", CONFIG.get("secret_key", "minioadmin"))
     )
 
 
-s3 = get_s3_client()
+def get_s3() -> Minio:
+    """Return a MinIO client for the current ``ACTIVE_IDENTITY`` (cached)."""
+    ak, sk = _resolve_s3_credentials()
+    host, secure = _endpoint_secure_host()
+    cache_key = (ACTIVE_IDENTITY, ak, sk, host, secure)
+    if _s3_holder.get("cache_key") != cache_key or _s3_holder.get("client") is None:
+        _s3_holder["client"] = Minio(host, access_key=ak, secret_key=sk, secure=secure)
+        _s3_holder["cache_key"] = cache_key
+    return _s3_holder["client"]  # type: ignore[return-value]
 
 # ---------------------------------------------------------------------------
 # Upstream tracking (for load-balance visualization)
@@ -128,7 +226,7 @@ def track(served_by: str) -> str:
 @app.get("/health")
 def health():
     try:
-        s3.list_buckets()
+        get_s3().list_buckets()
         return {"status": "ok", "endpoint": CONFIG["endpoint"]}
     except Exception as e:
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=503)
@@ -144,9 +242,13 @@ def _format_bucket(b):
 def _normalize_user_metadata(meta) -> dict[str, str]:
     """Turn SDK metadata mapping into JSON-safe ``str -> str``."""
     out: dict[str, str] = {}
-    if not meta or not isinstance(meta, dict):
+    if not meta:
         return out
-    for k, v in meta.items():
+    try:
+        items = meta.items()
+    except AttributeError:
+        return out
+    for k, v in items:
         kk = k.decode() if isinstance(k, bytes) else str(k)
         if v is None:
             out[kk] = ""
@@ -155,6 +257,16 @@ def _normalize_user_metadata(meta) -> dict[str, str]:
         else:
             out[kk] = str(v)
     return out
+
+
+def _normalize_object_tags(tags) -> dict[str, str]:
+    """S3 object tags (``mc cp --tags``, PutObjectTagging) as JSON-safe ``str -> str``."""
+    if not tags:
+        return {}
+    try:
+        return {str(k): "" if v is None else str(v) for k, v in tags.items()}
+    except Exception:
+        return {}
 
 
 def _format_object(o, *, extended: bool = False) -> dict:
@@ -172,6 +284,7 @@ def _format_object(o, *, extended: bool = False) -> dict:
     base["content_type"] = getattr(o, "content_type", None) or ""
     base["storage_class"] = getattr(o, "storage_class", None) or ""
     base["metadata"] = _normalize_user_metadata(getattr(o, "metadata", None))
+    base["object_tags"] = _normalize_object_tags(getattr(o, "tags", None))
     vid = getattr(o, "version_id", None)
     if vid:
         base["version_id"] = str(vid)
@@ -255,9 +368,163 @@ def _stream_minio_response(resp):
 # Config
 # ---------------------------------------------------------------------------
 
+class SessionBody(BaseModel):
+    """Switch simulated IAM user (access key) or ``__root__`` for MinIO administrator."""
+
+    identity: str = ""
+
+
+def _normalize_session_identity(raw: str) -> str:
+    """Map legacy empty / ``__root__`` to the canonical root key present in ``IDENTITY_MAP``."""
+    r = (raw or "").strip()
+    if r in _ROOT_KEYS:
+        if "__root__" in IDENTITY_MAP:
+            return "__root__"
+        return "" if "" in IDENTITY_MAP else r
+    return r
+
+
+def _policy_list_from_identity_row(row: dict) -> list[str]:
+    pols = row.get("policies") or row.get("policy") or []
+    if isinstance(pols, str):
+        return [x.strip() for x in pols.split(",") if x.strip()]
+    if isinstance(pols, list):
+        return [str(x).strip() for x in pols if str(x).strip()]
+    return []
+
+
+def _active_identity_policies_label(active: str, identities: list) -> tuple[str, list[str], bool, str]:
+    """Human label, attached policy names, is_root, one-line header summary for the UI."""
+    idents_list = [x for x in (identities or []) if isinstance(x, dict)]
+    root_summary = (
+        "MinIO root — all S3 APIs use administrator credentials "
+        "(full access; not limited by IAM simulation policies)."
+    )
+    not_loaded_summary = (
+        "S3 calls use deployment access keys (IAM simulation identity map not loaded)."
+    )
+
+    def _from_public_row(row: dict, label_hint: str, *, weak_map: bool) -> tuple[str, list[str], bool, str]:
+        pol_list = _policy_list_from_identity_row(row)
+        label = str(row.get("label") or label_hint).strip() or str(label_hint)
+        pol_disp = ", ".join(pol_list) if pol_list else "(none listed in IAM spec)"
+        extra = (
+            " (Identity map not loaded in this container — switch identity is unavailable.)"
+            if weak_map
+            else ""
+        )
+        summary = (
+            "Browse, upload, delete, presigned GET/PUT, and health-check S3 calls all use this user's access key — "
+            f"MinIO evaluates attached policies on every call. Identity: {label}. Policies: {pol_disp}.{extra}"
+        )
+        return (label, pol_list, False, summary)
+
+    if not IDENTITY_MAP:
+        a_strip = (active or "").strip()
+        if a_strip in _ROOT_KEYS:
+            return ("Root (MinIO administrator)", [], True, root_summary)
+        lookup = a_strip or str(CONFIG.get("access_key") or "").strip()
+        if lookup in _ROOT_KEYS:
+            return ("Root (MinIO administrator)", [], True, root_summary)
+        if lookup == "__first__":
+            row = next((r for r in idents_list if str(r.get("id")) == "__first__"), None)
+            if row is None:
+                row = next(
+                    (
+                        r
+                        for r in idents_list
+                        if str(r.get("id")) not in _ROOT_KEYS and str(r.get("id")) != "__first__"
+                    ),
+                    None,
+                )
+            if row:
+                return _from_public_row(row, lookup, weak_map=True)
+        for row in idents_list:
+            rid = row.get("id")
+            if rid is None:
+                continue
+            rs = str(rid)
+            if rs in _ROOT_KEYS or rs == "__first__":
+                continue
+            if rs == lookup:
+                return _from_public_row(row, lookup, weak_map=True)
+        if lookup and lookup not in _ROOT_KEYS:
+            disp = lookup if len(lookup) <= 28 else f"{lookup[:10]}…{lookup[-6:]}"
+            summary = (
+                "Browse, upload, delete, presigned GET/PUT, and health-check S3 calls use this deployment access key — "
+                "MinIO enforces IAM for this principal. "
+                "(Identity map not loaded in this container; policy names may be omitted.)"
+            )
+            return (disp, [], False, summary)
+        return ("", [], True, not_loaded_summary)
+
+    a_strip = (active or "").strip()
+    norm = _normalize_session_identity(a_strip)
+    if a_strip in _ROOT_KEYS or norm in _ROOT_KEYS:
+        summary = (
+            "MinIO root — all S3 APIs use administrator credentials "
+            "(full access; not limited by IAM simulation policies)."
+        )
+        return ("Root (MinIO administrator)", [], True, summary)
+
+    for row in idents_list:
+        rid = row.get("id")
+        if rid is None:
+            continue
+        rs = str(rid)
+        if rs != a_strip and rs != norm:
+            continue
+        return _from_public_row(row, str(active), weak_map=False)
+
+    summary = "All S3 calls use this access key; MinIO enforces IAM for this principal on the server."
+    return (str(active), [], False, summary)
+
+
 @app.get("/api/config")
 def get_config():
-    return CONFIG
+    idents = CONFIG.get("identities") or []
+    label, pols, is_root, iam_summary = _active_identity_policies_label(ACTIVE_IDENTITY, idents)
+    out = {
+        **CONFIG,
+        "active_identity": ACTIVE_IDENTITY,
+        "active_identity_label": label,
+        "active_identity_policies": pols,
+        "iam_policy_scope_summary": iam_summary,
+        "iam_effective_root": bool(is_root),
+    }
+    return out
+
+
+@app.post("/api/session")
+def set_session(body: SessionBody):
+    """Switch active S3 credentials when ``S3_IDENTITY_MAP_JSON`` was deployed (IAM simulation)."""
+    global ACTIVE_IDENTITY
+    if not IDENTITY_MAP:
+        if body.identity:
+            return JSONResponse(
+                {"error": "IAM simulation not configured (no identities map)."},
+                status_code=400,
+            )
+        return {"active_identity": "", "identities": CONFIG.get("identities", [])}
+    key = _normalize_session_identity(body.identity)
+    if key not in IDENTITY_MAP:
+        return JSONResponse(
+            {"error": f"Unknown identity {body.identity!r}. Valid: {list(IDENTITY_MAP.keys())!r}"},
+            status_code=400,
+        )
+    ACTIVE_IDENTITY = key
+    _s3_holder["client"] = None
+    _s3_holder["cache_key"] = None
+    idents = CONFIG.get("identities") or []
+    _label, _pols, _root, iam_summary = _active_identity_policies_label(ACTIVE_IDENTITY, idents)
+    return {
+        "active_identity": ACTIVE_IDENTITY,
+        "identities": idents,
+        "active_identity_label": _label,
+        "active_identity_policies": _pols,
+        "iam_policy_scope_summary": iam_summary,
+        "iam_effective_root": bool(_root),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +535,7 @@ def get_config():
 def list_buckets():
     served_by = track(probe_upstream())
     try:
-        buckets = [_format_bucket(b) for b in s3.list_buckets()]
+        buckets = [_format_bucket(b) for b in get_s3().list_buckets()]
         return {"buckets": buckets, "served_by": served_by}
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
@@ -361,7 +628,7 @@ async def buckets_overview(
     served_by = track(probe_upstream())
 
     def _work() -> dict:
-        client = get_s3_client()
+        client = get_s3()
         rows: list[dict] = []
         raw = client.list_buckets()
         for b in raw:
@@ -406,12 +673,26 @@ def list_objects(
     prefix: str = "",
     extended: bool = Query(
         False,
-        description="Include etag, content_type, storage_class, and user metadata per object (from list API).",
+        description="Include etag, content_type, storage_class, user metadata, and object tags (MinIO: list with metadata=true).",
     ),
 ):
     served_by = track(probe_upstream())
     try:
-        objects_iter = s3.list_objects(bucket, prefix=prefix or None, recursive=False)
+        # MinIO: ``include_user_meta`` adds ``metadata=true`` so listings include
+        # UserMetadata (x-amz-meta-*) and UserTags (``mc cp --tags`` / object tagging).
+        try:
+            objects_iter = get_s3().list_objects(
+                bucket,
+                prefix=prefix or None,
+                recursive=False,
+                include_user_meta=extended,
+            )
+        except Exception as e:
+            if extended:
+                logger.warning("list_objects with metadata failed (%s); retrying without", e)
+                objects_iter = get_s3().list_objects(bucket, prefix=prefix or None, recursive=False)
+            else:
+                raise
         prefixes = []
         objects = []
         for obj in objects_iter:
@@ -437,7 +718,7 @@ async def upload_file(bucket: str, key: str, file: UploadFile = File(...)):
             pass
         sz = getattr(file, "size", None)
         if sz is not None:
-            return s3.put_object(
+            return get_s3().put_object(
                 bucket,
                 key,
                 file.file,
@@ -446,7 +727,7 @@ async def upload_file(bucket: str, key: str, file: UploadFile = File(...)):
                 part_size=_MULTIPART_PART_SIZE,
             )
         data = file.file.read()
-        return s3.put_object(
+        return get_s3().put_object(
             bucket,
             key,
             io.BytesIO(data),
@@ -486,7 +767,7 @@ def download_file(bucket: str, key: str, request: Request):
     video = _is_video_content_type(content_type)
 
     try:
-        stat = s3.stat_object(bucket, key)
+        stat = get_s3().stat_object(bucket, key)
         total = int(stat.size or 0)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -506,7 +787,7 @@ def download_file(bucket: str, key: str, request: Request):
         end = min(end, total - 1)
         length = end - start + 1
         try:
-            resp = s3.get_object(bucket, key, offset=start, length=length)
+            resp = get_s3().get_object(bucket, key, offset=start, length=length)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -530,7 +811,7 @@ def download_file(bucket: str, key: str, request: Request):
         )
 
     try:
-        resp = s3.get_object(bucket, key)
+        resp = get_s3().get_object(bucket, key)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -585,7 +866,7 @@ def presign_get(
             "response-content-type": ct,
             "response-content-disposition": disp,
         }
-        url = s3.presigned_get_object(
+        url = get_s3().presigned_get_object(
             bucket,
             key,
             expires=exp,
@@ -619,7 +900,7 @@ def presign_put(
     served_by = track(probe_upstream())
     try:
         exp = timedelta(seconds=expires_sec)
-        url = s3.presigned_put_object(bucket, key, expires=exp)
+        url = get_s3().presigned_put_object(bucket, key, expires=exp)
         return {
             "url": url,
             "method": "PUT",
@@ -637,7 +918,7 @@ def presign_put(
 def delete_object(bucket: str, key: str):
     served_by = track(probe_upstream())
     try:
-        s3.remove_object(bucket, key)
+        get_s3().remove_object(bucket, key)
         return {"message": f"Deleted {key}", "served_by": served_by}
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
@@ -678,12 +959,12 @@ def health_read_all(bucket: str = "demo-bucket"):
     results = []
     errors = []
     try:
-        for obj in s3.list_objects(bucket, recursive=True):
+        for obj in get_s3().list_objects(bucket, recursive=True):
             if obj.is_dir:
                 continue
             served_by = track(probe_upstream())
             try:
-                resp = s3.get_object(bucket, obj.object_name)
+                resp = get_s3().get_object(bucket, obj.object_name)
                 resp.read()
                 resp.close()
                 resp.release_conn()
@@ -734,14 +1015,14 @@ def health_write_read_verify(bucket: str = "demo-bucket", count: int = Query(def
 
         try:
             data = expected.encode()
-            s3.put_object(bucket, key, io.BytesIO(data), length=len(data))
+            get_s3().put_object(bucket, key, io.BytesIO(data), length=len(data))
         except Exception as e:
             errors.append({"key": key, "phase": "write", "error": str(e), "served_by": served_by_write})
             continue
 
         served_by_read = track(probe_upstream())
         try:
-            resp = s3.get_object(bucket, key)
+            resp = get_s3().get_object(bucket, key)
             actual = resp.read().decode()
             resp.close()
             resp.release_conn()
@@ -761,7 +1042,7 @@ def health_write_read_verify(bucket: str = "demo-bucket", count: int = Query(def
     for i in range(count):
         key = f"{test_prefix}test-{i:04d}.txt"
         try:
-            s3.remove_object(bucket, key)
+            get_s3().remove_object(bucket, key)
         except Exception:
             pass
 
@@ -788,7 +1069,7 @@ def health_latency_probe(bucket: str = "demo-bucket", iterations: int = Query(de
     probe_key = "_health-check/latency-probe.txt"
     try:
         data = b"latency-probe"
-        s3.put_object(bucket, probe_key, io.BytesIO(data), length=len(data))
+        get_s3().put_object(bucket, probe_key, io.BytesIO(data), length=len(data))
     except Exception as e:
         return JSONResponse({"error": f"Failed to create probe object: {e}"}, status_code=500)
 
@@ -797,7 +1078,7 @@ def health_latency_probe(bucket: str = "demo-bucket", iterations: int = Query(de
         served_by = track(probe_upstream())
         start = time.monotonic()
         try:
-            s3.stat_object(bucket, probe_key)
+            get_s3().stat_object(bucket, probe_key)
             latency_ms = round((time.monotonic() - start) * 1000, 2)
             measurements.append({"served_by": served_by, "latency_ms": latency_ms, "status": "ok"})
         except Exception as e:
@@ -821,7 +1102,7 @@ def health_latency_probe(bucket: str = "demo-bucket", iterations: int = Query(de
 
     # Cleanup
     try:
-        s3.remove_object(bucket, probe_key)
+        get_s3().remove_object(bucket, probe_key)
     except Exception:
         pass
 
@@ -846,7 +1127,7 @@ def health_consistency_check(bucket: str = "demo-bucket"):
     for _ in range(5):
         served_by = track(probe_upstream())
         try:
-            keys = sorted(o.object_name for o in s3.list_objects(bucket, recursive=True) if not o.is_dir)
+            keys = sorted(o.object_name for o in get_s3().list_objects(bucket, recursive=True) if not o.is_dir)
             listings.append({"served_by": served_by, "object_count": len(keys), "keys": keys, "status": "ok"})
         except Exception as e:
             listings.append({"served_by": served_by, "object_count": 0, "keys": [], "status": "error", "error": str(e)})
