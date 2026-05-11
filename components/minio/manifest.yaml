@@ -199,6 +199,16 @@ config:
       - aistor-edge
     default: ce
     description: CE (Community), AIStor (Enterprise), or AIStor Edge (Enterprise)
+  AISTOR_TABLES_CATALOG_NAME:
+    label: Default Trino catalog (AIStor Tables)
+    type: string
+    default: aistor
+    description: Trino catalog id for MinIO /_iceberg when AIStor Tables is enabled. Do not use reserved names iceberg, hive, memory, or system.
+  ICEBERG_SPARK_CATALOG_NAME:
+    label: Spark Iceberg catalog name
+    type: string
+    default: iceberg
+    description: Spark SQL catalog name registered for Iceberg REST (/_iceberg). Wired automatically to Spark job containers linked to this MinIO or cluster (job node can override).
 init_scripts:
 - command: sh -c 'until mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD 2>/dev/null; do sleep 2; done && mc mb local/demo-bucket --ignore-existing && mc mb local/data --ignore-existing'
   wait_for_healthy: true

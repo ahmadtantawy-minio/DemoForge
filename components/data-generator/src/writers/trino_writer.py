@@ -15,9 +15,29 @@ TRINO_CATALOG = "iceberg"
 TRINO_NAMESPACE = "demo"
 
 
+def normalize_trino_http_base(host_or_url: str, default_port: int = 8080) -> str:
+    """
+    Build http://host:port from TRINO_HOST.
+
+    Compose sets TRINO_HOST=project-trino-id:8080; callers must not append :8080 again.
+    Also accepts bare hostname or a full http(s) URL.
+    """
+    raw = (host_or_url or "").strip().rstrip("/")
+    if not raw:
+        raise ValueError("empty Trino host")
+    lower = raw.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return raw
+    if ":" in raw:
+        tail = raw.rsplit(":", 1)[-1]
+        if tail.isdigit():
+            return f"http://{raw}"
+    return f"http://{raw}:{default_port}"
+
+
 class TrinoInsertWriter:
     def __init__(self, trino_host: str, catalog: str = "iceberg", namespace: str = "demo"):
-        self.base_url = f"http://{trino_host}:8080"
+        self.base_url = normalize_trino_http_base(trino_host)
         self.catalog = catalog
         self.namespace = namespace
         self.user = "demoforge-generator"

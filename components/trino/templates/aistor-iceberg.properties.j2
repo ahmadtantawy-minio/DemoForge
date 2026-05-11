@@ -1,4 +1,4 @@
-{%- set ns = namespace(aistor_endpoint="", access_key="minioadmin", secret_key="minioadmin", warehouse="analytics", region="local") %}
+{%- set ns = namespace(aistor_endpoint="", access_key="minioadmin", secret_key="minioadmin", warehouse="warehouse", region="local") %}
 {%- for edge in edges %}
 {%- if edge.target == node.id and edge.connection_type in ['s3', 'aistor-tables'] %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
@@ -7,7 +7,7 @@
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":9000" %}
 {%- set ns.access_key = source_node.config.get('MINIO_ROOT_USER', 'minioadmin') %}
 {%- set ns.secret_key = source_node.config.get('MINIO_ROOT_PASSWORD', 'minioadmin') %}
-{%- set ns.warehouse = source_node.config.get('ICEBERG_WAREHOUSE', 'analytics') %}
+{%- set ns.warehouse = source_node.config.get('ICEBERG_WAREHOUSE', 'warehouse') %}
 {%- set ns.region = source_node.config.get('S3_REGION', 'local') %}
 {%- elif source_node.component == 'nginx' and source_node.id.endswith('-lb') %}
 {%- set cluster_id = source_node.id[:-3] %}
@@ -16,7 +16,7 @@
 {%- set ns.aistor_endpoint = "http://" ~ project_name ~ "-" ~ source_node.id ~ ":80" %}
 {%- set ns.access_key = cluster.credentials.get('root_user', 'minioadmin') %}
 {%- set ns.secret_key = cluster.credentials.get('root_password', 'minioadmin') %}
-{%- set ns.warehouse = cluster.config.get('ICEBERG_WAREHOUSE', 'analytics') %}
+{%- set ns.warehouse = cluster.config.get('ICEBERG_WAREHOUSE', 'warehouse') %}
 {%- set ns.region = cluster.config.get('S3_REGION', 'local') %}
 {%- endif %}
 {%- endif %}

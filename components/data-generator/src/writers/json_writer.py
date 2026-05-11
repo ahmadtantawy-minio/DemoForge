@@ -26,6 +26,7 @@ def write_batch(
     partition_cfg,  # accepted but ignored — JSON is always flat
     s3_client,
     bucket: str,
+    key_prefix: str = "",
 ) -> str:
     """
     Serialize rows as NDJSON and upload to S3.
@@ -43,7 +44,7 @@ def write_batch(
     data = ("\n".join(lines) + "\n").encode("utf-8")
 
     ts_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
-    key = f"{ts_ms}.ndjson"
+    key = f"{key_prefix}{ts_ms}.ndjson"
 
     s3_client.put_object(Bucket=bucket, Key=key, Body=data)
     return key

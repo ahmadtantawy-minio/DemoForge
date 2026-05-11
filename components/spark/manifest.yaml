@@ -9,7 +9,8 @@ build_context: spark
 description: "Distributed data processing engine with S3A connector for MinIO integration. Runs ETL jobs that read/write data on MinIO."
 
 resources:
-  memory: "1g"
+  # Baseline when demo does not override DEMOFORGE_SPARK_CONTAINER_MEM; raise workers/memory via properties panel.
+  memory: "3g"
   cpu: 1.0
 
 volumes: []
@@ -24,7 +25,9 @@ ports:
 
 environment:
   SPARK_HOME: "/opt/spark"
-  SPARK_MASTER_HOST: "localhost"
+  # SPARK_MASTER_HOST is set at container start to the eth IPv4 address — NOT 0.0.0.0 (master would
+  # advertise spark://0.0.0.0:7077 and workers never register). Same IP is what Docker DNS resolves for this service.
+  SPARK_MASTER_PORT: "7077"
   SPARK_NO_DAEMONIZE: "true"
 
 health_check:
@@ -32,6 +35,7 @@ health_check:
   port: 8080
   interval: 15s
   timeout: 10s
+  start_period: 90s
 
 secrets: []
 
@@ -49,8 +53,39 @@ terminal:
       command: "spark-submit --version 2>&1 | head -5"
     - label: "List running apps"
       command: "curl -s http://localhost:8080/api/v1/applications 2>/dev/null | python3 -m json.tool || echo 'No apps running'"
+    - label: "Master /json (workers)"
+      command: "curl -s http://localhost:8080/json/ 2>/dev/null | python3 -m json.tool | head -120"
+    - label: "Worker/Master log grep"
+      command: "grep -h -E 'Worker|Registration|ERROR|FATAL' /opt/spark/logs/*.out 2>/dev/null | tail -60 || echo 'No .out logs yet'"
     - label: "Run sample Pi"
       command: "spark-submit --master local[2] --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples*.jar 10 2>&1 | tail -3"
+
+properties:
+  - key: DEMOFORGE_SPARK_WORKER_COUNT
+    label: Worker processes
+    type: number
+    default: "1"
+    description: Number of standalone worker daemons in this container. Each worker uses heap + advertised SPARK_WORKER_MEMORY — increase Container memory limit when raising this, or lower SPARK_WORKER_MEMORY per worker to avoid oversubscribing cgroup RAM.
+  - key: DEMOFORGE_SPARK_CONTAINER_MEM
+    label: Container memory limit
+    type: string
+    default: "3g"
+    description: Docker mem_limit for this service (e.g. 3g, 4g, 5120m). Must fit master JVM + all worker JVMs + executors; raise when adding workers or executor memory.
+  - key: SPARK_DAEMON_MEMORY
+    label: Daemon JVM heap (master + each worker)
+    type: string
+    default: "512m"
+    description: SPARK_DAEMON_MEMORY — JVM heap for Spark master and worker daemons (not executor heap).
+  - key: SPARK_WORKER_MEMORY
+    label: Worker memory offer
+    type: string
+    default: "1800m"
+    description: Memory each worker advertises to the master for executors (Spark standalone -m). Total cluster memory ≈ count × this — keep within container limit.
+  - key: SPARK_WORKER_CORES
+    label: Worker cores offer
+    type: number
+    default: "1"
+    description: Cores each worker advertises (integer).
 
 connections:
   provides:
@@ -66,6 +101,16 @@ connections:
   accepts:
     - type: s3
       config_schema:
+        - key: spark_bucket_role
+          label: "Lakehouse edge role (labels)"
+          type: string
+          default: ""
+          description: "Optional raw or warehouse for canvas edge labels when using two MinIO→Spark links; also matches raw_bucket vs warehouse_bucket."
+        - key: raw_bucket
+          label: "Raw / landing bucket (optional)"
+          type: string
+          default: ""
+          description: "When set with warehouse_bucket, per-bucket S3A settings are emitted for both buckets on the same MinIO endpoint."
         - key: warehouse_bucket
           label: "Warehouse Bucket"
           type: string
@@ -73,10 +118,13 @@ connections:
     - type: hdfs
       config_schema: []
 
+# Startup command is injected by compose_generator (image script if present, else inline fallback — avoids exit 127 on old images).
+
 variants:
+  default:
+    description: "Apache Spark standalone — same as standalone (master + one worker in-container)"
   standalone:
     description: "Single Spark master+worker (standalone mode)"
-    command: ["bash", "-c", "/opt/spark/sbin/start-master.sh && /opt/spark/sbin/start-worker.sh spark://localhost:7077 && tail -f /opt/spark/logs/*"]
 
 template_mounts:
   - template: "spark-defaults.conf.j2"

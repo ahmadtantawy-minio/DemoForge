@@ -2,8 +2,8 @@
 table_setup.py — One-time setup run before streaming begins.
 
 1. Create MinIO buckets defined in the scenario.
-2. Create Iceberg table (if format=iceberg) via IcebergWriter.
-3. Register external Trino table (if format=parquet/json/csv).
+2. Create Iceberg table (if format=iceberg) via IcebergWriter when a catalog URI is passed in.
+3. Ensure Iceberg table for parquet/json/csv via PyIceberg when ICEBERG_CATALOG_URI is set (no Trino DDL).
 """
 
 import os
@@ -21,6 +21,15 @@ def make_s3_client(endpoint: str, access_key: str, secret_key: str) -> boto3.cli
         aws_secret_access_key=secret_key,
         region_name="us-east-1",
     )
+
+
+def _bucket_from_env_or_scenario(bucket_override: str, scenario_fmt_bucket: str) -> str:
+    """First path segment only (supports bucket/prefix in S3_BUCKET)."""
+    raw = (bucket_override or "").strip()
+    if raw and raw != "raw-data":
+        return raw.split("/", 1)[0].strip()
+    raw = (scenario_fmt_bucket or "").strip()
+    return raw.split("/", 1)[0].strip() if raw else ""
 
 
 def ensure_bucket(s3_client, bucket_name: str) -> bool:
@@ -150,50 +159,6 @@ def register_external_table(
         print(f"[table_setup] Warning: DDL failed (may already exist): {exc}")
 
 
-class TrinoRestClient:
-    """Lightweight Trino client using the REST API (no extra dependencies)."""
-
-    def __init__(self, host: str, port: int = 8080, user: str = "demoforge"):
-        self.base_url = f"http://{host}:{port}"
-        self.user = user
-
-    def execute(self, sql: str) -> list:
-        import requests, time
-        resp = requests.post(
-            f"{self.base_url}/v1/statement",
-            data=sql.encode("utf-8"),
-            headers={"X-Trino-User": self.user, "X-Trino-Source": "demoforge-setup"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        rows = data.get("data", [])
-
-        # Follow nextUri until query completes
-        while "nextUri" in data:
-            time.sleep(0.5)
-            resp = requests.get(data["nextUri"], headers={"X-Trino-User": self.user})
-            resp.raise_for_status()
-            data = resp.json()
-            rows.extend(data.get("data", []))
-
-            state = data.get("stats", {}).get("state", "")
-            if state == "FAILED":
-                error = data.get("error", {}).get("message", "Unknown error")
-                raise RuntimeError(f"Trino query failed: {error}")
-
-        return rows
-
-    def cursor(self):
-        """Compatibility shim for register_external_table."""
-        return self
-
-    def fetchall(self):
-        return self._last_result
-
-    def execute_compat(self, sql):
-        self._last_result = self.execute(sql)
-
-
 def run_setup(
     scenario: dict,
     fmt: str,
@@ -229,57 +194,53 @@ def run_setup(
         except Exception as exc:
             print(f"[table_setup] Iceberg table setup failed: {exc}")
 
-    # Step 3: register Iceberg table in Trino for file-based formats
-    # Skip if ICEBERG_CATALOG_URI is set AND not SigV4 — PyIceberg will create the table.
-    # For AIStor (SigV4), PyIceberg can't auth, so Trino must create the table.
-    catalog_uri = os.environ.get("ICEBERG_CATALOG_URI", "")
+    # Step 3: ensure Iceberg table for file-based formats via PyIceberg (same path as generator streaming)
+    catalog_uri = (os.environ.get("ICEBERG_CATALOG_URI", "") or "").strip()
     is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
-    if fmt in ("parquet", "json", "csv") and trino_host and (not catalog_uri or is_sigv4):
+    if fmt in ("parquet", "json", "csv") and catalog_uri:
         try:
-            import time as _time
-            # Wait for Trino to be ready (it starts slower than MinIO)
-            trino = TrinoRestClient(trino_host)
-            for attempt in range(12):
-                try:
-                    import requests as _req
-                    r = _req.get(f"http://{trino_host}:8080/v1/info", timeout=3)
-                    if r.status_code == 200:
-                        info = r.json()
-                        if not info.get("starting", True):
-                            print(f"[table_setup] Trino is ready (attempt {attempt+1}).")
-                            break
-                        print(f"[table_setup] Trino is starting up... (attempt {attempt+1}/12)")
-                except Exception:
-                    pass
-                print(f"[table_setup] Waiting for Trino... (attempt {attempt+1}/12)")
-                _time.sleep(10)
-            else:
-                print(f"[table_setup] Trino not available after 120s — skipping DDL.")
-                return
+            from src.writers.iceberg_writer import IcebergWriter
+
+            wh = os.environ.get(
+                "ICEBERG_WAREHOUSE",
+                (scenario.get("iceberg", {}) or {}).get("warehouse", "warehouse"),
+            )
+            wh_uri = wh if is_sigv4 else (wh if wh.startswith("s3://") else f"s3://{wh}/")
+            uri = catalog_uri
+            if is_sigv4 and "-lb:80" in uri:
+                uri = uri.replace("-lb:80", "-pool1-node-1:9000")
+                print(f"[table_setup] AIStor SigV4: catalog URI → {uri}")
+            endpoint = s3_endpoint if s3_endpoint.startswith("http") else f"http://{s3_endpoint}"
+            writer = IcebergWriter(
+                catalog_uri=uri,
+                warehouse=wh_uri,
+                s3_endpoint=endpoint,
+                access_key=s3_access_key,
+                secret_key=s3_secret_key,
+                sigv4=is_sigv4,
+            )
             iceberg_cfg = scenario.get("iceberg", {}) or {}
             table_name = iceberg_cfg.get("table", scenario.get("id", "data").replace("-", "_"))
-            bucket = scenario.get("buckets", {}).get(fmt)
-            # Use the S3_BUCKET override if available
-            bucket_override = os.environ.get("S3_BUCKET", "")
-            if bucket_override and bucket_override != "raw-data":
-                bucket = bucket_override
-
-            if not bucket:
-                print(f"[table_setup] No bucket for format '{fmt}' — skipping DDL.")
-                return
-
-            # Create schema
-            trino.execute(f"CREATE SCHEMA IF NOT EXISTS {trino_catalog}.{trino_namespace}")
-            print(f"[table_setup] Schema '{trino_catalog}.{trino_namespace}' ensured.")
-
-            # Create Iceberg table (Trino manages data lifecycle)
-            col_defs = _trino_column_defs(scenario.get("columns", []), fmt)
-            ddl = (
-                f"CREATE TABLE IF NOT EXISTS {trino_catalog}.{trino_namespace}.{table_name} (\n"
-                f"{col_defs}\n"
-                f") WITH (format = 'PARQUET')"
+            bucket = _bucket_from_env_or_scenario(
+                os.environ.get("S3_BUCKET", ""),
+                scenario.get("buckets", {}).get(fmt, ""),
             )
-            trino.execute(ddl)
-            print(f"[table_setup] Iceberg table '{trino_catalog}.{trino_namespace}.{table_name}' ready.")
+            if not bucket:
+                print(f"[table_setup] No bucket for format '{fmt}' — skipping Iceberg DDL.")
+                return
+            prefix = ""
+            sb = (os.environ.get("S3_BUCKET", "") or "").strip()
+            if sb and sb != "raw-data" and "/" in sb:
+                prefix = sb.split("/", 1)[1].strip().rstrip("/")
+                if prefix:
+                    prefix += "/"
+            mid = f"{prefix}{table_name}/" if prefix else f"{table_name}/"
+            table_location = f"s3://{bucket}/{mid}"
+            columns = scenario.get("columns", [])
+            writer.ensure_table(trino_namespace, table_name, columns, location=table_location)
+            print(
+                f"[table_setup] Iceberg table '{trino_namespace}.{table_name}' ready "
+                f"(PyIceberg, location={table_location})."
+            )
         except Exception as exc:
-            print(f"[table_setup] Trino table registration failed: {exc}")
+            print(f"[table_setup] PyIceberg table setup failed: {exc}")

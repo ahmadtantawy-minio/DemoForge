@@ -1,0 +1,109 @@
+id: iceberg-browser
+name: Iceberg Browser
+category: analytics
+icon: iceberg-browser
+version: "1.0"
+image: demoforge/iceberg-browser:latest
+build_context: "."
+description: >-
+  Web UI to browse Iceberg REST catalogs (namespaces, tables, snapshots), preview row data via PyIceberg,
+  sample column stats, and copy catalog curl snippets. Connect with AIStor Tables (MinIO) or Iceberg REST;
+  for REST-only catalogs, also connect S3 to MinIO so previews can read object files.
+
+resources:
+  memory: "512m"
+  cpu: 0.35
+
+ports:
+  - name: http
+    container: 8080
+    protocol: tcp
+
+environment:
+  ICEBERG_REST_URI: ""
+  ICEBERG_WAREHOUSE: "warehouse"
+  ICEBERG_SIGV4: "false"
+  ICEBERG_REST_SIGNING_REGION: "us-east-1"
+  ICEBERG_REST_SIGNING_NAME: "s3tables"
+  S3_ENDPOINT: "${S3_ENDPOINT:-http://localhost:9000}"
+  S3_ACCESS_KEY: "${S3_ACCESS_KEY:-minioadmin}"
+  S3_SECRET_KEY: "${S3_SECRET_KEY:-minioadmin}"
+  ICEBERG_PREVIEW_ROW_LIMIT: "200"
+  ICEBERG_STATS_SAMPLE_LIMIT: "5000"
+  ICEBERG_QUERY_TIMEOUT_SEC: "90"
+  TRINO_WEB_URL: ""
+  TRINO_CATALOG: ""
+
+properties:
+  - key: ICEBERG_PREVIEW_ROW_LIMIT
+    label: Preview row limit
+    type: string
+    default: "200"
+    description: Max rows returned per preview request (server-enforced cap 5000).
+  - key: ICEBERG_STATS_SAMPLE_LIMIT
+    label: Stats sample row limit
+    type: string
+    default: "5000"
+    description: Max rows scanned for approximate column stats (null rate, numeric min/max on sample).
+  - key: ICEBERG_QUERY_TIMEOUT_SEC
+    label: Query timeout (seconds)
+    type: string
+    default: "90"
+    description: Server-side timeout for preview / stats scans (seconds).
+  - key: TRINO_WEB_URL
+    label: Trino UI URL (optional)
+    type: string
+    default: ""
+    description: Optional full URL to Trino coordinator UI (e.g. http://project-trino-1:8080). Auto-set when Trino exists in the demo if left empty.
+
+volumes: []
+
+health_check:
+  endpoint: /health
+  port: 8080
+  interval: 15s
+  timeout: 8s
+
+secrets:
+  - key: S3_ACCESS_KEY
+    label: "S3 Access Key"
+    default: "minioadmin"
+  - key: S3_SECRET_KEY
+    label: "S3 Secret Key"
+    default: "minioadmin"
+
+web_ui:
+  - name: browser
+    port: 8080
+    path: "/"
+    description: Iceberg catalog browser — namespaces, tables, snapshots, data preview
+
+terminal:
+  shell: /bin/sh
+  welcome_message: Iceberg Browser — PyIceberg + REST catalog.
+  quick_actions:
+    - label: Health
+      command: "wget -qO- http://127.0.0.1:8080/health | head -c 400"
+    - label: List namespaces (API)
+      command: "wget -qO- http://127.0.0.1:8080/api/namespaces | head -c 2000"
+
+connections:
+  provides:
+    - type: http
+      port: 8080
+      description: Iceberg Browser HTTP UI
+  accepts:
+    - type: aistor-tables
+      description: AIStor Tables catalog on MinIO (SigV4); supplies REST + S3
+    - type: iceberg-catalog
+      description: Apache Iceberg REST catalog (e.g. tabulario/iceberg-rest); pair with S3→MinIO for previews
+    - type: s3
+      description: MinIO S3 API for reading table data files (use with iceberg-catalog when warehouse is on MinIO)
+
+variants:
+  default:
+    description: Default Iceberg Browser
+
+template_mounts: []
+static_mounts: []
+init_scripts: []

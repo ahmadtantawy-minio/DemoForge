@@ -77,6 +77,11 @@ connections:
           label: "Target Bucket"
           type: string
           default: "demo-bucket"
+        - key: object_tags
+          label: "Object tags (optional)"
+          type: string
+          default: ""
+          description: "S3 object tags applied to each uploaded file, as key=value pairs separated by & (e.g. source=demoforge&env=demo). Up to 10 pairs per S3 rules."
   accepts: []
 
 variants:

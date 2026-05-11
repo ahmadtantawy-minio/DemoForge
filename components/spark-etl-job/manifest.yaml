@@ -1,0 +1,103 @@
+id: spark-etl-job
+name: Apache Spark Job
+category: analytics
+icon: spark
+version: "1.0"
+image: demoforge/spark-etl-job:latest
+build_context: .
+description: "Apache Spark job client: submits Raw → Iceberg (CSV or JSON globs on MinIO via S3A) to a Spark standalone master via spark-submit. Landing and warehouse bucket names live on the job node; MinIO→job edges only mark input vs output (S3 or AIStor Tables). ICEBERG_REST_URI comes from MinIO /_iceberg when AIStor Tables are enabled."
+
+resources:
+  memory: 1g
+  cpu: 0.75
+
+environment:
+  JOB_SCHEDULE: "on_deploy_once"
+  JOB_INTERVAL_SEC: "300"
+  JOB_TEMPLATE: "raw_to_iceberg"
+  SPARK_MASTER_URL: ""
+  INPUT_S3A_URI: ""
+  ICEBERG_REST_URI: ""
+  ICEBERG_SPARK_CATALOG_NAME: "iceberg"
+  ICEBERG_WAREHOUSE: "warehouse"
+  ICEBERG_TARGET_NAMESPACE: "analytics"
+  ICEBERG_TARGET_TABLE: "events_from_raw"
+  RAW_INPUT_FORMAT: "csv"
+  JSON_MULTILINE: "false"
+  RAW_LANDING_BUCKET: "raw-logs"
+  WAREHOUSE_BUCKET: "warehouse"
+  INPUT_OBJECT_PREFIX: ""
+  S3_ENDPOINT: ""
+  S3_ACCESS_KEY: "minioadmin"
+  S3_SECRET_KEY: "minioadmin"
+  # Many small CSVs: group scan partitions + limit Iceberg write partitions (override per demo).
+  RAW_TO_ICEBERG_COALESCE: "8"
+  SPARK_SQL_FILES_OPEN_COST_BYTES: "16777216"
+  # Key prefix inside the raw bucket for processed objects (e.g. archive/ecommerce-orders). Empty = no archive move.
+  RAW_TO_ICEBERG_ARCHIVE_PREFIX: ""
+
+secrets: []
+
+properties:
+  - key: ICEBERG_SPARK_CATALOG_NAME
+    label: Spark Iceberg catalog name
+    type: string
+    default: "iceberg"
+    description: Overrides MinIO/cluster ICEBERG_SPARK_CATALOG_NAME when set. Spark identifier spark.sql.catalog.<name> for REST Iceberg.
+  - key: RAW_TO_ICEBERG_ARCHIVE_PREFIX
+    label: Archive prefix (in raw bucket)
+    type: string
+    default: ""
+    description: After a successful load, move each processed object under this key prefix in the same bucket (e.g. archive/ecommerce-orders). Leave empty to disable. Uses basename only; empty = no archive.
+
+connections:
+  provides: []
+  accepts:
+    - type: spark-submit
+    - type: s3
+      config_schema:
+        - key: spark_sink_role
+          label: "IO role"
+          type: string
+          default: "input"
+          description: "input = read raw objects from the landing bucket configured on the job; output = write Iceberg warehouse data using the warehouse bucket on the job. Buckets are not set on the edge."
+        - key: spark_bucket_role
+          label: "IO role (alias)"
+          type: string
+          default: ""
+          description: "Optional raw|warehouse — same as spark_sink_role input/output."
+    - type: aistor-tables
+      config_schema:
+        - key: spark_sink_role
+          label: "IO role"
+          type: string
+          default: "input"
+          description: "input = read raw objects from the landing bucket configured on the job; output = Iceberg warehouse IO using the warehouse bucket on the job. Buckets are not set on the edge."
+        - key: spark_bucket_role
+          label: "IO role (alias)"
+          type: string
+          default: ""
+          description: "Optional raw|warehouse — same as spark_sink_role input/output."
+
+ports: []
+volumes: []
+init_scripts: []
+log_commands: []
+template_mounts: []
+static_mounts: []
+
+health_check: null
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Apache Spark job — spark-submit client"
+  quick_actions:
+    - label: "Job env"
+      command: env | grep -E 'SPARK_|ICEBERG_|INPUT_|JOB_|S3_|RAW_|JSON_|WAREHOUSE_|INPUT_OBJECT' | sort
+
+web_ui: []
+
+variants:
+  default:
+    description: "Client container that submits one templated Apache Spark job then exits (or idles when manual)"
+    command: []

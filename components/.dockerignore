@@ -1,0 +1,6 @@
+# Used when building external-system with context = components/
+**/__pycache__
+**/*.pyc
+**/.omc
+**/node_modules
+**/.pytest_cache

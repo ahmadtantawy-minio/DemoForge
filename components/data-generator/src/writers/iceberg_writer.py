@@ -184,7 +184,7 @@ class IcebergWriter:
     def write_batch(self, rows: list, columns: list, namespace: str, table_name: str) -> int:
         """Append rows to the Iceberg table. Returns number of rows written.
 
-        On failure (e.g. stale table reference after Trino recreated the table),
+        On failure (e.g. stale table reference after catalog metadata changed),
         invalidates the cached catalog and retries once with a fresh table load.
         """
         if not rows:
@@ -201,8 +201,7 @@ class IcebergWriter:
                 return len(rows)
             except Exception as exc:
                 if attempt == 0:
-                    # Invalidate cached catalog and retry — table may have been
-                    # recreated by Trino table_setup with a different UUID.
+                    # Invalidate cached catalog and retry — table metadata may have changed.
                     self._catalog = None
                     catalog = self._get_catalog()
                 else:

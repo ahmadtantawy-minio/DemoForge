@@ -71,11 +71,7 @@ connections:
       type: string
       default: minio
   - type: aistor-tables
-    config_schema:
-    - key: catalog_name
-      label: AIStor Tables Catalog Name
-      type: string
-      default: aistor
+    config_schema: []
   - type: sql-query
 variants:
   default:

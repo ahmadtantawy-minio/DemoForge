@@ -2,18 +2,36 @@
 spark.master                     local[*]
 spark.driver.memory              512m
 spark.executor.memory            512m
+# RPC uses SPARK_MASTER_HOST (container IP); bind all Spark UIs on 0.0.0.0 so localhost:8080 healthchecks work.
+spark.ui.host                    0.0.0.0
 
-# S3A Configuration for MinIO
-{%- for edge in edges %}
-{%- if edge.target == node.id and edge.connection_type == 's3' %}
+{# S3 edges: MinIO (source) → Spark (target). Optional raw_bucket + warehouse_bucket per edge. #}
+{%- set spark_s3_edges = edges | selectattr('target', 'equalto', node.id) | selectattr('connection_type', 'equalto', 's3') | list %}
+{%- for edge in spark_s3_edges %}
 {%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
 {%- if source_node %}
-spark.hadoop.fs.s3a.endpoint         http://{{ project_name }}-{{ source_node.id }}:9000
-spark.hadoop.fs.s3a.access.key       minioadmin
-spark.hadoop.fs.s3a.secret.key       minioadmin
-spark.hadoop.fs.s3a.path.style.access true
-spark.hadoop.fs.s3a.impl             org.apache.hadoop.fs.s3a.S3AFileSystem
+{%- set cc = edge.connection_config or {} %}
+{%- set wh = cc.get('warehouse_bucket') or 'warehouse' %}
+{%- set raw = (cc.raw_bucket | default('', true)) | trim %}
+{%- set svc = project_name ~ '-' ~ source_node.id %}
+{%- set ep = 'http://' ~ svc ~ ':9000' %}
+{%- if loop.first %}
+spark.hadoop.fs.s3a.endpoint              {{ ep }}
+spark.hadoop.fs.s3a.access.key          minioadmin
+spark.hadoop.fs.s3a.secret.key          minioadmin
+spark.hadoop.fs.s3a.path.style.access   true
+spark.hadoop.fs.s3a.impl                org.apache.hadoop.fs.s3a.S3AFileSystem
 spark.hadoop.fs.s3a.connection.ssl.enabled false
 {%- endif %}
+{%- if raw and raw != wh %}
+spark.hadoop.fs.s3a.bucket.{{ raw }}.endpoint         {{ ep }}
+spark.hadoop.fs.s3a.bucket.{{ raw }}.access.key       minioadmin
+spark.hadoop.fs.s3a.bucket.{{ raw }}.secret.key       minioadmin
+spark.hadoop.fs.s3a.bucket.{{ raw }}.path.style.access true
+{%- endif %}
+spark.hadoop.fs.s3a.bucket.{{ wh }}.endpoint         {{ ep }}
+spark.hadoop.fs.s3a.bucket.{{ wh }}.access.key       minioadmin
+spark.hadoop.fs.s3a.bucket.{{ wh }}.secret.key       minioadmin
+spark.hadoop.fs.s3a.bucket.{{ wh }}.path.style.access true
 {%- endif %}
 {%- endfor %}

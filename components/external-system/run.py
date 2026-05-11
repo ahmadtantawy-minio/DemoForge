@@ -2,8 +2,12 @@
 run.py — External System scenario engine entrypoint.
 
 Reads scenario YAML from /scenarios/{ES_SCENARIO}.yaml and drives a data
-generation pipeline that writes Iceberg tables (via PyIceberg or Trino) and
-MinIO objects, then provisions Metabase dashboards and saved queries.
+generation pipeline that writes Iceberg tables via PyIceberg REST and MinIO
+objects, then provisions Metabase dashboards and saved queries.
+
+When ES_SCENARIO matches a Data Generator dataset id (bundled under
+/app/vendor/data-generator/), the container runs the same generate.py scenario
+loop as the Data Generator image (identical S3 keys, partitioning, and writers).
 
 Env vars:
   ES_SCENARIO           scenario ID (e.g. "soc-firewall-events")
@@ -13,18 +17,21 @@ Env vars:
   S3_ACCESS_KEY         MinIO access key
   S3_SECRET_KEY         MinIO secret key
   ICEBERG_CATALOG_URI   Iceberg REST catalog URL
+  ICEBERG_CATALOG_NAME  PyIceberg RestCatalog client name; for MinIO /_iceberg, set from MinIO AISTOR_TABLES_CATALOG_NAME (compose)
   ICEBERG_WAREHOUSE     warehouse name (default "warehouse")
   ICEBERG_SIGV4         "true" for AIStor SigV4 auth
-  TRINO_HOST            Trino host:port (fallback / cross-scenario lookups)
-  TRINO_CATALOG         Trino catalog name (default "iceberg")
+  TRINO_HOST            Optional Trino host:port (read-only probes, e.g. correlation seeding)
+  TRINO_CATALOG         Trino catalog for those probes (default matches AIStor vs Hive catalog)
   METABASE_URL          Metabase URL (default http://metabase:3000)
   METABASE_USER         Metabase user (default admin@demoforge.local)
   METABASE_PASSWORD     Metabase password (default DemoForge123!)
   ES_ON_DEMAND_DIR      Poll this dir for *.json to trigger extra batch generation (default /tmp/es-on-demand)
   ES_ON_DEMAND_POLL_SEC Polling interval for on-demand requests (default 5)
+  ES_SINK_MODE          files_and_iceberg (default) or files_only — when files_only, skip Iceberg/mirror writes
 """
 
 import copy
+import importlib.util
 import io
 import json
 import os
@@ -54,15 +61,19 @@ except ImportError:
 
 ES_SCENARIO = os.environ.get("ES_SCENARIO", "")
 ES_SCENARIOS_DIR = os.environ.get("ES_SCENARIOS_DIR", "/app/scenarios")
+DG_VENDOR_ROOT = os.environ.get("ES_DG_VENDOR_ROOT", "/app/vendor/data-generator")
 ES_STARTUP_DELAY = int(os.environ.get("ES_STARTUP_DELAY", "0") or 0)
 ES_ON_DEMAND_DIR = os.environ.get("ES_ON_DEMAND_DIR", "/tmp/es-on-demand")
 ES_ON_DEMAND_POLL_SEC = float(os.environ.get("ES_ON_DEMAND_POLL_SEC", "5") or 5)
+ES_SINK_MODE_RAW = (os.environ.get("ES_SINK_MODE", "files_and_iceberg") or "files_and_iceberg").strip().lower()
+FILES_ONLY = ES_SINK_MODE_RAW == "files_only"
 
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "minio:9000")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "minioadmin")
 
 ICEBERG_CATALOG_URI = os.environ.get("ICEBERG_CATALOG_URI", "")
+ICEBERG_CATALOG_NAME = (os.environ.get("ICEBERG_CATALOG_NAME") or "").strip()
 ICEBERG_WAREHOUSE = os.environ.get("ICEBERG_WAREHOUSE", "warehouse")
 ICEBERG_SIGV4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
 
@@ -120,7 +131,7 @@ def ensure_bucket(client, bucket: str):
 
 
 # ---------------------------------------------------------------------------
-# Iceberg / Trino table writers
+# Iceberg table writer (PyIceberg REST — no Trino write path)
 # ---------------------------------------------------------------------------
 
 _PYICEBERG_AVAILABLE = False
@@ -224,6 +235,11 @@ class IcebergTableWriter:
         if not _PYICEBERG_AVAILABLE:
             raise RuntimeError("pyiceberg not installed")
         self._catalog = None
+        self._last_iceberg_data_prefix: str = ""
+
+    def last_iceberg_data_prefix(self) -> str:
+        """S3 URI prefix for table data (metadata.location) after last successful append."""
+        return self._last_iceberg_data_prefix or ""
 
     def _catalog_handle(self):
         if self._catalog:
@@ -232,9 +248,10 @@ class IcebergTableWriter:
         endpoint = _s3_endpoint_url()
         wh = ICEBERG_WAREHOUSE
         wh_uri = wh if ICEBERG_SIGV4 else (wh if wh.startswith("s3://") else f"s3://{wh}/")
-        catalog_uri = ICEBERG_CATALOG_URI
-        if ICEBERG_SIGV4 and "-lb:" in catalog_uri:
-            catalog_uri = catalog_uri.replace("-lb:", "-node-1:").replace(":80/", ":9000/")
+        catalog_uri = ICEBERG_CATALOG_URI.strip()
+        if ICEBERG_SIGV4 and "-lb:80" in catalog_uri:
+            catalog_uri = catalog_uri.replace("-lb:80", "-pool1-node-1:9000")
+            print(f"[iceberg] AIStor SigV4: catalog URI → {catalog_uri}", flush=True)
         props = {
             "uri": catalog_uri,
             "warehouse": wh_uri,
@@ -252,7 +269,8 @@ class IcebergTableWriter:
             props["rest.sigv4-enabled"] = "true"
             props["rest.signing-region"] = "us-east-1"
             props["rest.signing-name"] = "s3tables"
-        self._catalog = RestCatalog(name="external-system", **props)
+        rest_catalog_name = ICEBERG_CATALOG_NAME or ("aistor" if ICEBERG_SIGV4 else "external-system")
+        self._catalog = RestCatalog(name=rest_catalog_name, **props)
         return self._catalog
 
     def ensure_table(self, namespace: str, table_name: str, schema_fields: list):
@@ -304,15 +322,34 @@ class IcebergTableWriter:
             print(f"[iceberg] create_table failed: {full}: {exc}", flush=True)
             raise
 
-    def append(self, namespace: str, table_name: str, rows: list, schema: list) -> int:
+    def append(self, namespace: str, table_name: str, rows: list, schema: list, *, quiet: bool = False) -> int:
         if not rows:
             return 0
         arrow = _rows_to_arrow(rows, schema)
+        ident = f"{namespace}.{table_name}"
         for attempt in range(2):
             try:
                 catalog = self._catalog_handle()
-                tbl = catalog.load_table(f"{namespace}.{table_name}")
+                tbl = catalog.load_table(ident)
                 tbl.append(arrow)
+                # Reload metadata so location reflects the new commit (data files live under this S3 prefix).
+                tbl_after = catalog.load_table(ident)
+                loc = ""
+                try:
+                    loc = str(getattr(tbl_after.metadata, "location", "") or "")
+                except Exception:
+                    loc = ""
+                self._last_iceberg_data_prefix = loc
+                wh = (ICEBERG_WAREHOUSE or "").strip()
+                ep = (S3_ENDPOINT or "").strip()
+                if not quiet:
+                    print(
+                        "[external-system] Iceberg write SUCCESS: "
+                        f"{len(rows)} row(s) → table `{ident}` | "
+                        f"table_data_prefix={loc or '(unknown)'} | "
+                        f"warehouse={wh or '(unset)'} | s3_endpoint={ep or '(unset)'}",
+                        flush=True,
+                    )
                 return len(rows)
             except Exception:
                 if attempt == 0:
@@ -322,176 +359,15 @@ class IcebergTableWriter:
         return len(rows)
 
 
-class TrinoTableWriter:
-    """Fallback writer: CREATE TABLE IF NOT EXISTS + INSERT via Trino HTTP."""
-
-    def __init__(self, trino_host: str, catalog: str):
-        self.host = trino_host
-        self.catalog = catalog
-
-    def _post_query(self, sql: str):
-        import requests
-        host = self.host if self.host.startswith("http") else f"http://{self.host}"
-        resp = requests.post(
-            f"{host}/v1/statement",
-            data=sql,
-            headers={
-                "X-Trino-User": "demoforge",
-                "X-Trino-Catalog": self.catalog,
-                "Content-Type": "text/plain",
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        # Follow nextUri until done
-        while "nextUri" in result:
-            r2 = requests.get(result["nextUri"], timeout=60)
-            r2.raise_for_status()
-            result = r2.json()
-            if result.get("stats", {}).get("state") in ("FINISHED", "FAILED"):
-                break
-        if result.get("error"):
-            raise RuntimeError(f"Trino error: {result['error']}")
-        return result
-
-    def _trino_type(self, t: str) -> str:
-        return {
-            "string": "VARCHAR",
-            "integer": "INTEGER",
-            "int": "INTEGER",
-            "int32": "INTEGER",
-            "long": "BIGINT",
-            "int64": "BIGINT",
-            "float": "REAL",
-            "float32": "REAL",
-            "double": "DOUBLE",
-            "float64": "DOUBLE",
-            "boolean": "BOOLEAN",
-            "timestamp": "TIMESTAMP(6)",
-            "date": "DATE",
-        }.get(t, "VARCHAR")
-
-    def _wait_for_trino(self, max_wait: int = 300, interval: int = 10):
-        """Block until Trino responds, up to max_wait seconds."""
-        import requests, time
-        host = self.host if self.host.startswith("http") else f"http://{self.host}"
-        deadline = time.time() + max_wait
-        while time.time() < deadline:
-            try:
-                r = requests.get(f"{host}/v1/info", timeout=5)
-                if r.ok and r.json().get("starting") is False:
-                    return
-            except Exception:
-                pass
-            remaining = int(deadline - time.time())
-            print(f"[trino] server not ready, retrying in {interval}s (up to {remaining}s remaining)…", flush=True)
-            time.sleep(interval)
-        raise RuntimeError(f"Trino at {self.host} did not become ready within {max_wait}s")
-
-    def ensure_table(self, namespace: str, table_name: str, schema: list,
-                     partition_by: list = None):
-        cols = ", ".join(f'"{c["name"]}" {self._trino_type(c.get("type", "string"))}' for c in schema)
-        schema_fqn = f'"{self.catalog}"."{namespace}"'
-        print(f"[schema] CREATE SCHEMA IF NOT EXISTS {schema_fqn}", flush=True)
-        try:
-            self._post_query(f'CREATE SCHEMA IF NOT EXISTS {schema_fqn}')
-            print(f"[schema] ok: {schema_fqn}", flush=True)
-        except Exception as exc:
-            if "SERVER_STARTING_UP" in str(exc) or "still initializing" in str(exc):
-                print(f"[schema] Trino still initializing — waiting for ready…", flush=True)
-                self._wait_for_trino()
-                self._post_query(f'CREATE SCHEMA IF NOT EXISTS {schema_fqn}')
-                print(f"[schema] ok (after wait): {schema_fqn}", flush=True)
-            else:
-                print(f"[schema] failed: {schema_fqn}: {exc}", flush=True)
-                raise
-        with_clause = ""
-        if partition_by:
-            parts = ", ".join(f"'{p}'" for p in partition_by)
-            with_clause = f" WITH (partitioning = ARRAY[{parts}])"
-        table_fqn = f'"{self.catalog}"."{namespace}"."{table_name}"'
-        print(f"[table] CREATE TABLE IF NOT EXISTS {table_fqn}", flush=True)
-        sql = f'CREATE TABLE IF NOT EXISTS {table_fqn} ({cols}){with_clause}'
-        try:
-            self._post_query(sql)
-            print(f"[table] ok: {table_fqn}", flush=True)
-        except Exception as exc:
-            err_str = str(exc)
-            # Trino still booting — wait and retry the full sequence
-            if "SERVER_STARTING_UP" in err_str or "still initializing" in err_str:
-                print(f"[table] Trino still initializing — waiting…", flush=True)
-                self._wait_for_trino()
-                self._post_query(sql)
-                print(f"[table] ok (after wait): {table_fqn}", flush=True)
-                return
-            # Some catalogs (Hive, non-Iceberg) don't support the partitioning property.
-            # Retry without it so table creation still succeeds.
-            if with_clause and "partitioning" in err_str and "does not exist" in err_str:
-                print(f"[table] partitioning not supported by catalog, retrying without: {table_fqn}", flush=True)
-                sql_no_part = f'CREATE TABLE IF NOT EXISTS {table_fqn} ({cols})'
-                try:
-                    self._post_query(sql_no_part)
-                    print(f"[table] ok (no partitioning): {table_fqn}", flush=True)
-                    return
-                except Exception as exc2:
-                    print(f"[table] failed (no partitioning): {table_fqn}: {exc2}", flush=True)
-                    raise exc2
-            print(f"[table] failed: {table_fqn}: {exc}", flush=True)
-            raise
-
-    def _fmt_literal(self, val, col_type: str) -> str:
-        if val is None:
-            return "NULL"
-        if col_type in ("integer", "int", "int32", "long", "int64", "float", "float32",
-                         "double", "float64"):
-            return str(val)
-        if col_type == "boolean":
-            return "TRUE" if val else "FALSE"
-        if col_type == "timestamp":
-            import datetime as _dt
-            if isinstance(val, _dt.datetime):
-                return f"TIMESTAMP '{val.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
-            return f"TIMESTAMP '{val}'"
-        if col_type == "date":
-            return f"DATE '{val}'"
-        # string / json
-        s = val if isinstance(val, str) else json.dumps(val) if isinstance(val, (dict, list)) else str(val)
-        s = s.replace("'", "''")
-        return f"'{s}'"
-
-    def append(self, namespace: str, table_name: str, rows: list, schema: list) -> int:
-        if not rows:
-            return 0
-        col_names = ", ".join(f'"{c["name"]}"' for c in schema)
-        # Chunk inserts to keep statements small
-        CHUNK = 500
-        total = 0
-        for i in range(0, len(rows), CHUNK):
-            chunk = rows[i:i + CHUNK]
-            values_rows = []
-            for r in chunk:
-                parts = [self._fmt_literal(r.get(c["name"]), c.get("type", "string")) for c in schema]
-                values_rows.append("(" + ", ".join(parts) + ")")
-            sql = (
-                f'INSERT INTO "{self.catalog}"."{namespace}"."{table_name}" ({col_names}) VALUES '
-                + ", ".join(values_rows)
-            )
-            self._post_query(sql)
-            total += len(chunk)
-        return total
-
-
 def _get_table_writer():
-    """Return (writer, kind) — PyIceberg if available, else Trino, else None."""
-    if _PYICEBERG_AVAILABLE and ICEBERG_CATALOG_URI and not ICEBERG_SIGV4:
-        try:
-            return IcebergTableWriter(), "iceberg"
-        except Exception as exc:
-            print(f"[external-system] IcebergTableWriter init failed: {exc}")
-    if TRINO_HOST:
-        return TrinoTableWriter(TRINO_HOST, TRINO_CATALOG), "trino"
-    return None, None
+    """Return (IcebergTableWriter, 'iceberg') when PyIceberg + ICEBERG_CATALOG_URI; else (None, None)."""
+    if not _PYICEBERG_AVAILABLE or not (ICEBERG_CATALOG_URI or "").strip():
+        return None, None
+    try:
+        return IcebergTableWriter(), "iceberg"
+    except Exception as exc:
+        print(f"[external-system] IcebergTableWriter init failed: {exc}")
+        return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +469,7 @@ def write_object_batch(
             key = key_name if key_name.endswith(".txt") else f"{key_name}.txt"
 
         client.put_object(Bucket=bucket, Key=key, Body=body)
+        print(f"[{ds_id}] S3 write SUCCESS: s3://{bucket}/{key}", flush=True)
 
         also_report = dataset.get("also_write_report")
         if also_report and fmt == "binary" and row.get("sha256"):
@@ -604,6 +481,7 @@ def write_object_batch(
             client.put_object(Bucket=bucket, Key=report_key, Body=report_body,
                               ContentType="application/json",
                               ContentLength=len(report_body))
+            print(f"[{ds_id}] S3 write SUCCESS: s3://{bucket}/{report_key}", flush=True)
 
         if mirror_fields_spec:
             tags = []
@@ -629,7 +507,7 @@ def write_object_batch(
             done = " — DONE" if (i + 1) == count else ""
             print(f"[{ds_id}] {phase_label}: {i + 1}/{count} objects ({pct}%){done}")
 
-    if mirror and mirror_rows and table_writer:
+    if mirror and mirror_rows and table_writer and not FILES_ONLY:
         ns = mirror["namespace"]
         tn = mirror["table_name"]
         print(f"[{ds_id}] Mirroring {len(mirror_rows)} rows -> {ns}.{tn}")
@@ -709,6 +587,13 @@ def _write_csv_to_s3(client, bucket: str, key: str, rows: list, schema: list):
                       ContentType="text/csv", ContentLength=len(data))
 
 
+def _log_s3_csv_success(ds_id: str, bucket: str, key: str, rows_desc: str) -> None:
+    print(
+        f"[{ds_id}] S3 write SUCCESS (CSV): {rows_desc} → s3://{bucket}/{key}",
+        flush=True,
+    )
+
+
 def _write_table_landing_only(dataset: dict, ctx: dict, client) -> None:
     """CSV raw_landing only — no Iceberg / catalog writes (e.g. vuln scanner → EP builds reports)."""
     ds_id = dataset["id"]
@@ -748,13 +633,13 @@ def _write_table_landing_only(dataset: dict, ctx: dict, client) -> None:
             csv_buf = csv_buf[rl_batch_size:]
             key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
             _write_csv_to_s3(client, rl_bucket, key, batch, schema)
-            print(f"[{ds_id}] CSV: {len(batch)} rows → s3://{rl_bucket}/{key}")
+            _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(batch)} rows")
 
     if csv_buf:
         csv_file_num += 1
         key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
         _write_csv_to_s3(client, rl_bucket, key, csv_buf, schema)
-        print(f"[{ds_id}] CSV: {len(csv_buf)} rows (remainder) → s3://{rl_bucket}/{key}")
+        _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(csv_buf)} rows (remainder)")
 
     print(f"[{ds_id}] landing_only complete — no Iceberg table writes.")
     return None
@@ -777,7 +662,7 @@ def write_landing_only_extra_files(
         rows = generate_batch(schema, rows_per_file, ctx)
         key = f"{rl_prefix}{ds_id}_ondemand_{ts}_{fi + 1:04d}.csv"
         _write_csv_to_s3(client, rl_bucket, key, rows, schema)
-        print(f"[{ds_id}] on-demand CSV: {len(rows)} rows → s3://{rl_bucket}/{key}")
+        _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(rows)} rows (on-demand)")
 
 
 def _cap_on_demand(n: int, mx: int) -> int:
@@ -918,6 +803,13 @@ def _run_on_demand_trigger(
         nfiles = min(count, max_files)
         write_landing_only_extra_files(ds_eff, ctx, client, nfiles, rows_pf)
         return
+    if target == "table" and FILES_ONLY and not ds_eff.get("landing_only") and ds_eff.get("raw_landing"):
+        raw = ds_eff.get("raw_landing") or {}
+        rows_pf = int(od_cfg.get("rows_per_csv_file") or raw.get("batch_size", 500))
+        max_files = int(od_cfg.get("max_csv_files", 50))
+        nfiles = min(count, max_files)
+        write_landing_only_extra_files(ds_eff, ctx, client, nfiles, rows_pf)
+        return
     print(
         f"[on-demand] dataset '{ds_id}' (target={target}, landing_only={ds_eff.get('landing_only')}) "
         "does not support on-demand — skip.",
@@ -1000,8 +892,50 @@ def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str,
     gen_cfg = dataset.get("generation", {})
     mode = gen_cfg.get("mode", "batch")
 
+    if FILES_ONLY:
+        raw_landing = dataset.get("raw_landing")
+        if not raw_landing or not client:
+            print(
+                f"[{ds_id}] ES_SINK_MODE=files_only — table dataset needs raw_landing and S3 client; skipping.",
+            )
+            return None
+        rl_bucket = raw_landing.get("bucket", "raw-logs")
+        rl_prefix = raw_landing.get("prefix", "")
+        rl_batch_size = int(raw_landing.get("batch_size", 5000))
+        ensure_bucket(client, rl_bucket)
+        csv_buf: list = []
+        csv_file_num = 0
+        if mode in ("batch", "batch_then_stream"):
+            total = int(gen_cfg.get("seed_rows", 1000))
+            CHUNK = 2000
+            written = 0
+            while written < total:
+                n = min(CHUNK, total - written)
+                rows = generate_batch(schema, n, ctx)
+                written += n
+                pct = int(100 * written / total)
+                done = " — DONE" if written == total else ""
+                print(f"[{ds_id}] Raw CSV seeding (files_only): {written}/{total} rows ({pct}%){done}")
+                csv_buf.extend(rows)
+                while len(csv_buf) >= rl_batch_size:
+                    csv_file_num += 1
+                    batch = csv_buf[:rl_batch_size]
+                    csv_buf = csv_buf[rl_batch_size:]
+                    key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
+                    _write_csv_to_s3(client, rl_bucket, key, batch, schema)
+                    _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(batch)} rows")
+            if csv_buf:
+                csv_file_num += 1
+                key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
+                _write_csv_to_s3(client, rl_bucket, key, csv_buf, schema)
+                _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(csv_buf)} rows (remainder)")
+        elif mode == "stream":
+            print(f"[{ds_id}] files_only + mode=stream — no batch seed; streaming will write raw CSV only.")
+        print(f"[{ds_id}] files_only table path complete — no Iceberg writes.")
+        return {"dataset": dataset, "schema": schema, "namespace": ns, "table_name": tn}
+
     if not table_writer:
-        print(f"[{ds_id}] No table writer available (no Iceberg catalog, no Trino). Skipping.")
+        print(f"[{ds_id}] No table writer (set ICEBERG_CATALOG_URI and install pyiceberg). Skipping.")
         return None
 
     try:
@@ -1051,14 +985,14 @@ def write_table_dataset(dataset: dict, ctx: dict, table_writer, table_kind: str,
                     csv_buf = csv_buf[rl_batch_size:]
                     key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
                     _write_csv_to_s3(rl_client, rl_bucket, key, batch, schema)
-                    print(f"[{ds_id}] CSV: {len(batch)} rows → s3://{rl_bucket}/{key}")
+                    _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(batch)} rows")
 
         # Flush remainder
         if rl_client and csv_buf:
             csv_file_num += 1
             key = f"{rl_prefix}{ds_id}_{csv_file_num:05d}.csv"
             _write_csv_to_s3(rl_client, rl_bucket, key, csv_buf, schema)
-            print(f"[{ds_id}] CSV: {len(csv_buf)} rows (remainder) → s3://{rl_bucket}/{key}")
+            _log_s3_csv_success(ds_id, rl_bucket, key, f"{len(csv_buf)} rows (remainder)")
             csv_buf = []
 
     return {"dataset": dataset, "schema": schema, "namespace": ns, "table_name": tn}
@@ -1119,13 +1053,21 @@ def run_streams(stream_datasets: list, table_writer, ctx: dict, client=None):
                 ns = s["meta"]["namespace"]
                 tn = s["meta"]["table_name"]
                 row = generate_row(schema, ctx)
-                try:
-                    table_writer.append(ns, tn, [row], schema)
+                if table_writer and not FILES_ONLY:
+                    try:
+                        quiet = s["rows_sent"] > 0
+                        table_writer.append(ns, tn, [row], schema, quiet=quiet)
+                        s["rows_sent"] += 1
+                        if s["rows_sent"] % 50 == 0:
+                            ib = table_writer.last_iceberg_data_prefix()
+                            ibs = f" | iceberg_data_prefix={ib}" if ib else ""
+                            print(f"[{ds['id']}] streamed={s['rows_sent']} rate={s['rate']:g}/s{ibs}")
+                    except Exception as exc:
+                        print(f"[{ds['id']}] stream append failed: {exc}")
+                elif FILES_ONLY:
                     s["rows_sent"] += 1
                     if s["rows_sent"] % 50 == 0:
-                        print(f"[{ds['id']}] streamed={s['rows_sent']} rate={s['rate']:g}/s")
-                except Exception as exc:
-                    print(f"[{ds['id']}] stream append failed: {exc}")
+                        print(f"[{ds['id']}] streamed(csv-only)={s['rows_sent']} rate={s['rate']:g}/s")
                 if s.get("csv_state") and client:
                     import datetime as _dt
                     cs = s["csv_state"]
@@ -1135,7 +1077,7 @@ def run_streams(stream_datasets: list, table_writer, ctx: dict, client=None):
                         ts = _dt.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
                         key = f"{cs['prefix']}{ds['id']}_stream_{ts}_{cs['file_num']:05d}.csv"
                         _write_csv_to_s3(client, cs["bucket"], key, cs["buf"], schema)
-                        print(f"[{ds['id']}] CSV stream: {len(cs['buf'])} rows → s3://{cs['bucket']}/{key}")
+                        _log_s3_csv_success(ds["id"], cs["bucket"], key, f"{len(cs['buf'])} rows (stream)")
                         cs["buf"] = []
                 s["next_fire"] += s["interval"]
         # Sleep until next event
@@ -1240,12 +1182,89 @@ def _load_correlation_ips(ctx: dict, scenario: dict):
 
 
 # ---------------------------------------------------------------------------
+# Data Generator scenario bridge (same writers + paths as data-generator image)
+# ---------------------------------------------------------------------------
+
+def _dg_dataset_yaml_path(scenario_id: str) -> str:
+    return os.path.join(DG_VENDOR_ROOT, "datasets", f"{scenario_id}.yaml")
+
+
+def _external_system_scenario_yaml_path(scenario_id: str) -> str:
+    return os.path.join(ES_SCENARIOS_DIR, f"{scenario_id}.yaml")
+
+
+def _run_data_generator_scenario_loop() -> None:
+    """Execute data-generator/generate.py main_scenario with External System env."""
+    dg_gen = os.path.join(DG_VENDOR_ROOT, "generate.py")
+    if not os.path.isfile(dg_gen):
+        print(f"[external-system] Data Generator bundle missing at {dg_gen}. Rebuild the image.")
+        sys.exit(1)
+
+    fmt = (os.environ.get("DG_FORMAT") or os.environ.get("ES_DG_FORMAT") or "parquet").strip().lower()
+    if fmt not in ("parquet", "json", "csv"):
+        fmt = "parquet"
+    profile = (os.environ.get("DG_RATE_PROFILE") or os.environ.get("ES_DG_RATE_PROFILE") or "medium").strip().lower()
+    if profile not in ("low", "medium", "high"):
+        profile = "medium"
+
+    os.environ["DG_SCENARIO"] = ES_SCENARIO
+    os.environ["DG_FORMAT"] = fmt
+    os.environ["DG_RATE_PROFILE"] = profile
+    os.environ["DG_WRITE_MODE"] = "raw" if FILES_ONLY else os.environ.get("DG_WRITE_MODE", "iceberg")
+
+    if ES_STARTUP_DELAY > 0:
+        print(f"[external-system] ES_STARTUP_DELAY={ES_STARTUP_DELAY}s — sleeping before DG scenario loop...")
+        time.sleep(ES_STARTUP_DELAY)
+
+    print(
+        f"[external-system] Data Generator scenario mode: scenario={ES_SCENARIO} "
+        f"format={fmt} rate_profile={profile} DG_WRITE_MODE={os.environ['DG_WRITE_MODE']}"
+    )
+
+    # run.py already imported `src.*` from /app/src. Vendored generate.py expects
+    # data-generator's `src` tree (value_generators, writers, schema_loader, …).
+    # Drop cached `src` modules so imports resolve under DG_VENDOR_ROOT first.
+    _saved_src_modules: dict[str, object] = {}
+    for _k in list(sys.modules):
+        if _k == "src" or _k.startswith("src."):
+            _saved_src_modules[_k] = sys.modules.pop(_k)
+
+    sys.path.insert(0, DG_VENDOR_ROOT)
+    try:
+        spec = importlib.util.spec_from_file_location("_demoforge_dg_generate", dg_gen)
+        if spec is None or spec.loader is None:
+            print("[external-system] Could not load bundled generate.py")
+            sys.exit(1)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.main_scenario(ES_SCENARIO, fmt, profile)
+    finally:
+        for _k, _m in _saved_src_modules.items():
+            if _m is not None:
+                sys.modules[_k] = _m
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main():
     if not ES_SCENARIO:
         print("[external-system] ES_SCENARIO env var is required. Exiting.")
+        sys.exit(1)
+
+    es_yaml = _external_system_scenario_yaml_path(ES_SCENARIO)
+    dg_yaml = _dg_dataset_yaml_path(ES_SCENARIO)
+    if os.path.isfile(es_yaml):
+        pass  # native external-system scenario
+    elif os.path.isfile(dg_yaml):
+        _run_data_generator_scenario_loop()
+        return
+    else:
+        print(
+            f"[external-system] No scenario file for '{ES_SCENARIO}' under {ES_SCENARIOS_DIR} "
+            f"or {os.path.dirname(dg_yaml)}."
+        )
         sys.exit(1)
 
     scenario = load_scenario(ES_SCENARIO, ES_SCENARIOS_DIR)
@@ -1275,9 +1294,11 @@ def main():
 
     # Table writer
     table_writer, table_kind = _get_table_writer()
-    if table_writer:
+    if FILES_ONLY:
+        print("[external-system] ES_SINK_MODE=files_only — catalog/mirror Iceberg writes disabled.")
+    if table_writer and not FILES_ONLY:
         print(f"[external-system] Using table writer: {table_kind}")
-    else:
+    elif not FILES_ONLY:
         has_landing_only = any(
             d.get("target") == "table" and d.get("landing_only")
             for d in scenario.get("datasets", [])
@@ -1285,7 +1306,10 @@ def main():
         if has_landing_only:
             print("[external-system] No Iceberg writer — landing_only datasets still write raw CSV to S3.")
         else:
-            print("[external-system] No table writer — table datasets will be skipped.")
+            print(
+                "[external-system] No PyIceberg writer (missing ICEBERG_CATALOG_URI or pyiceberg) — "
+                "table datasets will be skipped."
+            )
 
     # Cross-scenario correlation
     _load_correlation_ips(ctx, scenario)
@@ -1307,8 +1331,8 @@ def main():
     # Publish provisioning intent to shared volume for Metabase reconciler
     publish_metabase_intent(scenario)
 
-    # Stream phase
-    if stream_metas and table_writer:
+    # Stream phase (CSV-only streams allowed when FILES_ONLY + raw_landing)
+    if stream_metas and (table_writer or FILES_ONLY):
         run_streams(stream_metas, table_writer, ctx, client=client)
 
     # On-demand file generation (poll ES_ON_DEMAND_DIR for *.json)

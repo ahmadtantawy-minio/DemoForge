@@ -39,6 +39,28 @@ if "INTERVAL_SECONDS" in os.environ and "DG_RATE" not in os.environ:
 
 INTERVAL_SECONDS = 60.0 / DG_RATE if DG_RATE > 0 else 60.0
 
+
+def split_s3_bucket_and_prefix(raw: str) -> tuple[str, str]:
+    """
+    Split values like ``/raw/ecommerce-orders`` into a valid S3 bucket and object prefix.
+
+    Bucket names cannot contain ``/``; users often paste a path into target bucket.
+    Returns ``(bucket, key_prefix)`` where ``key_prefix`` is '' or ends with ``/``.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return "", ""
+    s = s.strip("/")
+    if not s:
+        return "", ""
+    parts = [p for p in s.split("/") if p]
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], "/".join(parts[1:]).rstrip("/") + "/"
+
+
 # --- Legacy static data (used when DG_SCENARIO is not set) ---
 PRODUCTS = [
     "Widget Pro", "Gadget X", "Smart Sensor", "Data Cable", "Cloud Key",
@@ -257,13 +279,10 @@ def _get_writer(fmt: str):
 
 
 def _get_iceberg_writer(scenario: dict):
-    """Try to create an IcebergWriter for the Iceberg REST catalog.
+    """Create an IcebergWriter (PyIceberg REST catalog) when ICEBERG_CATALOG_URI is set.
 
     Returns (writer, namespace, table_name) or (None, None, None) if unavailable.
-
-    When ICEBERG_SIGV4=true (AIStor Tables), PyIceberg cannot authenticate via
-    SigV4. In that case we skip PyIceberg entirely — data will be written via the
-    Trino INSERT writer or fall back to raw file writer.
+    AIStor SigV4 uses the same writer with rest.sigv4-enabled (direct pool1 node URI).
     """
     catalog_uri = os.environ.get("ICEBERG_CATALOG_URI", "")
     if not catalog_uri:
@@ -280,13 +299,12 @@ def _get_iceberg_writer(scenario: dict):
         # external Iceberg REST expects s3:// URI (e.g. "s3://warehouse/")
         wh_uri = wh if is_sigv4 else (wh if wh.startswith("s3://") else f"s3://{wh}/")
 
-        # For AIStor (SigV4), connect to the /_iceberg endpoint on the MinIO node directly
-        # (nginx LB may not proxy SigV4 correctly)
+        # For AIStor (SigV4), connect to the /_iceberg endpoint on the first pool node :9000
+        # (nginx LB :80 often breaks SigV4; hostname must match compose: {cluster}-pool1-node-1, not ...-node-1).
         sigv4_uri = catalog_uri
-        if is_sigv4 and "-lb:" in catalog_uri:
-            # Replace LB with node-1 for SigV4 reliability
-            sigv4_uri = catalog_uri.replace("-lb:", "-node-1:").replace(":80/", ":9000/")
-            print(f"[scenario] AIStor SigV4: using direct node {sigv4_uri}")
+        if is_sigv4 and "-lb:80" in catalog_uri:
+            sigv4_uri = catalog_uri.replace("-lb:80", "-pool1-node-1:9000")
+            print(f"[scenario] AIStor SigV4: using direct pool1 node {sigv4_uri}")
 
         writer = IcebergWriter(
             catalog_uri=sigv4_uri if is_sigv4 else catalog_uri,
@@ -338,12 +356,17 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
         bucket = S3_BUCKET
     else:
         bucket = get_bucket(scenario, fmt)
+    bucket, s3_key_prefix = split_s3_bucket_and_prefix(bucket)
+    if not bucket:
+        bucket = get_bucket(scenario, fmt)
+        bucket, s3_key_prefix = split_s3_bucket_and_prefix(bucket)
     partition_cfg = get_partitioning(scenario, fmt)
 
     print(
         f"[scenario] Starting: scenario={scenario_id}, format={fmt}, "
         f"rate_profile={rate_profile}, rows_per_batch={rows_per_batch}, "
         f"batches_per_minute={batches_per_minute}, bucket={bucket}"
+        + (f", object_prefix={s3_key_prefix!r}" if s3_key_prefix else "")
     )
     print(f"STATUS: scenario={scenario_id} format={fmt} state=starting")
 
@@ -351,9 +374,6 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
     use_kafka = fmt == "kafka"
     client = None
     use_iceberg = False
-    use_trino_writer = False
-    trino_table_name = None
-    trino_catalog = "iceberg"
     iceberg_writer = None
     ice_ns = None
     ice_table = None
@@ -382,27 +402,22 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
                 print(f"[scenario] Created bucket '{bucket}'.")
 
         if write_mode == "raw":
-            # Raw file mode — write directly to S3, skip Iceberg/Trino entirely
+            # Raw file mode — write directly to S3, skip Iceberg catalog writes
             writer = _get_writer(fmt)
-            print(f"[scenario] Using raw file writer ({fmt}) → s3://{bucket}/")
+            base = f"s3://{bucket}/{s3_key_prefix}" if s3_key_prefix else f"s3://{bucket}/"
+            print(f"[scenario] Using raw file writer ({fmt}) → {base}")
         else:
-            # Iceberg mode (default) — try PyIceberg, then Trino INSERT, then raw fallback
+            # Iceberg mode (default) — PyIceberg REST; raw file writer if catalog/table unavailable
 
             iceberg_cfg = scenario.get("iceberg", {}) or {}
-            trino_table_name = iceberg_cfg.get("table", "orders")
             trino_namespace = iceberg_cfg.get("namespace", "demo")
-            trino_host = os.environ.get("TRINO_HOST", "")
-            is_sigv4 = os.environ.get("ICEBERG_SIGV4", "").lower() in ("true", "1", "yes")
-            trino_catalog_resolved = "aistor" if is_sigv4 else "iceberg"
 
-            # Run table setup (create buckets + warehouse)
+            # Run table setup (buckets + PyIceberg table when ICEBERG_CATALOG_URI is set)
             try:
                 from src.table_setup import run_setup
                 endpoint = S3_ENDPOINT if S3_ENDPOINT.startswith("http") else f"http://{S3_ENDPOINT}"
                 run_setup(
                     scenario, fmt, endpoint, S3_ACCESS_KEY, S3_SECRET_KEY,
-                    trino_host=trino_host or None,
-                    trino_catalog=trino_catalog_resolved,
                     trino_namespace=trino_namespace,
                 )
                 print(f"[scenario] Table setup completed for {scenario_id}/{fmt}")
@@ -428,30 +443,24 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             else:
                 print(f"[scenario] No BI tool detected — skipping dashboard setup")
 
-            # Try PyIceberg first (decoupled from Trino)
             iceberg_writer, ice_ns, ice_table = _get_iceberg_writer(scenario)
             use_iceberg = iceberg_writer is not None
             if use_iceberg:
                 try:
                     # Store data in the user-specified bucket, not the default warehouse
-                    table_location = f"s3://{bucket}/{ice_table}/" if bucket else None
+                    if bucket:
+                        mid = f"{s3_key_prefix}{ice_table}/" if s3_key_prefix else f"{ice_table}/"
+                        table_location = f"s3://{bucket}/{mid}"
+                    else:
+                        table_location = None
                     iceberg_writer.ensure_table(ice_ns, ice_table, columns, location=table_location)
                     print(f"[scenario] Using Iceberg writer → {ice_ns}.{ice_table} (location: {table_location or 'default'})")
                 except Exception as exc:
-                    print(f"[scenario] Iceberg table creation failed: {exc} — trying Trino writer")
+                    print(f"[scenario] Iceberg table creation failed: {exc} — falling back to raw {fmt} writer")
                     use_iceberg = False
+                    iceberg_writer = None
 
-            # Fallback to Trino INSERT writer (when PyIceberg unavailable or AIStor SigV4)
-            if not use_iceberg and trino_host:
-                trino_catalog = "aistor" if is_sigv4 else "iceberg"
-                try:
-                    from src.writers import trino_writer
-                    use_trino_writer = True
-                    print(f"[scenario] Using Trino INSERT writer → {trino_catalog}.demo.{trino_table_name}")
-                except Exception as exc:
-                    print(f"[scenario] Trino writer not available: {exc}")
-
-            if not use_iceberg and not use_trino_writer:
+            if not use_iceberg:
                 writer = _get_writer(fmt)
 
     rows_generated = 0
@@ -508,17 +517,6 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             elif use_iceberg:
                 count = iceberg_writer.write_batch(rows, columns, ice_ns, ice_table)
                 key = f"iceberg/{ice_ns}.{ice_table}"
-            elif use_trino_writer:
-                from src.writers import trino_writer
-                key = trino_writer.write_batch(
-                    rows=rows,
-                    columns=columns,
-                    partition_cfg=partition_cfg,
-                    s3_client=client,
-                    bucket=bucket,
-                    table_name=trino_table_name,
-                    catalog=trino_catalog,
-                )
             else:
                 key = writer.write_batch(
                     rows=rows,
@@ -526,6 +524,7 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
                     partition_cfg=partition_cfg,
                     s3_client=client,
                     bucket=bucket,
+                    key_prefix=s3_key_prefix,
                 )
             rows_generated += len(rows)
             batches_sent += 1
@@ -535,7 +534,7 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
 
             dest = f"kafka://{kafka_topic}" if use_kafka else (
                 f"iceberg://{ice_ns}.{ice_table}" if use_iceberg else (
-                    f"trino://{trino_catalog}.demo.{trino_table_name}" if use_trino_writer else f"s3://{bucket}/{key}"
+                    f"s3://{bucket}/{s3_key_prefix}{key}" if s3_key_prefix else f"s3://{bucket}/{key}"
                 )
             )
             print(
@@ -567,13 +566,18 @@ def main():
 
     # --- Legacy behavior ---
     client = wait_for_minio(timeout=180)
-    ensure_bucket(client, S3_BUCKET)
+    legacy_bucket, legacy_prefix = split_s3_bucket_and_prefix(S3_BUCKET)
+    if not legacy_bucket:
+        legacy_bucket = "raw-data"
+    ensure_bucket(client, legacy_bucket)
 
     order_id_counter = 1
     print(
         f"Starting generator: format={DG_FORMAT}, rows_per_file={DG_FILE_SIZE_ROWS}, "
         f"rate={DG_RATE} files/min (interval={INTERVAL_SECONDS:.1f}s), "
-        f"batch_size={DG_BATCH_SIZE}, bucket={S3_BUCKET}, partition_by_date={PARTITION_BY_DATE}"
+        f"batch_size={DG_BATCH_SIZE}, bucket={legacy_bucket}"
+        + (f", prefix={legacy_prefix!r}" if legacy_prefix else "")
+        + f", partition_by_date={PARTITION_BY_DATE}"
     )
 
     while True:
@@ -597,13 +601,13 @@ def main():
                 now = datetime.datetime.utcnow()
                 rows = generate_rows(order_id_counter, DG_FILE_SIZE_ROWS)
                 data, ext = serialize_rows(rows, DG_FORMAT)
-                key = build_s3_key(now, ext)
+                key = legacy_prefix + build_s3_key(now, ext)
                 file_size = len(data)
 
-                client.put_object(Bucket=S3_BUCKET, Key=key, Body=data)
+                client.put_object(Bucket=legacy_bucket, Key=key, Body=data)
                 print(
                     f"Wrote {DG_FILE_SIZE_ROWS} rows ({DG_FORMAT}) to "
-                    f"s3://{S3_BUCKET}/{key} ({file_size} bytes)"
+                    f"s3://{legacy_bucket}/{key} ({file_size} bytes)"
                 )
 
                 order_id_counter += DG_FILE_SIZE_ROWS

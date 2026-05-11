@@ -1,0 +1,13 @@
+# Declarative templates for spark-etl-job (properties panel + validation hints)
+templates:
+  raw_to_iceberg:
+    script: jobs/csv_glob_to_iceberg.py
+    description: "Read CSV or JSON globs from MinIO (S3A) and create/replace an Iceberg table in the REST catalog (namespace.table from job config)"
+    required_env:
+      - SPARK_MASTER_URL
+      - INPUT_S3A_URI
+      - ICEBERG_REST_URI
+      - ICEBERG_WAREHOUSE
+      - ICEBERG_TARGET_NAMESPACE
+      - ICEBERG_TARGET_TABLE
+      - RAW_INPUT_FORMAT

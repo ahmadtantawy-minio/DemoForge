@@ -93,6 +93,7 @@ def write_batch(
     partition_cfg,
     s3_client,
     bucket: str,
+    key_prefix: str = "",
 ) -> str:
     """
     Serialize rows to Parquet and upload to S3.
@@ -127,7 +128,7 @@ def write_batch(
     # Build S3 key
     ts_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
     partition_path = _build_partition_path(partition_cfg, rows[0])
-    key = f"{partition_path}{ts_ms}.parquet"
+    key = f"{key_prefix}{partition_path}{ts_ms}.parquet"
 
     s3_client.put_object(Bucket=bucket, Key=key, Body=data)
     return key

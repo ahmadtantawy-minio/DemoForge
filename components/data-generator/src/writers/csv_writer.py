@@ -29,6 +29,7 @@ def write_batch(
     partition_cfg,  # accepted but ignored — CSV is always flat
     s3_client,
     bucket: str,
+    key_prefix: str = "",
 ) -> str:
     """
     Serialize rows as CSV (with header) and upload to S3.
@@ -53,7 +54,7 @@ def write_batch(
     data = buf.getvalue().encode("utf-8")
 
     ts_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
-    key = f"{ts_ms}.csv"
+    key = f"{key_prefix}{ts_ms}.csv"
 
     s3_client.put_object(Bucket=bucket, Key=key, Body=data)
     return key

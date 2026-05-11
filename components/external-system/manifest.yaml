@@ -20,8 +20,10 @@ environment:
   ICEBERG_CATALOG_URI: ""
   ICEBERG_SIGV4: "false"
   ES_STARTUP_DELAY: "0"
+  ES_SINK_MODE: "files_and_iceberg"
   ES_ON_DEMAND_DIR: "/tmp/es-on-demand"
   ES_ON_DEMAND_POLL_SEC: "5"
+  ES_DG_FORMAT: "csv"
 
 secrets:
   - key: S3_ACCESS_KEY
@@ -43,6 +45,12 @@ connections:
           env_var: S3_ACCESS_KEY
         - config_key: S3_SECRET_KEY
           env_var: S3_SECRET_KEY
+      config_schema:
+        - key: target_bucket
+          label: Target bucket
+          type: string
+          default: ""
+          description: "MinIO bucket for raw or Iceberg-backed writes (defaults from scenario when left empty)"
     - type: aistor-tables
       port: 0
       description: "Pushes data into AIStor Tables (Iceberg catalog) on the connected MinIO"

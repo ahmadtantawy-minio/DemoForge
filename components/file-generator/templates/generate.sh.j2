@@ -54,7 +54,9 @@ echo "Target {{ loop.index }}: {{ alias }} -> {{ endpoint }} / {{ bucket }}"
 {%- set file_size = item.edge.connection_config.get('file_size', '10KB') if item.edge.connection_config else '10KB' %}
 {%- set file_format = item.edge.connection_config.get('file_format', 'random') if item.edge.connection_config else 'random' %}
 {%- set rate = item.edge.connection_config.get('rate', '10') if item.edge.connection_config else '10' %}
+{%- set object_tags = ((item.edge.connection_config.get('object_tags', '') or '') | trim) if item.edge.connection_config else '' %}
 {%- set edge_id = item.edge.connection_config.get('_original_edge_id', item.edge.id) if item.edge.connection_config else item.edge.id %}
+{%- set object_tags_sh = (object_tags | replace('\\', '\\\\') | replace('"', '\\"')) if object_tags else '' %}
 
 generate_{{ alias }}() {
   local BATCH=1
@@ -78,17 +80,17 @@ generate_{{ alias }}() {
           { echo "id,timestamp,value,category"
             j=1; while [ $j -le 100 ]; do echo "$j,$(date -u +%Y-%m-%dT%H:%M:%S),$((RANDOM % 10000)),cat-$((RANDOM % 5 + 1))"; j=$((j+1)); done
           } > /tmp/gen/${FILENAME}.csv
-          mc cp /tmp/gen/${FILENAME}.csv "${ALIAS}/${BUCKET}/${FILENAME}.csv" 2>/dev/null || EXIT_CODE=1
+          mc cp /tmp/gen/${FILENAME}.csv "${ALIAS}/${BUCKET}/${FILENAME}.csv"{% if object_tags %} --tags "{{ object_tags_sh }}"{% endif %} 2>/dev/null || EXIT_CODE=1
           rm -f /tmp/gen/${FILENAME}.csv
           ;;
         json)
           echo "{\"id\":${i},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S)\",\"batch\":${BATCH}}" > /tmp/gen/${FILENAME}.json
-          mc cp /tmp/gen/${FILENAME}.json "${ALIAS}/${BUCKET}/${FILENAME}.json" 2>/dev/null || EXIT_CODE=1
+          mc cp /tmp/gen/${FILENAME}.json "${ALIAS}/${BUCKET}/${FILENAME}.json"{% if object_tags %} --tags "{{ object_tags_sh }}"{% endif %} 2>/dev/null || EXIT_CODE=1
           rm -f /tmp/gen/${FILENAME}.json
           ;;
         *)
           dd if=/dev/urandom bs=${FILE_SIZE} count=1 of=/tmp/gen/${FILENAME}.bin 2>/dev/null
-          mc cp /tmp/gen/${FILENAME}.bin "${ALIAS}/${BUCKET}/${FILENAME}.bin" 2>/dev/null || EXIT_CODE=1
+          mc cp /tmp/gen/${FILENAME}.bin "${ALIAS}/${BUCKET}/${FILENAME}.bin"{% if object_tags %} --tags "{{ object_tags_sh }}"{% endif %} 2>/dev/null || EXIT_CODE=1
           rm -f /tmp/gen/${FILENAME}.bin
           ;;
       esac

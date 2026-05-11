@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Iceberg Browser</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; flex-direction: column; }
+    header { padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    header h1 { font-size: 18px; font-weight: 600; color: #f8fafc; }
+    header .sub { font-size: 11px; color: #94a3b8; max-width: 55vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .layout { display: flex; flex: 1; min-height: 0; }
+    .col { display: flex; flex-direction: column; border-right: 1px solid #334155; min-width: 0; }
+    .col.ns { width: 220px; background: #1e293b; }
+    .col.tbl { width: 240px; background: #172554; }
+    .col.main { flex: 1; background: #0f172a; }
+    .hdr { padding: 10px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; border-bottom: 1px solid #334155; }
+    .list { overflow-y: auto; flex: 1; }
+    .item { padding: 10px 14px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #33415533; font-family: ui-monospace, monospace; }
+    .item:hover { background: #33415555; }
+    .item.active { background: #2563eb33; border-left: 3px solid #3b82f6; }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid #334155; background: #1e293b; flex-wrap: wrap; }
+    .tab { padding: 10px 16px; font-size: 12px; cursor: pointer; color: #94a3b8; border-bottom: 2px solid transparent; }
+    .tab:hover { color: #e2e8f0; }
+    .tab.on { color: #f8fafc; border-bottom-color: #3b82f6; }
+    .panel { padding: 16px; overflow: auto; flex: 1; }
+    pre { background: #020617; border: 1px solid #334155; border-radius: 8px; padding: 12px; font-size: 11px; overflow: auto; max-height: 50vh; white-space: pre-wrap; word-break: break-all; }
+    table.data { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.data th, table.data td { border: 1px solid #334155; padding: 6px 8px; text-align: left; vertical-align: top; }
+    table.data th { background: #1e293b; position: sticky; top: 0; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    select, input { background: #1e293b; border: 1px solid #475569; color: #e2e8f0; padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+    button { background: #2563eb; border: none; color: white; padding: 8px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+    button.secondary { background: #475569; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .err { color: #f87171; font-size: 13px; margin: 8px 0; }
+    .note { font-size: 11px; color: #94a3b8; margin-top: 8px; }
+    a.link { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Iceberg Browser</h1>
+      <div id="cfgLine" class="sub">Loading config…</div>
+    </div>
+    <div class="toolbar">
+      <a id="trinoLink" class="link" href="#" style="display:none" target="_blank" rel="noopener">Trino coordinator</a>
+      <button type="button" class="secondary" id="btnRefreshNs">Refresh namespaces</button>
+    </div>
+  </header>
+  <div class="layout">
+    <div class="col ns">
+      <div class="hdr">Namespaces</div>
+      <div class="list" id="nsList"></div>
+    </div>
+    <div class="col tbl">
+      <div class="hdr">Tables</div>
+      <div class="list" id="tblList"></div>
+    </div>
+    <div class="col main">
+      <div class="tabs">
+        <div class="tab on" data-tab="meta">Metadata</div>
+        <div class="tab" data-tab="data">Data preview</div>
+        <div class="tab" data-tab="stats">Column stats</div>
+        <div class="tab" data-tab="snap">Snapshots</div>
+        <div class="tab" data-tab="compare">Compare</div>
+        <div class="tab" data-tab="curl">Catalog curl</div>
+      </div>
+      <div class="panel" id="panelMeta"><pre id="preMeta">Select a table.</pre></div>
+      <div class="panel" id="panelData" style="display:none">
+        <div class="toolbar">
+          <label>Snapshot <select id="snapSelect"><option value="">current</option></select></label>
+          <label>Limit <input id="limInput" type="number" min="1" max="5000" value="200" style="width:80px" /></label>
+          <button type="button" id="btnPreview">Run preview</button>
+        </div>
+        <div id="dataErr" class="err"></div>
+        <div style="overflow:auto;max-height:calc(100vh - 220px)"><table class="data" id="dataTable"><thead></thead><tbody></tbody></table></div>
+        <p class="note" id="dataNote"></p>
+      </div>
+      <div class="panel" id="panelStats" style="display:none">
+        <div class="toolbar"><button type="button" id="btnStats">Compute sample stats</button></div>
+        <div id="statsErr" class="err"></div>
+        <pre id="preStats"></pre>
+      </div>
+      <div class="panel" id="panelSnap" style="display:none"><pre id="preSnap">Select a table.</pre></div>
+      <div class="panel" id="panelCompare" style="display:none">
+        <div class="toolbar">
+          <label>Last snapshots <input id="compareLimit" type="number" min="1" max="50" value="10" style="width:56px" /></label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="compareSampleStats" /> Include sample scans (bounded rows; slow)</label>
+          <button type="button" id="btnCompare">Run comparison</button>
+        </div>
+        <div id="compareErr" class="err"></div>
+        <div id="compareNotes" class="note"></div>
+        <div id="compareSummary" class="note"></div>
+        <div style="overflow:auto;max-height:calc(100vh - 280px)"><table class="data" id="compareTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+      <div class="panel" id="panelCurl" style="display:none">
+        <div class="toolbar"><button type="button" id="btnCopyCurl">Copy unsigned config curl</button></div>
+        <pre id="preCurl"></pre>
+        <p class="note" id="curlNote"></p>
+      </div>
+    </div>
+  </div>
+  <script>
+(function () {
+  let cfg = {};
+  let selectedNs = null; // segments array
+  let selectedTable = null;
+
+  function nsParam(segments) {
+    if (!segments || !segments.length) return '';
+    if (segments.length === 1) return encodeURIComponent(segments[0]);
+    return segments.map(s => encodeURIComponent(s)).join('%1F');
+  }
+
+  /** Relative time from Iceberg snapshot commit time (epoch ms). */
+  function relativeFromEpochMs(tsMs) {
+    if (tsMs == null || tsMs === '') return '';
+    const n = typeof tsMs === 'number' ? tsMs : parseInt(String(tsMs), 10);
+    if (!Number.isFinite(n)) return '';
+    const sec = Math.round((Date.now() - n) / 1000);
+    const future = sec < 0;
+    const s = Math.abs(sec);
+    let part;
+    if (s < 60) part = s + 's';
+    else if (s < 3600) part = Math.round(s / 60) + 'm';
+    else if (s < 86400) part = Math.round(s / 3600) + 'h';
+    else part = Math.round(s / 86400) + 'd';
+    return future ? part + ' from now' : part + ' ago';
+  }
+
+  async function api(path) {
+    const r = await fetch(path);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const d = j.detail;
+      const msg = Array.isArray(d) ? d.map(x => x.msg || x).join('; ') : (d || j.error || r.statusText || String(r.status));
+      throw new Error(msg);
+    }
+    return j;
+  }
+
+  async function loadConfig() {
+    cfg = await api('/api/config');
+    const p = cfg.iceberg_rest_uri_preview || '(not configured)';
+    const cat = (cfg.trino_catalog || '').trim();
+    document.getElementById('cfgLine').textContent =
+      (cfg.iceberg_rest_uri_configured ? 'REST: ' : '⚠ ') + p +
+      (cat ? ' · Trino catalog `' + cat + '`' : '') +
+      ' · warehouse=' + (cfg.warehouse || '') +
+      (cfg.sigv4 ? ' · SigV4' : '');
+    const lim = cfg.preview_row_limit || 200;
+    document.getElementById('limInput').value = lim;
+    const tw = (cfg.trino_web_url || '').trim();
+    const tl = document.getElementById('trinoLink');
+    if (tw) { tl.href = tw; tl.style.display = 'inline'; }
+    else { tl.style.display = 'none'; }
+  }
+
+  function setTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
+    const map = { meta: 'panelMeta', data: 'panelData', stats: 'panelStats', snap: 'panelSnap', compare: 'panelCompare', curl: 'panelCurl' };
+    Object.keys(map).forEach(k => {
+      document.getElementById(map[k]).style.display = k === name ? 'block' : 'none';
+    });
+  }
+
+  document.querySelectorAll('.tab').forEach(t =>
+    t.addEventListener('click', () => setTab(t.dataset.tab))
+  );
+  setTab('meta');
+
+  async function loadNamespaces() {
+    const j = await api('/api/namespaces');
+    const el = document.getElementById('nsList');
+    el.innerHTML = '';
+    (j.namespaces || []).forEach(row => {
+      const segs = row.segments || [];
+      const div = document.createElement('div');
+      div.className = 'item' + (selectedNs && JSON.stringify(selectedNs) === JSON.stringify(segs) ? ' active' : '');
+      div.textContent = segs.join('\u001f') || '(empty)';
+      div.onclick = () => { selectedNs = segs; selectedTable = null; document.querySelectorAll('#nsList .item').forEach(x => x.classList.remove('active')); div.classList.add('active'); loadTables(); clearMain(); };
+      el.appendChild(div);
+    });
+  }
+
+  async function loadTables() {
+    const el = document.getElementById('tblList');
+    el.innerHTML = '';
+    if (!selectedNs) return;
+    const j = await api('/api/tables?ns=' + nsParam(selectedNs));
+    (j.tables || []).forEach(tn => {
+      const div = document.createElement('div');
+      div.className = 'item' + (selectedTable === tn ? ' active' : '');
+      div.textContent = tn;
+      div.onclick = () => { selectedTable = tn; document.querySelectorAll('#tblList .item').forEach(x => x.classList.remove('active')); div.classList.add('active'); loadAllForTable(); };
+      el.appendChild(div);
+    });
+  }
+
+  function clearMain() {
+    document.getElementById('preMeta').textContent = 'Select a table.';
+    document.getElementById('preSnap').textContent = 'Select a table.';
+    document.getElementById('dataTable').querySelector('thead').innerHTML = '';
+    document.getElementById('dataTable').querySelector('tbody').innerHTML = '';
+    document.getElementById('compareTable').querySelector('thead').innerHTML = '';
+    document.getElementById('compareTable').querySelector('tbody').innerHTML = '';
+    document.getElementById('compareNotes').textContent = '';
+    document.getElementById('compareSummary').textContent = '';
+    document.getElementById('compareErr').textContent = '';
+  }
+
+  function dash(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    return v;
+  }
+
+  function formatSampleScan(s) {
+    if (!s || typeof s !== 'object') return '—';
+    if (s.error) return 'err: ' + s.error;
+    const n = s.sample_rows_scanned;
+    const r = s.approx_null_cell_rate;
+    const c = s.columns_in_sample;
+    if (n == null) return '—';
+    let o = 'rows ' + n;
+    if (c != null) o += ', cols ' + c;
+    if (r != null) o += ', null≈' + r;
+    return o;
+  }
+
+  async function runCompare() {
+    document.getElementById('compareErr').textContent = '';
+    document.getElementById('compareNotes').textContent = '';
+    document.getElementById('compareSummary').textContent = '';
+    const thead = document.getElementById('compareTable').querySelector('thead');
+    const tbody = document.getElementById('compareTable').querySelector('tbody');
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    if (!selectedNs || !selectedTable) {
+      document.getElementById('compareErr').textContent = 'Select a table.';
+      return;
+    }
+    const lim = Math.max(1, Math.min(50, parseInt(document.getElementById('compareLimit').value || '10', 10)));
+    const sample = document.getElementById('compareSampleStats').checked;
+    let url = '/api/table/snapshot-compare?ns=' + nsParam(selectedNs)
+      + '&table=' + encodeURIComponent(selectedTable)
+      + '&limit=' + encodeURIComponent(String(lim))
+      + '&include_sample_stats=' + (sample ? 'true' : 'false');
+    try {
+      const j = await api(url);
+      const notes = j.notes || [];
+      document.getElementById('compareNotes').textContent = notes.length ? notes.join(' ') : '';
+      const spanH = j.window_span_human;
+      const nSnap = j.snapshots_compared;
+      let sum = nSnap ? ('Comparing ' + nSnap + ' snapshot(s), newest → oldest.') : '';
+      if (spanH && nSnap >= 2) sum += ' Window span: ' + spanH + '.';
+      document.getElementById('compareSummary').textContent = sum;
+      const rows = j.rows || [];
+      const trh = document.createElement('tr');
+      ['Snapshot', 'Committed', 'Δ vs older', 'Rows (summary)', 'Data files', 'Delete files', 'Cols', 'Operation', 'Sample scan'].forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        const cells = [
+          dash(r.snapshot_id_str),
+          (dash(r.relative_commit)) + (r.committed_at_iso ? '\n' + r.committed_at_iso : ''),
+          dash(r.gap_human_to_next_older),
+          dash(r.total_records_summary),
+          dash(r.total_data_files_summary),
+          dash(r.total_delete_files_summary),
+          dash(r.column_count),
+          dash(r.operation),
+          formatSampleScan(r.sample_scan),
+        ];
+        cells.forEach(text => {
+          const td = document.createElement('td');
+          td.style.whiteSpace = 'pre-wrap';
+          td.textContent = text;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      document.getElementById('compareErr').textContent = e.message;
+    }
+  }
+
+  async function loadAllForTable() {
+    if (!selectedNs || !selectedTable) return;
+    const q = 'ns=' + nsParam(selectedNs) + '&table=' + encodeURIComponent(selectedTable);
+    try {
+      const meta = await api('/api/table/metadata?' + q);
+      document.getElementById('preMeta').textContent = JSON.stringify(meta, null, 2);
+      document.getElementById('preSnap').textContent = JSON.stringify(meta.snapshots || [], null, 2);
+      const sel = document.getElementById('snapSelect');
+      sel.innerHTML = '<option value="">current</option>';
+      (meta.snapshots || []).forEach(s => {
+        const o = document.createElement('option');
+        const idStr = (s.snapshot_id_str != null && s.snapshot_id_str !== '')
+          ? String(s.snapshot_id_str)
+          : String(s.snapshot_id);
+        o.value = idStr;
+        const ts = s.timestamp_ms != null ? String(s.timestamp_ms) : '';
+        const rel = relativeFromEpochMs(s.timestamp_ms);
+        const relPart = rel ? ' · ' + rel : '';
+        o.textContent = idStr + (ts ? ' @ ' + ts : '') + relPart;
+        sel.appendChild(o);
+      });
+    } catch (e) {
+      document.getElementById('preMeta').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function runPreview() {
+    document.getElementById('dataErr').textContent = '';
+    if (!selectedNs || !selectedTable) return;
+    const snap = document.getElementById('snapSelect').value;
+    const lim = document.getElementById('limInput').value || '200';
+    let url = '/api/table/preview?ns=' + nsParam(selectedNs) + '&table=' + encodeURIComponent(selectedTable) + '&limit=' + encodeURIComponent(lim);
+    if (snap) url += '&snapshot_id=' + encodeURIComponent(snap);
+    try {
+      const j = await api(url);
+      const thead = document.getElementById('dataTable').querySelector('thead');
+      const tbody = document.getElementById('dataTable').querySelector('tbody');
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      const trh = document.createElement('tr');
+      (j.columns || []).forEach(c => { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); });
+      thead.appendChild(trh);
+      (j.rows || []).forEach(row => {
+        const tr = document.createElement('tr');
+        (j.columns || []).forEach(c => {
+          const td = document.createElement('td');
+          let v = row[c];
+          if (v === null || v === undefined) td.textContent = '';
+          else if (typeof v === 'object') td.textContent = JSON.stringify(v);
+          else td.textContent = String(v);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      document.getElementById('dataNote').textContent = 'Rows: ' + (j.row_count || 0) + (j.truncated ? ' (truncated to limit)' : '');
+    } catch (e) {
+      document.getElementById('dataErr').textContent = e.message;
+    }
+  }
+
+  async function runStats() {
+    document.getElementById('statsErr').textContent = '';
+    if (!selectedNs || !selectedTable) return;
+    const snap = document.getElementById('snapSelect').value;
+    let url = '/api/table/stats?ns=' + nsParam(selectedNs) + '&table=' + encodeURIComponent(selectedTable);
+    if (snap) url += '&snapshot_id=' + encodeURIComponent(snap);
+    try {
+      const j = await api(url);
+      document.getElementById('preStats').textContent = JSON.stringify(j, null, 2);
+    } catch (e) {
+      document.getElementById('statsErr').textContent = e.message;
+    }
+  }
+
+  async function loadCurl() {
+    try {
+      const j = await api('/api/catalog-curl');
+      document.getElementById('preCurl').textContent = (j.unsigned_config_curl || '') + '\n\n' + (j.list_namespaces_curl || '');
+      document.getElementById('curlNote').textContent = j.sigv4_note || '';
+    } catch (e) {
+      document.getElementById('preCurl').textContent = e.message;
+    }
+  }
+
+  document.getElementById('btnRefreshNs').onclick = () => loadNamespaces().catch(e => alert(e.message));
+  document.getElementById('btnPreview').onclick = runPreview;
+  document.getElementById('btnStats').onclick = runStats;
+  document.getElementById('btnCompare').onclick = runCompare;
+  document.getElementById('btnCopyCurl').onclick = async () => {
+    const t = document.getElementById('preCurl').textContent;
+    await navigator.clipboard.writeText(t.split('\n')[0] || t);
+  };
+
+  document.querySelector('.tab[data-tab="curl"]').addEventListener('click', () => loadCurl());
+
+  loadConfig().then(loadNamespaces).catch(e => {
+    document.getElementById('cfgLine').textContent = 'Config error: ' + e.message;
+  });
+})();
+  </script>
+</body>
+</html>
