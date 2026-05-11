@@ -38,14 +38,14 @@ for arg in "$@"; do
   [[ "$arg" == "--all" ]] && PUSH_ALL=true
 done
 
-CORE_IMAGES=("demoforge-frontend" "demoforge-backend" "data-generator" "event-processor" "external-system" "inference-sim" "inference-client")
+CORE_IMAGES=("demoforge-frontend" "demoforge-backend" "data-generator" "event-processor" "external-system" "spark-etl-job" "iceberg-browser" "inference-sim" "inference-client")
 
 echo -e "\n${CYAN}Found ${#COMPONENTS[@]} images to build:${NC}"
 for i in "${!COMPONENTS[@]}"; do echo "  ${COMPONENTS[$i]} ← ${DOCKERFILES[$i]#$PROJECT_ROOT/}"; done
 echo ""
 
 if [[ "$PUSH_ALL" == "false" ]]; then
-    echo -e "${YELLOW}Mode: core only (frontend, backend, data-generator, event-processor, external-system, inference-sim, inference-client). Use --all to push all images.${NC}"
+    echo -e "${YELLOW}Mode: core only (frontend, backend, data-generator, event-processor, external-system, spark-etl-job, iceberg-browser, inference-sim, inference-client). Use --all to push all images.${NC}"
 fi
 
 FILTER="${1:-}"
@@ -102,6 +102,11 @@ log "Platforms: ${HUB_PLATFORMS} (hub-pull / FA machines: plain docker pull sele
 
 for i in "${!COMPONENTS[@]}"; do
     comp="${COMPONENTS[$i]}"; dockerfile="${DOCKERFILES[$i]}"; context=$(dirname "$dockerfile")
+    # external-system bundles Data Generator scenario YAML + writers (same S3 layout as data-generator)
+    if [[ "$comp" == "external-system" ]]; then
+        context="$COMPONENTS_DIR"
+        dockerfile="$COMPONENTS_DIR/external-system/Dockerfile"
+    fi
 
     # Skip non-core images unless --all is passed
     if [[ "$PUSH_ALL" == "false" ]]; then

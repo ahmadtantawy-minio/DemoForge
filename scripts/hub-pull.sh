@@ -22,6 +22,8 @@ CRITICAL_IMAGES=(
   "demoforge/data-generator"
   "demoforge/event-processor"
   "demoforge/external-system"
+  "demoforge/spark-etl-job"
+  "demoforge/iceberg-browser"
   "demoforge/inference-sim"
   "demoforge/inference-client"
 )
