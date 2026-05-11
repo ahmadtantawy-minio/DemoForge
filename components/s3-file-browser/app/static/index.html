@@ -76,6 +76,11 @@
   .file-icon { color: #a1a1aa; }
   .size { color: #a1a1aa; font-variant-numeric: tabular-nums; }
   .date { color: #71717a; }
+  .breadcrumb-bar { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; flex-wrap: wrap; }
+  .breadcrumb-bar .breadcrumb { flex: 1; min-width: 0; }
+  .date-col { vertical-align: top; }
+  .date-col .date-abs { color: #d4d4d8; font-size: 13px; line-height: 1.3; }
+  .date-col .date-rel { font-size: 10px; color: #71717a; line-height: 1.35; margin-top: 2px; }
   .empty-state { padding: 40px 20px; text-align: center; color: #71717a; font-size: 13px; }
 
   .toolbar-toggles { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-right: auto; }
@@ -169,7 +174,10 @@
 
     <div class="view-panel" id="view-browse">
       <div class="content-header">
-        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="breadcrumb-bar">
+          <div class="breadcrumb" id="breadcrumb"></div>
+          <button type="button" class="btn" id="refreshFileListBtn" disabled title="Reload files in the current folder">↻ Refresh</button>
+        </div>
         <div class="toolbar-toggles">
           <label title="Adds ETag, content type, storage class (tier hint on MinIO), and user metadata columns using the list API">
             <input type="checkbox" id="browseExtendedToggle" />
@@ -360,8 +368,66 @@ function formatSize(bytes) {
 }
 
 function formatDate(iso) {
+  if (!iso) return '—';
   const d = new Date(iso);
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/** Human-readable age for object ``LastModified`` (updates via interval). */
+function formatRelativeAgo(iso, nowMs) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const now = nowMs != null ? nowMs : Date.now();
+  const sec = Math.floor((now - t) / 1000);
+  if (sec < 0) return 'in the future';
+  if (sec < 5) return 'just now';
+  if (sec < 60) return `${sec} sec ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hr ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} day${day === 1 ? '' : 's'} ago`;
+  const wk = Math.floor(day / 7);
+  if (wk < 5) return `${wk} wk ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo} mo ago`;
+  return `${Math.floor(day / 365)} yr ago`;
+}
+
+let browseRelativeTimer = null;
+
+function stopBrowseRelativeTimer() {
+  if (browseRelativeTimer) {
+    clearInterval(browseRelativeTimer);
+    browseRelativeTimer = null;
+  }
+}
+
+function updateBrowseRelativeCells() {
+  const now = Date.now();
+  document.querySelectorAll('#objectTable .date-rel[data-ts]').forEach((el) => {
+    const ts = el.getAttribute('data-ts');
+    el.textContent = formatRelativeAgo(ts, now);
+  });
+}
+
+function modifiedCellHtml(iso) {
+  const abs = formatDate(iso);
+  const valid = !!(iso && !Number.isNaN(new Date(iso).getTime()));
+  const rel = valid ? formatRelativeAgo(iso) : '';
+  const relDisp = rel || '—';
+  const tsAttr = valid ? ` data-ts="${escapeAttr(iso)}"` : '';
+  return `<td class="date-col"><div class="date-abs">${escapeHtml(abs)}</div><div class="date-rel"${tsAttr}>${escapeHtml(relDisp)}</div></td>`;
 }
 
 const LS_BROWSE_EXT = 's3fb_browse_extended';
@@ -624,6 +690,8 @@ function selectBucket(name) {
   document.querySelectorAll('.bucket-item').forEach(el => el.classList.toggle('active', el.textContent === name));
   document.getElementById('uploadBtn').disabled = false;
   document.getElementById('refreshObjectsBtn').disabled = false;
+  const rfb = document.getElementById('refreshFileListBtn');
+  if (rfb) rfb.disabled = false;
   document.getElementById('presignToolbarBtn').disabled = false;
   loadObjects();
 }
@@ -633,6 +701,7 @@ async function loadObjects() {
   const tbody = document.getElementById('objectTable');
   const ext = isBrowseExtended();
   const cols = browseColCount();
+  stopBrowseRelativeTimer();
   syncBrowseTableHead();
   tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-state"><span class="spinner"></span> Loading...</td></tr>`;
   updateBreadcrumb();
@@ -665,7 +734,7 @@ async function loadObjects() {
       html += `<tr>
         <td class="file-icon">📄 ${escapeHtml(name)}</td>
         <td class="size">${formatSize(o.size)}</td>
-        <td class="date">${formatDate(o.last_modified)}</td>
+        ${modifiedCellHtml(o.last_modified)}
         ${metaCols}
         <td>
           ${playBtn}
@@ -688,6 +757,9 @@ async function loadObjects() {
         else if (act === 'del') deleteFile(key);
       });
     });
+    if (tbody.querySelector('.date-rel[data-ts]')) {
+      browseRelativeTimer = setInterval(updateBrowseRelativeCells, 15000);
+    }
   } catch(e) {
     tbody.innerHTML = `<tr><td colspan="${browseColCount()}" class="empty-state" style="color:#f87171">Error: ${escapeHtml(e.message || String(e))}</td></tr>`;
   }
@@ -995,10 +1067,14 @@ document.getElementById('refreshOverviewBtn').addEventListener('click', () => lo
   }
 })();
 
-document.getElementById('refreshObjectsBtn').onclick = () => {
+function refreshCurrentFileList() {
   if (!currentBucket) return;
-  loadObjects();
-};
+  loadObjects().catch(() => {});
+}
+
+document.getElementById('refreshObjectsBtn').onclick = refreshCurrentFileList;
+const refreshFileListBtn = document.getElementById('refreshFileListBtn');
+if (refreshFileListBtn) refreshFileListBtn.addEventListener('click', refreshCurrentFileList);
 
 document.getElementById('presignToolbarBtn').onclick = () => openPresignModal('');
 document.getElementById('presignCloseBtn').onclick = closePresignModal;
