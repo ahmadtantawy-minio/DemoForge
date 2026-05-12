@@ -2,7 +2,7 @@ import os
 import time
 import asyncio
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from ..models.api_models import DeployResponse, ErrorDetail, TaskStatusResponse
 from ..engine.docker_manager import deploy_demo, stop_demo, pause_demo, resume_demo
@@ -44,7 +44,15 @@ COMPONENTS_DIR = os.environ.get("DEMOFORGE_COMPONENTS_DIR", "./components")
 
 
 @router.post("/api/demos/{demo_id}/deploy", response_model=DeployResponse)
-async def deploy(demo_id: str):
+async def deploy(
+    demo_id: str,
+    fresh_volumes: bool = Query(
+        False,
+        description="Remove Docker volumes during pre-deploy cleanup (docker compose down -v). "
+        "Use for a clean MinIO erasure layout when disks still hold an old cluster format.",
+    ),
+):
+    """Queue full demo deploy."""
     demo = _load_demo(demo_id)
     if not demo:
         raise HTTPException(404, "Demo not found")
@@ -100,8 +108,13 @@ async def deploy(demo_id: str):
         progress.add(step, status, detail)
 
     async def _do_deploy():
-        logger.info(f"Deploying demo {demo_id} with {len(demo.nodes)} nodes")
-        running = await deploy_demo(demo, DATA_DIR, COMPONENTS_DIR, on_progress=on_progress)
+        logger.info(
+            f"Deploying demo {demo_id} with {len(demo.nodes)} nodes"
+            + (" (fresh_volumes)" if fresh_volumes else "")
+        )
+        running = await deploy_demo(
+            demo, DATA_DIR, COMPONENTS_DIR, on_progress=on_progress, fresh_volumes=fresh_volumes
+        )
         logger.info(f"Demo {demo_id} deployed successfully: {running.status}")
         from ..telemetry import emit_event
         asyncio.create_task(emit_event("demo_deployed", {

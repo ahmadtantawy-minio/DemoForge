@@ -6,6 +6,7 @@ import {
   createDemo,
 } from "../../api/client";
 import { toast } from "../../lib/toast";
+import { showIamReconcileToastIfApplicable } from "../../lib/iamReconcileToast";
 import { usePermissions } from "../../hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -113,12 +114,14 @@ export default function DemoManager() {
   };
 
   const handleDeployDone = (success: boolean) => {
+    const demoId = deployingDemo?.id;
     if (deployingDemo) {
       updateDemoStatus(deployingDemo.id, success ? "running" : "error");
     }
     setDeployingDemo(null);
     refreshDemos();
     refreshInventory();
+    if (success && demoId) void showIamReconcileToastIfApplicable(demoId);
   };
 
   const handleStop = async (demoId: string) => {

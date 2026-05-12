@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   Select,
   SelectContent,
@@ -6,7 +7,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { MinioServerPool, DiskType } from "../../../types";
-import { computeErasureSetSize, computeECOptions, computePoolErasureStats } from "../../../lib/erasure";
+import {
+  computeErasureSetSize,
+  effectiveStripeSize,
+  validStripeSizesForTotal,
+  computePoolErasureStats,
+  minioEcSettingOptions,
+  clampParityToValidStripe,
+  minioDefaultStandardParity,
+  formatMinioEcStripeShort,
+} from "../../../lib/erasure";
 
 interface Props {
   pool: MinioServerPool;
@@ -19,9 +29,27 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
   const nodeCount = pool.nodeCount || 4;
   const drivesPerNode = pool.drivesPerNode || 4;
   const totalDrives = nodeCount * drivesPerNode;
-  const setSize = computeErasureSetSize(totalDrives);
+  const stripeChoices = validStripeSizesForTotal(totalDrives);
+  const setSize = effectiveStripeSize(totalDrives, pool.erasureStripeDrives ?? null);
   const numSets = totalDrives / setSize;
-  const stats = computePoolErasureStats(nodeCount, drivesPerNode, pool.ecParity ?? 3, pool.diskSizeTb ?? 1);
+  const syncedParity = clampParityToValidStripe(
+    setSize,
+    pool.ecParity ?? minioDefaultStandardParity(setSize),
+  );
+  const stats = computePoolErasureStats(
+    nodeCount,
+    drivesPerNode,
+    syncedParity,
+    pool.diskSizeTb ?? 1,
+    pool.erasureStripeDrives,
+  );
+  const ecOptions = minioEcSettingOptions(setSize);
+
+  useEffect(() => {
+    if (pool.ecParity !== syncedParity) {
+      onUpdate({ ecParity: syncedParity });
+    }
+  }, [syncedParity, pool.ecParity, onUpdate]);
 
   return (
     <div className="w-full h-full bg-card border-l border-border p-3 overflow-y-auto">
@@ -35,18 +63,25 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
         <Select
           value={String(nodeCount)}
           onValueChange={(v) => {
-            const newNodeCount = parseInt(v);
-            // 2-node pools need at least 2 drives to meet the 4-drive minimum
+            const newNodeCount = parseInt(v, 10);
             const minDrives = newNodeCount === 2 ? 2 : 1;
             const newDrivesPerNode = Math.max(drivesPerNode, minDrives);
             const newTotal = newNodeCount * newDrivesPerNode;
-            const newSetSize = computeErasureSetSize(newTotal);
-            const maxParity = Math.floor(newSetSize / 2);
-            const defaultParity = newSetSize <= 5 ? 2 : newSetSize <= 7 ? 3 : 4;
-            const currentParity = pool.ecParity ?? 3;
-            const patch: Partial<MinioServerPool> = { nodeCount: newNodeCount };
+            const keepStripe =
+              pool.erasureStripeDrives != null &&
+              pool.erasureStripeDrives > 0 &&
+              newTotal % pool.erasureStripeDrives === 0;
+            const stripeForParity = effectiveStripeSize(
+              newTotal,
+              keepStripe ? pool.erasureStripeDrives : null,
+            );
+            const newParity = clampParityToValidStripe(
+              stripeForParity,
+              pool.ecParity ?? minioDefaultStandardParity(stripeForParity),
+            );
+            const patch: Partial<MinioServerPool> = { nodeCount: newNodeCount, ecParity: newParity };
             if (newDrivesPerNode !== drivesPerNode) patch.drivesPerNode = newDrivesPerNode;
-            if (currentParity > maxParity) patch.ecParity = defaultParity;
+            if (!keepStripe) patch.erasureStripeDrives = null;
             onUpdate(patch);
           }}
         >
@@ -68,24 +103,29 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
         <Select
           value={String(drivesPerNode)}
           onValueChange={(v) => {
-            const newDrivesPerNode = parseInt(v);
+            const newDrivesPerNode = parseInt(v, 10);
             const newTotal = nodeCount * newDrivesPerNode;
-            const newSetSize = computeErasureSetSize(newTotal);
-            const maxParity = Math.floor(newSetSize / 2);
-            const defaultParity = newSetSize <= 5 ? 2 : newSetSize <= 7 ? 3 : 4;
-            const currentParity = pool.ecParity ?? 3;
-            if (currentParity > maxParity) {
-              onUpdate({ drivesPerNode: newDrivesPerNode, ecParity: defaultParity });
-            } else {
-              onUpdate({ drivesPerNode: newDrivesPerNode });
-            }
+            const keepStripe =
+              pool.erasureStripeDrives != null &&
+              pool.erasureStripeDrives > 0 &&
+              newTotal % pool.erasureStripeDrives === 0;
+            const stripeForParity = effectiveStripeSize(
+              newTotal,
+              keepStripe ? pool.erasureStripeDrives : null,
+            );
+            const newParity = clampParityToValidStripe(
+              stripeForParity,
+              pool.ecParity ?? minioDefaultStandardParity(stripeForParity),
+            );
+            const patch: Partial<MinioServerPool> = { drivesPerNode: newDrivesPerNode, ecParity: newParity };
+            if (!keepStripe) patch.erasureStripeDrives = null;
+            onUpdate(patch);
           }}
         >
           <SelectTrigger className="w-full h-8 text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {/* 2-node pools need ≥2 drives/node to meet the 4-drive EC minimum */}
             {nodeCount > 2 && <SelectItem value="1">1 drive</SelectItem>}
             <SelectItem value="2">2 drives</SelectItem>
             <SelectItem value="4">4 drives</SelectItem>
@@ -96,9 +136,59 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
           </SelectContent>
         </Select>
         <p className="text-[10px] text-muted-foreground mt-0.5">
-          {totalDrives} total drives → <span className="font-medium text-foreground">{numSets} × {setSize}-drive erasure set{numSets > 1 ? "s" : ""}</span>
+          {totalDrives} total drives →{" "}
+          <span className="font-medium text-foreground">
+            {numSets} × {setSize}-drive erasure set{numSets > 1 ? "s" : ""}
+          </span>
+          . Each set uses the same EC ratio below.
         </p>
       </div>
+
+      {stripeChoices.length > 1 && (
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Erasure stripe width</label>
+          <Select
+            value={pool.erasureStripeDrives == null ? "auto" : String(pool.erasureStripeDrives)}
+            onValueChange={(v) => {
+              if (v === "auto") {
+                const autoS = computeErasureSetSize(totalDrives);
+                onUpdate({
+                  erasureStripeDrives: null,
+                  ecParity: clampParityToValidStripe(
+                    autoS,
+                    pool.ecParity ?? minioDefaultStandardParity(autoS),
+                  ),
+                });
+                return;
+              }
+              const w = parseInt(v, 10);
+              const newParity = clampParityToValidStripe(
+                w,
+                pool.ecParity ?? minioDefaultStandardParity(w),
+              );
+              onUpdate({ erasureStripeDrives: w, ecParity: newParity });
+            }}
+          >
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">
+                Auto ({computeErasureSetSize(totalDrives)} drives/set — default layout)
+              </SelectItem>
+              {stripeChoices.map((w) => (
+                <SelectItem key={w} value={String(w)}>
+                  {w} drives/set → {totalDrives / w} erasure set{totalDrives / w > 1 ? "s" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            Same total drives can form one wide stripe or more smaller stripes (e.g. 16 disks → 16 or 8+8). EC options
+            below follow the stripe width you pick.
+          </p>
+        </div>
+      )}
 
       <div className="mb-3">
         <label className="text-xs text-muted-foreground block mb-1">Disk Type</label>
@@ -129,29 +219,48 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
           </SelectTrigger>
           <SelectContent>
             {[1, 2, 4, 8, 16, 32].map((n) => (
-              <SelectItem key={n} value={String(n)}>{n} TB</SelectItem>
+              <SelectItem key={n} value={String(n)}>
+                {n} TB
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <p className="text-[10px] text-muted-foreground mt-0.5">Simulated disk capacity for planning display only. Does not affect containers.</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">
+          Simulated disk capacity for planning display only. Does not affect containers.
+        </p>
       </div>
 
       <div className="mb-3">
-        <label className="text-xs text-muted-foreground block mb-1">EC parity</label>
-        <Select
-          value={String(pool.ecParity ?? 3)}
-          onValueChange={(v) => onUpdate({ ecParity: parseInt(v) })}
-        >
-          <SelectTrigger className="w-full h-8 text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {computeECOptions(setSize).map((opt) => (
-              <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-[10px] text-muted-foreground mt-0.5">Number of parity shards per erasure set. Higher = more fault tolerance, less usable capacity.</p>
+        <label className="text-xs text-muted-foreground block mb-1">EC setting (STANDARD class)</label>
+        {ecOptions.length === 0 ? (
+          <p className="text-xs text-destructive leading-snug">
+            No valid MinIO STANDARD layout for this pool: each erasure stripe needs at least 4 drives with parity
+            between 2 and half the stripe size. Increase nodes or drives per node.
+          </p>
+        ) : (
+          <Select
+            value={String(syncedParity)}
+            onValueChange={(v) => onUpdate({ ecParity: parseInt(v, 10) })}
+          >
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue>{formatMinioEcStripeShort(setSize, syncedParity)}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="max-w-[min(100vw-2rem,28rem)]">
+              {ecOptions.map((opt) => (
+                <SelectItem key={opt.value} value={String(opt.value)} textValue={opt.shortLabel}>
+                  <div className="flex flex-col gap-0.5 py-0.5">
+                    <span className="font-mono text-xs">{opt.shortLabel}</span>
+                    <span className="text-[10px] text-muted-foreground leading-snug">{opt.label}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <p className="text-[10px] text-muted-foreground mt-0.5">
+          <span className="font-mono">EC &lt;stripe&gt;:&lt;parity&gt;</span>: drives in one erasure set vs parity shards.
+          Deploy sets <span className="font-mono">MINIO_STORAGE_CLASS_STANDARD=EC:{syncedParity}</span> (parity count only, MinIO syntax).
+        </p>
       </div>
 
       <div className="mb-3">
@@ -168,13 +277,17 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
             <SelectItem value="ignore">ignore</SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-[10px] text-muted-foreground mt-0.5">upgrade: auto-increase parity when drives are offline. ignore: keep configured parity.</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">
+          upgrade: auto-increase parity when drives are offline. ignore: keep configured parity.
+        </p>
       </div>
 
-      {/* Pool-scoped Capacity & resilience info card */}
       <div className="mt-3 pt-3 border-t border-border space-y-1.5">
-        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Pool capacity &amp; resilience</p>
+        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+          Pool capacity &amp; resilience
+        </p>
         {[
+          ["EC (this pool)", formatMinioEcStripeShort(setSize, syncedParity)],
           ["Erasure sets", `${stats.numSets} × ${stats.setSize} drives`],
           ["Usable ratio", `${Math.round(stats.usableRatio * 100)}% (${stats.dataShards} data + ${stats.parityShards} parity)`],
           ["Raw capacity", `${stats.rawTb} TB`],

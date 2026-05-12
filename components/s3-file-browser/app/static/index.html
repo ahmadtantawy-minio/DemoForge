@@ -79,6 +79,17 @@
   .date { color: #71717a; }
   .breadcrumb-bar { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; flex-wrap: wrap; }
   .breadcrumb-bar .breadcrumb { flex: 1; min-width: 0; }
+  .browse-search {
+    width: min(220px, 100%);
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #3f3f46;
+    background: #18181b;
+    color: #fafafa;
+    font-size: 12px;
+  }
+  .browse-search:disabled { opacity: 0.45; cursor: not-allowed; }
+  .browse-search::placeholder { color: #71717a; }
   .date-col { vertical-align: top; }
   .date-col .date-abs { color: #d4d4d8; font-size: 13px; line-height: 1.3; }
   .date-col .date-rel { font-size: 10px; color: #71717a; line-height: 1.35; margin-top: 2px; }
@@ -125,7 +136,17 @@
   .modal h3 { margin-bottom: 16px; font-size: 15px; }
   .modal input[type="file"] { margin-bottom: 12px; font-size: 13px; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-  .upload-progress { margin-top: 12px; display: none; }
+  .modal.modal-wide { width: min(920px, 96vw); max-height: 90vh; display: flex; flex-direction: column; }
+  .modal.modal-wide .modal-scroll { flex: 1; overflow: auto; margin-top: 8px; min-height: 0; }
+  .file-icon.file-link { cursor: pointer; color: #d4d4d8; transition: color 0.12s; }
+  .file-icon.file-link:hover { color: #60a5fa; }
+  .version-meta-pre { font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 8px; margin: 6px 0 0 0; white-space: pre-wrap; word-break: break-word; color: #cbd5e1; max-height: 140px; overflow: auto; }
+  .version-table-wrap { overflow-x: auto; margin-top: 10px; }
+  .version-table-wrap table { font-size: 12px; }
+  .version-table-wrap th, .version-table-wrap td { padding: 6px 10px; vertical-align: top; }
+  .file-detail-age-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .file-detail-age-presets .age-preset { padding: 4px 10px; font-size: 11px; }
+  .file-detail-age-presets .age-preset.active { background: #2563eb; border-color: #2563eb; color: #fff; }
   .upload-progress.active { display: block; }
   .upload-progress-bar { height: 8px; background: #3f3f46; border-radius: 4px; overflow: hidden; margin-top: 6px; }
   .upload-progress-bar > div { height: 100%; background: #60a5fa; width: 0%; transition: width 0.1s; }
@@ -145,6 +166,10 @@
     min-width: 160px; max-width: 260px; padding: 6px 10px; font-size: 12px; border-radius: 6px;
     border: 1px solid #3f3f46; background: #18181b; color: #fafafa;
   }
+  .identity-epoch-hint { font-size: 10px; color: #71717a; white-space: nowrap; }
+  .identity-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .iam-reload-err { font-size: 11px; color: #f87171; max-width: 360px; line-height: 1.35; }
+  .iam-reload-err.hidden { display: none !important; }
 
   /* Active identity + IAM confirmation (simulated users) */
   .identity-panel {
@@ -238,10 +263,15 @@
     </div>
   </div>
   <div class="topbar-right">
+    <button type="button" class="btn" id="iamReloadBtn" hidden title="Re-read S3_IDENTITY_MAP_JSON and S3_BROWSER_IDENTITIES_JSON from this container (e.g. after mc-shell updates users), then verify MinIO">Reload users</button>
     <div id="identityWrap" class="identity-wrap hidden">
-      <label for="identitySelect" class="identity-label">Switch identity</label>
-      <select id="identitySelect" title="Switch simulated IAM user (requires IAM simulation on MinIO)"></select>
+      <div class="identity-toolbar">
+        <label for="identitySelect" class="identity-label">S3 user</label>
+        <select id="identitySelect" title="All principals for this demo; root is default. Each change rebuilds the MinIO client so requests and presigned URLs use the selected access key."></select>
+      </div>
+      <span id="sessionEpochHint" class="identity-epoch-hint" aria-live="polite"></span>
     </div>
+    <span id="iamReloadErr" class="iam-reload-err hidden" role="alert" aria-live="assertive"></span>
     <span id="connBadge" class="badge badge-none">Not Connected</span>
   </div>
 </div>
@@ -276,6 +306,7 @@
       <div class="content-header">
         <div class="breadcrumb-bar">
           <div class="breadcrumb" id="breadcrumb"></div>
+          <input type="search" id="browseQuickSearch" class="browse-search" disabled autocomplete="off" placeholder="Filter by name…" title="Filter folders and objects in this view (client-side)" aria-label="Filter by name" />
           <button type="button" class="btn" id="refreshFileListBtn" disabled title="Reload files in the current folder">↻ Refresh</button>
         </div>
         <div class="toolbar-toggles">
@@ -450,15 +481,46 @@
     <div id="videoPlaybackSection" class="hidden" style="margin-top:16px;padding-top:16px;border-top:1px solid #3f3f46">
       <div style="font-size:10px;color:#a1a1aa;text-transform:uppercase;margin-bottom:6px">URL used for playback</div>
       <div style="display:flex;gap:8px;align-items:stretch;margin-bottom:12px;flex-wrap:wrap">
-        <input type="text" readonly id="videoUrlDisplay" style="flex:1;min-width:200px;padding:8px 10px;border-radius:6px;border:1px solid #3f3f46;background:#0f0f10;color:#e4e4e7;font-size:11px;font-family:monospace" value="" />
+        <textarea readonly id="videoUrlDisplay" rows="3" wrap="off" spellcheck="false" style="flex:1;min-width:200px;padding:8px 10px;border-radius:6px;border:1px solid #3f3f46;background:#0f0f10;color:#e4e4e7;font-size:11px;font-family:monospace;resize:vertical;white-space:pre;overflow:auto"></textarea>
         <button type="button" class="btn" id="videoCopyUrlBtn">Copy URL</button>
       </div>
+      <div id="videoPlaybackErr" style="color:#f87171;font-size:12px;margin-bottom:10px;min-height:1.2em;white-space:pre-wrap"></div>
       <video id="videoPlayer" controls playsinline style="width:100%;max-height:58vh;background:#000;border-radius:8px"></video>
       <div class="modal-actions" style="margin-top:12px">
         <button type="button" class="btn" id="videoChangeSourceBtn">Change source</button>
         <button type="button" class="btn" onclick="closeVideo()">Close</button>
         <a class="btn btn-primary" id="videoDownloadLink" href="#" download>Download</a>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Object detail: versions + simulated PUT -->
+<div class="modal-overlay hidden" id="fileDetailModal">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <h3 style="margin-bottom:6px">Object detail</h3>
+    <p id="fileDetailKey" style="font-size:11px;color:#a1a1aa;font-family:monospace;word-break:break-all;margin-bottom:8px"></p>
+    <p id="fileDetailHint" style="font-size:11px;color:#a1a1aa;margin-bottom:10px;line-height:1.45"></p>
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;color:#a1a1aa;margin-bottom:6px">Backdate the new version row (in-app ledger only; MinIO write time is still “now”):</div>
+      <div id="fileDetailAgePresets" class="file-detail-age-presets">
+        <button type="button" class="btn age-preset active" data-age-days="0">Now</button>
+        <button type="button" class="btn age-preset" data-age-days="1">1 day</button>
+        <button type="button" class="btn age-preset" data-age-days="2">2 days</button>
+        <button type="button" class="btn age-preset" data-age-days="7">7 days</button>
+      </div>
+    </div>
+    <div id="fileDetailInfo" style="font-size:11px;color:#eab308;margin-bottom:8px;min-height:1.2em" role="status"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <button type="button" class="btn btn-primary" id="fileDetailUpdateBtn">Update File (simulate PUT)</button>
+      <input type="text" id="fileDetailUpdateNote" placeholder="Optional note (stored in JSON body)" style="flex:1;min-width:200px;padding:6px 10px;border-radius:6px;border:1px solid #3f3f46;background:#18181b;color:#fafafa;font-size:12px" />
+      <button type="button" class="btn" id="fileDetailRefreshBtn">Refresh</button>
+      <button type="button" class="btn" id="fileDetailCloseBtn">Close</button>
+    </div>
+    <div id="fileDetailErr" style="color:#f87171;font-size:12px;margin-bottom:6px;min-height:1.2em"></div>
+    <div class="modal-scroll">
+      <div id="fileDetailLoading" class="hidden" style="font-size:12px;color:#a1a1aa;margin-bottom:8px"><span class="spinner"></span> Loading…</div>
+      <div id="fileDetailVersions" class="version-table-wrap"></div>
     </div>
   </div>
 </div>
@@ -559,8 +621,134 @@ function modifiedCellHtml(iso) {
   return `<td class="date-col"><div class="date-abs">${escapeHtml(abs)}</div><div class="date-rel"${tsAttr}>${escapeHtml(relDisp)}</div></td>`;
 }
 
+function clearBrowseQuickSearch() {
+  const el = document.getElementById('browseQuickSearch');
+  if (el) el.value = '';
+}
+
+function browseLastModifiedTs(iso) {
+  const t = new Date(iso || '').getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function prepareBrowsePrefixes(prefixes, prefix) {
+  const list = (prefixes || []).map((p) => ({ raw: p, name: p.prefix.replace(prefix, '').replace(/\/$/, '') }));
+  list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  return list.map((x) => x.raw);
+}
+
+function prepareBrowseObjects(objects, prefix) {
+  const objs = (objects || []).filter((o) => {
+    const name = o.key.replace(prefix, '');
+    return !name.endsWith('/');
+  });
+  objs.sort((a, b) => browseLastModifiedTs(b.last_modified) - browseLastModifiedTs(a.last_modified));
+  return objs;
+}
+
+function browseMatchesSearch(qLower, displayName, fullKey) {
+  if (!qLower) return true;
+  const d = (displayName || '').toLowerCase();
+  const f = (fullKey || '').toLowerCase();
+  return d.indexOf(qLower) !== -1 || f.indexOf(qLower) !== -1;
+}
+
+function wireBrowseObjectTableEvents(tbody) {
+  tbody.querySelectorAll('button[data-act]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-key');
+      const act = btn.getAttribute('data-act');
+      if (act === 'play') openVideo(key);
+      else if (act === 'presign') openPresignModal(key);
+      else if (act === 'dl') downloadFile(key);
+      else if (act === 'del') deleteFile(key);
+    });
+  });
+  tbody.querySelectorAll('td[data-act="detail"]').forEach((cell) => {
+    cell.addEventListener('click', () => openFileDetail(cell.getAttribute('data-key')));
+  });
+  tbody.querySelectorAll('td[data-act="cd"]').forEach((cell) => {
+    cell.addEventListener('click', () => navigateTo(cell.getAttribute('data-prefix')));
+  });
+  if (tbody.querySelector('.date-rel[data-ts]')) {
+    browseRelativeTimer = setInterval(updateBrowseRelativeCells, 15000);
+  }
+}
+
+function renderBrowseTableFromCache() {
+  const tbody = document.getElementById('objectTable');
+  if (!tbody || !browseListCache) return;
+  const c = browseListCache;
+  if (c.bucket !== currentBucket || c.prefix !== currentPrefix || c.extended !== isBrowseExtended()) return;
+
+  stopBrowseRelativeTimer();
+
+  const ext = c.extended;
+  const cols = browseColCount();
+  const prefix = c.prefix;
+  const q = (document.getElementById('browseQuickSearch')?.value || '').trim().toLowerCase();
+
+  const sortedPrefixes = prepareBrowsePrefixes(c.prefixes, prefix);
+  const sortedObjects = prepareBrowseObjects(c.objects, prefix);
+
+  const filteredPrefixes = sortedPrefixes.filter((p) => {
+    const name = p.prefix.replace(prefix, '').replace(/\/$/, '');
+    return browseMatchesSearch(q, name, p.prefix);
+  });
+  const filteredObjects = sortedObjects.filter((o) => {
+    const name = o.key.replace(prefix, '');
+    return browseMatchesSearch(q, name, o.key);
+  });
+
+  const folderTail = ext ? '<td></td>'.repeat(8) : '<td></td>'.repeat(3);
+  let html = '';
+  for (const p of filteredPrefixes) {
+    const name = p.prefix.replace(prefix, '').replace(/\/$/, '');
+    html += `<tr><td class="folder-icon" data-act="cd" data-prefix="${escapeAttr(p.prefix)}">📁 ${escapeHtml(name)}/</td>${folderTail}</tr>`;
+  }
+  for (const o of filteredObjects) {
+    const name = o.key.replace(prefix, '');
+    const playBtn = isVideoKey(o.key)
+      ? `<button type="button" class="btn" style="padding:2px 8px;font-size:11px" data-act="play" data-key="${escapeAttr(o.key)}">▶</button>`
+      : '';
+    const metaCols = ext
+      ? `<td class="etag-cell">${formatEtagCell(o.etag)}</td>
+         <td class="meta-cell" title="${escapeAttr(o.content_type || '')}">${o.content_type ? escapeHtml(o.content_type) : '—'}</td>
+         <td class="sc-cell">${o.storage_class ? escapeHtml(o.storage_class) : '—'}</td>
+         <td>${formatUserMetaCell(o.metadata)}</td>
+         <td>${formatUserMetaCell(o.object_tags)}</td>`
+      : '';
+    html += `<tr>
+      <td class="file-icon file-link" data-act="detail" data-key="${escapeAttr(o.key)}" title="Version history and metadata">📄 ${escapeHtml(name)}</td>
+      <td class="size">${formatSize(o.size)}</td>
+      ${modifiedCellHtml(o.last_modified)}
+      ${metaCols}
+      <td>
+        ${playBtn}
+        <button type="button" class="btn" style="padding:2px 8px;font-size:11px" title="Presign" data-act="presign" data-key="${escapeAttr(o.key)}">🔗</button>
+        <button type="button" class="btn" style="padding:2px 8px;font-size:11px" data-act="dl" data-key="${escapeAttr(o.key)}">↓</button>
+        <button type="button" class="btn btn-danger" style="padding:2px 8px;font-size:11px" data-act="del" data-key="${escapeAttr(o.key)}">✕</button>
+      </td>
+    </tr>`;
+  }
+
+  const rawCount = sortedPrefixes.length + sortedObjects.length;
+  if (!html) {
+    if (q && rawCount > 0) {
+      html = `<tr><td colspan="${cols}" class="empty-state">No matching names</td></tr>`;
+    } else {
+      html = `<tr><td colspan="${cols}" class="empty-state">Empty</td></tr>`;
+    }
+  }
+  tbody.innerHTML = html;
+  wireBrowseObjectTableEvents(tbody);
+}
+
 const LS_BROWSE_EXT = 's3fb_browse_extended';
 const LS_OVERVIEW_GROUP = 's3fb_overview_group_sc';
+
+/** Last successful /api/objects response for sort + client-side filter without refetching. */
+let browseListCache = null;
 
 function isBrowseExtended() {
   const el = document.getElementById('browseExtendedToggle');
@@ -751,17 +939,83 @@ async function api(method, path, body) {
   if (body instanceof FormData) { opts.body = body; }
   else if (body) { opts.body = JSON.stringify(body); opts.headers = {'Content-Type':'application/json'}; }
   const resp = await fetch(BASE + path, opts);
-  const data = await resp.json().catch(() => ({}));
-  if (data.served_by !== undefined) updateServedBy(data.served_by);
+  const text = await resp.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      const preview = text.replace(/\s+/g, ' ').slice(0, 400);
+      const msg = resp.ok
+        ? ('Response was not JSON (presign or API error page?). ' + preview)
+        : (preview || resp.statusText || String(resp.status));
+      throw new Error(msg);
+    }
+  }
+  if (data && data.served_by !== undefined) updateServedBy(data.served_by);
   if (!resp.ok) {
-    const msg = data.error || (Array.isArray(data.detail) ? data.detail.map(d => d.msg || d).join('; ') : data.detail) || resp.statusText || String(resp.status);
-    throw new Error(msg);
+    const detailRaw = data.detail;
+    let detailStr = '';
+    if (detailRaw != null && detailRaw !== '') {
+      if (typeof detailRaw === 'string') detailStr = detailRaw;
+      else if (Array.isArray(detailRaw)) {
+        detailStr = detailRaw
+          .map(function (d) {
+            if (d == null) return '';
+            if (typeof d === 'object' && d.msg != null) return String(d.msg);
+            return String(d);
+          })
+          .filter(Boolean)
+          .join('; ');
+      } else if (typeof detailRaw === 'object') {
+        try {
+          detailStr = JSON.stringify(detailRaw);
+        } catch (_) {
+          detailStr = String(detailRaw);
+        }
+      } else {
+        detailStr = String(detailRaw);
+      }
+    }
+    const primary = data.error && String(data.error).trim();
+    const msg =
+      (primary && detailStr && primary !== detailStr ? primary + ' — ' + detailStr : primary || detailStr) ||
+      resp.statusText ||
+      String(resp.status);
+    throw new Error(typeof msg === 'string' ? msg : String(msg));
   }
   updateHistogram();
   return data;
 }
 
+function assertHttpPresignedUrl(u, contextLabel) {
+  if (typeof u !== 'string' || !u.trim()) {
+    throw new Error((contextLabel || 'Presign') + ' returned a non-string or empty url field.');
+  }
+  const s = u.trim();
+  if (s.charAt(0) === '=' || s.charAt(0) === '&') {
+    throw new Error(
+      (contextLabel || 'Presign') +
+        ' URL looks truncated (starts with query fragment). Check browser Network tab for /api/presign response and server logs.'
+    );
+  }
+  if (!/^https?:\/\//i.test(s)) {
+    throw new Error(
+      (contextLabel || 'Presign') + ' URL must start with http:// or https://. Preview: ' + s.slice(0, 220)
+    );
+  }
+  if (s.toLowerCase().indexOf('x-amz-signature') !== -1 && s.indexOf('?') === -1) {
+    throw new Error((contextLabel || 'Presign') + ' URL is missing the ? query string (likely truncated).');
+  }
+  return s;
+}
+
 function resetBrowseForIdentitySwitch() {
+  stopBrowseRelativeTimer();
+  browseListCache = null;
+  clearBrowseQuickSearch();
+  const sq = document.getElementById('browseQuickSearch');
+  if (sq) sq.disabled = true;
   currentBucket = null;
   currentPrefix = '';
   const tbody = document.getElementById('objectTable');
@@ -778,44 +1032,146 @@ function resetBrowseForIdentitySwitch() {
   updateBreadcrumb();
 }
 
+/** After a successful POST /api/session: one S3 user session for the whole UI — clear stale views and refetch from the cluster. */
+function updateIamReloadAffordance(cfg) {
+  const rb = document.getElementById('iamReloadBtn');
+  if (!rb || !cfg) return;
+  rb.hidden = !cfg.iam_env_reload_available;
+}
+
+async function reloadIamUsers() {
+  const errEl = document.getElementById('iamReloadErr');
+  const rb = document.getElementById('iamReloadBtn');
+  if (errEl) {
+    errEl.textContent = '';
+    errEl.classList.add('hidden');
+    errEl.style.color = '';
+  }
+  if (rb) rb.disabled = true;
+  try {
+    const cfg = await api('POST', '/api/iam/reload');
+    updateIamReloadAffordance(cfg);
+    setupIdentityFromConfig(cfg);
+    refreshIdentityAndIamUi(cfg);
+    await applyClusterSessionAfterIdentitySwitch(cfg);
+  } catch (e) {
+    if (errEl) {
+      errEl.textContent = e.message || String(e);
+      errEl.style.color = '#f87171';
+      errEl.classList.remove('hidden');
+    } else {
+      alert(e.message || String(e));
+    }
+  } finally {
+    if (rb) rb.disabled = false;
+  }
+}
+
+async function applyClusterSessionAfterIdentitySwitch(cfg) {
+  closePresignModal();
+  const uploadM = document.getElementById('uploadModal');
+  if (uploadM && !uploadM.classList.contains('hidden')) closeUpload();
+  closeVideo();
+  closeFileDetail();
+  resetBrowseForIdentitySwitch();
+  const hr = document.getElementById('healthResult');
+  if (hr) {
+    hr.innerHTML =
+      '<div style="color:#71717a;font-size:12px;">Health results were cleared for the new S3 user session. Run a scenario again when you are ready.</div>';
+  }
+  try {
+    await fetch(BASE + '/api/stats/reset', { method: 'POST' });
+  } catch (_) {}
+  await updateHistogram();
+  const ov = document.getElementById('view-overview');
+  const otbody = document.getElementById('overviewTable');
+  if (ov && !ov.classList.contains('hidden')) {
+    await loadOverview().catch(() => {});
+  } else if (otbody) {
+    const groupSc = isOverviewGrouped();
+    const oc = groupSc ? 6 : 5;
+    otbody.innerHTML = `<tr><td colspan="${oc}" class="empty-state">Open this tab to scan buckets (data is for the current S3 user only).</td></tr>`;
+    const sumEl = document.getElementById('overviewSummary');
+    if (sumEl) sumEl.textContent = '';
+  }
+  if (cfg) refreshIdentityAndIamUi(cfg);
+  await loadBuckets();
+}
+
 function setupIdentityFromConfig(cfg) {
+  updateIamReloadAffordance(cfg);
   const wrap = document.getElementById('identityWrap');
   const sel = document.getElementById('identitySelect');
+  const epochHint = document.getElementById('sessionEpochHint');
   if (!wrap || !sel) return;
+  const fromApi =
+    Array.isArray(cfg.identity_switch_options) && cfg.identity_switch_options.length
+      ? cfg.identity_switch_options
+      : null;
   const idents = Array.isArray(cfg.identities) ? cfg.identities : [];
-  if (idents.length <= 1) {
+  const rows = fromApi || idents;
+  if (rows.length <= 1) {
     wrap.classList.add('hidden');
     sel.innerHTML = '';
+    if (epochHint) epochHint.textContent = '';
     return;
   }
   wrap.classList.remove('hidden');
   sel.innerHTML = '';
-  for (const row of idents) {
+  for (const row of rows) {
     const opt = document.createElement('option');
     let id = row.id === undefined || row.id === null ? '' : String(row.id);
-    if (id === '' && (String(row.label || '').toLowerCase().includes('root') || String(row.label || '').toLowerCase().includes('administrator'))) {
+    if (
+      id === '' &&
+      (String(row.label || '').toLowerCase().includes('root') ||
+        String(row.label || '').toLowerCase().includes('administrator'))
+    ) {
       id = '__root__';
     }
     opt.value = id;
-    opt.textContent = row.label ? String(row.label) : (id === '__root__' ? 'Root (MinIO administrator)' : id);
+    opt.textContent = row.label ? String(row.label) : id === '__root__' ? 'Root (MinIO administrator)' : id;
     sel.appendChild(opt);
   }
   const want = cfg.active_identity !== undefined && cfg.active_identity !== null ? String(cfg.active_identity) : '';
   const idStr = (i) => String(i.id === undefined || i.id === null ? '' : i.id);
-  const valid = idents.some((i) => idStr(i) === want);
-  sel.value = valid ? want : String(idents[0].id === undefined || idents[0].id === null ? '' : idents[0].id);
+  const valid = rows.some((i) => idStr(i) === want);
+  sel.value = valid ? want : idStr(rows[0]);
+  if (epochHint && cfg.session_epoch != null && cfg.session_epoch !== undefined) {
+    epochHint.textContent = 'Signing context #' + String(cfg.session_epoch);
+  } else if (epochHint) {
+    epochHint.textContent = '';
+  }
   sel.onchange = async () => {
+    const errBanner = document.getElementById('iamReloadErr');
     try {
-      await api('POST', '/api/session', { identity: sel.value });
-      resetBrowseForIdentitySwitch();
+      if (errBanner) {
+        errBanner.textContent = '';
+        errBanner.classList.add('hidden');
+        errBanner.style.color = '';
+      }
+      const sessionResp = await api('POST', '/api/session', { identity: sel.value });
+      if (epochHint && sessionResp.session_epoch != null) {
+        epochHint.textContent = 'Signing context #' + String(sessionResp.session_epoch);
+      }
+      if (sessionResp.served_by !== undefined && sessionResp.served_by !== null) {
+        updateServedBy(sessionResp.served_by);
+      }
       const cfg3 = await (await fetch(BASE + '/api/config')).json();
-      refreshIdentityAndIamUi(cfg3);
-      await loadBuckets();
+      await applyClusterSessionAfterIdentitySwitch(cfg3);
     } catch (e) {
-      alert(e.message || String(e));
+      if (errBanner) {
+        errBanner.textContent = e.message || String(e);
+        errBanner.style.color = '#f87171';
+        errBanner.classList.remove('hidden');
+      } else {
+        alert(e.message || String(e));
+      }
       const cfg2 = await (await fetch(BASE + '/api/config')).json();
       const w = cfg2.active_identity !== undefined && cfg2.active_identity !== null ? String(cfg2.active_identity) : '';
-      if (idents.some((i) => idStr(i) === w)) sel.value = w;
+      if (rows.some((i) => idStr(i) === w)) sel.value = w;
+      if (epochHint && cfg2.session_epoch != null) {
+        epochHint.textContent = 'Signing context #' + String(cfg2.session_epoch);
+      }
       refreshIdentityAndIamUi(cfg2);
     }
   };
@@ -840,6 +1196,13 @@ async function init() {
     }
     setupIdentityFromConfig(cfg);
     refreshIdentityAndIamUi(cfg);
+    const irb = document.getElementById('iamReloadBtn');
+    if (irb && !irb.dataset.bound) {
+      irb.dataset.bound = '1';
+      irb.addEventListener('click', function () {
+        reloadIamUsers().catch(function () {});
+      });
+    }
   } catch(e) {}
   loadBuckets();
 }
@@ -878,6 +1241,7 @@ async function loadBuckets() {
 function selectBucket(name) {
   currentBucket = name;
   currentPrefix = '';
+  clearBrowseQuickSearch();
   document.querySelectorAll('.bucket-item').forEach(el => el.classList.toggle('active', el.textContent === name));
   document.getElementById('uploadBtn').disabled = false;
   document.getElementById('refreshObjectsBtn').disabled = false;
@@ -894,75 +1258,184 @@ async function loadObjects() {
   const cols = browseColCount();
   stopBrowseRelativeTimer();
   syncBrowseTableHead();
-  tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-state"><span class="spinner"></span> Loading...</td></tr>`;
   updateBreadcrumb();
+
+  const searchEl = document.getElementById('browseQuickSearch');
+  if (!currentBucket) {
+    browseListCache = null;
+    if (searchEl) {
+      searchEl.disabled = true;
+      searchEl.value = '';
+    }
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-state">Select a bucket to browse</td></tr>`;
+    return;
+  }
+  if (searchEl) searchEl.disabled = false;
+
+  tbody.innerHTML = `<tr><td colspan="${cols}" class="empty-state"><span class="spinner"></span> Loading...</td></tr>`;
 
   try {
     const extQ = ext ? '&extended=true' : '';
     const data = await api('GET', `/api/objects?bucket=${encodeURIComponent(currentBucket)}&prefix=${encodeURIComponent(currentPrefix)}${extQ}`);
-    let html = '';
-
-    // Prefixes (folders) — pad non-name columns (size, modified, [metadata…], actions)
-    const folderTail = ext ? '<td></td>'.repeat(8) : '<td></td>'.repeat(3);
-    for (const p of (data.prefixes || [])) {
-      const name = p.prefix.replace(currentPrefix, '').replace(/\/$/, '');
-      html += `<tr><td class="folder-icon" onclick="navigateTo('${p.prefix}')">📁 ${name}/</td>${folderTail}</tr>`;
-    }
-
-    // Objects
-    for (const o of (data.objects || [])) {
-      const name = o.key.replace(currentPrefix, '');
-      if (name.endsWith('/')) continue; // skip prefix markers
-      const playBtn = isVideoKey(o.key)
-        ? `<button type="button" class="btn" style="padding:2px 8px;font-size:11px" data-act="play" data-key="${escapeAttr(o.key)}">▶</button>`
-        : '';
-      const metaCols = ext
-        ? `<td class="etag-cell">${formatEtagCell(o.etag)}</td>
-           <td class="meta-cell" title="${escapeAttr(o.content_type || '')}">${o.content_type ? escapeHtml(o.content_type) : '—'}</td>
-           <td class="sc-cell">${o.storage_class ? escapeHtml(o.storage_class) : '—'}</td>
-           <td>${formatUserMetaCell(o.metadata)}</td>
-           <td>${formatUserMetaCell(o.object_tags)}</td>`
-        : '';
-      html += `<tr>
-        <td class="file-icon">📄 ${escapeHtml(name)}</td>
-        <td class="size">${formatSize(o.size)}</td>
-        ${modifiedCellHtml(o.last_modified)}
-        ${metaCols}
-        <td>
-          ${playBtn}
-          <button type="button" class="btn" style="padding:2px 8px;font-size:11px" title="Presign" data-act="presign" data-key="${escapeAttr(o.key)}">🔗</button>
-          <button type="button" class="btn" style="padding:2px 8px;font-size:11px" data-act="dl" data-key="${escapeAttr(o.key)}">↓</button>
-          <button type="button" class="btn btn-danger" style="padding:2px 8px;font-size:11px" data-act="del" data-key="${escapeAttr(o.key)}">✕</button>
-        </td>
-      </tr>`;
-    }
-
-    if (!html) html = `<tr><td colspan="${cols}" class="empty-state">Empty</td></tr>`;
-    tbody.innerHTML = html;
-    tbody.querySelectorAll('button[data-act]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.getAttribute('data-key');
-        const act = btn.getAttribute('data-act');
-        if (act === 'play') openVideo(key);
-        else if (act === 'presign') openPresignModal(key);
-        else if (act === 'dl') downloadFile(key);
-        else if (act === 'del') deleteFile(key);
-      });
-    });
-    if (tbody.querySelector('.date-rel[data-ts]')) {
-      browseRelativeTimer = setInterval(updateBrowseRelativeCells, 15000);
-    }
-  } catch(e) {
+    browseListCache = {
+      bucket: currentBucket,
+      prefix: currentPrefix,
+      extended: ext,
+      prefixes: data.prefixes || [],
+      objects: data.objects || [],
+    };
+    renderBrowseTableFromCache();
+  } catch (e) {
+    browseListCache = null;
     tbody.innerHTML = `<tr><td colspan="${browseColCount()}" class="empty-state" style="color:#f87171">Error: ${escapeHtml(e.message || String(e))}</td></tr>`;
   }
 }
 
-function navigateTo(prefix) { currentPrefix = prefix; loadObjects(); }
+function navigateTo(prefix) {
+  currentPrefix = prefix;
+  clearBrowseQuickSearch();
+  loadObjects();
+}
+
+let fileDetailKey = null;
+let fileDetailAgeDays = 0;
+
+function setFileDetailAgeDays(d) {
+  fileDetailAgeDays = typeof d === 'number' && !Number.isNaN(d) ? d : parseFloat(d) || 0;
+  if (fileDetailAgeDays < 0) fileDetailAgeDays = 0;
+  if (fileDetailAgeDays > 3650) fileDetailAgeDays = 3650;
+  syncFileDetailAgePresetButtons();
+}
+
+function syncFileDetailAgePresetButtons() {
+  document.querySelectorAll('#fileDetailAgePresets .age-preset').forEach((btn) => {
+    const v = parseFloat(btn.getAttribute('data-age-days') || '0');
+    btn.classList.toggle('active', v === fileDetailAgeDays);
+  });
+}
+
+function closeFileDetail() {
+  const m = document.getElementById('fileDetailModal');
+  if (m) m.classList.add('hidden');
+  fileDetailKey = null;
+}
+
+function renderFileDetailVersions(data) {
+  const host = document.getElementById('fileDetailVersions');
+  if (!host) return;
+  const hint = document.getElementById('fileDetailHint');
+  if (hint) {
+    let t =
+      data.history_mode === 'native'
+        ? 'Version list from MinIO / S3 native object versioning (when it exposes more than the in-app ledger).'
+        : 'Version list uses this service’s in-memory ledger when bucket versioning is off or the SDK cannot list versions (PUT still replaces the object in MinIO; prior rows keep snapshot metadata until restart).';
+    if (data.ilm_display_hint) {
+      t += ' ' + data.ilm_display_hint;
+    }
+    hint.textContent = t;
+  }
+  const vers = data.versions || [];
+  if (!vers.length) {
+    host.innerHTML = '<p class="empty-state" style="padding:20px">No versions</p>';
+    return;
+  }
+  let html =
+    '<table><thead><tr><th>Head</th><th>Version ID</th><th>Modified</th><th>Size</th><th>ETag</th><th>Content-Type</th><th>Source</th><th>Metadata / tags</th></tr></thead><tbody>';
+  for (const v of vers) {
+    const latest = v.is_latest ? '<span class="badge-latest">HEAD</span>' : '—';
+    const metaObj = { metadata: v.metadata || {}, object_tags: v.object_tags || {} };
+    if (v.server_last_modified) metaObj.server_last_modified = v.server_last_modified;
+    if (v.demoforge_display_age_days != null && v.demoforge_display_age_days !== '') {
+      metaObj.demoforge_display_age_days = v.demoforge_display_age_days;
+    }
+    const meta = JSON.stringify(metaObj, null, 2);
+    html += `<tr><td>${latest}</td><td class="meta-cell" title="${escapeAttr(
+      String(v.version_id || '')
+    )}">${escapeHtml(String(v.version_id || '—'))}</td><td>${escapeHtml(
+      v.last_modified || '—'
+    )}</td><td class="size">${formatSize(v.size)}</td><td class="etag-cell">${escapeHtml(
+      v.etag || '—'
+    )}</td><td class="meta-cell">${escapeHtml(v.content_type || '—')}</td><td>${escapeHtml(
+      v.source || '—'
+    )}</td><td><details><summary style="cursor:pointer;color:#60a5fa;font-size:11px">Show</summary><pre class="version-meta-pre">${escapeHtml(
+      meta
+    )}</pre></details></td></tr>`;
+  }
+  html += '</tbody></table>';
+  host.innerHTML = html;
+}
+
+async function loadFileDetailVersions(showLoading) {
+  const err = document.getElementById('fileDetailErr');
+  const loading = document.getElementById('fileDetailLoading');
+  const infoEl = document.getElementById('fileDetailInfo');
+  if (infoEl) infoEl.textContent = '';
+  if (err) err.textContent = '';
+  if (!currentBucket || !fileDetailKey) return;
+  if (showLoading && loading) {
+    loading.classList.remove('hidden');
+    loading.innerHTML = '<span class="spinner"></span> Loading…';
+  }
+  try {
+    const data = await api(
+      'GET',
+      `/api/object/versions?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(fileDetailKey)}`
+    );
+    renderFileDetailVersions(data);
+  } catch (e) {
+    if (err) err.textContent = e.message || String(e);
+    const host = document.getElementById('fileDetailVersions');
+    if (host) host.innerHTML = '';
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+async function openFileDetail(key) {
+  fileDetailKey = key;
+  fileDetailAgeDays = 0;
+  syncFileDetailAgePresetButtons();
+  const infoEl = document.getElementById('fileDetailInfo');
+  if (infoEl) infoEl.textContent = '';
+  const m = document.getElementById('fileDetailModal');
+  const kEl = document.getElementById('fileDetailKey');
+  if (kEl) kEl.textContent = key;
+  const err = document.getElementById('fileDetailErr');
+  if (err) err.textContent = '';
+  const host = document.getElementById('fileDetailVersions');
+  if (host) host.innerHTML = '';
+  if (m) m.classList.remove('hidden');
+  await loadFileDetailVersions(true);
+}
+
+async function simulateFileUpdate() {
+  const err = document.getElementById('fileDetailErr');
+  if (err) err.textContent = '';
+  if (!currentBucket || !fileDetailKey) return;
+  const noteEl = document.getElementById('fileDetailUpdateNote');
+  const note = noteEl ? noteEl.value : '';
+  const btn = document.getElementById('fileDetailUpdateBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const path = `/api/object/simulate-new-version?bucket=${encodeURIComponent(
+      currentBucket
+    )}&key=${encodeURIComponent(fileDetailKey)}`;
+    const data = await api('POST', path, { note, age_days: fileDetailAgeDays });
+    const infoEl = document.getElementById('fileDetailInfo');
+    if (infoEl) infoEl.textContent = data.display_age_note || '';
+    renderFileDetailVersions(data);
+    loadObjects().catch(() => {});
+  } catch (e) {
+    if (err) err.textContent = e.message || String(e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 function updateBreadcrumb() {
   const el = document.getElementById('breadcrumb');
   if (!currentBucket) { el.innerHTML = ''; return; }
-  let html = `<a onclick="currentPrefix='';loadObjects()">${currentBucket}</a>`;
+  let html = `<a onclick="currentPrefix='';clearBrowseQuickSearch();loadObjects()">${currentBucket}</a>`;
   if (currentPrefix) {
     const parts = currentPrefix.replace(/\/$/, '').split('/');
     let path = '';
@@ -1015,7 +1488,11 @@ function updateIdentityPanel(cfg) {
   const panel = document.getElementById('identityPanel');
   if (!panel || !cfg) return;
   const idents = Array.isArray(cfg.identities) ? cfg.identities : [];
-  const multiIdentity = idents.length > 1;
+  const switchOpts =
+    Array.isArray(cfg.identity_switch_options) && cfg.identity_switch_options.length
+      ? cfg.identity_switch_options
+      : idents;
+  const multiIdentity = switchOpts.length > 1 || !!cfg.identity_switch_enabled;
   const act = cfg.active_identity !== undefined && cfg.active_identity !== null ? String(cfg.active_identity).trim() : '';
   const accessKey = cfg.access_key !== undefined && cfg.access_key !== null ? String(cfg.access_key).trim() : '';
   const serverSaysSim = cfg.iam_effective_root === false;
@@ -1135,18 +1612,27 @@ function absoluteUrlFromPath(pathOrUrl) {
   }
 }
 
+function _videoMediaErrorLabel(code) {
+  const M = { 1: 'MEDIA_ERR_ABORTED', 2: 'MEDIA_ERR_NETWORK', 3: 'MEDIA_ERR_DECODE', 4: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
+  return M[code] || 'UNKNOWN';
+}
+
 function openVideo(key) {
   videoModalKey = key;
   const modal = document.getElementById('videoModal');
   const pick = document.getElementById('videoSourcePick');
   const playSec = document.getElementById('videoPlaybackSection');
   const err = document.getElementById('videoPickErr');
+  const playErr = document.getElementById('videoPlaybackErr');
   const v = document.getElementById('videoPlayer');
-  err.textContent = '';
+  if (err) err.textContent = '';
+  if (playErr) playErr.textContent = '';
   document.getElementById('videoModalKey').textContent = key;
   pick.classList.remove('hidden');
   playSec.classList.add('hidden');
-  document.getElementById('videoUrlDisplay').value = '';
+  const urlEl = document.getElementById('videoUrlDisplay');
+  if (urlEl) urlEl.value = '';
+  v.onerror = null;
   v.pause();
   v.removeAttribute('src');
   v.removeAttribute('crossorigin');
@@ -1161,10 +1647,12 @@ function openVideo(key) {
 
 async function startVideoPlayback() {
   const err = document.getElementById('videoPickErr');
+  const playErr = document.getElementById('videoPlaybackErr');
   const startBtn = document.getElementById('videoStartBtn');
-  err.textContent = '';
+  if (err) err.textContent = '';
+  if (playErr) playErr.textContent = '';
   if (!currentBucket || !videoModalKey) {
-    err.textContent = 'No bucket or object selected.';
+    if (err) err.textContent = 'No bucket or object selected.';
     return;
   }
   const mode = (document.querySelector('input[name="videoSrcMode"]:checked') || {}).value || 'direct';
@@ -1180,6 +1668,13 @@ async function startVideoPlayback() {
       streamUrl = _videoDirectDownloadPath();
       displayUrl = absoluteUrlFromPath(streamUrl);
       v.crossOrigin = 'anonymous';
+      v.onerror = function () {
+        const ve = v.error;
+        const line = ve
+          ? 'Video element error: ' + _videoMediaErrorLabel(ve.code) + (ve.message ? ' — ' + ve.message : '')
+          : 'Video element error (unknown).';
+        if (playErr) playErr.textContent = line + '\nIf the network tab shows 403/404, check IAM/CORS for this object.';
+      };
       v.src = streamUrl;
     } else {
       if (startBtn) startBtn.disabled = true;
@@ -1188,23 +1683,34 @@ async function startVideoPlayback() {
         'GET',
         `/api/presign/get?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(videoModalKey)}&expires_sec=${encodeURIComponent(exp)}&inline=true`
       );
-      streamUrl = data.url || '';
-      if (!streamUrl) throw new Error('Presign response missing url');
+      streamUrl = assertHttpPresignedUrl(data.url, 'Presigned playback');
       displayUrl = streamUrl;
       v.removeAttribute('crossorigin');
+      v.onerror = function () {
+        const ve = v.error;
+        const line = ve
+          ? 'Video element error: ' + _videoMediaErrorLabel(ve.code) + (ve.message ? ' — ' + ve.message : '')
+          : 'Video element error (unknown).';
+        if (playErr) {
+          playErr.textContent =
+            line +
+            '\nPresigned URLs load the object from the storage host in the URL. If that host is not reachable from your browser (e.g. internal Docker DNS) or CORS blocks the request, use Direct GET instead.';
+        }
+      };
       v.src = streamUrl;
     }
     v.load();
-    urlInput.value = displayUrl;
+    if (urlInput) urlInput.value = displayUrl;
     const a = document.getElementById('videoDownloadLink');
     a.href = streamUrl;
     a.setAttribute('download', videoModalKey.split('/').pop() || 'video');
     pick.classList.add('hidden');
     playSec.classList.remove('hidden');
   } catch (e) {
-    err.textContent = e.message || String(e);
+    if (err) err.textContent = e.message || String(e);
     v.pause();
     v.removeAttribute('src');
+    v.onerror = null;
     v.load();
   } finally {
     if (startBtn) startBtn.disabled = false;
@@ -1213,14 +1719,18 @@ async function startVideoPlayback() {
 
 function videoBackToSourcePick() {
   const v = document.getElementById('videoPlayer');
+  v.onerror = null;
   v.pause();
   v.removeAttribute('src');
   v.removeAttribute('crossorigin');
   v.load();
-  document.getElementById('videoUrlDisplay').value = '';
+  const u = document.getElementById('videoUrlDisplay');
+  if (u) u.value = '';
   document.getElementById('videoPlaybackSection').classList.add('hidden');
   document.getElementById('videoSourcePick').classList.remove('hidden');
   document.getElementById('videoPickErr').textContent = '';
+  const pe = document.getElementById('videoPlaybackErr');
+  if (pe) pe.textContent = '';
 }
 
 function closeVideo() {
@@ -1264,7 +1774,7 @@ async function runPresignGet() {
   const inline = document.getElementById('presignInline').checked;
   try {
     const data = await api('GET', `/api/presign/get?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}&expires_sec=${encodeURIComponent(exp)}&inline=${inline ? 'true' : 'false'}`);
-    document.getElementById('presignGetOut').value = data.url || '';
+    document.getElementById('presignGetOut').value = assertHttpPresignedUrl(data.url, 'GET presign');
   } catch (e) {
     document.getElementById('presignErr').textContent = e.message || String(e);
   }
@@ -1280,7 +1790,7 @@ async function runPresignPut() {
   const exp = document.getElementById('presignExpires').value;
   try {
     const data = await api('GET', `/api/presign/put?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(key)}&expires_sec=${encodeURIComponent(exp)}`);
-    document.getElementById('presignPutOut').value = data.url || '';
+    document.getElementById('presignPutOut').value = assertHttpPresignedUrl(data.url, 'PUT presign');
   } catch (e) {
     document.getElementById('presignErr').textContent = e.message || String(e);
   }
@@ -1496,7 +2006,14 @@ document.querySelectorAll('input[name="videoSrcMode"]').forEach((r) => {
   });
 });
 const videoStartBtn = document.getElementById('videoStartBtn');
-if (videoStartBtn) videoStartBtn.addEventListener('click', () => startVideoPlayback().catch(() => {}));
+if (videoStartBtn) {
+  videoStartBtn.addEventListener('click', function () {
+    startVideoPlayback().catch(function (e) {
+      const el = document.getElementById('videoPickErr');
+      if (el) el.textContent = e && e.message ? e.message : String(e);
+    });
+  });
+}
 const videoChangeSourceBtn = document.getElementById('videoChangeSourceBtn');
 if (videoChangeSourceBtn) videoChangeSourceBtn.addEventListener('click', () => videoBackToSourcePick());
 const videoCopyUrlBtn = document.getElementById('videoCopyUrlBtn');
@@ -1508,6 +2025,36 @@ document.getElementById('btnPresignGet').onclick = () => runPresignGet();
 document.getElementById('btnPresignPut').onclick = () => runPresignPut();
 document.getElementById('btnCopyGet').onclick = () => copyInput('presignGetOut');
 document.getElementById('btnCopyPut').onclick = () => copyInput('presignPutOut');
+
+const fileDetailModal = document.getElementById('fileDetailModal');
+if (fileDetailModal) {
+  fileDetailModal.addEventListener('click', (ev) => {
+    if (ev.target === fileDetailModal) closeFileDetail();
+  });
+}
+const fileDetailCloseBtn = document.getElementById('fileDetailCloseBtn');
+if (fileDetailCloseBtn) fileDetailCloseBtn.addEventListener('click', () => closeFileDetail());
+const fileDetailRefreshBtn = document.getElementById('fileDetailRefreshBtn');
+if (fileDetailRefreshBtn) fileDetailRefreshBtn.addEventListener('click', () => loadFileDetailVersions(true));
+const fileDetailUpdateBtn = document.getElementById('fileDetailUpdateBtn');
+if (fileDetailUpdateBtn) fileDetailUpdateBtn.addEventListener('click', () => simulateFileUpdate());
+
+const browseQuickSearch = document.getElementById('browseQuickSearch');
+if (browseQuickSearch) {
+  browseQuickSearch.addEventListener('input', () => {
+    if (browseListCache) renderBrowseTableFromCache();
+  });
+}
+
+const fileDetailAgePresets = document.getElementById('fileDetailAgePresets');
+if (fileDetailAgePresets) {
+  fileDetailAgePresets.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.age-preset');
+    if (!btn) return;
+    ev.preventDefault();
+    setFileDetailAgeDays(parseFloat(btn.getAttribute('data-age-days') || '0'));
+  });
+}
 
 init();
 </script>

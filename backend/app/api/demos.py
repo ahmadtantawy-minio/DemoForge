@@ -22,6 +22,7 @@ from ..models.api_models import (
     DemoListResponse, DemoSummary, CreateDemoRequest, SaveDiagramRequest,
 )
 from ..state.store import state
+from ..engine.minio_ec_parity_normalize import normalize_demo_definition
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,7 +38,8 @@ def _load_demo(demo_id: str) -> DemoDefinition | None:
         if raw is None or not isinstance(raw, dict):
             logger.warning("Demo %r: empty or invalid YAML in %s", demo_id, path)
             return None
-        return DemoDefinition(**raw)
+        demo = DemoDefinition(**raw)
+        return normalize_demo_definition(demo)
     except Exception as e:
         logger.warning("Demo %r: failed to parse %s — %s", demo_id, path, e)
         return None
@@ -214,6 +216,30 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
         # Group nodes are stored separately
         if rf_node.get("type") == "group":
             grp_data = rf_node.get("data", {})
+            g_style = rf_node.get("style") if isinstance(rf_node.get("style"), dict) else {}
+            rf_w, rf_h = rf_node.get("width"), rf_node.get("height")
+            # NodeResizer updates top-level width/height; style may lag — prefer those (same as stickies)
+            def _dim(v, style_fallback, default: float) -> float:
+                if v is not None:
+                    if isinstance(v, (int, float)):
+                        return float(v)
+                    s = str(v).replace("px", "").strip()
+                    try:
+                        return float(s)
+                    except ValueError:
+                        pass
+                if style_fallback is not None:
+                    if isinstance(style_fallback, (int, float)):
+                        return float(style_fallback)
+                    s2 = str(style_fallback).replace("px", "").strip()
+                    try:
+                        return float(s2)
+                    except ValueError:
+                        pass
+                return default
+
+            width = _dim(rf_w, g_style.get("width"), 400.0)
+            height = _dim(rf_h, g_style.get("height"), 300.0)
             demo.groups.append(DemoGroup(
                 id=rf_node["id"],
                 label=grp_data.get("label", ""),
@@ -222,8 +248,8 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
                 style=grp_data.get("style", "solid"),
                 position=NodePosition(x=rf_node.get("position", {}).get("x", 0),
                                        y=rf_node.get("position", {}).get("y", 0)),
-                width=rf_node.get("style", {}).get("width", rf_node.get("width", 400)) if isinstance(rf_node.get("style"), dict) else rf_node.get("width", 400),
-                height=rf_node.get("style", {}).get("height", rf_node.get("height", 300)) if isinstance(rf_node.get("style"), dict) else rf_node.get("height", 300),
+                width=width,
+                height=height,
                 mode=grp_data.get("mode", "visual"),
                 cluster_config=grp_data.get("cluster_config", {}),
             ))
@@ -233,19 +259,23 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
         if rf_node.get("type") == "cluster":
             c_data = rf_node.get("data", {})
             raw_pools = c_data.get("serverPools", [])
-            server_pools = [
-                DemoServerPool(
-                    id=p.get("id", f"pool-{i+1}"),
-                    node_count=p.get("nodeCount", 4),
-                    drives_per_node=p.get("drivesPerNode", 4),
-                    disk_size_tb=p.get("diskSizeTb", 8),
-                    disk_type=p.get("diskType", "ssd"),
-                    ec_parity=p.get("ecParity", 4),
-                    ec_parity_upgrade_policy=p.get("ecParityUpgradePolicy", "upgrade"),
-                    volume_path=p.get("volumePath", "/data"),
+            server_pools = []
+            for i, p in enumerate(raw_pools):
+                _esd = p.get("erasureStripeDrives")
+                _esd_int = int(_esd) if isinstance(_esd, (int, float)) and int(_esd) > 0 else None
+                server_pools.append(
+                    DemoServerPool(
+                        id=p.get("id", f"pool-{i+1}"),
+                        node_count=p.get("nodeCount", 4),
+                        drives_per_node=p.get("drivesPerNode", 4),
+                        disk_size_tb=p.get("diskSizeTb", 8),
+                        disk_type=p.get("diskType", "ssd"),
+                        ec_parity=p.get("ecParity", 4),
+                        ec_parity_upgrade_policy=p.get("ecParityUpgradePolicy", "upgrade"),
+                        volume_path=p.get("volumePath", "/data"),
+                        erasure_stripe_drives=_esd_int,
+                    )
                 )
-                for i, p in enumerate(raw_pools)
-            ]
             # Old pre-pool configs have no serverPools — synthesise canonical defaults
             # (4 nodes × 2 drives × 1 TB, EC:3) rather than inheriting stale legacy fields.
             if not server_pools:
@@ -331,7 +361,7 @@ async def save_diagram(demo_id: str, req: SaveDiagramRequest):
             target_handle=rf_edge.get("targetHandle"),
         ))
 
-    _save_demo(demo)
+    _save_demo(normalize_demo_definition(demo))
     return {"status": "saved"}
 
 @router.put("/api/demos/{demo_id}/layout")
@@ -527,6 +557,7 @@ async def import_demo(file: UploadFile):
     except Exception as e:
         raise HTTPException(400, f"Invalid demo format: {e}")
 
+    demo = normalize_demo_definition(demo)
     _save_demo(demo)
     return {"id": new_id, "name": demo.name, "status": "not_deployed"}
 

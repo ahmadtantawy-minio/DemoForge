@@ -59,6 +59,9 @@ class DemoServerPool(BaseModel):
     ec_parity: int = 3
     ec_parity_upgrade_policy: str = "upgrade"
     volume_path: str = "/data"
+    # When set, drives per erasure stripe for EC math / UI (must divide node_count * drives_per_node).
+    # None = auto: largest valid divisor up to 16 (matches frontend computeErasureSetSize).
+    erasure_stripe_drives: int | None = None
 
 
 class DemoCluster(BaseModel):

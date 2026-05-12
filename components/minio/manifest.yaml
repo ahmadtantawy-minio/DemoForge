@@ -189,6 +189,14 @@ connections:
 variants: {}
 template_mounts: []
 static_mounts: []
+properties:
+  - key: MINIO_IAM_SIM_SPEC
+    label: IAM simulation
+    type: iam_sim_spec
+    default: ""
+    description: >-
+      Optional. Open IAM Manager to define multiple roles (policies) and users assigned to those roles.
+      At deploy, mc-shell reconciles them on MinIO. Link S3 File Browser over s3 and set Simulated IAM user to an access key to browse as that user.
 config:
   MINIO_EDITION:
     label: Edition

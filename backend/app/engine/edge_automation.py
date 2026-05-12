@@ -86,6 +86,35 @@ def _tier_prefix_mc_flag(prefix: str) -> str:
     return f" --prefix {_safe(p)}"
 
 
+def _register_remote_tier_then_ilm_rule(
+    hot_alias: str,
+    source_bucket_q: str,
+    tier_name_q: str,
+    transition_days_q: str,
+    tier_add_command: str,
+) -> str:
+    """Shell fragment: register remote tier (ignore duplicate), verify tier, then ``mc ilm rule add``.
+
+    Without a registered tier, ``mc ilm rule add --transition-tier`` fails with an invalid storage
+    class error. Historically we hid ``mc admin tier add`` stderr and chained with ``;``, so ILM
+    ran even when tier registration failed.
+    """
+    err = (
+        "ERROR: Remote tier is not registered on "
+        f"{hot_alias}. Ensure mc admin tier add succeeds (endpoint, credentials, bucket). "
+        "In Console ILM, use this tier name as the transition target—not AWS-only storage classes."
+    )
+    return (
+        f"{tier_add_command} || "
+        f'echo "mc admin tier add exit:$? (ok if tier already exists)"; '
+        f"mc ilm tier check {hot_alias} {tier_name_q} >/dev/null 2>&1 || "
+        f"{{ echo {shlex.quote(err)} >&2; exit 1; }} && "
+        f"mc ilm rule add {hot_alias}/{source_bucket_q} "
+        f"--transition-days {transition_days_q} "
+        f"--transition-tier {tier_name_q}"
+    )
+
+
 def generate_edge_scripts(demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
     """Generate init scripts for all auto-configure edges in a demo."""
     scripts = []
@@ -193,25 +222,23 @@ def _gen_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: st
     source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_node.display_name) if source_node.display_name else source_node.id
     target_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", target_node.display_name) if target_node.display_name else target_node.id
 
-    # Site-replication activation (same pattern as cluster-site-replication):
-    # 1. Wait for mc-shell aliases to be ready (set by init.sh)
-    # 2. Check if already configured via mc admin replicate info
-    # 3. If enabled → idempotent (already in group)
-    # 4. If not enabled → clean target buckets first, then add
-    # 5. Verify replication is active after adding
+    # Anchor mc admin replicate on the site that already has buckets (MinIO rejects the opposite).
     command = (
         f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && mc admin info {target_alias} >/dev/null 2>&1 && break; sleep 2; done && "
-        f"STATUS=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
+        f"NS=$(mc ls {source_alias}/ 2>/dev/null | wc -l | tr -d ' '); case $NS in ''|*[!0-9]*) NS=0;; esac && "
+        f"NT=$(mc ls {target_alias}/ 2>/dev/null | wc -l | tr -d ' '); case $NT in ''|*[!0-9]*) NT=0;; esac && "
+        f"if [ \"$NT\" -gt \"$NS\" ] 2>/dev/null; then PRIMARY={target_alias}; SECOND={source_alias}; "
+        f"elif [ \"$NS\" -gt \"$NT\" ] 2>/dev/null; then PRIMARY={source_alias}; SECOND={target_alias}; "
+        f"else PRIMARY={source_alias}; SECOND={target_alias}; fi && "
+        f"STATUS=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
-        # Already enabled — nothing to do
-        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info {source_alias};; "
-        # Not enabled — clean target and set up
+        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info $PRIMARY;; "
         f"*) echo \"Setting up site replication...\"; "
-        f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
+        f"mc ls \"$SECOND/\" 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
-        f"[ -n \"$b\" ] && echo \"Removing {target_alias}/$b\" && mc rb --force {target_alias}/$b 2>/dev/null; done; "
-        f"mc admin replicate add {source_alias} {target_alias} && "
-        f"VERIFY=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
+        f"[ -n \"$b\" ] && echo \"Removing $SECOND/$b\" && mc rb --force \"$SECOND/$b\" 2>/dev/null; done; "
+        f"mc admin replicate add $PRIMARY $SECOND && "
+        f"VERIFY=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
         f"esac"
@@ -260,18 +287,21 @@ def _gen_ilm_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str) ->
     prefix_flag = _tier_prefix_mc_flag(tier_prefix)
     tier_name = _safe(config.get("tier_name", "COLD-TIER"))
 
+    tier_add = (
+        f"mc admin tier add minio hot {tier_name} "
+        f"--endpoint http://{target_host}:9000 "
+        f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
+        f"--bucket {cold_q}{prefix_flag}"
+    )
+    ilm_tail = _register_remote_tier_then_ilm_rule(
+        "hot", source_bucket, tier_name, transition_days, tier_add
+    )
     command = (
         f"mc alias set hot http://{source_host}:9000 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set cold http://{target_host}:9000 {_safe(target_user)} {_safe(target_pass)} && "
         f"mc mb hot/{source_bucket} --ignore-existing && "
         f"mc mb cold/{cold_q} --ignore-existing && "
-        f"mc admin tier add minio hot {tier_name} "
-        f"--endpoint http://{target_host}:9000 "
-        f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-        f"--bucket {cold_q}{prefix_flag} 2>/dev/null; "
-        f"mc ilm rule add hot/{source_bucket} "
-        f"--transition-days {transition_days} "
-        f"--transition-tier {tier_name}"
+        f"{ilm_tail}"
     )
 
     return [EdgeInitScript(
@@ -534,34 +564,38 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     all_aliases = [_re.sub(r"[^a-zA-Z0-9_]", "_", c.label) for c in demo.clusters]
     all_aliases_str = " ".join(all_aliases)
 
-    # Site-replication activation:
-    # 1. Wait for mc-shell init to set up aliases
-    # 2. Check if already configured via mc admin replicate info
-    # 3. If enabled → try to add target (idempotent if already in group, extends if not)
-    # 4. If not enabled → clean target buckets first, then add
-    # 5. Verify replication is active after adding
+    # MinIO requires site-replication API calls to be anchored on the site that already holds
+    # buckets ("primary"). Pick PRIMARY by max bucket count; fall back to diagram source alias.
+    # `mc admin replicate add` is called with PRIMARY first, then other sites.
+    # Never wipe buckets on PRIMARY; only clear joiner sites before a fresh add.
     command = (
-        # Wait for aliases to be configured by init.sh
-        f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && break; sleep 2; done && "
-        f"STATUS=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
+        f"ALL_SITES=\"{all_aliases_str}\" && "
+        f"for i in $(seq 1 15); do ok=1; for a in $ALL_SITES; do mc admin info \"$a\" >/dev/null 2>&1 || ok=0; done; "
+        f'[ "$ok" = 1 ] && break; sleep 2; done && '
+        f'PRIMARY=""; MAXB=0; for a in $ALL_SITES; do '
+        f'N=$(mc ls "$a/" 2>/dev/null | wc -l); N=$(echo "$N" | tr -d " "); '
+        f'case "$N" in ""|*[!0-9]*) N=0;; esac; '
+        f'if [ "$N" -gt "$MAXB" ] 2>/dev/null; then MAXB=$N; PRIMARY=$a; fi; '
+        f"done && "
+        f'if [ -z "$PRIMARY" ] || [ "$MAXB" -eq 0 ] 2>/dev/null; then PRIMARY={source_alias}; fi && '
+        f'ORDERED="$PRIMARY"; for a in $ALL_SITES; do [ "$a" = "$PRIMARY" ] && continue; ORDERED="$ORDERED $a"; done && '
+        f'STATUS=$(mc admin replicate info "$PRIMARY" 2>&1 | head -1) && '
         f"case \"$STATUS\" in "
-        # Already enabled — add ALL cluster aliases (MinIO requires all existing sites when extending)
+        # Already enabled — extend group; do not delete buckets on any site
         f"*enabled\\ for*) "
         f"echo \"Replication active, ensuring all sites in group...\"; "
-        f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
-        f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
-        f"[ -n \"$b\" ] && mc rb --force {target_alias}/$b 2>/dev/null; done; "
-        f"mc admin replicate add {all_aliases_str} 2>&1 || true; "
-        f"echo \"Replication group updated\"; mc admin replicate info {source_alias};; "
-        # Not enabled — fresh setup
+        f"mc admin replicate add $ORDERED 2>&1 || true; "
+        f'echo "Replication group updated"; mc admin replicate info "$PRIMARY";; '
+        # Fresh setup — wipe buckets only on non-primary joiners, then add with primary first
         f"*) echo \"Setting up site replication...\"; "
-        f"mc ls {target_alias}/ 2>/dev/null | while read line; do "
+        f'for na in $ALL_SITES; do [ "$na" = "$PRIMARY" ] && continue; '
+        f"mc ls \"$na/\" 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
-        f"[ -n \"$b\" ] && echo \"Removing {target_alias}/$b\" && mc rb --force {target_alias}/$b 2>/dev/null; done; "
-        f"mc admin replicate add {all_aliases_str} && "
-        # Verify it actually worked
-        f"VERIFY=$(mc admin replicate info {source_alias} 2>&1 | head -1) && "
-        f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
+        f'[ -n "$b" ] && echo "Removing joiner bucket $na/$b" && mc rb --force "$na/$b" 2>/dev/null; done; '
+        f"done; "
+        f"mc admin replicate add $ORDERED && "
+        f'STATUS2=$(mc admin replicate info "$PRIMARY" 2>&1 | head -1) && '
+        f"case \"$STATUS2\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
         f"esac"
     )
@@ -619,18 +653,21 @@ def _gen_cluster_tiering(edge: DemoEdge, demo: DemoDefinition, project_name: str
     transition_days = _safe(config.get("transition_days", "30"))
     policy_name = _safe(config.get("policy_name", "auto-tier"))
 
+    tier_add = (
+        f"mc admin tier add minio hot {tier_name} "
+        f"--endpoint http://{target_host}:80 "
+        f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
+        f"--bucket {cold_q}{prefix_flag}"
+    )
+    ilm_tail = _register_remote_tier_then_ilm_rule(
+        "hot", source_bucket, tier_name, transition_days, tier_add
+    )
     command = (
         f"mc alias set hot http://{source_host}:80 {_safe(source_user)} {_safe(source_pass)} && "
         f"mc alias set cold http://{target_host}:80 {_safe(target_user)} {_safe(target_pass)} && "
         f"mc mb hot/{source_bucket} --ignore-existing && "
         f"mc mb cold/{cold_q} --ignore-existing && "
-        f"mc admin tier add minio hot {tier_name} "
-        f"--endpoint http://{target_host}:80 "
-        f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
-        f"--bucket {cold_q}{prefix_flag} 2>/dev/null; "
-        f"mc ilm rule add hot/{source_bucket} "
-        f"--transition-days {transition_days} "
-        f"--transition-tier {tier_name}"
+        f"{ilm_tail}"
     )
 
     dest_bits = cold_bucket + (f", prefix {tier_prefix}" if tier_prefix else "")

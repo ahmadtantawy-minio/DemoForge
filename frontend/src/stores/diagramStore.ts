@@ -1,7 +1,15 @@
 import { create } from "zustand";
 import { Node, Edge, OnNodesChange, OnEdgesChange, applyNodeChanges, applyEdgeChanges, Connection, addEdge } from "@xyflow/react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import type { ComponentSummary, ConnectionsDef } from "../types";
+import {
+  canonicalHandlesForClusterEdge,
+  CLUSTER_EDGE_TYPES,
+  reanchorClusterEdgesTouching,
+  reanchorAllClusterPairEdges,
+  sanitizeClusterEdgeHandlesForReactFlow,
+} from "../lib/clusterConnectionAnchors";
+import { findInvalidDiagramEdges } from "../lib/diagramEdgeIssues";
 
 export interface DirectedOption {
   type: string;
@@ -15,6 +23,10 @@ export interface PendingConnection {
   directedOptions?: DirectedOption[];  // when present, picker shows direction labels
   sourcePos: { x: number; y: number };
   targetPos: { x: number; y: number };
+  /** Cluster↔cluster: human-readable source → target for the picker and default edge pill. */
+  clusterFlowLabels?: { sourceLabel: string; targetLabel: string };
+  /** When true, picker offers swapping endpoints before choosing a connection type. */
+  allowSwapDirection?: boolean;
 }
 
 /** Default edge pill label when the connection targets Iceberg browser or S3 file browser. */
@@ -52,6 +64,8 @@ interface DiagramState {
   updateNodeHealth: (nodeId: string, health: string) => void;
   setComponentManifests: (manifests: Record<string, ConnectionsDef>) => void;
   setPendingConnection: (pending: PendingConnection | null) => void;
+  /** Swap source/target on the in-progress cluster wire (same handles swapped). */
+  swapPendingConnectionDirection: () => void;
   completePendingConnection: (connectionType: string, direction?: "forward" | "reverse") => void;
   isDirty: boolean;
   setDirty: (dirty: boolean) => void;
@@ -60,6 +74,20 @@ interface DiagramState {
   /** In-canvas draggable web UI (e.g. Event Processor event viewer) */
   designerWebUiOverlay: { proxyPath: string; title: string } | null;
   setDesignerWebUiOverlay: (o: { proxyPath: string; title: string } | null) => void;
+  /** Central modal target for delete node / delete edge from canvas (DiagramCanvas AlertDialog). */
+  editorDeletePrompt: { type: "node" | "edge"; ids: string[] } | null;
+  openEditorDeleteDialog: (spec: { type: "node" | "edge"; ids: string[] }) => void;
+  closeEditorDeleteDialog: () => void;
+  /** Recompute cluster↔cluster edge handles for edges touching this cluster (after moves or bad drags). */
+  reanchorClusterEdges: (clusterId: string) => void;
+  /** Recompute handles on every cluster↔cluster edge in the diagram. */
+  reanchorAllClusterToClusterEdges: () => void;
+  /** Fix cluster replication / site / tiering edges whose handles violate React Flow (stops error spam). */
+  repairClusterEdgeHandles: () => boolean;
+  /** Remove edges by id (e.g. orphaned connections). Returns how many were removed. */
+  removeDiagramEdgesByIds: (ids: string[]) => number;
+  /** Remove every edge whose source or target node is not on the canvas. Returns how many were removed. */
+  pruneInvalidDiagramEdges: () => number;
 }
 
 export const useDiagramStore = create<DiagramState>((set, get) => ({
@@ -70,6 +98,86 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   selectedClusterElement: null,
   componentManifests: {},
   pendingConnection: null,
+  editorDeletePrompt: null,
+  openEditorDeleteDialog: (spec) => set({ editorDeletePrompt: spec }),
+  closeEditorDeleteDialog: () => set({ editorDeletePrompt: null }),
+
+  reanchorClusterEdges: (clusterId) => {
+    const state = get();
+    const next = reanchorClusterEdgesTouching(clusterId, state.nodes, state.edges);
+    const n = next.reduce((acc, e, i) => {
+      const o = state.edges[i];
+      if (e.sourceHandle !== o.sourceHandle || e.targetHandle !== o.targetHandle) return acc + 1;
+      return acc;
+    }, 0);
+    set({ edges: next, isDirty: true });
+    toast.success("Connection anchors updated", {
+      description: n > 0 ? `Adjusted ${n} edge(s) touching this cluster.` : "No cluster↔cluster edges needed changes.",
+    });
+  },
+
+  reanchorAllClusterToClusterEdges: () => {
+    const state = get();
+    const next = reanchorAllClusterPairEdges(state.nodes, state.edges);
+    const n = next.reduce((acc, e, i) => {
+      const o = state.edges[i];
+      if (e.sourceHandle !== o.sourceHandle || e.targetHandle !== o.targetHandle) return acc + 1;
+      return acc;
+    }, 0);
+    set({ edges: next, isDirty: true });
+    toast.success("All cluster anchors recalculated", {
+      description: n > 0 ? `Updated ${n} cluster↔cluster edge(s).` : "No cluster↔cluster edges needed changes.",
+    });
+  },
+
+  repairClusterEdgeHandles: () => {
+    const state = get();
+    const next = state.edges.map((e) => {
+      const ct = (e.data as { connectionType?: string } | undefined)?.connectionType;
+      if (!ct || !CLUSTER_EDGE_TYPES.has(ct)) return e;
+      const h = sanitizeClusterEdgeHandlesForReactFlow(
+        ct,
+        { source: e.source, target: e.target },
+        state.nodes,
+        { sourceHandle: e.sourceHandle ?? undefined, targetHandle: e.targetHandle ?? undefined }
+      );
+      if (e.sourceHandle === h.sourceHandle && e.targetHandle === h.targetHandle) return e;
+      return { ...e, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle };
+    });
+    let changed = false;
+    for (let i = 0; i < next.length; i++) {
+      const o = state.edges[i];
+      const n = next[i];
+      if (o.sourceHandle !== n.sourceHandle || o.targetHandle !== n.targetHandle) {
+        changed = true;
+        break;
+      }
+    }
+    if (changed) {
+      set({ edges: next, isDirty: true });
+    }
+    return changed;
+  },
+
+  removeDiagramEdgesByIds: (ids) => {
+    if (ids.length === 0) return 0;
+    const state = get();
+    const drop = new Set(ids);
+    const next = state.edges.filter((e) => !drop.has(e.id));
+    const removed = state.edges.length - next.length;
+    if (removed > 0) set({ edges: next, isDirty: true });
+    return removed;
+  },
+
+  pruneInvalidDiagramEdges: () => {
+    const state = get();
+    const invalid = findInvalidDiagramEdges(state.nodes, state.edges);
+    if (invalid.length === 0) return 0;
+    const drop = new Set(invalid.map((i) => i.edgeId));
+    const next = state.edges.filter((e) => !drop.has(e.id));
+    set({ edges: next, isDirty: true });
+    return invalid.length;
+  },
 
   onNodesChange: (changes) =>
     set({ nodes: applyNodeChanges(changes, get().nodes) }),
@@ -82,7 +190,21 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     const sourceNode = state.nodes.find((n) => n.id === connection.source);
     const targetNode = state.nodes.find((n) => n.id === connection.target);
 
-    if (!sourceNode || !targetNode) return;
+    if (!sourceNode || !targetNode) {
+      toast.error("Connection failed", {
+        description: !sourceNode
+          ? `Source node "${connection.source}" is missing from the diagram.`
+          : `Target node "${connection.target}" is missing from the diagram.`,
+      });
+      return;
+    }
+
+    if (connection.source === connection.target) {
+      toast.warning("Cannot connect a node to itself", {
+        description: "Drag from this cluster to a different cluster to add replication, site replication, or ILM tiering.",
+      });
+      return;
+    }
 
     // Detect cluster-to-cluster connections — any handle between two cluster nodes
     const isClusterToCluster = sourceNode.type === "cluster" && targetNode.type === "cluster";
@@ -92,12 +214,16 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       const clusterTypes = ["cluster-replication", "cluster-site-replication", "cluster-tiering"];
       const sourceNodePos = sourceNode.position;
       const targetNodePos = targetNode.position;
+      const sourceLabel = String((sourceNode.data as { label?: string }).label || connection.source).trim();
+      const targetLabel = String((targetNode.data as { label?: string }).label || connection.target).trim();
       set({
         pendingConnection: {
           connection,
           validTypes: clusterTypes,
           sourcePos: sourceNodePos,
           targetPos: targetNodePos,
+          clusterFlowLabels: { sourceLabel, targetLabel },
+          allowSwapDirection: true,
         },
       });
       return;
@@ -437,10 +563,46 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
 
   setPendingConnection: (pending) => set({ pendingConnection: pending }),
 
+  swapPendingConnectionDirection: () => {
+    const state = get();
+    const p = state.pendingConnection;
+    if (!p?.allowSwapDirection) return;
+    const c = p.connection;
+    // Do not swap handle ids onto the other node: a target handle (e.g. cluster-in-top) must not
+    // become sourceHandle after swap — React Flow / addEdge reject invalid handle roles. Clear
+    // handles so completePendingConnection picks canonical handles for the new source→target.
+    set({
+      pendingConnection: {
+        ...p,
+        connection: {
+          ...c,
+          source: c.target,
+          target: c.source,
+          sourceHandle: null,
+          targetHandle: null,
+        },
+        sourcePos: p.targetPos,
+        targetPos: p.sourcePos,
+        clusterFlowLabels:
+          p.clusterFlowLabels != null
+            ? {
+                sourceLabel: p.clusterFlowLabels.targetLabel,
+                targetLabel: p.clusterFlowLabels.sourceLabel,
+              }
+            : undefined,
+      },
+    });
+  },
+
   completePendingConnection: (connectionType: string, direction?: "forward" | "reverse") => {
     const state = get();
     const pending = state.pendingConnection;
-    if (!pending) return;
+    if (!pending) {
+      toast.error("Nothing to connect", {
+        description: "The connection dialog expired or was cleared. Drag from one cluster handle to another again, then pick a connection type.",
+      });
+      return;
+    }
 
     // Determine actual direction from directedOptions if available
     let actualDirection = direction;
@@ -462,26 +624,50 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       targetHandle: pending.connection.targetHandle ?? null,
     };
 
+    // Cluster↔cluster: keep the exact handles the user dragged (e.g. bottom → top). Canonical
+    // geometry is only for re-anchor actions and legacy edges missing handles.
+    const handlesRaw =
+      CLUSTER_EDGE_TYPES.has(connectionType) && conn.sourceHandle && conn.targetHandle
+        ? { sourceHandle: conn.sourceHandle, targetHandle: conn.targetHandle }
+        : canonicalHandlesForClusterEdge(connectionType, conn, state.nodes);
+    const handles = sanitizeClusterEdgeHandlesForReactFlow(
+      connectionType,
+      { source: conn.source, target: conn.target },
+      state.nodes,
+      handlesRaw
+    );
+
+    const srcNode = state.nodes.find((n) => n.id === conn.source);
+    const tgtNode = state.nodes.find((n) => n.id === conn.target);
+    const srcL = String((srcNode?.data as { label?: string }).label || conn.source).trim();
+    const tgtL = String((tgtNode?.data as { label?: string }).label || conn.target).trim();
+    const clusterFlowLabel = CLUSTER_EDGE_TYPES.has(connectionType) ? `${srcL} → ${tgtL}` : "";
+
     // Create edge directly with unique ID (avoids addEdge dedup issues)
     const edgeId = `e-${conn.source}-${conn.target}-${connectionType}-${Date.now()}`;
     const newEdge: Edge = {
       id: edgeId,
       source: conn.source!,
       target: conn.target!,
-      sourceHandle: conn.sourceHandle,
-      targetHandle: conn.targetHandle,
+      sourceHandle: handles.sourceHandle,
+      targetHandle: handles.targetHandle,
       type: "animated",
       data: {
         connectionType,
         network: "default",
-        label: defaultEdgeLabelForTarget(conn.target, state.nodes),
+        label: clusterFlowLabel || defaultEdgeLabelForTarget(conn.target, state.nodes),
         status: "idle",
       },
     };
 
-    set({
-      edges: [...state.edges, newEdge],
-      pendingConnection: null,
-    });
+    try {
+      set({
+        edges: [...state.edges, newEdge],
+        pendingConnection: null,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error("Could not add connection", { description: msg });
+    }
   },
 }));

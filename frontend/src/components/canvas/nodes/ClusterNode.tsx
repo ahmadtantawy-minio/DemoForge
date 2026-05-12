@@ -28,7 +28,18 @@ import MinioAdminPanel from "../../minio/MinioAdminPanel";
 import McpPanel from "../../minio/McpPanel";
 import LogViewer from "../../logs/LogViewer";
 import { apiUrl } from "../../../lib/apiBase";
+import { CLUSTER_EDGE_TYPES } from "../../../lib/clusterConnectionAnchors";
 import type { MinioServerPool } from "../../../types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type PoolDialogState =
   | { mode: "closed" }
@@ -40,7 +51,19 @@ export default function ClusterNode({ id, data }: NodeProps) {
   const updateNodeInternals = useUpdateNodeInternals();
   const nodeData = migrateClusterData(data);
   const pools = nodeData.serverPools || [];
-  const { setSelectedNode, setSelectedClusterElement, selectedClusterElement, nodes, edges, setNodes, setClipboard } = useDiagramStore();
+  const {
+    setSelectedNode,
+    setSelectedClusterElement,
+    selectedClusterElement,
+    nodes,
+    edges,
+    setNodes,
+    setClipboard,
+    openEditorDeleteDialog,
+    reanchorClusterEdges,
+    reanchorAllClusterToClusterEdges,
+    setDirty,
+  } = useDiagramStore();
   const { instances, clusterHealth, activeDemoId, demos, setActiveView } = useDemoStore();
   const demoStatus = demos.find((d) => d.id === activeDemoId)?.status;
   const isRunning = demoStatus === "running";
@@ -66,9 +89,8 @@ export default function ClusterNode({ id, data }: NodeProps) {
     y: number;
   } | null>(null);
   const [driveSubmenu, setDriveSubmenu] = useState<number | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [confirmRemovePool, setConfirmRemovePool] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [removePoolTarget, setRemovePoolTarget] = useState<string | null>(null);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [adminDefaultTab, setAdminDefaultTab] = useState<"overview" | "logs">("overview");
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
@@ -106,6 +128,52 @@ export default function ClusterNode({ id, data }: NodeProps) {
     },
     [activeDemoId, isRunning, edges, id]
   );
+
+  const handleToggleExtraClusterConnectors = useCallback(() => {
+    const next = !nodeData.showExtraClusterConnectors;
+    setNodes(
+      nodes.map((n) =>
+        n.id !== id ? n : { ...n, data: { ...n.data, showExtraClusterConnectors: next } }
+      )
+    );
+    setDirty(true);
+    queueMicrotask(() => updateNodeInternals(id));
+  }, [id, nodeData.showExtraClusterConnectors, nodes, setNodes, setDirty, updateNodeInternals]);
+
+  const handleCopyConnectionDiagnostics = useCallback(() => {
+    const self = nodes.find((n) => n.id === id);
+    const touching = edges.filter((e) => e.source === id || e.target === id);
+    const payload = {
+      clusterId: id,
+      label: nodeData.label,
+      position: self?.position,
+      measured:
+        self && typeof self === "object" && "measured" in self
+          ? (self as { measured?: { width?: number; height?: number } }).measured
+          : undefined,
+      edgesTouchingCluster: touching.map((e) => ({
+        id: e.id,
+        connectionType: (e.data as { connectionType?: string } | undefined)?.connectionType,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+      })),
+      clusterPairEdges: touching.filter((e) => {
+        const ct = (e.data as { connectionType?: string } | undefined)?.connectionType;
+        return Boolean(ct && CLUSTER_EDGE_TYPES.has(ct));
+      }),
+    };
+    const text = JSON.stringify(payload, null, 2);
+    void navigator.clipboard
+      .writeText(text)
+      .then(() =>
+        toast.success("Copied connection diagnostics", {
+          description: "Paste into a note or issue.",
+        })
+      )
+      .catch(() => toast.error("Could not copy to clipboard"));
+  }, [id, nodeData.label, nodes, edges]);
 
   const openAddPoolDialog = useCallback(() => {
     if (pools.length === 0) return;
@@ -256,7 +324,7 @@ export default function ClusterNode({ id, data }: NodeProps) {
   };
   const handleResetCluster = async () => {
     if (!activeDemoId) return;
-    setConfirmReset(false);
+    setResetDialogOpen(false);
     setContextMenu(null);
     toast.info(`Removing all buckets from ${nodeData.label || id}...`);
     try {
@@ -362,7 +430,7 @@ export default function ClusterNode({ id, data }: NodeProps) {
     <>
       <div
         ref={nodeRef}
-        className="w-full rounded-xl p-3.5 cursor-pointer bg-zinc-100 dark:bg-zinc-900"
+        className="relative w-full rounded-xl p-3.5 cursor-pointer bg-zinc-100 dark:bg-zinc-900"
         style={{ border: "1.5px solid rgba(161,161,170,0.4)", minWidth: 380 }}
         onClick={() => {
           setSelectedNode(id);
@@ -376,12 +444,6 @@ export default function ClusterNode({ id, data }: NodeProps) {
           setContextMenu({ type: "cluster", x: e.clientX, y: e.clientY });
         }}
       >
-        <Handle type="target" position={Position.Left} id="data-in" />
-        <Handle type="target" position={Position.Top} id="cluster-in-top" />
-        <Handle type="source" position={Position.Top} id="cluster-out" className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0" style={{ position: "absolute", top: 0, left: "50%" }} />
-        <Handle type="source" position={Position.Bottom} id="cluster-out-bottom" />
-        <Handle type="target" position={Position.Bottom} id="cluster-in" className="!opacity-0 !w-0 !h-0 !min-w-0 !min-h-0" style={{ position: "absolute", bottom: 0, left: "50%" }} />
-
         <ClusterHeader
           label={nodeData.label || "MinIO Cluster"}
           pools={pools}
@@ -473,7 +535,57 @@ export default function ClusterNode({ id, data }: NodeProps) {
           <AddPoolButton onClick={openAddPoolDialog} />
         )}
         {pools.length > 0 && <CapacityBar aggregates={aggregates} />}
-        <Handle type="source" position={Position.Right} id="data-out" />
+        {/* Handles last so they stack above pool tiles / bars (avoids missed connection drops on dense cards). */}
+        <Handle type="target" position={Position.Left} id="data-in" className="!z-20" />
+        <Handle
+          type="source"
+          position={Position.Left}
+          id="cluster-out-left"
+          className="!z-20"
+          style={{ top: "20%" }}
+        />
+        <Handle type="target" position={Position.Top} id="cluster-in-top" className="!z-20" />
+        <Handle
+          type="source"
+          position={Position.Top}
+          id="cluster-out"
+          className="!z-20 !opacity-0 !w-4 !h-4 !min-w-[16px] !min-h-[16px] !border-0 !bg-transparent"
+          style={{ position: "absolute", top: 0, left: "50%" }}
+        />
+        <Handle type="source" position={Position.Bottom} id="cluster-out-bottom" className="!z-20" />
+        <Handle
+          type="target"
+          position={Position.Bottom}
+          id="cluster-in"
+          className="!z-20 !opacity-0 !w-4 !h-4 !min-w-[16px] !min-h-[16px] !border-0 !bg-transparent"
+          style={{ position: "absolute", bottom: 0, left: "50%" }}
+        />
+        <Handle type="source" position={Position.Right} id="data-out" className="!z-20" />
+        <Handle
+          type="target"
+          position={Position.Right}
+          id="cluster-in-right"
+          className="!z-20"
+          style={{ top: "78%" }}
+        />
+        {nodeData.showExtraClusterConnectors ? (
+          <>
+            <Handle
+              type="source"
+              position={Position.Top}
+              id="cluster-aux-out-tl"
+              className="!z-20 !h-3 !w-3"
+              style={{ left: "18%", top: 0 }}
+            />
+            <Handle
+              type="target"
+              position={Position.Bottom}
+              id="cluster-aux-in-br"
+              className="!z-20 !h-3 !w-3"
+              style={{ left: "82%", bottom: 0 }}
+            />
+          </>
+        ) : null}
       </div>
 
       {contextMenu && (
@@ -506,13 +618,19 @@ export default function ClusterNode({ id, data }: NodeProps) {
           onStopDrive={handleStopDrive}
           onStartDrive={handleStartDrive}
           onResetCluster={handleResetCluster}
+          onRequestResetCluster={() => {
+            setResetDialogOpen(true);
+            setContextMenu(null);
+            setDriveSubmenu(null);
+          }}
           onCopy={() => {
             const self = nodes.find((n) => n.id === id);
             if (self) setClipboard(self);
           }}
           onDeleteCluster={() => {
-            setNodes(nodes.filter((n) => n.id !== id));
+            openEditorDeleteDialog({ type: "node", ids: [id] });
             setContextMenu(null);
+            setDriveSubmenu(null);
           }}
           onViewInstances={() => {
             setActiveView("control-plane");
@@ -536,10 +654,10 @@ export default function ClusterNode({ id, data }: NodeProps) {
             handleDuplicatePool(poolId);
             setContextMenu(null);
           }}
-          onRemovePool={(poolId) => {
-            handleRemovePool(poolId);
-            setConfirmRemovePool(false);
+          onRequestRemovePool={(poolId) => {
+            setRemovePoolTarget(poolId);
             setContextMenu(null);
+            setDriveSubmenu(null);
           }}
           onViewNodeDetails={(poolId, nodeIndex) => {
             setSelectedNode(id);
@@ -551,14 +669,58 @@ export default function ClusterNode({ id, data }: NodeProps) {
           onCancelDecommission={handleCancelDecommission}
           poolDecommissionStatus={poolDecommissionStatus}
           poolsCount={pools.length}
-          confirmReset={confirmReset}
-          onSetConfirmReset={setConfirmReset}
-          confirmDelete={confirmDelete}
-          onSetConfirmDelete={setConfirmDelete}
-          confirmRemovePool={confirmRemovePool}
-          onSetConfirmRemovePool={setConfirmRemovePool}
+          showExtraClusterConnectors={nodeData.showExtraClusterConnectors === true}
+          onReanchorClusterConnections={() => reanchorClusterEdges(id)}
+          onReanchorAllClusterConnections={() => reanchorAllClusterToClusterEdges()}
+          onToggleExtraClusterConnectors={handleToggleExtraClusterConnectors}
+          onCopyConnectionDiagnostics={handleCopyConnectionDiagnostics}
         />
       )}
+
+      <AlertDialog open={resetDialogOpen} onOpenChange={(open) => !open && setResetDialogOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset cluster?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove all buckets from this cluster{nodeData.label ? ` (${nodeData.label})` : ""}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleResetCluster()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Reset cluster
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={removePoolTarget !== null} onOpenChange={(open) => !open && setRemovePoolTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove pool?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isRunning
+                ? "Remove this pool from the diagram and update Docker? This cannot be undone."
+                : "Remove this pool from the cluster configuration? This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (removePoolTarget) handleRemovePool(removePoolTarget);
+                setRemovePoolTarget(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remove pool
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AddPoolDialog
         open={poolDialog.mode !== "closed"}

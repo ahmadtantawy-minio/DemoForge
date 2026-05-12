@@ -209,6 +209,7 @@ export default function PropertiesPanel() {
       activeDemoId={activeDemoId}
       isExperience={!!isExperience}
       isRunning={!!isRunning}
+      nodes={nodes}
       edges={edges}
       setEdges={setEdges}
       eventProcessorRouting={eventProcessorRouting}

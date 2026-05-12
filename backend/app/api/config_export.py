@@ -260,6 +260,10 @@ def _gen_ilm_tiering(demo: DemoDefinition, project_name: str) -> ScriptSection:
             f"--access-key {_safe(target_user)} --secret-key {_safe(target_pass)} "
             f"--bucket {cold_bucket_q}{prefix_flag}"
         )
+        section.comments.append(
+            f"# Fail fast if tier {tier_name} is not registered (avoids ILM 'invalid storage class')"
+        )
+        section.commands.append(f"mc ilm tier check {source_alias} {tier_name}")
 
         section.comments.append(f"# Transition objects in {source_alias}/{source_bucket} after {transition_days} days")
         section.commands.append(

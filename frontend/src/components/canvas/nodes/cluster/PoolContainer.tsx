@@ -1,5 +1,10 @@
 import type { MinioServerPool } from "../../../../types";
-import { computePoolErasureStats } from "../../../../lib/erasure";
+import {
+  computePoolErasureStats,
+  effectiveStripeSize,
+  clampParityToValidStripe,
+  minioDefaultStandardParity,
+} from "../../../../lib/erasure";
 
 interface Props {
   pool: MinioServerPool;
@@ -29,7 +34,16 @@ export default function PoolContainer({
   onPoolContextMenu,
   onPoolClick,
 }: Props) {
-  const stats = computePoolErasureStats(pool.nodeCount, pool.drivesPerNode, pool.ecParity, pool.diskSizeTb);
+  const td = pool.nodeCount * pool.drivesPerNode;
+  const stripe = effectiveStripeSize(td, pool.erasureStripeDrives ?? null);
+  const par = clampParityToValidStripe(stripe, pool.ecParity ?? minioDefaultStandardParity(stripe));
+  const stats = computePoolErasureStats(
+    pool.nodeCount,
+    pool.drivesPerNode,
+    par,
+    pool.diskSizeTb,
+    pool.erasureStripeDrives,
+  );
 
   if (hidden) {
     return (

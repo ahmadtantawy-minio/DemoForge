@@ -9,7 +9,7 @@ from .registry.loader import load_registry
 from .engine.health_monitor import health_monitor_loop
 from .engine.network_manager import join_network
 from .state.store import state
-from .api import registry, demos, deploy, instances, proxy, terminal, health, settings, cockpit, minio_actions, config_export, templates, mcp_proxy, mcp_chat, failover_status, resilience_status, sql, playbook, images as images_router, readiness as readiness_router, fa_admin as fa_admin_router, connectivity as connectivity_router, version as version_router, cluster_health
+from .api import registry, demos, deploy, instances, proxy, terminal, health, settings, cockpit, minio_actions, config_export, templates, mcp_proxy, mcp_chat, failover_status, resilience_status, sql, playbook, images as images_router, readiness as readiness_router, fa_admin as fa_admin_router, connectivity as connectivity_router, version as version_router, cluster_health, iam_reconcile_report
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +147,7 @@ app.include_router(fa_admin_router.router)
 app.include_router(connectivity_router.router)
 app.include_router(version_router.router)
 app.include_router(cluster_health.router)
+app.include_router(iam_reconcile_report.router)
 
 # Proxy routes (must be last — catch-all pattern)
 app.include_router(proxy.router)

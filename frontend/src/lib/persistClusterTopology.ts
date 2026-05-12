@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import { applyClusterTopology, saveDiagram } from "../api/client";
+import { showIamReconcileToastIfApplicable } from "./iamReconcileToast";
 import { toast } from "./toast";
 
 /** Cluster `data` patches that require compose regen + docker compose up when the demo is running. */
@@ -26,6 +27,7 @@ export async function saveDiagramAndApplyClusterTopology(
     await saveDiagram(activeDemoId, nodes, edges);
     await applyClusterTopology(activeDemoId, clusterId);
     toast.success("Cluster topology applied to Docker");
+    void showIamReconcileToastIfApplicable(activeDemoId);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     toast.error(`Topology apply failed: ${msg}`);

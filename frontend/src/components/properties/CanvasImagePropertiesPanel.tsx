@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import { Input } from "@/components/ui/input";
 import {
@@ -9,6 +10,16 @@ import {
 } from "@/components/ui/select";
 import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
 import { saveDiagram } from "../../api/client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface CanvasImagePropertiesPanelProps {
   selectedNodeId: string;
@@ -32,6 +43,7 @@ export function CanvasImagePropertiesPanel({
   setDirty,
   activeDemoId,
 }: CanvasImagePropertiesPanelProps) {
+  const [deleteImageOpen, setDeleteImageOpen] = useState(false);
   const imgData = selectedNode.data as Record<string, unknown>;
   const updateImage = (patch: Record<string, unknown>) => {
     setNodes(
@@ -55,10 +67,11 @@ export function CanvasImagePropertiesPanel({
       })
     );
   };
-  const handleDelete = () => {
+  const performDeleteImage = () => {
     const newNodes = nodes.filter((n) => n.id !== selectedNodeId);
     replaceNodesRaw(newNodes);
     setDirty(true);
+    setDeleteImageOpen(false);
     if (activeDemoId) {
       saveDiagram(activeDemoId, newNodes, edges).catch(() => {});
     }
@@ -143,12 +156,32 @@ export function CanvasImagePropertiesPanel({
       <div className="pt-3 border-t border-border">
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={() => setDeleteImageOpen(true)}
           className="w-full py-1.5 text-xs font-medium rounded border border-destructive/50 text-destructive bg-destructive/5 hover:bg-destructive/10 transition-colors"
         >
           Delete Image
         </button>
       </div>
+
+      <AlertDialog open={deleteImageOpen} onOpenChange={setDeleteImageOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove this canvas image from the diagram. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={performDeleteImage}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

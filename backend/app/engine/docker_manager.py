@@ -325,17 +325,35 @@ async def _pull_missing_images(demo: DemoDefinition, progress) -> int:
     return len(pulled)
 
 
-async def deploy_demo(demo: DemoDefinition, data_dir: str, components_dir: str = "./components", on_progress=None) -> RunningDemo:
+async def deploy_demo(
+    demo: DemoDefinition,
+    data_dir: str,
+    components_dir: str = "./components",
+    on_progress=None,
+    *,
+    fresh_volumes: bool = False,
+) -> RunningDemo:
     """Generate compose file, bring up containers, join networks.
 
     on_progress: optional async callback(step: str, status: str, detail: str)
+    fresh_volumes: If True, remove Docker volumes for this demo project during pre-deploy cleanup
+        (``docker compose down -v``) so stateful components (e.g. MinIO) start with empty disks.
     """
     lock = _get_lock(demo.id)
     async with lock:
-        return await _deploy_demo_locked(demo, data_dir, components_dir, on_progress)
+        return await _deploy_demo_locked(
+            demo, data_dir, components_dir, on_progress, fresh_volumes=fresh_volumes
+        )
 
 
-async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_dir: str, on_progress) -> RunningDemo:
+async def _deploy_demo_locked(
+    demo: DemoDefinition,
+    data_dir: str,
+    components_dir: str,
+    on_progress,
+    *,
+    fresh_volumes: bool = False,
+) -> RunningDemo:
     async def progress(step: str, status: str, detail: str = ""):
         logger.info(f"Deploy progress [{demo.id}]: {step} -> {status}: {detail}")
         if on_progress:
@@ -406,20 +424,27 @@ async def _deploy_demo_locked(demo: DemoDefinition, data_dir: str, components_di
         if images_pulled:
             await progress("images", "done", f"Pulled {images_pulled} missing image(s) from GCR")
 
-        # Clean up leftover containers (preserve volumes unless cluster topology changed)
-        await progress("cleanup", "running", "Cleaning up previous containers...")
-        await _cleanup_demo(demo.id, compose_path, project_name, network_names, remove_volumes=False)
-
-        # Remove volumes for clusters whose topology changed — MinIO erasure sets cannot be resized
-        if changed_clusters:
-            await progress("cleanup", "running", f"Resetting {len(changed_clusters)} reconfigured cluster(s)...")
-            for cluster_id in changed_clusters:
-                cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
-                prev = prev_cluster_configs[cluster_id]
-                if cluster:
-                    old_pools = prev.get("pools") or [{"node_count": prev["node_count"], "drives_per_node": prev["drives_per_node"]}]
-                    new_pools = [{"node_count": p.node_count, "drives_per_node": p.drives_per_node} for p in cluster.get_pools()]
-                    await _remove_cluster_volumes(project_name, cluster_id, old_pools, new_pools)
+        # Clean up leftover containers; optionally wipe volumes (fresh deploy) or only when topology changed
+        if fresh_volumes:
+            await progress(
+                "cleanup",
+                "running",
+                "Cleaning up previous containers and Docker volumes (fresh deploy — empty MinIO disks)...",
+            )
+            await _cleanup_demo(demo.id, compose_path, project_name, network_names, remove_volumes=True)
+        else:
+            await progress("cleanup", "running", "Cleaning up previous containers...")
+            await _cleanup_demo(demo.id, compose_path, project_name, network_names, remove_volumes=False)
+            # Remove volumes for clusters whose topology changed — MinIO erasure sets cannot be resized
+            if changed_clusters:
+                await progress("cleanup", "running", f"Resetting {len(changed_clusters)} reconfigured cluster(s)...")
+                for cluster_id in changed_clusters:
+                    cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
+                    prev = prev_cluster_configs[cluster_id]
+                    if cluster:
+                        old_pools = prev.get("pools") or [{"node_count": prev["node_count"], "drives_per_node": prev["drives_per_node"]}]
+                        new_pools = [{"node_count": p.node_count, "drives_per_node": p.drives_per_node} for p in cluster.get_pools()]
+                        await _remove_cluster_volumes(project_name, cluster_id, old_pools, new_pools)
 
         await progress("cleanup", "done", "Cleanup complete")
 

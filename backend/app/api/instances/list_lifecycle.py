@@ -33,6 +33,7 @@ from ...models.api_models import (
     ExternalSystemOnDemandTriggerRequest,
 )
 from ..demos import _load_demo, _save_demo
+from ..iam_reconcile_report import mc_shell_iam_integration_events_from_logs
 from ...engine import task_manager
 from .helpers import (
     _repl_cache,
@@ -293,6 +294,19 @@ async def list_instances(demo_id: str):
                         continue
             except Exception:
                 continue
+
+        # mc-shell: IAM simulation mc commands + DEMOFORGE_IAM_REPORT (docker logs; same lines as IAM reconcile API)
+        if "mc-shell" in running.containers:
+            mc_cname = running.containers["mc-shell"].container_name
+            try:
+
+                def _mc_logs() -> bytes:
+                    return docker_client.containers.get(mc_cname).logs(tail=50000)
+
+                mc_raw = await asyncio.to_thread(_mc_logs)
+                integration_events.extend(mc_shell_iam_integration_events_from_logs(mc_raw, demo_id))
+            except Exception as e:
+                logger.debug("mc-shell integration log tail failed for %s: %s", demo_id, e)
 
         integration_events.extend(_load_demo_integration_audit(demo_id))
 

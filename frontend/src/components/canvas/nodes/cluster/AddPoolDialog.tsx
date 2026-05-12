@@ -16,7 +16,16 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import type { MinioServerPool, DiskType } from "../../../../types";
-import { computeErasureSetSize, computeECOptions, computePoolErasureStats } from "../../../../lib/erasure";
+import {
+  computeErasureSetSize,
+  effectiveStripeSize,
+  validStripeSizesForTotal,
+  computePoolErasureStats,
+  minioEcSettingOptions,
+  clampParityToValidStripe,
+  minioDefaultStandardParity,
+  formatMinioEcStripeShort,
+} from "../../../../lib/erasure";
 
 interface Props {
   open: boolean;
@@ -45,6 +54,7 @@ export default function AddPoolDialog({
   const [diskSizeTb, setDiskSizeTb] = useState(1);
   const [ecParity, setEcParity] = useState(3);
   const [ecParityUpgradePolicy, setEcParityUpgradePolicy] = useState("upgrade");
+  const [erasureStripeDrives, setErasureStripeDrives] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -56,12 +66,23 @@ export default function AddPoolDialog({
     setDiskSizeTb(t.diskSizeTb ?? 1);
     setEcParity(t.ecParity ?? 3);
     setEcParityUpgradePolicy(t.ecParityUpgradePolicy ?? "upgrade");
+    setErasureStripeDrives(t.erasureStripeDrives ?? null);
   }, [open, templatePool]);
 
   const totalDrives = nodeCount * drivesPerNode;
-  const setSize = computeErasureSetSize(totalDrives);
+  const stripeChoices = validStripeSizesForTotal(totalDrives);
+  const setSize = effectiveStripeSize(totalDrives, erasureStripeDrives);
   const numSets = totalDrives / setSize;
-  const stats = computePoolErasureStats(nodeCount, drivesPerNode, ecParity, diskSizeTb);
+  const syncedParity = clampParityToValidStripe(
+    setSize,
+    ecParity ?? minioDefaultStandardParity(setSize),
+  );
+  const stats = computePoolErasureStats(nodeCount, drivesPerNode, syncedParity, diskSizeTb, erasureStripeDrives);
+  const ecOptions = minioEcSettingOptions(setSize);
+
+  useEffect(() => {
+    if (ecParity !== syncedParity) setEcParity(syncedParity);
+  }, [syncedParity, ecParity]);
 
   const buildPool = (): MinioServerPool => ({
     id: nextPoolId,
@@ -69,9 +90,10 @@ export default function AddPoolDialog({
     drivesPerNode,
     diskSizeTb,
     diskType,
-    ecParity,
+    ecParity: syncedParity,
     ecParityUpgradePolicy,
     volumePath: templatePool.volumePath || "/data",
+    ...(erasureStripeDrives != null ? { erasureStripeDrives } : {}),
   });
 
   const handleSubmit = async () => {
@@ -118,12 +140,22 @@ export default function AddPoolDialog({
                 const minDrives = n === 2 ? 2 : 1;
                 const d = Math.max(drivesPerNode, minDrives);
                 const newTotal = n * d;
-                const newSetSize = computeErasureSetSize(newTotal);
-                const maxParity = Math.floor(newSetSize / 2);
-                const defaultParity = newSetSize <= 5 ? 2 : newSetSize <= 7 ? 3 : 4;
+                const keepStripe =
+                  erasureStripeDrives != null &&
+                  erasureStripeDrives > 0 &&
+                  newTotal % erasureStripeDrives === 0;
+                const stripeForParity = effectiveStripeSize(
+                  newTotal,
+                  keepStripe ? erasureStripeDrives : null,
+                );
+                const nextParity = clampParityToValidStripe(
+                  stripeForParity,
+                  ecParity ?? minioDefaultStandardParity(stripeForParity),
+                );
                 setNodeCount(n);
                 if (d !== drivesPerNode) setDrivesPerNode(d);
-                if (ecParity > maxParity) setEcParity(defaultParity);
+                if (!keepStripe) setErasureStripeDrives(null);
+                setEcParity(nextParity);
               }}
             >
               <SelectTrigger className="w-full h-8 text-sm">
@@ -146,11 +178,21 @@ export default function AddPoolDialog({
               onValueChange={(v) => {
                 const d = parseInt(v, 10);
                 const newTotal = nodeCount * d;
-                const newSetSize = computeErasureSetSize(newTotal);
-                const maxParity = Math.floor(newSetSize / 2);
-                const defaultParity = newSetSize <= 5 ? 2 : newSetSize <= 7 ? 3 : 4;
+                const keepStripe =
+                  erasureStripeDrives != null &&
+                  erasureStripeDrives > 0 &&
+                  newTotal % erasureStripeDrives === 0;
+                const stripeForParity = effectiveStripeSize(
+                  newTotal,
+                  keepStripe ? erasureStripeDrives : null,
+                );
+                const nextParity = clampParityToValidStripe(
+                  stripeForParity,
+                  ecParity ?? minioDefaultStandardParity(stripeForParity),
+                );
                 setDrivesPerNode(d);
-                if (ecParity > maxParity) setEcParity(defaultParity);
+                if (!keepStripe) setErasureStripeDrives(null);
+                setEcParity(nextParity);
               }}
             >
               <SelectTrigger className="w-full h-8 text-sm">
@@ -170,6 +212,47 @@ export default function AddPoolDialog({
               {totalDrives} total drives → {numSets} × {setSize}-drive erasure set{numSets > 1 ? "s" : ""}
             </p>
           </div>
+
+          {stripeChoices.length > 1 && (
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Erasure stripe width</label>
+              <Select
+                value={erasureStripeDrives == null ? "auto" : String(erasureStripeDrives)}
+                onValueChange={(v) => {
+                  if (v === "auto") {
+                    const autoS = computeErasureSetSize(totalDrives);
+                    setErasureStripeDrives(null);
+                    setEcParity(
+                      clampParityToValidStripe(
+                        autoS,
+                        ecParity ?? minioDefaultStandardParity(autoS),
+                      ),
+                    );
+                    return;
+                  }
+                  const w = parseInt(v, 10);
+                  setErasureStripeDrives(w);
+                  setEcParity(
+                    clampParityToValidStripe(w, ecParity ?? minioDefaultStandardParity(w)),
+                  );
+                }}
+              >
+                <SelectTrigger className="w-full h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">
+                    Auto ({computeErasureSetSize(totalDrives)} drives/set)
+                  </SelectItem>
+                  {stripeChoices.map((w) => (
+                    <SelectItem key={w} value={String(w)}>
+                      {w} drives/set → {totalDrives / w} set{totalDrives / w > 1 ? "s" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Disk type</label>
@@ -203,19 +286,32 @@ export default function AddPoolDialog({
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">EC parity</label>
-            <Select value={String(ecParity)} onValueChange={(v) => setEcParity(parseInt(v, 10))}>
-              <SelectTrigger className="w-full h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {computeECOptions(setSize).map((opt) => (
-                  <SelectItem key={opt.value} value={String(opt.value)}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <label className="text-xs text-muted-foreground block mb-1">EC setting (STANDARD)</label>
+            {ecOptions.length === 0 ? (
+              <p className="text-xs text-destructive leading-snug">
+                No valid STANDARD EC for this drive count. Each stripe needs ≥4 drives with parity 2…½stripe.
+              </p>
+            ) : (
+              <Select value={String(syncedParity)} onValueChange={(v) => setEcParity(parseInt(v, 10))}>
+                <SelectTrigger className="w-full h-8 text-sm">
+                  <SelectValue>{formatMinioEcStripeShort(setSize, syncedParity)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent className="max-w-[min(100vw-2rem,28rem)]">
+                  {ecOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={String(opt.value)} textValue={opt.shortLabel}>
+                      <div className="flex flex-col gap-0.5 py-0.5">
+                        <span className="font-mono text-xs">{opt.shortLabel}</span>
+                        <span className="text-[10px] text-muted-foreground leading-snug">{opt.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              <span className="font-mono">EC stripe:parity</span> per erasure set; deploy uses{" "}
+              <span className="font-mono">MINIO_STORAGE_CLASS_STANDARD=EC:{syncedParity}</span>.
+            </p>
           </div>
 
           <div>

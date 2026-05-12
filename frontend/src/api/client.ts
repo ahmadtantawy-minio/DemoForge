@@ -138,11 +138,13 @@ export const fetchInventory = () =>
   }>("/api/inventory");
 
 // Deploy
-export const deployDemo = (id: string) =>
-  apiFetch<{ demo_id: string; status: string; task_id?: string; message?: string }>(
-    `/api/demos/${id}/deploy`,
-    { method: "POST" }
+export const deployDemo = (id: string, opts?: { freshVolumes?: boolean }) => {
+  const qs = opts?.freshVolumes ? "?fresh_volumes=true" : "";
+  return apiFetch<{ demo_id: string; status: string; task_id?: string; message?: string }>(
+    `/api/demos/${id}/deploy${qs}`,
+    { method: "POST" },
   );
+};
 
 export const stopDemo = (id: string) =>
   apiFetch<{ demo_id: string; status: string; task_id?: string }>(
@@ -258,6 +260,29 @@ export const applyClusterTopology = (demoId: string, clusterId: string) =>
     compose_path: string;
     container_count: number;
   }>(`/api/demos/${demoId}/clusters/${clusterId}/apply-topology`, { method: "POST" });
+
+/** IAM simulation reconcile line from mc-shell logs (empty when no IAM spec / container). */
+export type IamReconcileReportResponse =
+  | { enabled: false; reason?: string }
+  | {
+      enabled: true;
+      policies_expected: number;
+      policies_provisioned: number;
+      policies_failed: number;
+      policies_unprovisioned: number;
+      users_expected: number;
+      users_provisioned: number;
+      users_failed: number;
+      users_unprovisioned: number;
+      attaches_expected: number;
+      attaches_provisioned: number;
+      attaches_failed: number;
+      attaches_unprovisioned: number;
+      errors: string[];
+    };
+
+export const fetchIamReconcileReport = (demoId: string) =>
+  apiFetch<IamReconcileReportResponse>(`/api/demos/${demoId}/iam-reconcile-report`);
 
 export const fetchMinioCommands = (demoId: string) =>
   apiFetch<{

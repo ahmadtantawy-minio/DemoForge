@@ -75,4 +75,15 @@ template_mounts:
 
 static_mounts: []
 
+properties:
+  - key: S3_SIMULATED_IDENTITY
+    label: Simulated IAM user
+    type: s3_simulated_identity
+    default: ""
+    description: >-
+      Leave unset or empty for MinIO root (default, backward compatible). Set __first__ to use the first simulated IAM user,
+      choose a user access key, or use __root__ explicitly. On deploy, DemoForge injects keys and the identity map; the
+      browser signs S3 calls (including presigned URLs) with the active identity so MinIO applies attached policies for
+      simulated users.
+
 init_scripts: []

@@ -5,16 +5,17 @@ import type { ComponentEdgeData } from "../../../types";
 import { getConnectionColor } from "../../../lib/connectionMeta";
 import { nonemptyTrim } from "../../../lib/utils";
 import { useDemoStore } from "../../../stores/demoStore";
+import { useDiagramStore } from "../../../stores/diagramStore";
 
 
 export default function AnimatedDataEdge({
   id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd,
 }: EdgeProps) {
-  const { deleteElements, getNode } = useReactFlow();
+  const { getNode } = useReactFlow();
   const { demos, activeDemoId } = useDemoStore();
+  const openEditorDeleteDialog = useDiagramStore((s) => s.openEditorDeleteDialog);
   const isDemoRunning = demos.find((d) => d.id === activeDemoId)?.status === "running";
   const [hovered, setHovered] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const edgeData = data as ComponentEdgeData | undefined;
   const connectionType = (edgeData?.connectionType ?? "data") as string;
@@ -174,8 +175,6 @@ export default function AnimatedDataEdge({
 
   const isBidirectional =
     (edgeData as any)?.connectionConfig?.direction === "bidirectional" ||
-    connectionType === "site-replication" ||
-    connectionType === "cluster-site-replication" ||
     isSparkEtlMinioDataEdge;
   const isFailover = connectionType === "failover";
   const failoverRole = (edgeData as any)?.connectionConfig?.role as string | undefined;
@@ -404,44 +403,26 @@ export default function AnimatedDataEdge({
             )}
           </div>
         )}
-        {hovered && !confirmDelete && (
+        {hovered && (
           <button
+            type="button"
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - 16}px)`,
               pointerEvents: "all",
             }}
             className="nodrag nopan flex items-center justify-center w-4 h-4 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
+            title="Delete connection"
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
-            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              openEditorDeleteDialog({ type: "edge", ids: [id] });
+              setHovered(false);
+            }}
           >
             <X size={10} />
           </button>
-        )}
-        {confirmDelete && (
-          <div
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - 20}px)`,
-              pointerEvents: "all",
-            }}
-            className="nodrag nopan flex items-center gap-1 bg-popover border border-border rounded px-2 py-1 shadow-lg"
-          >
-            <span className="text-[10px] text-muted-foreground">Delete?</span>
-            <button
-              className="px-1.5 py-0.5 text-[10px] bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
-              onClick={() => deleteElements({ edges: [{ id }] })}
-            >
-              Yes
-            </button>
-            <button
-              className="px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground rounded hover:bg-accent"
-              onClick={() => setConfirmDelete(false)}
-            >
-              No
-            </button>
-          </div>
         )}
       </EdgeLabelRenderer>
     </>

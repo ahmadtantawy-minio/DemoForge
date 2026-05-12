@@ -2,12 +2,13 @@ import { useEffect, useRef } from "react";
 import { useDiagramStore } from "../../stores/diagramStore";
 import type { ConnectionType } from "../../types";
 import { getConnectionColor, getConnectionLabel } from "../../lib/connectionMeta";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ArrowRightLeft } from "lucide-react";
 
 export default function ConnectionTypePicker() {
   const pendingConnection = useDiagramStore((s) => s.pendingConnection);
   const completePendingConnection = useDiagramStore((s) => s.completePendingConnection);
   const setPendingConnection = useDiagramStore((s) => s.setPendingConnection);
+  const swapPendingConnectionDirection = useDiagramStore((s) => s.swapPendingConnectionDirection);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,15 +22,39 @@ export default function ConnectionTypePicker() {
     return () => window.removeEventListener("keydown", handler);
   }, [pendingConnection, setPendingConnection]);
 
+  /** Outside-dismiss for the picker only (see DiagramCanvas: pendingConnection must not use window `click`). */
+  useEffect(() => {
+    if (!pendingConnection) return;
+    let cancelled = false;
+    let removeListener: (() => void) | undefined;
+    const t = window.setTimeout(() => {
+      if (cancelled) return;
+      const onMouseDown = (e: MouseEvent) => {
+        if (cancelled) return;
+        const el = e.target as Node | null;
+        if (el && ref.current?.contains(el)) return;
+        setPendingConnection(null);
+      };
+      document.addEventListener("mousedown", onMouseDown, true);
+      removeListener = () => document.removeEventListener("mousedown", onMouseDown, true);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+      removeListener?.();
+    };
+  }, [pendingConnection, setPendingConnection]);
+
   if (!pendingConnection) return null;
 
-  const { directedOptions } = pendingConnection;
+  const { directedOptions, clusterFlowLabels, allowSwapDirection } = pendingConnection;
 
   // Position at center of viewport for reliable placement regardless of zoom/pan
   return (
     <div
       ref={ref}
-      className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[200px] max-w-[320px]"
+      data-connection-type-picker
+      className="fixed z-[10001] bg-popover border border-border rounded-lg shadow-lg p-2 min-w-[200px] max-w-[320px]"
       style={{
         left: "50%",
         top: "40%",
@@ -39,6 +64,24 @@ export default function ConnectionTypePicker() {
       <div className="text-xs font-medium text-muted-foreground mb-1.5 px-1">
         Connection Type
       </div>
+      {allowSwapDirection && clusterFlowLabels && !directedOptions && (
+        <div className="mb-2 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+          <div className="text-muted-foreground mb-1">Diagram direction (source → target)</div>
+          <div className="font-medium text-foreground flex items-center gap-1.5 flex-wrap leading-snug">
+            <span className="min-w-0 break-words">{clusterFlowLabels.sourceLabel}</span>
+            <ArrowRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="min-w-0 break-words">{clusterFlowLabels.targetLabel}</span>
+          </div>
+          <button
+            type="button"
+            className="mt-2 w-full flex items-center justify-center gap-1.5 rounded border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent transition-colors"
+            onClick={() => swapPendingConnectionDirection()}
+          >
+            <ArrowRightLeft className="w-3.5 h-3.5 shrink-0" aria-hidden />
+            Swap direction
+          </button>
+        </div>
+      )}
       <div className="flex flex-col gap-0.5">
         {directedOptions ? (
           // Show direction-aware options
@@ -70,6 +113,10 @@ export default function ConnectionTypePicker() {
           pendingConnection.validTypes.map((type) => {
             const color = getConnectionColor(type);
             const label = getConnectionLabel(type);
+            const flowHint =
+              clusterFlowLabels && !directedOptions
+                ? `${clusterFlowLabels.sourceLabel} → ${clusterFlowLabels.targetLabel}`
+                : null;
             return (
               <button
                 key={type}
@@ -80,7 +127,14 @@ export default function ConnectionTypePicker() {
                   className="w-3 h-3 rounded-full shrink-0"
                   style={{ backgroundColor: color }}
                 />
-                <span className="text-foreground">{label}</span>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-foreground font-medium">{label}</span>
+                  {flowHint && (
+                    <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight break-words">
+                      {flowHint}
+                    </span>
+                  )}
+                </div>
               </button>
             );
           })

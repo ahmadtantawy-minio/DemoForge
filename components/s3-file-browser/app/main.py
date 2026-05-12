@@ -5,14 +5,17 @@ validation scenarios. Shows which MinIO node serves each request when
 behind an NGINX load balancer.
 """
 
+import copy
 import io
 import json
 import logging
 import mimetypes
 import os
+import threading
 import time
+import uuid
 import urllib.request
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,16 +23,54 @@ from collections import defaultdict
 
 from pydantic import BaseModel
 
-from fastapi import FastAPI, File, Query, Request, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from minio import Minio
 
+from iam_sim_bootstrap import build_s3_identity_env, effective_iam_sim_spec
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+
+class IdentityCredentialError(Exception):
+    """IAM simulation map is loaded but active identity / keys cannot be resolved."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+def _json_safe_api_detail(detail: object) -> object:
+    """Coerce ``HTTPException.detail`` (str, list, or dict) for JSON responses."""
+    if detail is None:
+        return ""
+    if isinstance(detail, (str, int, float, bool)):
+        return detail
+    if isinstance(detail, list):
+        out_list: list[object] = []
+        for x in detail:
+            if isinstance(x, dict) and "msg" in x:
+                out_list.append(x.get("msg"))
+            else:
+                out_list.append(str(x))
+        return out_list
+    if isinstance(detail, dict):
+        return {str(k): _json_safe_api_detail(v) for k, v in detail.items()}
+    return str(detail)
+
+
+def _redact_access_key_id(ak: str) -> str:
+    s = str(ak or "").strip()
+    if not s:
+        return "(empty)"
+    if len(s) <= 8:
+        return "***"
+    return f"{s[:4]}…{s[-4:]}"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -111,17 +152,91 @@ def _parse_identity_map() -> dict[str, dict[str, str]]:
         return {}
     try:
         m = json.loads(raw)
-        return m if isinstance(m, dict) else {}
-    except json.JSONDecodeError:
+        if not isinstance(m, dict):
+            logger.error("S3_IDENTITY_MAP_JSON parsed to non-object type=%s", type(m).__name__)
+            return {}
+        return m
+    except json.JSONDecodeError as e:
+        logger.error("S3_IDENTITY_MAP_JSON is invalid JSON: %s", e)
         return {}
+
+
+def _bootstrap_identity_map_from_minio_iam_spec_env() -> None:
+    """When ``S3_IDENTITY_MAP_JSON`` is missing but ``MINIO_IAM_SIM_SPEC`` is set, build the same map as compose.
+
+    Mirrors :func:`backend.app.engine.compose_generator.generate._apply_s3_file_browser_iam_simulation` output
+    and writes ``S3_IDENTITY_MAP_JSON`` / ``S3_BROWSER_IDENTITIES_JSON`` into ``os.environ`` so reload works.
+    """
+    global ACTIVE_IDENTITY
+    if IDENTITY_MAP:
+        return
+    raw = os.getenv("MINIO_IAM_SIM_SPEC", "").strip()
+    if not raw:
+        return
+    spec = effective_iam_sim_spec(raw)
+    if not spec:
+        return
+    root_u = (
+        str(os.getenv("S3_ROOT_ACCESS_KEY", "") or "").strip()
+        or str(CONFIG.get("access_key") or "minioadmin").strip()
+    )
+    root_p = (
+        str(os.getenv("S3_ROOT_SECRET_KEY", "") or "").strip()
+        or str(CONFIG.get("secret_key") or "minioadmin").strip()
+    )
+    sim = (ACTIVE_IDENTITY or "").strip() or str(os.getenv("S3_ACTIVE_IDENTITY", "") or "").strip()
+    try:
+        imap_json, pub_json, ak, sk, active_id = build_s3_identity_env(root_u, root_p, spec, sim)
+        new_map = json.loads(imap_json)
+        if not isinstance(new_map, dict) or not new_map:
+            return
+    except (json.JSONDecodeError, TypeError, KeyError, ValueError) as e:
+        logger.warning("IAM bootstrap from MINIO_IAM_SIM_SPEC failed: %s", e)
+        return
+    except Exception as e:
+        logger.warning("IAM bootstrap from MINIO_IAM_SIM_SPEC failed: %s", e)
+        return
+
+    IDENTITY_MAP.clear()
+    IDENTITY_MAP.update(new_map)
+    try:
+        pub = json.loads(pub_json)
+        if isinstance(pub, list) and pub:
+            CONFIG["identities"] = pub
+    except json.JSONDecodeError:
+        pass
+    CONFIG["access_key"] = ak
+    CONFIG["secret_key"] = sk
+    ACTIVE_IDENTITY = active_id
+    os.environ["S3_IDENTITY_MAP_JSON"] = imap_json
+    os.environ["S3_BROWSER_IDENTITIES_JSON"] = pub_json
+    os.environ["S3_ACCESS_KEY"] = ak
+    os.environ["S3_SECRET_KEY"] = sk
+    os.environ["S3_ACTIVE_IDENTITY"] = active_id
+    logger.info(
+        "S3 IAM bootstrap: identity map built from MINIO_IAM_SIM_SPEC (map_keys=%r active=%r)",
+        list(IDENTITY_MAP.keys()),
+        ACTIVE_IDENTITY,
+    )
 
 
 IDENTITY_MAP: dict[str, dict[str, str]] = _parse_identity_map()
 ACTIVE_IDENTITY: str = os.getenv("S3_ACTIVE_IDENTITY", "").strip()
+_bootstrap_identity_map_from_minio_iam_spec_env()
 _s3_holder: dict[str, object | None] = {"client": None, "cache_key": None}
+_SESSION_EPOCH = 0
 
 # Root is keyed ``__root__`` in the identity map (legacy ``""`` may still exist).
 _ROOT_KEYS = frozenset({"", "__root__"})
+
+
+def _default_root_map_key() -> str | None:
+    """Prefer ``__root__`` in the map, then legacy empty-string root."""
+    if "__root__" in IDENTITY_MAP:
+        return "__root__"
+    if "" in IDENTITY_MAP:
+        return ""
+    return None
 
 
 def _infer_active_identity_from_credentials() -> None:
@@ -129,28 +244,118 @@ def _infer_active_identity_from_credentials() -> None:
     global ACTIVE_IDENTITY
     cur = (ACTIVE_IDENTITY or "").strip()
     if cur == "__first__":
+        logger.info(
+            "S3 identity bootstrap: S3_ACTIVE_IDENTITY=__first__ (explicit); map_keys=%s",
+            list(IDENTITY_MAP.keys()) if IDENTITY_MAP else [],
+        )
         return
     if cur and cur not in _ROOT_KEYS:
+        logger.info(
+            "S3 identity bootstrap: S3_ACTIVE_IDENTITY=%r (explicit simulated user); map_loaded=%s",
+            cur,
+            bool(IDENTITY_MAP),
+        )
         return
     if cur == "__root__":
+        logger.info("S3 identity bootstrap: S3_ACTIVE_IDENTITY=__root__ (explicit root)")
         return
     ak = str(CONFIG.get("access_key") or "").strip()
-    if not ak or not IDENTITY_MAP:
+    if not IDENTITY_MAP:
+        return
+    if not ak:
+        if not (ACTIVE_IDENTITY or "").strip():
+            dk = _default_root_map_key()
+            if dk is not None:
+                ACTIVE_IDENTITY = dk
+                logger.info(
+                    "S3 identity bootstrap: CONFIG access_key empty — defaulted ACTIVE_IDENTITY to %r",
+                    dk,
+                )
+        else:
+            logger.warning(
+                "S3 identity bootstrap: identity map is loaded but CONFIG access_key is empty — leaving ACTIVE_IDENTITY as set",
+            )
         return
     root_ent = IDENTITY_MAP.get("__root__") or IDENTITY_MAP.get("") or {}
     root_ak = str(root_ent.get("access_key", "")).strip() if isinstance(root_ent, dict) else ""
     if root_ak and ak == root_ak:
         ACTIVE_IDENTITY = "__root__" if "__root__" in IDENTITY_MAP else ""
+        logger.info(
+            "S3 identity bootstrap: inferred ACTIVE_IDENTITY=%r from CONFIG access_key matching map root (%s)",
+            ACTIVE_IDENTITY,
+            _redact_access_key_id(ak),
+        )
         return
     for key, ent in IDENTITY_MAP.items():
         if key in _ROOT_KEYS or key == "__first__":
             continue
         if isinstance(ent, dict) and str(ent.get("access_key", "")).strip() == ak:
             ACTIVE_IDENTITY = key
+            logger.info(
+                "S3 identity bootstrap: inferred ACTIVE_IDENTITY=%r from CONFIG access_key matching map entry %r (%s)",
+                ACTIVE_IDENTITY,
+                key,
+                _redact_access_key_id(ak),
+            )
             return
+    if "__first__" in IDENTITY_MAP:
+        ent_f = IDENTITY_MAP["__first__"]
+        if isinstance(ent_f, dict) and str(ent_f.get("access_key", "")).strip() == ak:
+            ACTIVE_IDENTITY = "__first__"
+            logger.info(
+                "S3 identity bootstrap: inferred ACTIVE_IDENTITY=__first__ from CONFIG access_key (%s)",
+                _redact_access_key_id(ak),
+            )
+            return
+    logger.info(
+        "S3 identity bootstrap: S3_ACTIVE_IDENTITY unset and CONFIG access_key %s did not match a unique map entry (map keys=%r) — will default to root if applicable",
+        _redact_access_key_id(ak),
+        list(IDENTITY_MAP.keys()),
+    )
+    if not (ACTIVE_IDENTITY or "").strip() and IDENTITY_MAP:
+        dk = _default_root_map_key()
+        if dk is not None:
+            ACTIVE_IDENTITY = dk
+            logger.info(
+                "S3 identity bootstrap: defaulted ACTIVE_IDENTITY to %r (single-browser root default)",
+                dk,
+            )
 
 
 _infer_active_identity_from_credentials()
+
+
+def _map_config_access_key_to_identity_key(ak_cfg: str) -> str | None:
+    """Map CONFIG access_key to a single identity-map key, or None if ambiguous / no match."""
+    if not ak_cfg or not IDENTITY_MAP:
+        return None
+    root_ent = IDENTITY_MAP.get("__root__") or IDENTITY_MAP.get("") or {}
+    root_ak = str(root_ent.get("access_key", "")).strip() if isinstance(root_ent, dict) else ""
+    if root_ak and ak_cfg == root_ak:
+        if "__root__" in IDENTITY_MAP:
+            return "__root__"
+        if "" in IDENTITY_MAP:
+            return ""
+        return None
+    sim_keys: list[str] = []
+    for k, ent in IDENTITY_MAP.items():
+        if k in _ROOT_KEYS or k == "__first__":
+            continue
+        if isinstance(ent, dict) and str(ent.get("access_key", "")).strip() == ak_cfg:
+            sim_keys.append(k)
+    if len(sim_keys) > 1:
+        logger.error(
+            "S3 credential resolution: CONFIG access_key matches multiple map keys %r — refusing ambiguous root fallback",
+            sim_keys,
+        )
+        return None
+    if len(sim_keys) == 1:
+        return sim_keys[0]
+    if "__first__" in IDENTITY_MAP:
+        ent_f = IDENTITY_MAP["__first__"]
+        if isinstance(ent_f, dict) and str(ent_f.get("access_key", "")).strip() == ak_cfg:
+            return "__first__"
+    return None
 
 
 def _endpoint_secure_host() -> tuple[str, bool]:
@@ -163,38 +368,125 @@ def _endpoint_secure_host() -> tuple[str, bool]:
 def _resolve_s3_credentials() -> tuple[str, str]:
     """Return (access_key, secret_key) for the active simulated identity.
 
+    When ``S3_IDENTITY_MAP_JSON`` is loaded, **root is never used as a silent fallback** for an unknown
+    or unset simulated user — resolution fails with :class:`IdentityCredentialError` instead.
+
     MinIO evaluates IAM policies server-side for every S3 call made with these keys
-    (including presigned URLs produced by this process). Root keys bypass simulation scope.
+    (including presigned URLs produced by this process). Root keys bypass simulation scope only
+    when explicitly selected (map key ``__root__`` or ``""``).
     """
     if not IDENTITY_MAP:
-        return str(CONFIG.get("access_key", "minioadmin")), str(CONFIG.get("secret_key", "minioadmin"))
+        ak = str(CONFIG.get("access_key", "")).strip()
+        sk = str(CONFIG.get("secret_key", "")).strip()
+        if not ak or not sk:
+            raise IdentityCredentialError(
+                "S3 credentials are missing: set S3_ACCESS_KEY and S3_SECRET_KEY (or populate config.json). "
+                "No identity map is loaded — both access key and secret key are required."
+            )
+        return ak, sk
+
     raw = (ACTIVE_IDENTITY or "").strip()
-    if raw in _ROOT_KEYS:
-        key = "__root__" if "__root__" in IDENTITY_MAP else ("" if "" in IDENTITY_MAP else raw)
-    else:
+    key: str | None = None
+
+    if raw == "__first__":
+        if "__first__" not in IDENTITY_MAP:
+            raise IdentityCredentialError(
+                "S3_ACTIVE_IDENTITY is __first__ but __first__ is not present in S3_IDENTITY_MAP_JSON."
+            )
+        key = "__first__"
+    elif raw in _ROOT_KEYS:
+        if "__root__" in IDENTITY_MAP:
+            key = "__root__"
+        elif "" in IDENTITY_MAP:
+            key = ""
+        else:
+            raise IdentityCredentialError(
+                "Root was requested but S3_IDENTITY_MAP_JSON has no __root__ or empty-string root entry."
+            )
+    elif raw:
+        if raw not in IDENTITY_MAP:
+            raise IdentityCredentialError(
+                f"S3_ACTIVE_IDENTITY={raw!r} is not a key in S3_IDENTITY_MAP_JSON. "
+                f"Valid keys: {sorted(IDENTITY_MAP.keys())!r}"
+            )
         key = raw
-    if key not in IDENTITY_MAP:
-        for cand in IDENTITY_MAP:
-            if cand not in _ROOT_KEYS:
-                key = cand
-                break
-    if key not in IDENTITY_MAP:
-        key = "__root__" if "__root__" in IDENTITY_MAP else ""
-    ent = IDENTITY_MAP.get(key) or {}
-    return str(ent.get("access_key", CONFIG.get("access_key", "minioadmin"))), str(
-        ent.get("secret_key", CONFIG.get("secret_key", "minioadmin"))
+    else:
+        ak_cfg = str(CONFIG.get("access_key", "")).strip()
+        key = _map_config_access_key_to_identity_key(ak_cfg)
+        if key is None:
+            dk = _default_root_map_key()
+            if dk is None:
+                raise IdentityCredentialError(
+                    "IAM simulation map is loaded but has no root entry (__root__ or empty key) and "
+                    "S3_ACCESS_KEY did not match exactly one simulated user."
+                )
+            key = dk
+
+    ent = IDENTITY_MAP.get(key)  # type: ignore[arg-type]
+    if not isinstance(ent, dict):
+        raise IdentityCredentialError(f"S3_IDENTITY_MAP_JSON entry for key {key!r} is not an object.")
+    ak = str(ent.get("access_key", "")).strip()
+    sk = str(ent.get("secret_key", "")).strip()
+    if not ak or not sk:
+        raise IdentityCredentialError(
+            f"S3_IDENTITY_MAP_JSON entry for key {key!r} is missing access_key or secret_key — check compose injection."
+        )
+    return ak, sk
+
+
+def _credentials_resolution_preview() -> tuple[bool, str | None]:
+    try:
+        _resolve_s3_credentials()
+        return True, None
+    except IdentityCredentialError as e:
+        return False, e.message
+
+
+def _log_bootstrap_summary() -> None:
+    idents = CONFIG.get("identities") or []
+    logger.info(
+        "S3 file browser startup: endpoint=%r via_lb=%s identity_map=%s active_identity=%r identities_rows=%s config_access_key_id=%s",
+        CONFIG.get("endpoint"),
+        CONFIG.get("via_loadbalancer"),
+        "loaded" if IDENTITY_MAP else "absent",
+        ACTIVE_IDENTITY,
+        len(idents) if isinstance(idents, list) else 0,
+        _redact_access_key_id(str(CONFIG.get("access_key") or "")),
     )
+    try:
+        _resolve_s3_credentials()
+    except IdentityCredentialError as e:
+        logger.error(
+            "S3 file browser startup: credential resolution FAILED — S3 API will return 503 until fixed: %s",
+            e.message,
+        )
+    else:
+        logger.info("S3 file browser startup: credential resolution check passed.")
 
 
 def get_s3() -> Minio:
     """Return a MinIO client for the current ``ACTIVE_IDENTITY`` (cached)."""
-    ak, sk = _resolve_s3_credentials()
+    try:
+        ak, sk = _resolve_s3_credentials()
+    except IdentityCredentialError as e:
+        logger.error("S3 credential resolution failed: %s", e.message)
+        raise HTTPException(status_code=503, detail=e.message) from e
     host, secure = _endpoint_secure_host()
     cache_key = (ACTIVE_IDENTITY, ak, sk, host, secure)
     if _s3_holder.get("cache_key") != cache_key or _s3_holder.get("client") is None:
+        logger.info(
+            "S3 MinIO client (re)built: active_identity=%r host=%s secure=%s access_key_id=%s",
+            ACTIVE_IDENTITY,
+            host,
+            secure,
+            _redact_access_key_id(ak),
+        )
         _s3_holder["client"] = Minio(host, access_key=ak, secret_key=sk, secure=secure)
         _s3_holder["cache_key"] = cache_key
     return _s3_holder["client"]  # type: ignore[return-value]
+
+
+_log_bootstrap_summary()
 
 # ---------------------------------------------------------------------------
 # Upstream tracking (for load-balance visualization)
@@ -228,6 +520,8 @@ def health():
     try:
         get_s3().list_buckets()
         return {"status": "ok", "endpoint": CONFIG["endpoint"]}
+    except HTTPException as e:
+        return JSONResponse({"status": "error", "detail": e.detail}, status_code=e.status_code)
     except Exception as e:
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=503)
 
@@ -297,6 +591,233 @@ _MULTIPART_PART_SIZE = 16 * 1024 * 1024
 # Presigned URL expiry bounds (seconds)
 _PRESIGN_MIN_SEC = 60
 _PRESIGN_MAX_SEC = 7 * 24 * 60 * 60  # 7 days (SDK default window)
+
+# In-process version history for the file-detail UI. Survives PUTs when bucket versioning is off
+# (MinIO replaces the object); we keep prior snapshots here for demo storytelling. Cleared on restart.
+_VERSION_LEDGER_LOCK = threading.Lock()
+_VERSION_LEDGER: dict[tuple[str, str], list[dict]] = {}
+
+_ILM_VERSION_DISPLAY_HINT = (
+    "Synthetic Last Modified (Update File with an age preset) affects this UI and the in-app ledger only; "
+    "MinIO ILM still uses the real object write time from the server."
+)
+
+
+def _stat_to_version_row(st, *, source: str, is_latest: bool) -> dict:
+    etag = getattr(st, "etag", None) or ""
+    if isinstance(etag, bytes):
+        etag = etag.decode(errors="replace")
+    vid = getattr(st, "version_id", None)
+    return {
+        "version_id": str(vid) if vid else "null",
+        "is_latest": bool(is_latest),
+        "last_modified": st.last_modified.isoformat() if st.last_modified else "",
+        "size": int(st.size or 0),
+        "etag": etag,
+        "content_type": getattr(st, "content_type", None) or "",
+        "metadata": _normalize_user_metadata(getattr(st, "metadata", None)),
+        "object_tags": _normalize_object_tags(getattr(st, "tags", None)),
+        "source": source,
+    }
+
+
+def _parse_age_days_from_payload(payload: object) -> float:
+    """Optional ``age_days`` from JSON body for simulated version display (ledger only)."""
+    if not isinstance(payload, dict):
+        return 0.0
+    v = payload.get("age_days")
+    if v is None:
+        return 0.0
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(x, 3650.0))
+
+
+def _synthetic_last_modified_iso(age_days: float) -> str:
+    """UTC timestamp for (now − age_days), for in-app version table / sorting only."""
+    dt = datetime.now(timezone.utc) - timedelta(days=float(age_days))
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _ledger_key(bucket: str, key: str) -> tuple[str, str]:
+    return (bucket, key)
+
+
+def _versions_ensure_initialized(client: Minio, bucket: str, key: str) -> bool:
+    """Return True if the object exists and the ledger has at least one row."""
+    lk = _ledger_key(bucket, key)
+    with _VERSION_LEDGER_LOCK:
+        if lk in _VERSION_LEDGER and _VERSION_LEDGER[lk]:
+            return True
+    try:
+        st = client.stat_object(bucket, key)
+    except Exception:
+        return False
+    row = _stat_to_version_row(st, source="live", is_latest=True)
+    with _VERSION_LEDGER_LOCK:
+        if lk not in _VERSION_LEDGER or not _VERSION_LEDGER[lk]:
+            _VERSION_LEDGER[lk] = [row]
+    return True
+
+
+def _merge_native_versions_if_available(client: Minio, bucket: str, key: str) -> list[dict] | None:
+    """If the MinIO SDK exposes native list-object-versions, return formatted rows (newest first)."""
+    fn = getattr(client, "list_object_versions", None)
+    if not callable(fn):
+        return None
+    try:
+        raw = fn(bucket, key)
+    except Exception as e:
+        logger.info("list_object_versions unavailable for %s/%s: %s", bucket, key, e)
+        return None
+    rows: list[dict] = []
+    try:
+        iterable = list(raw) if not isinstance(raw, list) else raw
+    except Exception:
+        return None
+    for item in iterable:
+        try:
+            is_latest = bool(getattr(item, "is_latest", False))
+            lm = getattr(item, "last_modified", None)
+            etag = getattr(item, "etag", None) or ""
+            if isinstance(etag, bytes):
+                etag = etag.decode(errors="replace")
+            vid = getattr(item, "version_id", None)
+            rows.append(
+                {
+                    "version_id": str(vid) if vid else "null",
+                    "is_latest": is_latest,
+                    "last_modified": lm.isoformat() if lm else "",
+                    "size": int(getattr(item, "size", 0) or 0),
+                    "etag": etag,
+                    "content_type": getattr(item, "content_type", None) or "",
+                    "metadata": _normalize_user_metadata(getattr(item, "metadata", None)),
+                    "object_tags": _normalize_object_tags(getattr(item, "tags", None)),
+                    "source": "native",
+                }
+            )
+        except Exception:
+            continue
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r.get("last_modified") or "", reverse=True)
+    return rows
+
+
+def _versions_select_and_sort(client: Minio, bucket: str, key: str) -> tuple[list[dict], str]:
+    """Prefer native multi-version listing when it beats the in-memory ledger row count."""
+    lk = _ledger_key(bucket, key)
+    native = _merge_native_versions_if_available(client, bucket, key)
+    with _VERSION_LEDGER_LOCK:
+        ledger = copy.deepcopy(_VERSION_LEDGER.get(lk, []))
+    if native is not None and len(native) > len(ledger):
+        rows = copy.deepcopy(native)
+        mode = "native"
+    else:
+        rows = ledger
+        mode = "ledger"
+    rows.sort(key=lambda r: r.get("last_modified") or "", reverse=True)
+    for i, r in enumerate(rows):
+        r["is_latest"] = i == 0
+    return rows, mode
+
+
+def _simulate_put_new_version(client: Minio, bucket: str, key: str, note: str, age_days: float = 0.0) -> dict:
+    """PUT a small JSON object as a new revision; extend native version list or in-process ledger."""
+    lk = _ledger_key(bucket, key)
+    if not _versions_ensure_initialized(client, bucket, key):
+        raise LookupError(key)
+    sim_id = str(uuid.uuid4())[:10]
+    age_days = max(0.0, min(float(age_days or 0.0), 3650.0))
+    payload_obj = {
+        "demoforge_simulated_put": True,
+        "ts": time.time(),
+        "id": sim_id,
+        "note": (note or "").strip()[:512],
+        "age_days": age_days,
+    }
+    raw = json.dumps(payload_obj, separators=(",", ":")).encode("utf-8")
+    meta = {"Demoforge-Sim-Id": sim_id}
+    if age_days > 0:
+        meta["Demoforge-Display-Age-Days"] = f"{age_days:g}"
+    client.put_object(
+        bucket,
+        key,
+        io.BytesIO(raw),
+        length=len(raw),
+        content_type="application/json; charset=utf-8",
+        metadata=meta,
+    )
+    native = _merge_native_versions_if_available(client, bucket, key)
+    display_age_applied = False
+    display_age_note = ""
+    if native is not None and len(native) > 1:
+        if age_days > 0:
+            display_age_note = (
+                "age_days is ignored while native multi-version listing is in use; "
+                "synthetic dates apply only to the in-app ledger (single current version on the server)."
+            )
+        with _VERSION_LEDGER_LOCK:
+            _VERSION_LEDGER[lk] = copy.deepcopy(native)
+    else:
+        st = client.stat_object(bucket, key)
+        new_row = _stat_to_version_row(st, source="simulated_put", is_latest=True)
+        if age_days > 0:
+            real_lm = new_row.get("last_modified") or ""
+            new_row["server_last_modified"] = real_lm
+            new_row["last_modified"] = _synthetic_last_modified_iso(age_days)
+            new_row["demoforge_display_age_days"] = float(age_days)
+            display_age_applied = True
+        with _VERSION_LEDGER_LOCK:
+            hist = list(_VERSION_LEDGER.get(lk, []))
+            if hist and hist[-1].get("etag") == new_row.get("etag") and hist[-1].get("size") == new_row.get("size"):
+                for j, r in enumerate(hist):
+                    r["is_latest"] = j == len(hist) - 1
+            else:
+                for r in hist:
+                    r["is_latest"] = False
+                hist.append(new_row)
+                _VERSION_LEDGER[lk] = hist
+    rows, mode = _versions_select_and_sort(client, bucket, key)
+    out: dict = {"versions": rows, "history_mode": mode, "sim_id": sim_id, "display_age_applied": display_age_applied}
+    if display_age_note:
+        out["display_age_note"] = display_age_note
+    return out
+
+
+def _finalize_presigned_url(raw: object) -> str:
+    """Normalize SDK output to a single absolute http(s) URL string; raise on truncation or bad values."""
+    if raw is None:
+        raise ValueError("S3 SDK returned no presigned URL (None).")
+    if isinstance(raw, (bytes, bytearray)):
+        u = raw.decode("utf-8", errors="replace").strip()
+    else:
+        u = str(raw).strip()
+    if not u:
+        raise ValueError("S3 SDK returned an empty presigned URL.")
+    if u.startswith("=") or u.startswith("&") or (u.startswith("X-Amz-") and "?" not in u):
+        raise ValueError(
+            "Presigned URL looks truncated (starts like a query fragment without host/path). "
+            "Check S3_ENDPOINT / MinIO connectivity and SDK version."
+        )
+    base = str(CONFIG.get("endpoint") or "").strip().rstrip("/")
+    if base and not (u.startswith("http://") or u.startswith("https://")):
+        if u.startswith("/"):
+            u = base + u
+        elif u.startswith("?"):
+            raise ValueError(
+                "Presigned URL is query-only; MinIO client endpoint is likely misconfigured "
+                f"(CONFIG.endpoint preview: {base[:120]!r})."
+            )
+        else:
+            u = base + "/" + u.lstrip("/")
+    if not (u.startswith("http://") or u.startswith("https://")):
+        raise ValueError(f"Presigned URL is not absolute http(s) after normalization (preview: {u[:200]!r}).")
+    if "?" not in u:
+        logger.warning("Presigned URL has no '?' query string (unusual): len=%s preview=%s", len(u), u[:160])
+    return u
 
 
 def _content_type_for_key(key: str) -> str:
@@ -382,6 +903,148 @@ def _normalize_session_identity(raw: str) -> str:
             return "__root__"
         return "" if "" in IDENTITY_MAP else r
     return r
+
+
+def _identity_switch_options() -> list[dict[str, str]]:
+    """Dropdown rows: root first, then ``__first__`` (if present), then simulated users — all ``IDENTITY_MAP`` keys.
+
+    Labels come from ``CONFIG.identities`` / ``S3_BROWSER_IDENTITIES_JSON`` when present; otherwise sensible defaults.
+    Building from the map guarantees users appear even when only a single default root row was injected in config.
+    """
+    if not IDENTITY_MAP:
+        return []
+    rows = [x for x in (CONFIG.get("identities") or []) if isinstance(x, dict)]
+    label_for: dict[str, str] = {}
+    for row in rows:
+        rid = row.get("id")
+        if rid is None:
+            continue
+        sid = str(rid)
+        lab = str(row.get("label") or sid).strip() or sid
+        if sid in IDENTITY_MAP:
+            label_for[sid] = lab
+        nk = _normalize_session_identity(sid)
+        if nk in IDENTITY_MAP:
+            label_for.setdefault(nk, lab)
+
+    out: list[dict[str, str]] = []
+    added: set[str] = set()
+
+    def add(map_key: str, default_label: str) -> None:
+        if map_key not in IDENTITY_MAP or map_key in added:
+            return
+        added.add(map_key)
+        out.append({"id": map_key, "label": label_for.get(map_key, default_label)})
+
+    dk = _default_root_map_key()
+    if dk is not None:
+        add(dk, label_for.get(dk, "Root (MinIO administrator)"))
+    if "__first__" in IDENTITY_MAP:
+        add("__first__", label_for.get("__first__", "First simulated user (IAM)"))
+    for mk in sorted(k for k in IDENTITY_MAP if k not in _ROOT_KEYS and k != "__first__"):
+        add(mk, label_for.get(mk, mk))
+    return out
+
+
+def _coerce_identity_map_from_env_object(m: dict) -> dict[str, dict[str, str]]:
+    """Normalize parsed ``S3_IDENTITY_MAP_JSON`` into credential entries; raise if none usable."""
+    out: dict[str, dict[str, str]] = {}
+    for k, v in m.items():
+        if not isinstance(v, dict):
+            continue
+        ak = str(v.get("access_key", "")).strip()
+        sk = str(v.get("secret_key", "")).strip()
+        if not ak or not sk:
+            continue
+        out[str(k)] = {"access_key": ak, "secret_key": sk}
+    if not out:
+        raise ValueError(
+            "Reloaded S3_IDENTITY_MAP_JSON has no principals with non-empty access_key and secret_key."
+        )
+    return out
+
+
+def _reload_browser_identities_from_env_into_config() -> None:
+    """Update ``CONFIG["identities"]`` from ``S3_BROWSER_IDENTITIES_JSON`` (strict for reload)."""
+    raw = os.getenv("S3_BROWSER_IDENTITIES_JSON", "").strip()
+    if not raw:
+        CONFIG["identities"] = [{"id": "__root__", "label": "Root (MinIO administrator)", "policies": []}]
+        return
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"S3_BROWSER_IDENTITIES_JSON is invalid JSON: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("S3_BROWSER_IDENTITIES_JSON must be a JSON array.")
+    if len(parsed) == 0:
+        CONFIG["identities"] = [{"id": "__root__", "label": "Root (MinIO administrator)", "policies": []}]
+        return
+    CONFIG["identities"] = parsed
+
+
+def _ensure_active_identity_valid_after_map_reload() -> None:
+    """If the active principal is missing from the new map, fall back to root or infer from CONFIG."""
+    global ACTIVE_IDENTITY
+    if not IDENTITY_MAP:
+        return
+    cur = (ACTIVE_IDENTITY or "").strip()
+    if not cur:
+        _infer_active_identity_from_credentials()
+        return
+    nk = _normalize_session_identity(cur)
+    chosen = nk if nk in IDENTITY_MAP else cur
+    if chosen in IDENTITY_MAP:
+        ACTIVE_IDENTITY = chosen
+        return
+    dk = _default_root_map_key()
+    if dk is not None:
+        ACTIVE_IDENTITY = dk
+        logger.warning(
+            "IAM reload: active identity %r not present in reloaded map — defaulted to %r",
+            cur,
+            dk,
+        )
+
+
+def reload_iam_identity_state_from_environment() -> None:
+    """Re-read identity map + public labels from the process environment (e.g. after mc-shell updates env)."""
+    global IDENTITY_MAP
+    raw = os.getenv("S3_IDENTITY_MAP_JSON", "").strip()
+    if not raw:
+        raise ValueError("S3_IDENTITY_MAP_JSON is empty — nothing to reload from the environment.")
+    try:
+        m = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"S3_IDENTITY_MAP_JSON is invalid JSON: {e}") from e
+    if not isinstance(m, dict):
+        raise ValueError("S3_IDENTITY_MAP_JSON must be a JSON object.")
+    IDENTITY_MAP = _coerce_identity_map_from_env_object(m)
+    _reload_browser_identities_from_env_into_config()
+    env_ak = os.getenv("S3_ACCESS_KEY", "").strip()
+    env_sk = os.getenv("S3_SECRET_KEY", "").strip()
+    if env_ak:
+        CONFIG["access_key"] = env_ak
+    if env_sk:
+        CONFIG["secret_key"] = env_sk
+    _ensure_active_identity_valid_after_map_reload()
+
+
+def _restore_iam_snapshot(
+    snap_map: dict[str, dict[str, str]],
+    snap_active: str,
+    snap_idents: list,
+    snap_ak: object,
+    snap_sk: object,
+) -> None:
+    """Rollback identity map, active principal, and CONFIG fields after a failed reload / re-auth."""
+    global IDENTITY_MAP, ACTIVE_IDENTITY
+    IDENTITY_MAP = snap_map
+    ACTIVE_IDENTITY = snap_active
+    CONFIG["identities"] = snap_idents
+    CONFIG["access_key"] = snap_ak
+    CONFIG["secret_key"] = snap_sk
+    _s3_holder["client"] = None
+    _s3_holder["cache_key"] = None
 
 
 def _policy_list_from_identity_row(row: dict) -> list[str]:
@@ -484,6 +1147,8 @@ def _active_identity_policies_label(active: str, identities: list) -> tuple[str,
 def get_config():
     idents = CONFIG.get("identities") or []
     label, pols, is_root, iam_summary = _active_identity_policies_label(ACTIVE_IDENTITY, idents)
+    cred_ok, cred_err = _credentials_resolution_preview()
+    switch_opts = _identity_switch_options()
     out = {
         **CONFIG,
         "active_identity": ACTIVE_IDENTITY,
@@ -491,6 +1156,98 @@ def get_config():
         "active_identity_policies": pols,
         "iam_policy_scope_summary": iam_summary,
         "iam_effective_root": bool(is_root),
+        "s3_credentials_ready": cred_ok,
+        "s3_credentials_error": cred_err,
+        "identity_switch_options": switch_opts,
+        "identity_switch_enabled": len(switch_opts) > 1,
+        "session_epoch": _SESSION_EPOCH,
+        "iam_env_reload_available": bool(os.getenv("S3_IDENTITY_MAP_JSON", "").strip()) or bool(IDENTITY_MAP),
+    }
+    return out
+
+
+@app.post("/api/iam/reload")
+def reload_iam_from_environment():
+    """Re-read ``S3_IDENTITY_MAP_JSON`` / ``S3_BROWSER_IDENTITIES_JSON`` from the environment and re-verify MinIO.
+
+    Use when mc-shell or another process refreshed IAM-related env vars in this container without restarting
+    the browser process. Rolls back on parse errors or failed ``list_buckets`` re-authentication.
+    """
+    global _SESSION_EPOCH
+    if not os.getenv("S3_IDENTITY_MAP_JSON", "").strip() and not IDENTITY_MAP:
+        return JSONResponse(
+            {
+                "error": "Reload unavailable: no IAM identity map is loaded and S3_IDENTITY_MAP_JSON is not set.",
+                "detail": "Configure MINIO_IAM_SIM_SPEC on the MinIO peer (or S3_IDENTITY_MAP_JSON on this container) and redeploy, or run with compose that injects IAM simulation env.",
+            },
+            status_code=400,
+        )
+
+    if not os.getenv("S3_IDENTITY_MAP_JSON", "").strip() and IDENTITY_MAP:
+        os.environ["S3_IDENTITY_MAP_JSON"] = json.dumps(IDENTITY_MAP, separators=(",", ":"))
+
+    snap_map = dict(IDENTITY_MAP)
+    snap_active = ACTIVE_IDENTITY
+    snap_idents = copy.deepcopy(CONFIG.get("identities") or [])
+    snap_ak = CONFIG.get("access_key")
+    snap_sk = CONFIG.get("secret_key")
+
+    try:
+        reload_iam_identity_state_from_environment()
+    except ValueError as e:
+        _restore_iam_snapshot(snap_map, snap_active, snap_idents, snap_ak, snap_sk)
+        return JSONResponse({"error": str(e), "detail": str(e)}, status_code=400)
+    except Exception as e:
+        _restore_iam_snapshot(snap_map, snap_active, snap_idents, snap_ak, snap_sk)
+        logger.exception("IAM reload: failed while re-reading environment")
+        return JSONResponse(
+            {"error": "Failed to re-read IAM configuration from the environment.", "detail": str(e)},
+            status_code=500,
+        )
+
+    _s3_holder["client"] = None
+    _s3_holder["cache_key"] = None
+    served_by = track(probe_upstream())
+    try:
+        get_s3().list_buckets()
+    except HTTPException as e:
+        _restore_iam_snapshot(snap_map, snap_active, snap_idents, snap_ak, snap_sk)
+        logger.warning(
+            "IAM reload: MinIO re-authentication failed after env re-read (rolled back): status=%s detail=%s",
+            e.status_code,
+            e.detail,
+        )
+        return JSONResponse(
+            {
+                "error": "MinIO rejected credentials after reloading IAM from the environment (state was rolled back).",
+                "detail": _json_safe_api_detail(e.detail),
+            },
+            status_code=e.status_code,
+        )
+    except Exception as e:
+        _restore_iam_snapshot(snap_map, snap_active, snap_idents, snap_ak, snap_sk)
+        logger.warning("IAM reload: MinIO re-authentication failed after env re-read (rolled back): %s", e)
+        return JSONResponse(
+            {
+                "error": "Could not reach MinIO after reloading IAM from the environment (state was rolled back).",
+                "detail": str(e),
+            },
+            status_code=503,
+        )
+
+    node_hits.clear()
+    _SESSION_EPOCH += 1
+    logger.info(
+        "IAM reload: success map_keys=%r session_epoch=%s served_by=%r",
+        list(IDENTITY_MAP.keys()),
+        _SESSION_EPOCH,
+        served_by,
+    )
+    out = get_config()
+    out["iam_reload"] = {
+        "ok": True,
+        "message": "User list re-read from container environment; MinIO session verified.",
+        "served_by": served_by,
     }
     return out
 
@@ -498,7 +1255,7 @@ def get_config():
 @app.post("/api/session")
 def set_session(body: SessionBody):
     """Switch active S3 credentials when ``S3_IDENTITY_MAP_JSON`` was deployed (IAM simulation)."""
-    global ACTIVE_IDENTITY
+    global ACTIVE_IDENTITY, _SESSION_EPOCH
     if not IDENTITY_MAP:
         if body.identity:
             return JSONResponse(
@@ -512,9 +1269,54 @@ def set_session(body: SessionBody):
             {"error": f"Unknown identity {body.identity!r}. Valid: {list(IDENTITY_MAP.keys())!r}"},
             status_code=400,
         )
+    prev_identity = ACTIVE_IDENTITY
+    prev_epoch = _SESSION_EPOCH
     ACTIVE_IDENTITY = key
     _s3_holder["client"] = None
     _s3_holder["cache_key"] = None
+    served_by = track(probe_upstream())
+    try:
+        get_s3().list_buckets()
+    except HTTPException as e:
+        ACTIVE_IDENTITY = prev_identity
+        _SESSION_EPOCH = prev_epoch
+        _s3_holder["client"] = None
+        _s3_holder["cache_key"] = None
+        logger.warning(
+            "S3 session switch re-authentication failed (rolled back to previous identity): status=%s detail=%s",
+            e.status_code,
+            e.detail,
+        )
+        return JSONResponse(
+            {
+                "error": "Re-authentication against the cluster failed after switching user.",
+                "detail": _json_safe_api_detail(e.detail),
+            },
+            status_code=e.status_code,
+        )
+    except Exception as e:
+        ACTIVE_IDENTITY = prev_identity
+        _SESSION_EPOCH = prev_epoch
+        _s3_holder["client"] = None
+        _s3_holder["cache_key"] = None
+        logger.warning("S3 session switch re-authentication failed (rolled back): %s", e)
+        return JSONResponse(
+            {
+                "error": "Re-authentication against the cluster failed after switching user.",
+                "detail": str(e),
+            },
+            status_code=503,
+        )
+
+    _SESSION_EPOCH = prev_epoch + 1
+    node_hits.clear()
+    logger.info(
+        "S3 session switch: active_identity=%r map_key=%r session_epoch=%s cluster_reauthenticated=1 served_by=%r",
+        ACTIVE_IDENTITY,
+        key,
+        _SESSION_EPOCH,
+        served_by,
+    )
     idents = CONFIG.get("identities") or []
     _label, _pols, _root, iam_summary = _active_identity_policies_label(ACTIVE_IDENTITY, idents)
     return {
@@ -524,6 +1326,9 @@ def set_session(body: SessionBody):
         "active_identity_policies": _pols,
         "iam_policy_scope_summary": iam_summary,
         "iam_effective_root": bool(_root),
+        "session_epoch": _SESSION_EPOCH,
+        "served_by": served_by,
+        "cluster_reauthenticated": True,
     }
 
 
@@ -537,6 +1342,8 @@ def list_buckets():
     try:
         buckets = [_format_bucket(b) for b in get_s3().list_buckets()]
         return {"buckets": buckets, "served_by": served_by}
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
@@ -659,6 +1466,8 @@ async def buckets_overview(
         data = await run_in_threadpool(_work)
         data["served_by"] = served_by
         return data
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
@@ -687,6 +1496,8 @@ def list_objects(
                 recursive=False,
                 include_user_meta=extended,
             )
+        except HTTPException:
+            raise
         except Exception as e:
             if extended:
                 logger.warning("list_objects with metadata failed (%s); retrying without", e)
@@ -701,8 +1512,75 @@ def list_objects(
             else:
                 objects.append(_format_object(obj, extended=extended))
         return {"prefixes": prefixes, "objects": objects, "extended": extended, "served_by": served_by}
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+
+
+@app.get("/api/object/versions")
+def get_object_versions(bucket: str, key: str):
+    """Version-oriented view for a single object (native list when available, else in-process ledger)."""
+    served_by = track(probe_upstream())
+    key = (key or "").strip()
+    if not key or key.endswith("/"):
+        return JSONResponse({"error": "Invalid object key"}, status_code=400)
+    try:
+        client = get_s3()
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+    if not _versions_ensure_initialized(client, bucket, key):
+        return JSONResponse({"error": "Object not found", "served_by": served_by}, status_code=404)
+    rows, mode = _versions_select_and_sort(client, bucket, key)
+    if not rows:
+        return JSONResponse({"error": "Object not found", "served_by": served_by}, status_code=404)
+    return {
+        "bucket": bucket,
+        "key": key,
+        "versions": rows,
+        "history_mode": mode,
+        "served_by": served_by,
+        "ilm_display_hint": _ILM_VERSION_DISPLAY_HINT,
+    }
+
+
+@app.post("/api/object/simulate-new-version")
+def simulate_new_object_version(
+    bucket: str = Query(..., min_length=1),
+    key: str = Query(..., min_length=1),
+    payload: dict | None = Body(default=None),
+):
+    """Simulate a client PUT of a new revision.
+
+    JSON body (optional): ``note`` (str), ``age_days`` (number) — when versioning uses the
+    in-app ledger, ``age_days`` sets the displayed ``last_modified`` for that new row (ILM on
+    MinIO still uses the real write time).
+    """
+    served_by = track(probe_upstream())
+    key = key.strip()
+    if not key or key.endswith("/"):
+        return JSONResponse({"error": "Invalid object key"}, status_code=400)
+    note = ""
+    age_days = 0.0
+    if isinstance(payload, dict):
+        note = str(payload.get("note") or "")[:512]
+        age_days = _parse_age_days_from_payload(payload)
+    try:
+        client = get_s3()
+        out = _simulate_put_new_version(client, bucket, key, note, age_days)
+    except LookupError:
+        return JSONResponse({"error": "Object not found", "served_by": served_by}, status_code=404)
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+    out["bucket"] = bucket
+    out["key"] = key
+    out["served_by"] = served_by
+    out["ilm_display_hint"] = _ILM_VERSION_DISPLAY_HINT
+    return out
 
 
 @app.post("/api/upload")
@@ -754,6 +1632,8 @@ async def upload_file(bucket: str, key: str, file: UploadFile = File(...)):
             "multipart": bool(sz and sz >= _MULTIPART_PART_SIZE),
             "served_by": served_by,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
@@ -769,6 +1649,8 @@ def download_file(bucket: str, key: str, request: Request):
     try:
         stat = get_s3().stat_object(bucket, key)
         total = int(stat.size or 0)
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -788,6 +1670,8 @@ def download_file(bucket: str, key: str, request: Request):
         length = end - start + 1
         try:
             resp = get_s3().get_object(bucket, key, offset=start, length=length)
+        except HTTPException:
+            raise
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -812,6 +1696,8 @@ def download_file(bucket: str, key: str, request: Request):
 
     try:
         resp = get_s3().get_object(bucket, key)
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -866,12 +1752,13 @@ def presign_get(
             "response-content-type": ct,
             "response-content-disposition": disp,
         }
-        url = get_s3().presigned_get_object(
+        raw_url = get_s3().presigned_get_object(
             bucket,
             key,
             expires=exp,
             response_headers=response_headers,
         )
+        url = _finalize_presigned_url(raw_url)
         return {
             "url": url,
             "method": "GET",
@@ -881,8 +1768,20 @@ def presign_get(
             "inline": inline,
             "served_by": served_by,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+        logger.exception(
+            "presign_get failed bucket=%r key=%r expires_sec=%s inline=%s",
+            bucket,
+            key,
+            expires_sec,
+            inline,
+        )
+        return JSONResponse(
+            {"error": str(e), "detail": str(e), "served_by": served_by},
+            status_code=500,
+        )
 
 
 @app.get("/api/presign/put")
@@ -900,7 +1799,8 @@ def presign_put(
     served_by = track(probe_upstream())
     try:
         exp = timedelta(seconds=expires_sec)
-        url = get_s3().presigned_put_object(bucket, key, expires=exp)
+        raw_url = get_s3().presigned_put_object(bucket, key, expires=exp)
+        url = _finalize_presigned_url(raw_url)
         return {
             "url": url,
             "method": "PUT",
@@ -910,8 +1810,19 @@ def presign_put(
             "usage_note": "HTTP PUT the file bytes as the request body (e.g. curl -T my.dat <url>).",
             "served_by": served_by,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
+        logger.exception(
+            "presign_put failed bucket=%r key=%r expires_sec=%s",
+            bucket,
+            key,
+            expires_sec,
+        )
+        return JSONResponse(
+            {"error": str(e), "detail": str(e), "served_by": served_by},
+            status_code=500,
+        )
 
 
 @app.delete("/api/delete")
@@ -920,6 +1831,8 @@ def delete_object(bucket: str, key: str):
     try:
         get_s3().remove_object(bucket, key)
         return {"message": f"Deleted {key}", "served_by": served_by}
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e), "served_by": served_by}, status_code=500)
 
@@ -981,6 +1894,8 @@ def health_read_all(bucket: str = "demo-bucket"):
                     "status": "error",
                     "error": str(e),
                 })
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -1016,6 +1931,8 @@ def health_write_read_verify(bucket: str = "demo-bucket", count: int = Query(def
         try:
             data = expected.encode()
             get_s3().put_object(bucket, key, io.BytesIO(data), length=len(data))
+        except HTTPException:
+            raise
         except Exception as e:
             errors.append({"key": key, "phase": "write", "error": str(e), "served_by": served_by_write})
             continue
@@ -1035,6 +1952,8 @@ def health_write_read_verify(bucket: str = "demo-bucket", count: int = Query(def
             })
             if not match:
                 errors.append({"key": key, "phase": "verify", "error": "Content mismatch"})
+        except HTTPException:
+            raise
         except Exception as e:
             errors.append({"key": key, "phase": "read", "error": str(e), "served_by": served_by_read})
 
@@ -1070,6 +1989,8 @@ def health_latency_probe(bucket: str = "demo-bucket", iterations: int = Query(de
     try:
         data = b"latency-probe"
         get_s3().put_object(bucket, probe_key, io.BytesIO(data), length=len(data))
+    except HTTPException:
+        raise
     except Exception as e:
         return JSONResponse({"error": f"Failed to create probe object: {e}"}, status_code=500)
 
@@ -1081,6 +2002,8 @@ def health_latency_probe(bucket: str = "demo-bucket", iterations: int = Query(de
             get_s3().stat_object(bucket, probe_key)
             latency_ms = round((time.monotonic() - start) * 1000, 2)
             measurements.append({"served_by": served_by, "latency_ms": latency_ms, "status": "ok"})
+        except HTTPException:
+            raise
         except Exception as e:
             latency_ms = round((time.monotonic() - start) * 1000, 2)
             measurements.append({"served_by": served_by, "latency_ms": latency_ms, "status": "error", "error": str(e)})
@@ -1129,6 +2052,8 @@ def health_consistency_check(bucket: str = "demo-bucket"):
         try:
             keys = sorted(o.object_name for o in get_s3().list_objects(bucket, recursive=True) if not o.is_dir)
             listings.append({"served_by": served_by, "object_count": len(keys), "keys": keys, "status": "ok"})
+        except HTTPException:
+            raise
         except Exception as e:
             listings.append({"served_by": served_by, "object_count": 0, "keys": [], "status": "error", "error": str(e)})
 

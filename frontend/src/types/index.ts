@@ -209,6 +209,8 @@ export interface MinioServerPool {
   ecParity: number;
   ecParityUpgradePolicy: string;
   volumePath: string;
+  /** When set, drives per erasure stripe for EC UI and parity clamp (must divide nodeCount * drivesPerNode). */
+  erasureStripeDrives?: number | null;
 }
 
 export interface ClusterNodeData {
@@ -223,6 +225,8 @@ export interface ClusterNodeData {
   serverPools?: MinioServerPool[];
   /** Persisted pool lifecycle (idle | decommissioning | decommissioned) from demo YAML */
   poolLifecycle?: Record<string, string>;
+  /** When true, show additional diagram handles for manual cluster↔cluster wiring (not used by auto re-anchor). */
+  showExtraClusterConnectors?: boolean;
   // DEPRECATED flat fields — present in old data, migrated on load
   nodeCount?: number;
   drivesPerNode?: number;

@@ -1,4 +1,5 @@
 """Core docker-compose generation from a demo definition."""
+import json
 import os
 import re
 import logging
@@ -6,6 +7,15 @@ import yaml
 from ...models.demo import DemoCluster, DemoDefinition, DemoNode, DemoEdge, NodePosition
 from ...registry.loader import get_component
 from ...config.license_store import license_store
+from ..minio_iam_sim import (
+    build_s3_identity_env,
+    effective_iam_sim_spec,
+    iam_reconcile_expected_counts,
+    mc_shell_iam_lines,
+    mc_shell_iam_report_shell_finalize,
+    mc_shell_iam_report_shell_init,
+    write_policy_files_for_spec,
+)
 
 from .helpers import (
     HOST_COMPONENTS_DIR,
@@ -24,6 +34,122 @@ from .helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _effective_standard_ec_parity(ec_parity: int, total_drives: int) -> int:
+    """Parity for ``MINIO_STORAGE_CLASS_STANDARD=EC:N`` that MinIO will accept.
+
+    STANDARD parity must be at most ``total_drives // 2`` (MinIO erasure docs). Demo defaults
+    often use ``ec_parity=3`` (EC:3), which is invalid for small pools (e.g. 2 nodes × 2 drives = 4
+    drives → max EC:2). That misconfiguration prevents a healthy cluster and breaks init ``mc mb``.
+
+    ``total_drives`` must be the **actual** drive count in the server pool (MinIO erasure set size
+    for this deployment), not a UI-only stripe divisor.
+    """
+    if total_drives < 1:
+        return 1
+    max_parity = total_drives // 2
+    if max_parity < 1:
+        return 1
+    adjusted = min(ec_parity, max_parity)
+    # With default RRS EC:1, STANDARD should be at least EC:2 when the drive count allows it.
+    if adjusted < 2 <= max_parity:
+        adjusted = 2
+    return max(1, min(adjusted, max_parity))
+
+
+def _minio_parity_failure_env_pair(policy: str) -> tuple[str, str]:
+    """Map ``ec_parity_upgrade_policy`` to MinIO-supported env values.
+
+    ``MINIO_ERASURE_PARITY_FAILURE`` accepts ``upgrade`` | ``ignore``.
+    Legacy ``MINIO_STORAGE_CLASS_OPTIMIZE`` accepts ``availability`` | ``capacity`` (not upgrade/ignore).
+    See: https://min.io/docs/minio/linux/reference/minio-server/settings/storage-class.html
+    """
+    p = policy if policy in ("upgrade", "ignore") else "upgrade"
+    legacy_optimize = "availability" if p == "upgrade" else "capacity"
+    return p, legacy_optimize
+
+
+def _apply_s3_file_browser_iam_simulation(
+    env: dict,
+    browser_node: DemoNode,
+    peer_cluster: DemoCluster | None,
+    peer_node: DemoNode | None,
+) -> None:
+    """Inject IAM-simulation env vars when the MinIO peer defines ``MINIO_IAM_SIM_SPEC`` JSON."""
+    root_user = "minioadmin"
+    root_pass = "minioadmin"
+    spec_raw = ""
+    if peer_cluster is not None:
+        root_user = peer_cluster.credentials.get("root_user", "minioadmin")
+        root_pass = peer_cluster.credentials.get("root_password", "minioadmin")
+        spec_raw = (peer_cluster.config or {}).get("MINIO_IAM_SIM_SPEC") or ""
+    elif peer_node is not None:
+        root_user = peer_node.config.get("MINIO_ROOT_USER", "minioadmin")
+        root_pass = peer_node.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+        spec_raw = (peer_node.config or {}).get("MINIO_IAM_SIM_SPEC") or ""
+
+    spec = effective_iam_sim_spec(spec_raw)
+    if not spec:
+        return
+    sim_raw = (browser_node.config or {}).get("S3_SIMULATED_IDENTITY", "")
+    sim = sim_raw.strip() if isinstance(sim_raw, str) else (str(sim_raw).strip() if sim_raw is not None else "")
+    imap, pub, ak, sk, active_id = build_s3_identity_env(root_user, root_pass, spec, sim)
+    env["S3_ROOT_ACCESS_KEY"] = root_user
+    env["S3_ROOT_SECRET_KEY"] = root_pass
+    if isinstance(spec_raw, str) and str(spec_raw).strip():
+        env["MINIO_IAM_SIM_SPEC"] = str(spec_raw).strip()
+    else:
+        env["MINIO_IAM_SIM_SPEC"] = json.dumps(spec, separators=(",", ":"))
+    env["S3_IDENTITY_MAP_JSON"] = imap
+    env["S3_BROWSER_IDENTITIES_JSON"] = pub
+    env["S3_ACCESS_KEY"] = ak
+    env["S3_SECRET_KEY"] = sk
+    env["S3_ACTIVE_IDENTITY"] = active_id
+
+
+def _s3_file_browser_first_minio_peer_for_iam(
+    demo: DemoDefinition, browser_node: DemoNode
+) -> tuple[DemoCluster | None, DemoNode | None] | None:
+    """Resolve the MinIO peer for IAM simulation (same S3-edge rules as env wiring)."""
+    s3_edge_types = ("s3", "structured-data", "file-push", "aistor-tables")
+    for edge in demo.edges:
+        if edge.connection_type not in s3_edge_types:
+            continue
+        if edge.target == browser_node.id:
+            peer_id = edge.source
+        elif edge.source == browser_node.id:
+            peer_id = edge.target
+        else:
+            continue
+        peer_component = next((n.component for n in demo.nodes if n.id == peer_id), "")
+        peer_cluster = next((c for c in demo.clusters if c.id == peer_id), None)
+        if peer_cluster:
+            peer_component = peer_cluster.component
+        is_cluster_lb = peer_id.endswith("-lb") and peer_component == "nginx"
+        if is_cluster_lb:
+            cluster_id_from_lb = peer_id[:-3]
+            lb_cluster = next((c for c in demo.clusters if c.id == cluster_id_from_lb), None)
+            if lb_cluster:
+                peer_component = lb_cluster.component
+        if peer_component != "minio":
+            continue
+        s3fb_peer = next((n for n in demo.nodes if n.id == peer_id), None) if not peer_cluster else None
+        return (peer_cluster, s3fb_peer)
+    return None
+
+
+def _s3_file_browser_peer_has_iam_simulation(demo: DemoDefinition, browser_node: DemoNode) -> bool:
+    pair = _s3_file_browser_first_minio_peer_for_iam(demo, browser_node)
+    if not pair:
+        return False
+    peer_cluster, s3fb_peer = pair
+    spec_raw = ""
+    if peer_cluster is not None:
+        spec_raw = (peer_cluster.config or {}).get("MINIO_IAM_SIM_SPEC") or ""
+    elif s3fb_peer is not None:
+        spec_raw = (s3fb_peer.config or {}).get("MINIO_IAM_SIM_SPEC") or ""
+    return bool(effective_iam_sim_spec(spec_raw))
 
 
 def _escape_compose_dollar_in_command(parts: list[str]) -> list[str]:
@@ -406,6 +532,19 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         cluster_edge_expansion[cluster.id] = generated_ids
 
+        p0 = pools[0]
+        drives_total = p0.node_count * p0.drives_per_node
+        effective_std_ec = _effective_standard_ec_parity(p0.ec_parity, drives_total)
+        if effective_std_ec != p0.ec_parity:
+            logger.info(
+                f"Cluster '{cluster.id}': ec_parity={p0.ec_parity} is incompatible with "
+                f"{drives_total} drive(s) in pool 1; "
+                f"using MINIO_STORAGE_CLASS_STANDARD=EC:{effective_std_ec} (max EC:{drives_total // 2} for this pool)"
+            )
+
+        parity_failure, legacy_storage_class_optimize = _minio_parity_failure_env_pair(
+            p0.ec_parity_upgrade_policy
+        )
         # Build expansion URLs per pool
         expansion_urls = []
         for p_idx, pool in enumerate(pools, start=1):
@@ -568,9 +707,10 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 cluster_credentials[node_id] = {
                     "MINIO_ROOT_USER": cred_user,
                     "MINIO_ROOT_PASSWORD": cred_pass,
-                    "MINIO_STORAGE_CLASS_STANDARD": f"EC:{primary_pool.ec_parity}",
+                    "MINIO_STORAGE_CLASS_STANDARD": f"EC:{effective_std_ec}",
                     "MINIO_STORAGE_CLASS_RRS": "EC:1",
-                    "MINIO_STORAGE_CLASS_OPTIMIZE": primary_pool.ec_parity_upgrade_policy,
+                    "MINIO_ERASURE_PARITY_FAILURE": parity_failure,
+                    "MINIO_STORAGE_CLASS_OPTIMIZE": legacy_storage_class_optimize,
                 }
                 cluster_drives[node_id] = pool.drives_per_node
 
@@ -654,6 +794,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             env.update(cluster_credentials[node.id])
 
         env.update(node.config)
+
+        # Synthetic cluster nodes merge ``DemoCluster.config`` into ``node.config``. Any
+        # ``MINIO_STORAGE_CLASS_*`` / parity keys there would otherwise override the values
+        # computed above (including fixes for MinIO-valid ``MINIO_STORAGE_CLASS_OPTIMIZE``).
+        if node.id in cluster_credentials:
+            env.update(cluster_credentials[node.id])
 
         if node.component == "spark":
             _apply_spark_properties_to_env(manifest, env)
@@ -748,14 +894,14 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
             # S3 File Browser: plain S3 only — always use MinIO root creds from the peer (no AIStor Tables / Iceberg).
             if node.component == "s3-file-browser":
+                s3fb_peer = next((n for n in demo.nodes if n.id == peer_id), None) if not peer_cluster else None
                 if peer_cluster:
                     env["S3_ACCESS_KEY"] = peer_cluster.credentials.get("root_user", "minioadmin")
                     env["S3_SECRET_KEY"] = peer_cluster.credentials.get("root_password", "minioadmin")
-                else:
-                    s3fb_peer = next((n for n in demo.nodes if n.id == peer_id), None)
-                    if s3fb_peer and s3fb_peer.component == "minio":
-                        env["S3_ACCESS_KEY"] = s3fb_peer.config.get("MINIO_ROOT_USER", "minioadmin")
-                        env["S3_SECRET_KEY"] = s3fb_peer.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+                elif s3fb_peer and s3fb_peer.component == "minio":
+                    env["S3_ACCESS_KEY"] = s3fb_peer.config.get("MINIO_ROOT_USER", "minioadmin")
+                    env["S3_SECRET_KEY"] = s3fb_peer.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
+                _apply_s3_file_browser_iam_simulation(env, node, peer_cluster, s3fb_peer)
 
             # Forward MinIO endpoint + credentials for inference-sim (tier_role based)
             if node.component == "inference-sim":
@@ -1568,6 +1714,30 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             mc_env[f"MC_ALIAS_{i}_SECRET_KEY"] = cred_pass
         mc_env["MC_ALIAS_COUNT"] = str(len(demo.clusters))
 
+        # Expected IAM reconcile counts (mc-shell init.sh) — used with runtime counters for DEMOFORGE_IAM_REPORT
+        _iam_exp_pol = _iam_exp_usr = _iam_exp_att = 0
+        for _c in demo.clusters:
+            _sp = effective_iam_sim_spec((_c.config or {}).get("MINIO_IAM_SIM_SPEC"))
+            if _sp:
+                _p, _u, _a = iam_reconcile_expected_counts(_sp)
+                _iam_exp_pol += _p
+                _iam_exp_usr += _u
+                _iam_exp_att += _a
+        _standalone_for_iam_counts = [n for n in demo.nodes if n.component == "minio" and not any(
+            n.id.startswith(f"{c.id}-") for c in demo.clusters
+        )]
+        for _n in _standalone_for_iam_counts:
+            _sp = effective_iam_sim_spec((_n.config or {}).get("MINIO_IAM_SIM_SPEC"))
+            if _sp:
+                _p, _u, _a = iam_reconcile_expected_counts(_sp)
+                _iam_exp_pol += _p
+                _iam_exp_usr += _u
+                _iam_exp_att += _a
+        if _iam_exp_pol + _iam_exp_usr + _iam_exp_att > 0:
+            mc_env["DEMOFORGE_IAM_EXP_POLICIES"] = str(_iam_exp_pol)
+            mc_env["DEMOFORGE_IAM_EXP_USERS"] = str(_iam_exp_usr)
+            mc_env["DEMOFORGE_IAM_EXP_ATTACHES"] = str(_iam_exp_att)
+
         # Join ALL demo networks
         mc_networks = {}
         for net_key, docker_net_name in network_map.items():
@@ -1604,6 +1774,34 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             lines.append(f"  echo 'Waiting for {alias_name}... attempt $attempt'")
             lines.append(f"  sleep 10")
             lines.append(f"done")
+
+        # MinIO IAM simulation — custom policies + users (mc admin policy / user / attach)
+        iam_host_root = os.path.join(init_script_dir, "iam")
+        _iam_shell_counters_started = False
+        for cluster in demo.clusters:
+            spec = effective_iam_sim_spec((cluster.config or {}).get("MINIO_IAM_SIM_SPEC"))
+            if not spec:
+                continue
+            if not _iam_shell_counters_started:
+                lines.extend(mc_shell_iam_report_shell_init())
+                _iam_shell_counters_started = True
+            alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+            pairs = write_policy_files_for_spec(spec, iam_host_root, cluster.id)
+            lines.append("")
+            lines.extend(mc_shell_iam_lines(alias_name, cluster.id, spec, pairs))
+        for node in standalone_minio:
+            spec = effective_iam_sim_spec((node.config or {}).get("MINIO_IAM_SIM_SPEC"))
+            if not spec:
+                continue
+            if not _iam_shell_counters_started:
+                lines.extend(mc_shell_iam_report_shell_init())
+                _iam_shell_counters_started = True
+            alias_name = re.sub(r"[^a-zA-Z0-9_]", "_", node.display_name) if node.display_name else node.id
+            pairs = write_policy_files_for_spec(spec, iam_host_root, node.id)
+            lines.append("")
+            lines.extend(mc_shell_iam_lines(alias_name, node.id, spec, pairs))
+        if _iam_shell_counters_started:
+            lines.extend(mc_shell_iam_report_shell_finalize())
 
         # Create warehouse bucket on MinIO nodes connected to Iceberg REST catalog
         iceberg_nodes = [n for n in demo.nodes if n.component == "iceberg-rest"]
@@ -1703,12 +1901,16 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         # Metabase setup is handled by a separate sidecar (see below)
 
+        # Signal readiness for compose healthchecks (IAM reconcile + bucket bootstrap finished).
+        lines.append("touch /tmp/demoforge-mc-shell-ready 2>/dev/null || true")
+
         lines.append("sleep infinity")
+
+        init_host_path = _to_host_path(os.path.abspath(init_script_dir), "data")
+
         with open(init_script_path, "w") as f:
             f.write("\n".join(lines) + "\n")
         os.chmod(init_script_path, 0o755)
-
-        init_host_path = _to_host_path(os.path.abspath(init_script_path), "data")
 
         # Use AIStor mc image if any cluster has AIStor features (mc table commands)
         has_aistor = any(getattr(c, 'aistor_tables_enabled', False) for c in demo.clusters) or any(
@@ -1730,11 +1932,35 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 "demoforge.component": "mc-shell",
             },
             "networks": mc_networks,
-            "volumes": [f"{init_host_path}:/etc/mc-shell/init.sh:ro"],
+            "volumes": [f"{init_host_path}:/etc/mc-shell:ro"],
             "restart": "unless-stopped",
+            "healthcheck": {
+                "test": ["CMD-SHELL", "test -f /tmp/demoforge-mc-shell-ready"],
+                "interval": "5s",
+                "timeout": "4s",
+                "retries": 5,
+                "start_period": "240s",
+            },
         }
 
         logger.info(f"Added mc-shell service for demo {demo.id} with {len(demo.clusters)} cluster alias(es)")
+
+        # S3 File Browser + IAM simulation: wait until mc-shell has applied policies/users on MinIO.
+        for bn in demo.nodes:
+            if bn.component != "s3-file-browser" or bn.id not in services:
+                continue
+            if not _s3_file_browser_peer_has_iam_simulation(demo, bn):
+                continue
+            dep = services[bn.id].get("depends_on")
+            if not isinstance(dep, dict):
+                dep = {}
+            dep = {**dep, "mc-shell": {"condition": "service_healthy"}}
+            services[bn.id]["depends_on"] = dep
+            logger.info(
+                "Demo %s: s3-file-browser %s depends_on mc-shell (IAM simulation peer)",
+                demo.id,
+                bn.id,
+            )
 
     # --- metabase-init: setup sidecar when Metabase is in the demo ---
     if metabase_node:

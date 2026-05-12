@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect, useLayoutEffect, useMemo } from "react";
 import {
   ReactFlow,
   MiniMap,
@@ -8,6 +8,9 @@ import {
   type Node,
   type Edge,
   type OnSelectionChangeParams,
+  type OnConnectEnd,
+  type OnConnectStart,
+  type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useDiagramStore } from "../../stores/diagramStore";
@@ -17,16 +20,10 @@ import { nonemptyTrim } from "../../lib/utils";
 import { saveDiagram, saveLayout, fetchDemo, fetchComponents, activateEdgeConfig, pauseEdgeConfig, resyncEdge } from "../../api/client";
 import { migrateClusterData } from "../../lib/clusterMigration";
 import { migrateStxInferenceDemoGraphics } from "../../utils/migrateStxInferenceDemoGraphics";
-import ComponentNode from "./nodes/ComponentNode";
-import GroupNode from "./nodes/GroupNode";
-import StickyNoteNode from "./nodes/StickyNoteNode";
-import ClusterNode from "./nodes/ClusterNode";
-import AnnotationNode from "./nodes/AnnotationNode";
-import SchematicNode from "./nodes/SchematicNode";
-import CanvasImageNode from "./nodes/CanvasImageNode";
+import { canonicalHandlesForClusterEdge, CLUSTER_EDGE_TYPES, sanitizeClusterEdgeHandlesForReactFlow } from "../../lib/clusterConnectionAnchors";
+import { findInvalidDiagramEdges } from "../../lib/diagramEdgeIssues";
 import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
-import AnimatedDataEdge from "./edges/AnimatedDataEdge";
-import AnnotationPointerEdge from "./edges/AnnotationPointerEdge";
+import { DIAGRAM_EDGE_TYPES, DIAGRAM_NODE_TYPES } from "./diagramReactFlowRegistry";
 import ConnectionTypePicker from "./ConnectionTypePicker";
 import NodeContextMenu from "./nodes/NodeContextMenu";
 import LogViewer from "../logs/LogViewer";
@@ -40,10 +37,15 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MousePointerClick, Group, Save, Check, X, Loader2, Copy, Clipboard } from "lucide-react";
-
-const nodeTypes = { component: ComponentNode, group: GroupNode, sticky: StickyNoteNode, cluster: ClusterNode, annotation: AnnotationNode, schematic: SchematicNode, "canvas-image": CanvasImageNode };
-const edgeTypes = { data: AnimatedDataEdge, animated: AnimatedDataEdge, "annotation-pointer": AnnotationPointerEdge };
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { MousePointerClick, Group, Save, Check, X, Loader2, Copy, Clipboard, AlertTriangle, Trash2 } from "lucide-react";
 
 /** Tooling nodes (external-system, event-processor, spark-etl-job) sit above annotation callouts */
 const COMPONENT_ABOVE_ANNOTATIONS_Z = 20;
@@ -79,6 +81,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     clipboard,
     setClipboard,
     pendingConnection,
+    editorDeletePrompt,
+    openEditorDeleteDialog,
+    closeEditorDeleteDialog,
+    pruneInvalidDiagramEdges,
+    removeDiagramEdgesByIds,
   } = useDiagramStore();
   const { activeDemoId, instances, demos, faMode, showFaNotes } = useDemoStore();
   const activeDemo = demos.find((d) => d.id === activeDemoId);
@@ -86,6 +93,14 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const isDeploying = activeDemo?.status === "deploying";
   // In dev mode, experience templates are fully editable (no readonly restrictions)
   const isExperience = activeDemo?.mode === "experience" && faMode !== "dev";
+  const canMutateDiagram = !isExperience || faMode === "dev";
+
+  const rfNodeTypes = useMemo(() => DIAGRAM_NODE_TYPES, []);
+  const rfEdgeTypes = useMemo(() => DIAGRAM_EDGE_TYPES, []);
+  const diagramEdgeIssues = useMemo(
+    () => findInvalidDiagramEdges(nodes, edges),
+    [nodes, edges],
+  );
 
   // Track dark/light theme reactively
   const [isDark, setIsDark] = useState(document.documentElement.classList.contains("dark"));
@@ -114,17 +129,64 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
 
   const reactFlowInstance = useReactFlow();
   const { deleteElements } = reactFlowInstance;
+  /** Tracks whether a wire drag completed `onConnect` so we can toast when React Flow drops without a valid target. */
+  const connectionWireRef = useRef({ active: false, completed: false });
+
+  const handleConnectStart = useCallback<OnConnectStart>(() => {
+    connectionWireRef.current = { active: true, completed: false };
+  }, []);
+
+  const handleConnect = useCallback(
+    (c: Connection) => {
+      connectionWireRef.current.completed = true;
+      onConnect(c);
+    },
+    [onConnect]
+  );
+
+  const handleConnectEnd = useCallback<OnConnectEnd>(() => {
+    if (connectionWireRef.current.active && !connectionWireRef.current.completed) {
+      toast.warning("Connection not completed", {
+        description:
+          "Drag from a source handle (outgoing) on one MinIO cluster to a target handle (incoming) on another. Release directly over the handle dot; zoom in or hide annotations if something blocks the drop.",
+      });
+    }
+    connectionWireRef.current = { active: false, completed: false };
+  }, []);
+
+  /** Proactively fix cluster replication/site/tiering handles so React Flow does not re-fire onError in a loop. */
+  useLayoutEffect(() => {
+    useDiagramStore.getState().repairClusterEdgeHandles();
+  }, [nodes, edges]);
+
+  const reactFlowErrorRef = useRef({ key: "", at: 0 });
+  const onReactFlowError = useCallback((_id: string | null, message: string) => {
+    const now = Date.now();
+    const key = message.slice(0, 200);
+    if (reactFlowErrorRef.current.key === key && now - reactFlowErrorRef.current.at < 12000) {
+      return;
+    }
+    reactFlowErrorRef.current = { key, at: now };
+    if (/couldn't create edge|couldn't remove edge|create edge|handle id|invalid handle|source handle|target handle/i.test(message)) {
+      const fixed = useDiagramStore.getState().repairClusterEdgeHandles();
+      if (fixed) {
+        toast.info("Adjusted invalid connection handles on the diagram.", { duration: 4500 });
+        return;
+      }
+    }
+    toast.error("Diagram error", { description: message });
+  }, []);
   // Experience mode visibility toggles
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [showSchematics, setShowSchematics] = useState(true);
   const [layoutSaveStatus, setLayoutSaveStatus] = useState<"" | "saving" | "saved" | "error">("");
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
-  const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string; confirm: boolean } | null>(null);
+  const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edgeId: string } | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null);
   const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
+  const [diagramIssuesOpen, setDiagramIssuesOpen] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
-  const [pendingDelete, setPendingDelete] = useState<{ type: "node" | "edge"; ids: string[] } | null>(null);
   const [adminPanel, setAdminPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: string } | null>(null);
   const [mcpPanel, setMcpPanel] = useState<{ clusterId: string; clusterLabel: string; defaultTab?: "mcp-tools" | "ai-chat" } | null>(null);
   const [sqlEditorPanel, setSqlEditorPanel] = useState<{ scenarioId: string } | null>(null);
@@ -178,6 +240,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           ecParity: p.ec_parity ?? 3,
           ecParityUpgradePolicy: p.ec_parity_upgrade_policy ?? "upgrade",
           volumePath: p.volume_path ?? "/data",
+          erasureStripeDrives: p.erasure_stripe_drives ?? undefined,
         }));
         const rawData = {
           label: c.label || "MinIO Cluster",
@@ -304,6 +367,21 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       }));
       const groupIds = new Set(rfGroups.map((g: any) => g.id));
       const clusterIds = new Set(rfClusters.map((c: any) => c.id));
+      const clusterNodesForAnchors = rfClusters.map((c: any) => ({
+        id: c.id,
+        type: "cluster" as const,
+        position: c.position || { x: 0, y: 0 },
+        data: {},
+      })) as unknown as Node[];
+      const nodesForClusterHandleSanitize = [
+        ...clusterNodesForAnchors,
+        ...rfNodes.map((n: any) => ({
+          id: n.id,
+          type: "component" as const,
+          position: n.position || { x: 0, y: 0 },
+          data: n.data ?? {},
+        })),
+      ] as unknown as Node[];
       const rfEdges = (migrated.edges || []).map((e: any) => {
         let sourceHandle = e.source_handle || undefined;
         // Group nodes had no handles until GroupNode added anchors; default S3 egress from group frame
@@ -324,6 +402,35 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           (tierRoleCfg === "g35-cmx" || tierRoleCfg === "g4-archive")
         ) {
           targetHandle = "cluster-in-top";
+        }
+        if (
+          clusterIds.has(e.source) &&
+          clusterIds.has(e.target) &&
+          CLUSTER_EDGE_TYPES.has(e.connection_type) &&
+          (!sourceHandle || !targetHandle)
+        ) {
+          const h = canonicalHandlesForClusterEdge(
+            e.connection_type,
+            {
+              source: e.source,
+              target: e.target,
+              sourceHandle: sourceHandle ?? null,
+              targetHandle: targetHandle ?? null,
+            },
+            clusterNodesForAnchors
+          );
+          sourceHandle = h.sourceHandle;
+          targetHandle = h.targetHandle;
+        }
+        if (CLUSTER_EDGE_TYPES.has(e.connection_type)) {
+          const s = sanitizeClusterEdgeHandlesForReactFlow(
+            e.connection_type,
+            { source: e.source, target: e.target },
+            nodesForClusterHandleSanitize,
+            { sourceHandle, targetHandle }
+          );
+          sourceHandle = s.sourceHandle;
+          targetHandle = s.targetHandle;
         }
         return {
           id: e.id,
@@ -499,23 +606,12 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const handleEdgeContextMenu = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
       event.preventDefault();
-      setEdgeContextMenu({ x: event.clientX, y: event.clientY, edgeId: edge.id, confirm: false });
+      setEdgeContextMenu({ x: event.clientX, y: event.clientY, edgeId: edge.id });
       setContextMenu(null);
       setSelectionMenu(null);
       setPaneMenu(null);
     },
     []
-  );
-
-  const handleDeleteEdge = useCallback(
-    (edgeId: string) => {
-      deleteElements({ edges: [{ id: edgeId }] });
-      setEdgeContextMenu(null);
-      if (activeDemoId) {
-        setDirty(true);
-      }
-    },
-    [deleteElements, activeDemoId, setDirty]
   );
 
   const onDrop = useCallback(
@@ -876,8 +972,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
 
   // Delete a node and all connected edges via context menu
   const handleDeleteNode = useCallback((nodeId: string) => {
-    setPendingDelete({ type: "node", ids: [nodeId] });
-  }, []);
+    openEditorDeleteDialog({ type: "node", ids: [nodeId] });
+  }, [openEditorDeleteDialog]);
 
   const handleCopyNode = useCallback((nodeId: string) => {
     const node = nodes.find((n) => n.id === nodeId);
@@ -909,22 +1005,21 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     }
   }, [clipboard, addNode, activeDemoId, setDirty]);
 
-  // Confirm deletion
-  const confirmDelete = useCallback(() => {
-    if (!pendingDelete) return;
-    if (pendingDelete.type === "node") {
-      const nodeId = pendingDelete.ids[0];
-      deleteElements({ nodes: [{ id: nodeId }] });
+  const confirmEditorDelete = useCallback(() => {
+    const prompt = useDiagramStore.getState().editorDeletePrompt;
+    if (!prompt) return;
+    if (prompt.type === "node") {
+      deleteElements({ nodes: prompt.ids.map((nid) => ({ id: nid })) });
     } else {
-      deleteElements({ edges: pendingDelete.ids.map((id) => ({ id })) });
+      deleteElements({ edges: prompt.ids.map((eid) => ({ id: eid })) });
     }
-    setPendingDelete(null);
+    closeEditorDeleteDialog();
     if (activeDemoId) {
       setTimeout(() => {
         setDirty(true);
       }, 50);
     }
-  }, [pendingDelete, deleteElements, activeDemoId, setDirty]);
+  }, [deleteElements, closeEditorDeleteDialog, activeDemoId, setDirty]);
 
   // Intercept Backspace/Delete key — show confirmation instead of immediate delete
   useEffect(() => {
@@ -984,21 +1079,16 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     return () => window.removeEventListener("canvas:close-menus", onCanvasCloseMenus);
   }, [dismissAllCanvasMenus]);
 
+  // Close floating menus on outside click. Do NOT tie this to `pendingConnection`: when a cluster
+  // wire completes, the synthetic `click` after `mouseup` can run after React commits and would
+  // clear `pendingConnection` before the Connection Type picker is usable.
   useEffect(() => {
-    const anyOpen =
-      contextMenu || edgeContextMenu || selectionMenu || paneMenu || pendingConnection;
+    const anyOpen = contextMenu || edgeContextMenu || selectionMenu || paneMenu;
     if (!anyOpen) return;
     const onWindowClick = () => dismissAllCanvasMenus();
     window.addEventListener("click", onWindowClick);
     return () => window.removeEventListener("click", onWindowClick);
-  }, [
-    contextMenu,
-    edgeContextMenu,
-    selectionMenu,
-    paneMenu,
-    pendingConnection,
-    dismissAllCanvasMenus,
-  ]);
+  }, [contextMenu, edgeContextMenu, selectionMenu, paneMenu, dismissAllCanvasMenus]);
 
   // Filter nodes/edges by visibility toggles in experience mode
   // Also make hidden FA-internal stickies non-selectable/non-draggable without touching the store
@@ -1031,6 +1121,38 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         return true;
       })
     : edges;
+
+  const copyDiagramIssuesReport = useCallback(() => {
+    const lines =
+      diagramEdgeIssues.length === 0
+        ? "No diagram connection issues found."
+        : diagramEdgeIssues
+            .map(
+              (i) =>
+                `${i.edgeId}: ${i.source} → ${i.target}${i.connectionType ? ` (${i.connectionType})` : ""}\n  ${i.issues.join("; ")}`,
+            )
+            .join("\n\n");
+    void navigator.clipboard.writeText(lines).then(
+      () => toast.success("Copied to clipboard"),
+      () => toast.error("Could not copy"),
+    );
+  }, [diagramEdgeIssues]);
+
+  const handlePruneInvalidDiagramEdges = useCallback(() => {
+    const n = pruneInvalidDiagramEdges();
+    if (n > 0) {
+      toast.success(`Removed ${n} invalid connection(s)`);
+      setDiagramIssuesOpen(false);
+    }
+  }, [pruneInvalidDiagramEdges]);
+
+  const handleRemoveOneInvalidEdge = useCallback(
+    (edgeId: string) => {
+      const removed = removeDiagramEdgesByIds([edgeId]);
+      if (removed > 0) toast.success("Connection removed");
+    },
+    [removeDiagramEdgesByIds],
+  );
 
   return (
     <div className="w-full h-full relative" onDrop={onDrop} onDragOver={onDragOver}>
@@ -1084,11 +1206,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         onEdgesChange={handleEdgesChange}
         // Keep wiring new edges while the demo is running (handles stay connectable).
         // Previously `onConnect` was cleared when `isRunning`, so drags completed with no edge — e.g. MinIO cluster → S3 File Browser looked "broken".
-        onConnect={isExperience ? undefined : onConnect}
+        // Experience templates must still allow cluster↔cluster replication / tiering wires; disabling onConnect broke that entirely.
+        onConnectStart={handleConnectStart}
+        onConnect={handleConnect}
+        onConnectEnd={handleConnectEnd}
+        onError={onReactFlowError}
         onEdgeClick={handleEdgeClick}
         onEdgeContextMenu={isExperience ? undefined : handleEdgeContextMenu}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
+        nodeTypes={rfNodeTypes}
+        edgeTypes={rfEdgeTypes}
         onNodeContextMenu={onNodeContextMenu}
         onSelectionContextMenu={isExperience ? undefined : onSelectionContextMenu}
         onSelectionChange={onSelectionChange}
@@ -1106,8 +1232,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
         colorMode={isDark ? "dark" : "light"}
         deleteKeyCode={null}
         nodesDraggable={true}
-        nodesConnectable={!isExperience}
+        nodesConnectable={true}
         elementsSelectable={true}
+        connectionRadius={48}
+        connectionDragThreshold={0}
         fitView
       >
         <MiniMap style={{ width: 120, height: 80 }} />
@@ -1304,30 +1432,15 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                 Resync All Sites
               </button>
             )}
-            {!edgeContextMenu.confirm ? (
-              <button
-                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                onClick={() => setEdgeContextMenu({ ...edgeContextMenu, confirm: true })}
-              >
-                Delete Connection
-              </button>
-            ) : (
-              <div className="px-3 py-1.5 flex items-center gap-2">
-                <span className="text-xs text-destructive">Delete?</span>
-                <button
-                  className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
-                  onClick={() => handleDeleteEdge(edgeContextMenu.edgeId)}
-                >
-                  Yes
-                </button>
-                <button
-                  className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
-                  onClick={() => setEdgeContextMenu(null)}
-                >
-                  No
-                </button>
-              </div>
-            )}
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              onClick={() => {
+                openEditorDeleteDialog({ type: "edge", ids: [edgeContextMenu.edgeId] });
+                setEdgeContextMenu(null);
+              }}
+            >
+              Delete Connection
+            </button>
           </div>
         );
       })()}
@@ -1371,23 +1484,109 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
             <Clipboard className="w-3.5 h-3.5" />
             Paste
           </button>
+          <div className="border-t border-border my-1" />
+          <button
+            type="button"
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-2"
+            onClick={() => {
+              setDiagramIssuesOpen(true);
+              setPaneMenu(null);
+            }}
+          >
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+            <span className="flex-1">Find diagram issues…</span>
+            {diagramEdgeIssues.length > 0 ? (
+              <span className="text-xs tabular-nums text-muted-foreground">({diagramEdgeIssues.length})</span>
+            ) : null}
+          </button>
         </div>
       )}
 
-      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+      <Dialog open={diagramIssuesOpen} onOpenChange={setDiagramIssuesOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Diagram connection issues</DialogTitle>
+            <DialogDescription>
+              These connections point to a source or target node that is not on the canvas. Removing them can clear React Flow errors after refreshes or template changes.
+            </DialogDescription>
+          </DialogHeader>
+          {diagramEdgeIssues.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">No orphaned or invalid connections found.</p>
+          ) : (
+            <ul className="max-h-64 overflow-y-auto rounded-md border border-border text-sm divide-y divide-border">
+              {diagramEdgeIssues.map((issue) => (
+                <li key={issue.edgeId} className="px-3 py-2 flex gap-2 items-start">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="font-mono text-xs text-muted-foreground truncate" title={issue.edgeId}>
+                      {issue.edgeId}
+                    </div>
+                    <div className="text-xs">
+                      {issue.source} → {issue.target}
+                      {issue.connectionType ? (
+                        <span className="text-muted-foreground"> · {issue.connectionType}</span>
+                      ) : null}
+                    </div>
+                    <ul className="text-xs text-destructive/90 list-disc pl-4">
+                      {issue.issues.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  {canMutateDiagram ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 h-8 w-8 text-destructive hover:text-destructive"
+                      aria-label="Remove this connection"
+                      onClick={() => handleRemoveOneInvalidEdge(issue.edgeId)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
+            <Button type="button" variant="outline" size="sm" onClick={copyDiagramIssuesReport} className="gap-1.5">
+              <Copy className="h-3.5 w-3.5" />
+              Copy report
+            </Button>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setDiagramIssuesOpen(false)}>
+                Close
+              </Button>
+              {canMutateDiagram ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={diagramEdgeIssues.length === 0}
+                  onClick={handlePruneInvalidDiagramEdges}
+                >
+                  Remove all invalid
+                </Button>
+              ) : null}
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!editorDeletePrompt} onOpenChange={(open) => !open && closeEditorDeleteDialog()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete?.type === "node"
-                ? `Delete ${pendingDelete.ids.length > 1 ? `${pendingDelete.ids.length} components` : `"${pendingDelete.ids[0]}"`} and all connected edges?`
-                : `Delete ${pendingDelete && pendingDelete.ids.length > 1 ? `${pendingDelete.ids.length} connections` : "this connection"}?`}
+              {editorDeletePrompt?.type === "node"
+                ? `Delete ${editorDeletePrompt.ids.length > 1 ? `${editorDeletePrompt.ids.length} components` : `"${editorDeletePrompt.ids[0]}"`} and all connected edges?`
+                : `Delete ${editorDeletePrompt && editorDeletePrompt.ids.length > 1 ? `${editorDeletePrompt.ids.length} connections` : "this connection"}?`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmDelete}
+              onClick={confirmEditorDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete

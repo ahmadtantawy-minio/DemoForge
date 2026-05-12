@@ -48,7 +48,8 @@ export const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
       default: "COLD-TIER",
       required: false,
       options: [],
-      description: "Name MinIO uses for this remote tier (shown in Tiering → Tiers).",
+      description:
+        "Name MinIO uses for this remote tier (Tiering → Tiers). ILM transition must reference this exact name—MinIO rejects AWS-only classes like GLACIER unless you defined a tier with that name.",
     },
     {
       key: "transition_days",

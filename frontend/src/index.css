@@ -71,6 +71,20 @@
   box-shadow: none !important;
   background: transparent !important;
 }
+/* XY Flow default applies --xy-node-border to group nodes (black frame around dashed inner card).
+   Do not set width/height here: NodeResizer and node.style use inline dimensions on this wrapper;
+   width:auto/height:auto with !important breaks resizing and collapses the group to text only. */
+.react-flow__node-group {
+  border: none !important;
+  padding: 0 !important;
+}
+.react-flow__node-group.selectable:hover,
+.react-flow__node-group.selectable.selected,
+.react-flow__node-group.selectable:focus,
+.react-flow__node-group.selectable:focus-visible {
+  box-shadow: none !important;
+  border: none !important;
+}
 
 html,
 body,

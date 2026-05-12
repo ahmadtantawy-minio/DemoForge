@@ -16,6 +16,7 @@ import {
   AISTOR_TABLES_DEFAULT_CATALOG_NAME,
   AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE,
 } from "../../../lib/aistorTablesDefaults";
+import { IamSimSpecFormField } from "../MinioIamManagerModal";
 
 interface Props {
   nodeId: string;
@@ -120,6 +121,19 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
           value={data.credentials?.root_password ?? "minioadmin"}
           onChange={(v) => onUpdate({ credentials: { ...(data.credentials || {}), root_password: v } })}
           className="h-8 text-sm"
+        />
+      </div>
+
+      <div className="mb-3">
+        <IamSimSpecFormField
+          label="IAM simulation"
+          description="Optional. Reconciled at deploy via mc-shell. S3 File Browser can pick a simulated user when linked over s3."
+          value={data.config?.MINIO_IAM_SIM_SPEC ?? ""}
+          onChange={(json) =>
+            onUpdate({
+              config: { ...data.config, MINIO_IAM_SIM_SPEC: json },
+            })
+          }
         />
       </div>
 

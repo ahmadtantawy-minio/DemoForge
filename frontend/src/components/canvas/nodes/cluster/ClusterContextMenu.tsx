@@ -37,20 +37,25 @@ interface Props {
   onAddPool: () => void;
   onEditPool: (poolId: string) => void;
   onDuplicatePool: (poolId: string) => void;
-  onRemovePool: (poolId: string) => void;
   onViewNodeDetails: (poolId: string, nodeIndex: number) => void;
   onViewLogs: (nodeId: string) => void;
   onDecommissionPool?: (poolId: string) => void;
   onCancelDecommission?: (poolId: string) => void;
   poolDecommissionStatus?: Record<string, "active" | "decommissioning" | "decommissioned">;
   poolsCount: number;
-  confirmReset: boolean;
-  onSetConfirmReset: (v: boolean) => void;
-  confirmDelete: boolean;
-  onSetConfirmDelete: (v: boolean) => void;
-  confirmRemovePool: boolean;
-  onSetConfirmRemovePool: (v: boolean) => void;
+  onRequestResetCluster: () => void;
+  onRequestRemovePool: (poolId: string) => void;
   onCopy?: () => void;
+  /** Diagram: recompute cluster↔cluster handles for edges involving this cluster. */
+  onReanchorClusterConnections?: () => void;
+  /** Diagram: recompute handles on every cluster↔cluster edge. */
+  onReanchorAllClusterConnections?: () => void;
+  /** Whether extra manual-only handles are visible on this node. */
+  showExtraClusterConnectors?: boolean;
+  /** Toggle extra connector handles (saved on cluster node data). */
+  onToggleExtraClusterConnectors?: () => void;
+  /** Copy JSON summary of edges and handles for debugging. */
+  onCopyConnectionDiagnostics?: () => void;
 }
 
 export default function ClusterContextMenu(props: Props) {
@@ -82,20 +87,20 @@ export default function ClusterContextMenu(props: Props) {
     onAddPool,
     onEditPool,
     onDuplicatePool,
-    onRemovePool,
     onViewNodeDetails,
     onViewLogs,
     poolsCount,
-    confirmReset,
-    onSetConfirmReset,
-    confirmDelete,
-    onSetConfirmDelete,
-    confirmRemovePool,
-    onSetConfirmRemovePool,
+    onRequestResetCluster,
+    onRequestRemovePool,
     onDecommissionPool,
     onCancelDecommission,
     poolDecommissionStatus,
     onCopy,
+    onReanchorClusterConnections,
+    onReanchorAllClusterConnections,
+    showExtraClusterConnectors,
+    onToggleExtraClusterConnectors,
+    onCopyConnectionDiagnostics,
   } = props;
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -300,34 +305,12 @@ export default function ClusterContextMenu(props: Props) {
         {demoId && (
           <>
             <div className="border-t border-border my-1" />
-            {confirmReset ? (
-              <div className="px-3 py-2">
-                <div className="text-xs text-destructive mb-2">
-                  Remove all buckets? This cannot be undone.
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
-                    onClick={onResetCluster}
-                  >
-                    Confirm Reset
-                  </button>
-                  <button
-                    className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
-                    onClick={() => onSetConfirmReset(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                onClick={() => onSetConfirmReset(true)}
-              >
-                Reset Cluster (Remove All Buckets)
-              </button>
-            )}
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              onClick={onRequestResetCluster}
+            >
+              Reset Cluster (Remove All Buckets)
+            </button>
             <div className="border-t border-border my-1" />
             <button
               className="w-full text-left px-3 py-1.5 text-sm text-cyan-400 hover:bg-cyan-500/10 transition-colors"
@@ -382,30 +365,10 @@ export default function ClusterContextMenu(props: Props) {
           >
             Remove pool (only pool)
           </button>
-        ) : confirmRemovePool ? (
-          <div className="px-3 py-2">
-            <div className="text-xs text-destructive mb-2">
-              Remove this pool? This cannot be undone.
-            </div>
-            <div className="flex gap-1">
-              <button
-                className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
-                onClick={() => poolId && onRemovePool(poolId)}
-              >
-                Confirm Remove
-              </button>
-              <button
-                className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
-                onClick={() => onSetConfirmRemovePool(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
         ) : (
           <button
             className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-            onClick={() => onSetConfirmRemovePool(true)}
+            onClick={() => poolId && onRequestRemovePool(poolId)}
           >
             Remove pool
           </button>
@@ -444,28 +407,10 @@ export default function ClusterContextMenu(props: Props) {
             </div>
             {onlyPool ? (
               <div className="px-3 py-1.5 text-xs text-muted-foreground">Cannot remove the only pool from the cluster.</div>
-            ) : confirmRemovePool ? (
-              <div className="px-3 py-2">
-                <div className="text-xs text-destructive mb-2">Remove this pool from the diagram and update Docker?</div>
-                <div className="flex gap-1">
-                  <button
-                    className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
-                    onClick={() => poolId && onRemovePool(poolId)}
-                  >
-                    Confirm Remove
-                  </button>
-                  <button
-                    className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
-                    onClick={() => onSetConfirmRemovePool(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
             ) : (
               <button
                 className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                onClick={() => onSetConfirmRemovePool(true)}
+                onClick={() => poolId && onRequestRemovePool(poolId)}
               >
                 Remove pool from diagram…
               </button>
@@ -613,34 +558,12 @@ export default function ClusterContextMenu(props: Props) {
           {demoId && (
             <>
               <div className="border-t border-border my-1" />
-              {confirmReset ? (
-                <div className="px-3 py-2">
-                  <div className="text-xs text-destructive mb-2">
-                    Remove all buckets from this cluster? This cannot be undone.
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      className="flex-1 text-xs px-2 py-1 rounded bg-destructive text-destructive-foreground hover:bg-destructive/80 transition-colors"
-                      onClick={onResetCluster}
-                    >
-                      Confirm Reset
-                    </button>
-                    <button
-                      className="flex-1 text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
-                      onClick={() => onSetConfirmReset(false)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                  onClick={() => onSetConfirmReset(true)}
-                >
-                  Reset Cluster (Remove All Buckets)
-                </button>
-              )}
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                onClick={onRequestResetCluster}
+              >
+                Reset Cluster (Remove All Buckets)
+              </button>
             </>
           )}
         </>
@@ -679,29 +602,69 @@ export default function ClusterContextMenu(props: Props) {
             </>
           )}
           <div className="border-t border-border my-1" />
-          {!confirmDelete ? (
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+            onClick={onDeleteCluster}
+          >
+            Delete cluster
+          </button>
+        </>
+      )}
+      {(onReanchorClusterConnections ||
+        onReanchorAllClusterConnections ||
+        onToggleExtraClusterConnectors ||
+        onCopyConnectionDiagnostics) && (
+        <>
+          <div className="border-t border-border my-1" />
+          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground border-b border-border bg-muted/30">
+            Diagram wiring
+          </div>
+          {onReanchorClusterConnections && (
             <button
-              className="w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-              onClick={() => onSetConfirmDelete(true)}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+              title="Recompute attachment points for replication / tiering lines touching this cluster"
+              onClick={() => {
+                onReanchorClusterConnections();
+                onClose();
+              }}
             >
-              Delete cluster
+              Reset connection anchors (this cluster)
             </button>
-          ) : (
-            <div className="px-3 py-1.5 flex items-center gap-2">
-              <span className="text-xs text-destructive">Delete?</span>
-              <button
-                className="px-2 py-0.5 text-xs bg-destructive text-destructive-foreground rounded hover:bg-destructive/80"
-                onClick={onDeleteCluster}
-              >
-                Yes
-              </button>
-              <button
-                className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded hover:bg-accent"
-                onClick={() => onSetConfirmDelete(false)}
-              >
-                No
-              </button>
-            </div>
+          )}
+          {onReanchorAllClusterConnections && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+              title="Recompute every cluster↔cluster edge in the diagram"
+              onClick={() => {
+                onReanchorAllClusterConnections();
+                onClose();
+              }}
+            >
+              Reset all cluster anchors
+            </button>
+          )}
+          {onToggleExtraClusterConnectors && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+              title="Adds optional top/bottom handles for manual routing; not changed by reset anchors"
+              onClick={() => {
+                onToggleExtraClusterConnectors();
+                onClose();
+              }}
+            >
+              {showExtraClusterConnectors ? "Hide extra connector handles" : "Show extra connector handles"}
+            </button>
+          )}
+          {onCopyConnectionDiagnostics && (
+            <button
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+              onClick={() => {
+                onCopyConnectionDiagnostics();
+                onClose();
+              }}
+            >
+              Copy connection diagnostics
+            </button>
           )}
         </>
       )}

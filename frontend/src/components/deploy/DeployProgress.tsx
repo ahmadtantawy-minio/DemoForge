@@ -105,7 +105,8 @@ export default function DeployProgress({ demoId, demoName, onDone, taskId }: Pro
           if (intervalRef.current) clearInterval(intervalRef.current);
           // Auto-dismiss on success — only keep modal open on error
           if (success) {
-            setTimeout(() => safeOnDone(true), 500);
+            // Brief buffer so mc-shell has started before parent polls IAM reconcile / integration logs.
+            setTimeout(() => safeOnDone(true), 1500);
           }
         }
       } catch {}

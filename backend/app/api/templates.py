@@ -12,6 +12,7 @@ from ..models.demo import DemoDefinition
 from ..models.api_models import DemoSummary
 from ..engine.template_backup import backup_original, get_override_info, remove_override, BackupError
 from ..engine.template_sync import publish_single_builtin
+from ..engine.minio_ec_parity_normalize import normalize_demo_definition
 from ..fa_identity import get_fa_id
 
 logger = logging.getLogger("demoforge.templates")
@@ -389,7 +390,7 @@ async def create_from_template(template_id: str):
     demo_id = str(uuid.uuid4())[:8]
     demo_raw["id"] = demo_id
     demo_raw["source_template_id"] = template_id
-    demo = DemoDefinition(**demo_raw)
+    demo = normalize_demo_definition(DemoDefinition(**demo_raw))
 
     # Save to demos directory
     os.makedirs(DEMOS_DIR, exist_ok=True)

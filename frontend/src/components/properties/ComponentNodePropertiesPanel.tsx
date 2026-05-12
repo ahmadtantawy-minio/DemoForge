@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { Edge } from "@xyflow/react";
+import { useEffect, useMemo, useState } from "react";
+import type { Edge, Node } from "@xyflow/react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,6 +25,7 @@ import {
 import { DataGeneratorPanel } from "./DataGeneratorPanel";
 import { RagAppPanel } from "./RagAppPanel";
 import { OllamaPanel } from "./OllamaPanel";
+import { summarizeIamSimSpec } from "./minioIamSimSpec";
 
 export interface EventProcessorRoutingInfo {
   webhookBucket: string;
@@ -43,6 +44,7 @@ interface ComponentNodePropertiesPanelProps {
   activeDemoId: string | null;
   isExperience: boolean;
   isRunning: boolean;
+  nodes: Node[];
   edges: Edge[];
   setEdges: (edges: Edge[]) => void;
   eventProcessorRouting: EventProcessorRoutingInfo | null;
@@ -64,6 +66,7 @@ export function ComponentNodePropertiesPanel({
   activeDemoId,
   isExperience,
   isRunning,
+  nodes,
   edges,
   setEdges,
   eventProcessorRouting,
@@ -76,6 +79,10 @@ export function ComponentNodePropertiesPanel({
   setDesignerWebUiOverlay,
 }: ComponentNodePropertiesPanelProps) {
   const [esScenarios, setEsScenarios] = useState<ScenarioOption[]>([]);
+  const manifestPropertyKeys = useMemo(
+    () => new Set((componentDef?.properties ?? []).map((p) => p.key)),
+    [componentDef?.properties],
+  );
 
   useEffect(() => {
     if (data.componentId !== "external-system") {
@@ -630,21 +637,38 @@ export function ComponentNodePropertiesPanel({
         <div className="mb-3">
           <div className="text-xs text-muted-foreground mb-2">Configuration</div>
           {isExperience ? (
-            componentDef!.properties!.map((field) => (
-              <div key={field.key} className="flex gap-1 mb-1">
-                <div className="text-xs text-muted-foreground w-1/2 truncate pt-1">{field.label}</div>
-                <div className="flex-1 text-xs font-mono text-foreground pt-1 truncate">
-                  {data.config[field.key] ?? field.default ?? ""}
+            componentDef!.properties!.map((field) => {
+              const raw = data.config[field.key] ?? field.default ?? "";
+              const display =
+                field.type === "iam_sim_spec"
+                  ? summarizeIamSimSpec(String(raw))
+                  : field.type === "s3_simulated_identity"
+                    ? String(raw ?? "").trim()
+                      ? String(raw)
+                      : "Root (administrator)"
+                    : String(raw ?? "");
+              return (
+                <div key={field.key} className="flex gap-1 mb-1">
+                  <div className="text-xs text-muted-foreground w-1/2 truncate pt-1">{field.label}</div>
+                  <div className="flex-1 text-xs text-foreground pt-1 truncate" title={field.type === "iam_sim_spec" ? String(raw) : undefined}>
+                    {display}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           ) : (
-            <ConfigSchemaForm fields={componentDef!.properties!} values={data.config} onChange={updateConfig} />
+            <ConfigSchemaForm
+              fields={componentDef!.properties!}
+              values={data.config}
+              onChange={updateConfig}
+              diagramContext={{ nodeId: selectedNodeId, nodes, edges }}
+            />
           )}
         </div>
       )}
 
       {Object.keys(data.config).filter((k) => {
+        if (manifestPropertyKeys.has(k)) return false;
         if (k === "MINIO_EDITION" || (data.componentId === "nginx" && k === "mode")) return false;
         if (data.componentId === "event-processor") {
           if (k === "EP_ACTION_SCENARIO" || k === "EP_MODE") return false;
@@ -656,6 +680,7 @@ export function ComponentNodePropertiesPanel({
           <div className="text-xs text-muted-foreground mb-1">Environment{isExperience ? "" : " Overrides"}</div>
           {Object.entries(data.config)
             .filter(([key]) => {
+              if (manifestPropertyKeys.has(key)) return false;
               if (key === "MINIO_EDITION" || (data.componentId === "nginx" && key === "mode")) return false;
               if (data.componentId === "event-processor") {
                 if (key === "EP_ACTION_SCENARIO" || key === "EP_MODE") return false;

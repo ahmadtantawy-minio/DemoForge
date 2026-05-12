@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
 import ConfigScriptPanel from "../config/ConfigScriptPanel";
 import { copyDebugBundleToClipboard } from "../../lib/copyDebugBundle";
+import { showIamReconcileToastIfApplicable } from "../../lib/iamReconcileToast";
 import DemoPresentationAuthoringDialog from "../demo-presentation/DemoPresentationAuthoringDialog";
 import DemoPresentationPresenter from "../demo-presentation/DemoPresentationPresenter";
 import type { DemoSlidePayload } from "../../api/client";
@@ -133,7 +134,7 @@ export default function Toolbar() {
     setRenaming(false);
   };
 
-  const handleDeploy = async () => {
+  const runDeploy = async (freshVolumes: boolean) => {
     if (!activeDemoId) return;
     // Auto-save diagram before deploying so current UI state (ecParity, nodeCount, etc.) is always used
     const { nodes, edges } = useDiagramStore.getState();
@@ -144,14 +145,29 @@ export default function Toolbar() {
     setShowFaNotes(false);
     updateDemoStatus(activeDemoId, "deploying");
     try {
-      const res = await deployDemo(activeDemoId);
+      const res = await deployDemo(activeDemoId, { freshVolumes });
       setDeployTaskId(res.task_id);
       setDeploying(true);
-      toast.info("Deployment starting...", { description: "Containers are being created. This may take a moment." });
+      toast.info(
+        freshVolumes ? "Cleanup & deploy starting…" : "Deployment starting…",
+        {
+          description: freshVolumes
+            ? "Removing Docker volumes for this demo, then creating containers."
+            : "Containers are being created. This may take a moment.",
+        },
+      );
     } catch (err: any) {
       updateDemoStatus(activeDemoId, "error");
       toast.error("Failed to start deployment", { description: err.message });
     }
+  };
+
+  const handleDeploy = () => {
+    void runDeploy(false);
+  };
+
+  const handleCleanupAndDeploy = () => {
+    void runDeploy(true);
   };
 
   const handleDeployDone = (success: boolean) => {
@@ -162,6 +178,7 @@ export default function Toolbar() {
     }
     if (success) {
       toast.success("Deployment completed", { description: "All containers are up and running." });
+      if (activeDemoId) void showIamReconcileToastIfApplicable(activeDemoId);
     } else {
       toast.error("Deployment failed", { description: "One or more containers failed to start." });
     }
@@ -235,6 +252,7 @@ export default function Toolbar() {
           if (success) {
             updateDemoStatus(activeDemoId, "running");
             toast.success("Demo started");
+            void showIamReconcileToastIfApplicable(activeDemoId);
           } else {
             updateDemoStatus(activeDemoId, "stopped");
             toast.error("Failed to start demo", { description: error });
@@ -244,6 +262,7 @@ export default function Toolbar() {
       } else {
         updateDemoStatus(activeDemoId, "running");
         toast.success("Demo started");
+        void showIamReconcileToastIfApplicable(activeDemoId);
         setLoading(null);
       }
     } catch (err: any) {
@@ -429,19 +448,56 @@ export default function Toolbar() {
           </button>
         )}
 
+        {/* Save as Template — after Save; design time only (not during transitions) */}
+        {activeDemoId &&
+          activeDemo &&
+          activeDemo.status !== "running" &&
+          activeDemo.status !== "stopped" &&
+          activeDemo.status !== "deploying" &&
+          activeDemo.status !== "stopping" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setSaveTemplateOpen(true)}
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2 gap-1"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5" />
+                  Save as Template
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-xs">Save current demo as a reusable template</p></TooltipContent>
+            </Tooltip>
+          )}
+
         {/* Deploy/Stop/Start/Destroy — state-driven, only when demo selected */}
         {activeDemoId && (
           <>
             {/* Deploy — shown when not running, not stopped, not transitioning */}
             {activeDemo?.status !== "running" && activeDemo?.status !== "stopped" && activeDemo?.status !== "stopping" && activeDemo?.status !== "deploying" && (
-              <Button
-                onClick={handleDeploy}
-                disabled={deployDisabled}
-                size="sm"
-                className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
-              >
-                Deploy
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  onClick={handleDeploy}
+                  disabled={deployDisabled}
+                  size="sm"
+                  className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
+                >
+                  Deploy
+                </Button>
+                {(activeDemo?.status === "not_deployed" || activeDemo?.status === "error") && (
+                  <Button
+                    onClick={handleCleanupAndDeploy}
+                    disabled={deployDisabled}
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs px-3 border-amber-600/50 text-amber-800 dark:text-amber-200 hover:bg-amber-500/10"
+                    title="Runs docker compose down -v for this demo before bring-up: empty MinIO disks and other named volumes (fixes stale erasure format)."
+                  >
+                    Cleanup & Deploy
+                  </Button>
+                )}
+              </div>
             )}
 
             {/* Start — shown when stopped */}
@@ -503,24 +559,6 @@ export default function Toolbar() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent><p className="text-xs">Force sync state</p></TooltipContent>
-              </Tooltip>
-            )}
-
-            {/* Save as Template — design time only (not during transitions) */}
-            {activeDemo?.status !== "running" && activeDemo?.status !== "stopped" && activeDemo?.status !== "deploying" && activeDemo?.status !== "stopping" && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    onClick={() => setSaveTemplateOpen(true)}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs px-2 gap-1"
-                  >
-                    <BookmarkPlus className="w-3.5 h-3.5" />
-                    Save as Template
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent><p className="text-xs">Save current demo as a reusable template</p></TooltipContent>
               </Tooltip>
             )}
           </>
