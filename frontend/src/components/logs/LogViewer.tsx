@@ -673,7 +673,17 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
                                 ) : null}
                                 {ev.kind ? <span className="text-violet-400/90">{ev.kind}</span> : null}
                                 <span className={lvl}>{ev.message ?? ""}</span>
+                                {ev.exit_code !== undefined && ev.exit_code !== null ? (
+                                  <span className={ev.exit_code === 0 ? "text-emerald-500" : "text-red-400"}>
+                                    exit {ev.exit_code}
+                                  </span>
+                                ) : null}
                               </div>
+                              {ev.command ? (
+                                <pre className="text-zinc-400/90 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-28 overflow-y-auto border border-zinc-800/80 rounded p-1 bg-black/30">
+                                  {ev.command}
+                                </pre>
+                              ) : null}
                               {ev.details ? (
                                 <pre className="text-zinc-400/90 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-40 overflow-y-auto">
                                   {ev.details}

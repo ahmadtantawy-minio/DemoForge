@@ -24,6 +24,10 @@ interface DemoState {
   currentPage: PageKey;
   cockpitEnabled: boolean;
   walkthroughOpen: boolean;
+  /** Hide left/right/bottom chrome to maximize canvas or control plane. */
+  layoutFocusMode: boolean;
+  toggleLayoutFocus: () => void;
+  setLayoutFocusMode: (on: boolean) => void;
   showFaNotes: boolean;
   setShowFaNotes: (v: boolean) => void;
   resilienceProbes: ResilienceProbe[];
@@ -90,6 +94,9 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   currentPage: initial.page,
   cockpitEnabled: false,
   walkthroughOpen: false,
+  layoutFocusMode: false,
+  toggleLayoutFocus: () => set({ layoutFocusMode: !get().layoutFocusMode }),
+  setLayoutFocusMode: (on) => set({ layoutFocusMode: on }),
   showFaNotes: false,
   setShowFaNotes: (v) => set({ showFaNotes: v }),
   resilienceProbes: [],
@@ -138,5 +145,5 @@ export const useDemoStore = create<DemoState>((set, get) => ({
 // Handle browser back/forward
 window.addEventListener("popstate", () => {
   const { demoId, view, page } = viewFromPath(window.location.pathname);
-  useDemoStore.setState({ activeDemoId: demoId, activeView: view, currentPage: page });
+  useDemoStore.setState({ activeDemoId: demoId, activeView: view, currentPage: page, layoutFocusMode: false });
 });

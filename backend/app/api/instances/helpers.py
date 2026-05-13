@@ -37,6 +37,11 @@ from ...models.api_models import (
 )
 from ..demos import _load_demo, _save_demo
 from ...engine import task_manager
+from ...engine.integration_audit_log import (
+    append_integration_audit_line,
+    read_integration_audit_tail,
+    integration_audit_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,54 +62,36 @@ def _resolve_components_dir() -> str:
 
 
 def _demo_integration_audit_path(demo_id: str) -> str:
-    demos_dir = os.environ.get("DEMOFORGE_DEMOS_DIR", "./demos")
-    return os.path.join(demos_dir, demo_id, "integration_audit.jsonl")
+    """Path to per-demo integration audit JSONL (LogViewer Integrations tab)."""
+    return integration_audit_path(demo_id)
 
 
 def append_demo_integration_audit(
-    demo_id: str, level: str, kind: str, message: str, details: str = ""
+    demo_id: str,
+    level: str,
+    kind: str,
+    message: str,
+    details: str = "",
+    *,
+    node_id: str | None = None,
+    command: str | None = None,
+    exit_code: int | None = None,
 ) -> None:
-    """Append-only local JSONL for data-generator Metabase setup (offline, no cloud)."""
-    path = _demo_integration_audit_path(demo_id)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        rec = {
-            "id": str(uuid.uuid4()),
-            "ts_ms": int(time_module.time() * 1000),
-            "level": level,
-            "kind": kind,
-            "message": message,
-            "details": details or "",
-            "source": "backend",
-            "node_id": "setup-metabase",
-        }
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+    """Append one audit line (Metabase, edge/mc actions, etc.)."""
+    append_integration_audit_line(
+        demo_id,
+        level,
+        kind,
+        message,
+        details,
+        node_id=node_id,
+        command=command,
+        exit_code=exit_code,
+    )
 
 
 def _load_demo_integration_audit(demo_id: str, limit: int = 400) -> list[dict]:
-    path = _demo_integration_audit_path(demo_id)
-    if not os.path.isfile(path):
-        return []
-    try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.readlines()
-        out: list[dict] = []
-        for line in lines[-limit:]:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-                if isinstance(rec, dict):
-                    out.append(rec)
-            except json.JSONDecodeError:
-                continue
-        return out
-    except OSError:
-        return []
+    return read_integration_audit_tail(demo_id, limit=limit)
 
 
 def _metabase_dashboard_rows(body: object) -> list:

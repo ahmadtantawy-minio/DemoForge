@@ -584,13 +584,30 @@ async def _deploy_demo_locked(
             await progress("edge_config", "done", f"{len(edge_scripts)} connection(s) registered")
 
         # Auto-activate site replication edges
+        from .integration_audit_log import append_integration_audit_line
+
         for script in auto_activate:
             ec = running.edge_configs[script.edge_id]
             try:
                 await progress("edge_config", "running", f"Activating {script.description}...")
                 import shlex
+
                 exit_code, stdout, stderr = await exec_in_container(
                     script.container_name, f"sh -c {shlex.quote(script.command)}",
+                )
+                short_node = script.container_name
+                if short_node.startswith(f"demoforge-{demo.id}-"):
+                    short_node = short_node[len(f"demoforge-{demo.id}-") :]
+                tail = "\n".join(x for x in [stdout or "", stderr or ""] if x).strip()
+                append_integration_audit_line(
+                    demo.id,
+                    "error" if exit_code != 0 else "info",
+                    "deploy_edge_auto",
+                    f"Auto-activate {script.connection_type} edge {script.edge_id}: {script.description}",
+                    tail[:12000],
+                    node_id=short_node[:64] or "mc-shell",
+                    command=script.command,
+                    exit_code=exit_code,
                 )
                 if exit_code != 0:
                     ec.status = "failed"
@@ -599,6 +616,19 @@ async def _deploy_demo_locked(
                     ec.status = "applied"
                     ec.error = ""
             except Exception as e:
+                short_node = script.container_name
+                if short_node.startswith(f"demoforge-{demo.id}-"):
+                    short_node = short_node[len(f"demoforge-{demo.id}-") :]
+                append_integration_audit_line(
+                    demo.id,
+                    "error",
+                    "deploy_edge_auto",
+                    f"Auto-activate {script.connection_type} edge {script.edge_id}: exec exception",
+                    str(e)[:2000],
+                    node_id=short_node[:64] or "mc-shell",
+                    command=script.command,
+                    exit_code=-1,
+                )
                 ec.status = "failed"
                 ec.error = str(e)[:500]
             state.set_demo(running)

@@ -53,6 +53,33 @@ from .helpers import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+def _audit_edge_exec(
+    demo_id: str,
+    kind: str,
+    message: str,
+    command: str,
+    exit_code: int,
+    stdout: str,
+    stderr: str,
+    *,
+    node_id: str = "mc-shell",
+) -> None:
+    tail = "\n".join(x for x in [stdout or "", stderr or ""] if x).strip()
+    details = tail[:12000] if tail else ""
+    level = "error" if exit_code != 0 else "info"
+    append_demo_integration_audit(
+        demo_id,
+        level,
+        kind,
+        message,
+        details,
+        node_id=node_id,
+        command=command,
+        exit_code=exit_code,
+    )
+
+
 @router.post("/api/demos/{demo_id}/edges/{edge_id}/activate")
 async def activate_edge_config(demo_id: str, edge_id: str):
     """Activate a paused edge config (run the mc commands)."""
@@ -110,6 +137,19 @@ async def activate_edge_config(demo_id: str, edge_id: str):
         exit_code, stdout, stderr = await exec_in_container(
             script.container_name, f"sh -c {shlex.quote(script.command)}"
         )
+        short_node = script.container_name
+        if short_node.startswith(f"demoforge-{demo_id}-"):
+            short_node = short_node[len(f"demoforge-{demo_id}-") :]
+        _audit_edge_exec(
+            demo_id,
+            "edge_activate",
+            f"{script.connection_type} edge {edge_id}: {script.description}",
+            script.command,
+            exit_code,
+            stdout,
+            stderr,
+            node_id=short_node[:64] or "mc-shell",
+        )
         if exit_code != 0:
             ec.status = "failed"
             ec.error = stderr[:500]
@@ -122,6 +162,19 @@ async def activate_edge_config(demo_id: str, edge_id: str):
             state.set_demo(running)
             return {"status": "applied", "edge_id": edge_id}
     except Exception as e:
+        short_node = script.container_name
+        if short_node.startswith(f"demoforge-{demo_id}-"):
+            short_node = short_node[len(f"demoforge-{demo_id}-") :]
+        _audit_edge_exec(
+            demo_id,
+            "edge_activate",
+            f"{script.connection_type} edge {edge_id}: exec exception — {script.description}",
+            script.command,
+            -1,
+            "",
+            str(e),
+            node_id=short_node[:64] or "mc-shell",
+        )
         ec.status = "failed"
         ec.error = str(e)[:500]
         state.set_demo(running)
@@ -170,14 +223,39 @@ async def pause_edge_config(demo_id: str, edge_id: str):
                         exit_code, stdout, stderr = await exec_in_container(
                             f"{project_name}-mc-shell", f"sh -c {shlex.quote(cmd)}"
                         )
+                        _audit_edge_exec(
+                            demo_id,
+                            "edge_pause_site_replication",
+                            f"Site replication remove (edge {edge_id})",
+                            cmd,
+                            exit_code,
+                            stdout,
+                            stderr,
+                        )
                         if exit_code != 0:
                             logger.warning(f"Failed to remove site-replication: {stderr[:200]}")
                     except Exception as e:
                         logger.warning(f"Error removing site-replication: {e}")
+                        _audit_edge_exec(
+                            demo_id,
+                            "edge_pause_site_replication",
+                            f"Site replication remove (edge {edge_id})",
+                            cmd,
+                            -1,
+                            "",
+                            str(e),
+                        )
 
-    # For tiering: just mark as paused (ILM rules can't be easily removed without rule ID)
+    # For tiering: state-only pause (no single mc remove without rule id)
     if ec.connection_type in ("tiering", "cluster-tiering") and ec.status == "applied":
-        pass  # Just mark as paused in state below
+        append_demo_integration_audit(
+            demo_id,
+            "info",
+            "edge_pause_tiering",
+            f"Tiering edge {edge_id} marked paused (no automatic mc rule removal)",
+            "",
+            node_id="mc-shell",
+        )
 
     # For bucket replication, disable the rule on the server
     if ec.connection_type in ("replication", "cluster-replication") and ec.status == "applied":
@@ -193,6 +271,19 @@ async def pause_edge_config(demo_id: str, edge_id: str):
                     exit_code, stdout, stderr = await exec_in_container(
                         pause_cmd["container"],
                         f"sh -c {shlex.quote(pause_cmd['command'])}",
+                    )
+                    cshort = pause_cmd["container"]
+                    if cshort.startswith(f"demoforge-{demo_id}-"):
+                        cshort = cshort[len(f"demoforge-{demo_id}-") :]
+                    _audit_edge_exec(
+                        demo_id,
+                        "edge_pause_replication",
+                        f"Disable bucket replication (edge {edge_id})",
+                        pause_cmd["command"],
+                        exit_code,
+                        stdout,
+                        stderr,
+                        node_id=cshort[:64] or "mc-shell",
                     )
                     if exit_code != 0:
                         logger.warning(
@@ -260,12 +351,30 @@ async def resync_edge(demo_id: str, edge_id: str):
         exit_code, stdout, stderr = await exec_in_container(
             mc_shell, f"sh -c {shlex.quote(cmd)}"
         )
+        _audit_edge_exec(
+            demo_id,
+            "edge_resync",
+            f"Site replication resync (edge {edge_id})",
+            cmd,
+            exit_code,
+            stdout,
+            stderr,
+        )
         if exit_code != 0:
             return {"status": "failed", "edge_id": edge_id, "error": (stderr or stdout)[:500]}
         # Clear replication cache to force refresh
         _repl_cache.pop(demo_id, None)
         return {"status": "resync_started", "edge_id": edge_id, "output": stdout[:500]}
     except Exception as e:
+        _audit_edge_exec(
+            demo_id,
+            "edge_resync",
+            f"Site replication resync (edge {edge_id})",
+            cmd,
+            -1,
+            "",
+            str(e),
+        )
         return {"status": "failed", "edge_id": edge_id, "error": str(e)[:500]}
 
 
@@ -289,20 +398,6 @@ async def reset_cluster(demo_id: str, cluster_id: str):
     project_name = f"demoforge-{demo_id}"
     mc_shell = f"{project_name}-mc-shell"
 
-    # List buckets using only shell builtins (no grep/awk/cut available in minio/mc:latest)
-    # Then remove each one. We count removed buckets via a counter written to a temp file.
-    cmd = (
-        f"count=0; "
-        f"mc ls {alias}/ 2>/dev/null | while read line; do "
-        f'b="${{line##* }}"; b="${{b%/}}"; '
-        f'[ -n "$b" ] && mc rb --force {alias}/$b 2>/dev/null && count=$((count+1)); '
-        f"done; "
-        f"mc ls {alias}/ 2>/dev/null | while read line; do "
-        f'b="${{line##* }}"; b="${{b%/}}"; '
-        f'[ -n "$b" ] && echo "BUCKET:$b"; '
-        f"done"
-    )
-
     # First pass: remove buckets
     remove_cmd = (
         f"mc ls {alias}/ 2>/dev/null | while read line; do "
@@ -315,11 +410,29 @@ async def reset_cluster(demo_id: str, cluster_id: str):
         exit_code, stdout, stderr = await exec_in_container(
             mc_shell, f"sh -c {shlex.quote(remove_cmd)}"
         )
+        _audit_edge_exec(
+            demo_id,
+            "cluster_reset_buckets",
+            f"Remove all buckets on cluster {cluster_id} ({cluster.label})",
+            remove_cmd,
+            exit_code,
+            stdout,
+            stderr,
+        )
         if exit_code != 0:
             return {"status": "failed", "cluster_id": cluster_id, "error": (stderr or stdout)[:500]}
 
         removed = [line[len("REMOVED:"):] for line in stdout.splitlines() if line.startswith("REMOVED:")]
         return {"status": "reset", "cluster_id": cluster_id, "buckets_removed": len(removed)}
     except Exception as e:
+        _audit_edge_exec(
+            demo_id,
+            "cluster_reset_buckets",
+            f"Remove all buckets on cluster {cluster_id}",
+            remove_cmd,
+            -1,
+            "",
+            str(e),
+        )
         raise HTTPException(500, str(e))
 

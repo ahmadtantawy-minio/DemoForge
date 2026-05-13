@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..state.store import state
 from ..engine.docker_manager import exec_in_container
+from ..engine.integration_audit_log import append_integration_audit_line
 from .demos import _load_demo
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,28 @@ def _cluster_alias(cluster) -> str:
 def _find_cluster_in_demo(demo, cluster_id: str):
     """Find a DemoCluster by ID."""
     return next((c for c in demo.clusters if c.id == cluster_id), None)
+
+
+def _audit_bucket_mc(
+    demo_id: str,
+    kind: str,
+    message: str,
+    cmd: str,
+    exit_code: int,
+    stdout: str,
+    stderr: str,
+) -> None:
+    tail = "\n".join(x for x in [stdout or "", stderr or ""] if x).strip()
+    append_integration_audit_line(
+        demo_id,
+        "error" if exit_code != 0 else "info",
+        kind,
+        message,
+        tail[:12000],
+        node_id="mc-shell",
+        command=cmd,
+        exit_code=exit_code,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +94,17 @@ async def set_bucket_policy(demo_id: str, cluster_id: str, req: BucketPolicyRequ
     except Exception as e:
         raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
 
+    _audit_bucket_mc(
+        demo_id,
+        "bucket_policy",
+        f"{cluster_id} bucket {req.bucket}: anonymous {req.policy}",
+        cmd,
+        exit_code,
+        stdout,
+        stderr,
+    )
+
     if exit_code != 0:
-        logger.warning(f"set_bucket_policy failed for {demo_id}/{cluster_id}/{req.bucket}: {stderr[:200]}")
         raise HTTPException(500, f"mc command failed: {stderr[:200]}")
 
     return {"status": "ok", "cluster_id": cluster_id, "bucket": req.bucket, "policy": req.policy}
@@ -115,8 +147,17 @@ async def set_bucket_versioning(demo_id: str, cluster_id: str, req: BucketVersio
     except Exception as e:
         raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
 
+    _audit_bucket_mc(
+        demo_id,
+        "bucket_versioning",
+        f"{cluster_id} bucket {req.bucket}: version {action}",
+        cmd,
+        exit_code,
+        stdout,
+        stderr,
+    )
+
     if exit_code != 0:
-        logger.warning(f"set_bucket_versioning failed for {demo_id}/{cluster_id}/{req.bucket}: {stderr[:200]}")
         raise HTTPException(500, f"mc command failed: {stderr[:200]}")
 
     return {"status": "ok", "cluster_id": cluster_id, "bucket": req.bucket, "versioning": req.enabled}
@@ -166,8 +207,17 @@ async def setup_iam_user(demo_id: str, cluster_id: str, req: IAMSetupRequest):
     except Exception as e:
         raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
 
+    _audit_bucket_mc(
+        demo_id,
+        "iam_user",
+        f"{cluster_id}: user {req.username} policy {req.policy}",
+        cmd,
+        exit_code,
+        stdout,
+        stderr,
+    )
+
     if exit_code != 0:
-        logger.warning(f"setup_iam_user failed for {demo_id}/{cluster_id}/{req.username}: {stderr[:200]}")
         raise HTTPException(500, f"mc command failed: {stderr[:200]}")
 
     return {"status": "ok", "cluster_id": cluster_id, "username": req.username, "policy": req.policy}
@@ -210,8 +260,17 @@ async def set_bucket_encryption(demo_id: str, cluster_id: str, req: BucketEncryp
     except Exception as e:
         raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
 
+    _audit_bucket_mc(
+        demo_id,
+        "bucket_encryption",
+        f"{cluster_id} bucket {req.bucket}: encrypt {action}",
+        cmd,
+        exit_code,
+        stdout,
+        stderr,
+    )
+
     if exit_code != 0:
-        logger.warning(f"set_bucket_encryption failed for {demo_id}/{cluster_id}/{req.bucket}: {stderr[:200]}")
         raise HTTPException(500, f"mc command failed: {stderr[:200]}")
 
     return {"status": "ok", "cluster_id": cluster_id, "bucket": req.bucket, "encryption": "sse-s3" if req.enabled else "none"}
@@ -243,6 +302,16 @@ async def get_bucket_encryption(demo_id: str, cluster_id: str, bucket: str):
         exit_code, stdout, stderr = await exec_in_container(mc_shell, f"sh -c {shlex.quote(cmd)}")
     except Exception as e:
         raise HTTPException(500, f"Failed to exec in mc-shell: {e}")
+
+    _audit_bucket_mc(
+        demo_id,
+        "bucket_encryption_info",
+        f"{cluster_id} bucket {bucket}: mc encrypt info",
+        cmd,
+        exit_code,
+        stdout,
+        stderr,
+    )
 
     encryption = "none"
     if exit_code == 0 and "sse-s3" in stdout.lower():
@@ -316,6 +385,16 @@ async def run_mc_command(demo_id: str, cluster_id: str, req: McCommandRequest):
         exit_code, stdout, stderr = await exec_in_container(mc_shell, f"sh -c {shlex.quote(full_cmd)}")
     except Exception as e:
         raise HTTPException(500, f"Failed to exec: {e}")
+
+    _audit_bucket_mc(
+        demo_id,
+        "mc_api",
+        f"cluster {cluster_id}: manual mc",
+        full_cmd,
+        exit_code,
+        stdout,
+        stderr,
+    )
 
     return {
         "command": full_cmd,

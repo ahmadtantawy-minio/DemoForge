@@ -11,6 +11,10 @@ export type IntegrationEventRow = {
   kind?: string;
   message?: string;
   details?: string;
+  /** When present (backend audit / mc API), full shell command executed in mc-shell or MinIO node. */
+  command?: string;
+  /** Process exit code from Docker exec. */
+  exit_code?: number;
 };
 
 const STORAGE_VERSION = "v1";

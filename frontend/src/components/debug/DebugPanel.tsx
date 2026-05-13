@@ -259,8 +259,9 @@ export default function DebugPanel() {
           <div className="font-mono text-xs p-1">
             {integrationEntriesView.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-muted-foreground">
-                No integration events yet. Deploy a demo with init scripts, edges, or an event-processor (webhook registration,
-                deliveries, and per-event reports appear here).
+                No integration events yet. Deploy a demo to see init scripts (mc / buckets / ILM), edge activation
+                (replication, site replication, tiering), Admin mc / bucket API calls, webhooks, and Metabase-style audit
+                lines — each line shows the command and exit code when available (expand for stdout/stderr).
               </div>
             ) : (
               integrationEntriesView.map((entry) => <LogEntry key={entry.id} entry={entry} />)

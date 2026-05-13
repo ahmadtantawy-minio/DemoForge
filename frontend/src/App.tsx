@@ -30,7 +30,7 @@ import { ConnectivityPage } from "./pages/ConnectivityPage";
 import { copyDebugBundleToClipboard } from "./lib/copyDebugBundle";
 
 export default function App() {
-  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode } = useDemoStore();
+  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const addDebugEntry = useDebugStore((s) => s.addEntry);
   const prevClusterHealth = useRef<Record<string, string>>({});
@@ -47,6 +47,40 @@ export default function App() {
   const [leftPanelWidth, setLeftPanelWidth] = useState(192);
   const [rightPanelWidth, setRightPanelWidth] = useState(288);
   const isDragging = useRef(false);
+  const panelSnapshotRef = useRef<{ left: number; right: number; bottom: number } | null>(null);
+
+  useEffect(() => {
+    if (currentPage !== "designer" && layoutFocusMode) {
+      setLayoutFocusMode(false);
+    }
+  }, [currentPage, layoutFocusMode, setLayoutFocusMode]);
+
+  useEffect(() => {
+    setLayoutFocusMode(false);
+  }, [activeDemoId, setLayoutFocusMode]);
+
+  useEffect(() => {
+    if (layoutFocusMode) {
+      if (!panelSnapshotRef.current) {
+        panelSnapshotRef.current = {
+          left: leftPanelWidth,
+          right: rightPanelWidth,
+          bottom: terminalHeight,
+        };
+      }
+      setLeftPanelWidth(0);
+      setRightPanelWidth(0);
+      setTerminalHeight(0);
+    } else {
+      const snap = panelSnapshotRef.current;
+      if (snap) {
+        setLeftPanelWidth(snap.left);
+        setRightPanelWidth(snap.right);
+        setTerminalHeight(snap.bottom);
+        panelSnapshotRef.current = null;
+      }
+    }
+  }, [layoutFocusMode]);
 
   // Subscribe to diagram edges — emit Provision entries once edges are loaded for an active demo
   const edges = useDiagramStore((s) => s.edges);
@@ -256,10 +290,17 @@ export default function App() {
         // Emit init script results to the Integrations tab (once per deploy)
         if (res.init_results && res.init_results.length > 0 && !initResultsEmitted.current.has(activeDemoId)) {
           initResultsEmitted.current.add(activeDemoId);
+          const integScriptRe =
+            /\b(mc|mcli|minio)\b|bucket|replicat|tier|ilm|lifecycle|site-replicat|admin\s+replicate|\bmb\b|\brb\b|\bversion\b|anonymous|encrypt|ilm\b/i;
           for (const result of res.init_results) {
             const level = result.exit_code === 0 ? "info" : "error";
             const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+            const script = String((result as any).script || (result as any).command || "").trim();
             addDebugEntry(level, "Provision", `${result.node_id}: init (exit ${result.exit_code})`, output || undefined);
+            if (script && integScriptRe.test(script)) {
+              const details = `Command:\n${script}\n\n${output || "(no stdout/stderr)"}`;
+              addDebugEntry(level, "Integration", `${result.node_id}: init script (exit ${result.exit_code})`, details);
+            }
           }
         }
         // Webhook / event-processor integration log (deduped by event id, TTL-scoped)
@@ -287,7 +328,15 @@ export default function App() {
               typeof ev.details === "string" && ev.details.trim()
                 ? ev.details
                 : undefined;
-            addDebugEntry(lvl, "Integration", `${node}${kind}${msg}`, details);
+            const cmd =
+              typeof (ev as any).command === "string" && (ev as any).command.trim()
+                ? ` | cmd: ${String((ev as any).command).trim()}`
+                : "";
+            const ex =
+              (ev as any).exit_code !== undefined && (ev as any).exit_code !== null
+                ? ` | exit ${String((ev as any).exit_code)}`
+                : "";
+            addDebugEntry(lvl, "Integration", `${node}${kind}${msg}${cmd}${ex}`, details);
           }
         }
         // Update failover edge status
@@ -440,14 +489,14 @@ export default function App() {
           {/* Main area */}
           <div className="flex flex-1 min-h-0">
             {/* Left sidebar - Component Palette (hidden when running or in experience mode, but kept mounted to avoid re-fetching) */}
-            {showSidebars && !isExperience && (
+            {showSidebars && !isExperience && !layoutFocusMode && (
               <div className="flex-shrink-0 h-full" style={{ width: leftPanelWidth, display: isDemoEditable ? undefined : "none" }}>
                 <ComponentPalette />
               </div>
             )}
 
             {/* Left resize handle */}
-            {showLeftSidebar && (
+            {showLeftSidebar && !layoutFocusMode && (
               <div
                 className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
                 onMouseDown={onLeftResizeStart}
@@ -470,7 +519,7 @@ export default function App() {
             </div>
 
             {/* Right resize handle */}
-            {showRightSidebar && (
+            {showRightSidebar && !layoutFocusMode && (
               <div
                 className="w-1 flex-shrink-0 bg-border hover:bg-primary/50 cursor-col-resize flex items-center justify-center"
                 onMouseDown={onRightResizeStart}
@@ -480,7 +529,7 @@ export default function App() {
             )}
 
             {/* Right sidebar - Properties Panel (hidden in experience mode) */}
-            {showRightSidebar && (
+            {showRightSidebar && !layoutFocusMode && (
               <div className="flex-shrink-0 h-full" style={{ width: rightPanelWidth }}>
                 {walkthroughOpen
                   ? <WalkthroughPanel steps={walkthroughSteps} onClose={() => setWalkthroughOpen(false)} />
@@ -501,7 +550,7 @@ export default function App() {
           )}
 
           {/* Bottom - Terminal / Logs panel (resizable) - only when demo selected */}
-          {activeDemoId && (
+          {activeDemoId && !layoutFocusMode && (
             <div className="flex-shrink-0 flex flex-col" style={{ height: terminalHeight }}>
               <div
                 className="h-2 bg-border hover:bg-primary/50 cursor-row-resize border-t border-border flex items-center justify-center flex-shrink-0"

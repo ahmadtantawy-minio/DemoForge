@@ -20,7 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, StickyNote, Bug, Clapperboard } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, StickyNote, Bug, Clapperboard, Focus } from "lucide-react";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
@@ -32,7 +32,7 @@ import DemoPresentationPresenter from "../demo-presentation/DemoPresentationPres
 import type { DemoSlidePayload } from "../../api/client";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes, faMode } = useDemoStore();
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes, faMode, layoutFocusMode, toggleLayoutFocus } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -584,6 +584,29 @@ export default function Toolbar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
+                    type="button"
+                    onClick={() => toggleLayoutFocus()}
+                    variant="ghost"
+                    size="sm"
+                    className={`h-7 w-7 p-0 shrink-0 ${layoutFocusMode ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"}`}
+                    aria-pressed={layoutFocusMode}
+                    aria-label={layoutFocusMode ? "Exit focus mode" : "Focus"}
+                  >
+                    <Focus className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs font-medium">Focus</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 max-w-[220px]">
+                    {layoutFocusMode
+                      ? "Show the component palette, properties panel, and bottom terminal/logs again."
+                      : "Hide the left palette, right properties, and bottom dock so the diagram or instances view uses the full height."}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
                     onClick={() => setConfigViewerOpen(true)}
                     variant="ghost"
                     size="sm"
@@ -768,17 +791,6 @@ export default function Toolbar() {
               </TooltipTrigger>
               <TooltipContent><p className="text-xs">Settings</p></TooltipContent>
             </Tooltip>
-
-            <Button
-              onClick={() => debugStore.toggle()}
-              variant="ghost"
-              size="sm"
-              className={`h-7 text-xs px-2 ${debugStore.isOpen ? "text-primary" : "text-muted-foreground"}`}
-            >
-              {debugStore.entries.filter((e) => e.level === "error").length > 0
-                ? `Logs (${debugStore.entries.filter((e) => e.level === "error").length})`
-                : "Logs"}
-            </Button>
           </div>
         </div>
       </div>

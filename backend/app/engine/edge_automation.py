@@ -520,11 +520,11 @@ def _gen_cluster_replication(edge: DemoEdge, demo: DemoDefinition, project_name:
 
 
 # ---------------------------------------------------------------------------
-# Generator: cluster-site-replication (full cluster sync)
+# Generator: cluster-site-replication (two clusters on this edge only)
 # ---------------------------------------------------------------------------
 @_register("cluster-site-replication")
 def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
-    """Generate mc admin replicate add for site replication between clusters."""
+    """Generate mc admin replicate add for the two clusters connected by this edge (LB aliases)."""
     config = edge.connection_config or {}
     source_cluster_id = config.get("_source_cluster_id", "")
     target_cluster_id = config.get("_target_cluster_id", "")
@@ -552,50 +552,32 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     if source_user != target_user or source_pass != target_pass:
         logger.warning(f"cluster-site-replication edge {edge.id}: credentials differ between {source_cluster.label} and {target_cluster.label}. Site replication requires matching root credentials.")
 
-    source_host = _resolve_cluster_endpoint(source_cluster, project_name)
-    target_host = _resolve_cluster_endpoint(target_cluster, project_name)
-
-    # Use the same sanitized alias names as compose_generator's mc-shell init
+    # Same sanitized alias names as compose_generator's mc-shell init (cluster LB targets).
     import re as _re
     source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_cluster.label)
     target_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", target_cluster.label)
 
-    # Collect ALL cluster aliases — mc admin replicate add requires all sites when extending
-    all_aliases = [_re.sub(r"[^a-zA-Z0-9_]", "_", c.label) for c in demo.clusters]
-    all_aliases_str = " ".join(all_aliases)
-
-    # MinIO requires site-replication API calls to be anchored on the site that already holds
-    # buckets ("primary"). Pick PRIMARY by max bucket count; fall back to diagram source alias.
-    # `mc admin replicate add` is called with PRIMARY first, then other sites.
-    # Never wipe buckets on PRIMARY; only clear joiner sites before a fresh add.
+    # Same two-site shell flow as site-replication: only this edge's clusters, not every cluster in the demo.
+    # Anchor on the site that already has buckets (MinIO rejects the opposite for a fresh add).
     command = (
-        f"ALL_SITES=\"{all_aliases_str}\" && "
-        f"for i in $(seq 1 15); do ok=1; for a in $ALL_SITES; do mc admin info \"$a\" >/dev/null 2>&1 || ok=0; done; "
-        f'[ "$ok" = 1 ] && break; sleep 2; done && '
-        f'PRIMARY=""; MAXB=0; for a in $ALL_SITES; do '
-        f'N=$(mc ls "$a/" 2>/dev/null | wc -l); N=$(echo "$N" | tr -d " "); '
-        f'case "$N" in ""|*[!0-9]*) N=0;; esac; '
-        f'if [ "$N" -gt "$MAXB" ] 2>/dev/null; then MAXB=$N; PRIMARY=$a; fi; '
-        f"done && "
-        f'if [ -z "$PRIMARY" ] || [ "$MAXB" -eq 0 ] 2>/dev/null; then PRIMARY={source_alias}; fi && '
-        f'ORDERED="$PRIMARY"; for a in $ALL_SITES; do [ "$a" = "$PRIMARY" ] && continue; ORDERED="$ORDERED $a"; done && '
-        f'STATUS=$(mc admin replicate info "$PRIMARY" 2>&1 | head -1) && '
+        f"for i in $(seq 1 15); do mc admin info {source_alias} >/dev/null 2>&1 && mc admin info {target_alias} >/dev/null 2>&1 && break; sleep 2; done && "
+        f"NS=$(mc ls {source_alias}/ 2>/dev/null | wc -l | tr -d ' '); case $NS in ''|*[!0-9]*) NS=0;; esac && "
+        f"NT=$(mc ls {target_alias}/ 2>/dev/null | wc -l | tr -d ' '); case $NT in ''|*[!0-9]*) NT=0;; esac && "
+        f"if [ \"$NT\" -gt \"$NS\" ] 2>/dev/null; then PRIMARY={target_alias}; SECOND={source_alias}; "
+        f"elif [ \"$NS\" -gt \"$NT\" ] 2>/dev/null; then PRIMARY={source_alias}; SECOND={target_alias}; "
+        f"else PRIMARY={source_alias}; SECOND={target_alias}; fi && "
+        f"STATUS=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
-        # Already enabled — extend group; do not delete buckets on any site
-        f"*enabled\\ for*) "
-        f"echo \"Replication active, ensuring all sites in group...\"; "
-        f"mc admin replicate add $ORDERED 2>&1 || true; "
-        f'echo "Replication group updated"; mc admin replicate info "$PRIMARY";; '
-        # Fresh setup — wipe buckets only on non-primary joiners, then add with primary first
+        f"*enabled\\ for*) echo \"Site replication active on primary, ensuring this edge's peer...\"; "
+        f"mc admin replicate add $PRIMARY $SECOND 2>&1 || true; "
+        f"mc admin replicate info $PRIMARY;; "
         f"*) echo \"Setting up site replication...\"; "
-        f'for na in $ALL_SITES; do [ "$na" = "$PRIMARY" ] && continue; '
-        f"mc ls \"$na/\" 2>/dev/null | while read line; do "
+        f"mc ls \"$SECOND/\" 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
-        f'[ -n "$b" ] && echo "Removing joiner bucket $na/$b" && mc rb --force "$na/$b" 2>/dev/null; done; '
-        f"done; "
-        f"mc admin replicate add $ORDERED && "
-        f'STATUS2=$(mc admin replicate info "$PRIMARY" 2>&1 | head -1) && '
-        f"case \"$STATUS2\" in *enabled\\ for*) echo \"Site replication verified active\";; "
+        f"[ -n \"$b\" ] && echo \"Removing $SECOND/$b\" && mc rb --force \"$SECOND/$b\" 2>/dev/null; done; "
+        f"mc admin replicate add $PRIMARY $SECOND && "
+        f"VERIFY=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
+        f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
         f"esac"
     )
