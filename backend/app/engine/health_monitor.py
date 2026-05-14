@@ -1,4 +1,7 @@
 """Background task that polls container health and reconciles state every 5 seconds."""
+
+from __future__ import annotations
+
 import asyncio
 import json
 import logging

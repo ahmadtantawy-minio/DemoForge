@@ -1,4 +1,7 @@
 """Cockpit API — real-time bucket stats and throughput for running demos."""
+
+from __future__ import annotations
+
 import asyncio
 import json
 import logging

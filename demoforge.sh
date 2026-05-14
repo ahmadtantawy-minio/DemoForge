@@ -534,6 +534,22 @@ cmd_dev_be() {
         echo -e "${YELLOW}Simulating FA: ${DEMOFORGE_FA_ID}${NC}"
     fi
 
+    # Prefer python3.12 (matches backend/Dockerfile); fall back to python3.
+    local py=""
+    for candidate in python3.12 python3.11 python3.10 python3; do
+        if command -v "$candidate" &>/dev/null; then
+            py="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$py" ]]; then
+        err "No Python 3 interpreter found. Install Python 3.10+ (brew install python@3.12)."
+        exit 1
+    fi
+    local pyver
+    pyver=$("$py" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    log "Using $py (Python $pyver)"
+
     cd backend
     DEMOFORGE_COMPONENTS_DIR="$SCRIPT_DIR/components" \
     DEMOFORGE_DEMOS_DIR="$SCRIPT_DIR/demos" \
@@ -544,7 +560,7 @@ cmd_dev_be() {
     DEMOFORGE_TEMPLATES_MODE="${DEMOFORGE_TEMPLATES_MODE:-all}" \
     DEMOFORGE_READINESS_CONFIG="$SCRIPT_DIR/component-readiness.yaml" \
     DEMOFORGE_HUB_API_ADMIN_KEY="${DEMOFORGE_HUB_API_ADMIN_KEY:-}" \
-    uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload
+    "$py" -m uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload
 }
 
 cmd_dev_fe() {
@@ -564,8 +580,14 @@ cmd_dev_inference_sim() {
     echo -e "${YELLOW}UI: http://localhost:${port}/  · watches app/**/*.py and app/static/*${NC}"
     echo ""
 
+    local py=""
+    for candidate in python3.12 python3.11 python3.10 python3; do
+        if command -v "$candidate" &>/dev/null; then py="$candidate"; break; fi
+    done
+    [[ -z "$py" ]] && { err "No Python 3 interpreter found."; exit 1; }
+
     cd "${SCRIPT_DIR}/components/inference-sim"
-    exec python3 -m uvicorn app.main:app \
+    exec "$py" -m uvicorn app.main:app \
         --host 0.0.0.0 \
         --port "${port}" \
         --reload \

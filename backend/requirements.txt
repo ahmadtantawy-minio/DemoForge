@@ -1,3 +1,4 @@
+# Run with Python 3.9+ locally (modules use postponed PEP 604 annotations); Docker image uses 3.12 (backend/Dockerfile).
 fastapi==0.115.12
 uvicorn[standard]==0.34.0
 httpx==0.28.1

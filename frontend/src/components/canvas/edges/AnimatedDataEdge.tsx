@@ -136,14 +136,19 @@ export default function AnimatedDataEdge({
     targetNode
   ) {
     const jc = ((targetNode.data as any)?.config ?? {}) as Record<string, string>;
+    const jobMode = String(jc.JOB_MODE || "raw_to_iceberg").toLowerCase();
     const rawFmt = String(jc.RAW_INPUT_FORMAT || jc.INPUT_FORMAT || "csv").toLowerCase();
     const fileLabel = rawFmt === "json" ? "JSON" : "CSV";
-    const table = String(jc.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw";
     const br = (connConfig?.spark_bucket_role as string | undefined)?.toLowerCase() || "";
     const sr = (connConfig?.spark_sink_role as string | undefined)?.toLowerCase() || "";
     const isOut =
       sr === "output" || br === "warehouse" || br === "curated" || br === "output";
-    sparkJobS3Fallback = isOut ? `Iceberg → ${table}` : `${fileLabel} → ${table}`;
+    if (jobMode === "raw_to_parquet") {
+      sparkJobS3Fallback = isOut ? `${fileLabel} → Parquet` : `${fileLabel} (input)`;
+    } else {
+      const table = String(jc.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw";
+      sparkJobS3Fallback = isOut ? `Iceberg → ${table}` : `${fileLabel} → ${table}`;
+    }
   }
 
   let sparkSparkS3Fallback: string | null = null;

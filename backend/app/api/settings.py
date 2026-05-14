@@ -1,4 +1,7 @@
 """Settings API — license key management and app mode."""
+
+from __future__ import annotations
+
 import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel

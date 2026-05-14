@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import glob as glob_module
 import yaml

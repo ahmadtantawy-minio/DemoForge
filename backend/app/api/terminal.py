@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..state.store import state
 from ..registry.loader import get_component

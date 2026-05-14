@@ -1,4 +1,8 @@
 """Pydantic models for component manifests (parsed from YAML)."""
+from __future__ import annotations
+
+from typing import Any
+
 from pydantic import BaseModel
 
 class PortDef(BaseModel):
@@ -48,7 +52,7 @@ class ConnectionConfigField(BaseModel):
     key: str
     label: str
     type: str = "string"        # string | number | boolean | select
-    default: str = ""
+    default: Any = ""
     required: bool = False
     options: list[str] = []
     description: str = ""

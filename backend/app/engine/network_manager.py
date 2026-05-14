@@ -1,4 +1,7 @@
 """Create/remove Docker networks, join/disconnect backend container."""
+
+from __future__ import annotations
+
 import logging
 import socket
 

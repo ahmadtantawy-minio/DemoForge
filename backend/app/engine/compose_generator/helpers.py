@@ -1,4 +1,7 @@
 """Shared helpers for docker-compose generation (env mapping, paths, templates)."""
+
+from __future__ import annotations
+
 import os
 import re
 import logging

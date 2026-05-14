@@ -80,6 +80,23 @@ connections:
   - type: site-replication
     port: 9000
     description: Site replication peer
+    config_schema:
+      - key: replicate_ilm_rules
+        label: Replicate ILM rules
+        type: boolean
+        default: true
+        required: false
+        options: []
+        description: >-
+          When enabled, pass ``--replicate-ilm-expiry`` to ``mc admin replicate add`` so ILM expiry rules replicate across sites.
+      - key: site_replication_sync
+        label: Synchronous replication
+        type: boolean
+        default: true
+        required: false
+        options: []
+        description: >-
+          When enabled, after the link is created run ``mc admin replicate update … --mode sync`` for each peer so replication is synchronous.
   - type: tiering
     port: 9000
     description: ILM tiering source (hot tier)
@@ -142,7 +159,23 @@ connections:
       default: '0'
       description: 0 = unlimited
   - type: site-replication
-    config_schema: []
+    config_schema:
+      - key: replicate_ilm_rules
+        label: Replicate ILM rules
+        type: boolean
+        default: true
+        required: false
+        options: []
+        description: >-
+          When enabled, pass ``--replicate-ilm-expiry`` to ``mc admin replicate add`` so ILM expiry rules replicate across sites.
+      - key: site_replication_sync
+        label: Synchronous replication
+        type: boolean
+        default: true
+        required: false
+        options: []
+        description: >-
+          When enabled, after the link is created run ``mc admin replicate update … --mode sync`` for each peer so replication is synchronous.
   - type: tiering
     config_schema:
     - key: policy_name

@@ -377,8 +377,28 @@ export function ComponentNodePropertiesPanel({
         </>
       )}
 
-      {data.componentId === "spark-etl-job" && !isExperience && (
+      {data.componentId === "spark-etl-job" && !isExperience && (() => {
+        const sparkJobMode = (data.config?.JOB_MODE || "raw_to_iceberg").toLowerCase();
+        const isParquetMode = sparkJobMode === "raw_to_parquet";
+        return (
         <div className="mb-3 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Job mode</label>
+            <Select value={sparkJobMode} onValueChange={(v) => updateConfig("JOB_MODE", v)}>
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="raw_to_iceberg">Raw → Iceberg</SelectItem>
+                <SelectItem value="raw_to_parquet">Raw → Parquet</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+              {isParquetMode
+                ? "Read CSV/JSON from MinIO (S3A) and write Parquet files to an output bucket. No AIStor Tables required."
+                : <>Read CSV/JSON from MinIO (S3A) and write to an Iceberg table via the REST catalog (<code className="text-[10px]">/_iceberg</code> on AIStor Tables).</>}
+            </p>
+          </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Schedule</label>
             <p className="text-[10px] text-muted-foreground/90 mb-1 leading-snug">
@@ -408,49 +428,83 @@ export function ComponentNodePropertiesPanel({
               />
             </div>
           )}
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Job type</label>
-            <p className="text-xs text-muted-foreground border rounded-md px-2 py-1.5 bg-muted/30">
-              Raw → Iceberg — load CSV or JSON from MinIO (S3A) and write into the Iceberg REST catalog (
-              <code className="text-[10px]">/_iceberg</code> on AIStor Tables).
-            </p>
-          </div>
-          <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-              Target Iceberg table (catalog write)
+          {/* Iceberg-specific: target table */}
+          {!isParquetMode && (
+            <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
+              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Target Iceberg table (catalog write)
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Namespace (schema)</label>
+                <Input
+                  value={data.config?.ICEBERG_TARGET_NAMESPACE ?? ""}
+                  placeholder="analytics"
+                  onChange={(e) => updateConfig("ICEBERG_TARGET_NAMESPACE", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Target table name</label>
+                <Input
+                  value={data.config?.ICEBERG_TARGET_TABLE ?? ""}
+                  placeholder="events_from_raw"
+                  onChange={(e) => updateConfig("ICEBERG_TARGET_TABLE", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground font-mono break-all">
+                Spark catalog <span className="text-foreground">demoforge_rest</span> →{" "}
+                <span className="text-foreground">
+                  {(data.config?.ICEBERG_TARGET_NAMESPACE || "analytics").trim() || "analytics"}.
+                  {(data.config?.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw"}
+                </span>
+              </p>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground block mb-1">Namespace (schema)</label>
-              <Input
-                value={data.config?.ICEBERG_TARGET_NAMESPACE ?? ""}
-                placeholder="analytics"
-                onChange={(e) => updateConfig("ICEBERG_TARGET_NAMESPACE", e.target.value)}
-                className="h-8 text-sm font-mono"
-              />
+          )}
+          {/* Parquet-specific: output bucket + partition columns */}
+          {isParquetMode && (
+            <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
+              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Parquet output (S3A)
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Output bucket</label>
+                <Input
+                  value={data.config?.PARQUET_OUTPUT_BUCKET ?? ""}
+                  placeholder="warehouse"
+                  onChange={(e) => updateConfig("PARQUET_OUTPUT_BUCKET", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Output prefix (optional)</label>
+                <Input
+                  value={data.config?.PARQUET_OUTPUT_PREFIX ?? ""}
+                  placeholder="parquet-output/"
+                  onChange={(e) => updateConfig("PARQUET_OUTPUT_PREFIX", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Partition columns (optional)</label>
+                <Input
+                  value={data.config?.PARQUET_PARTITION_COLS ?? ""}
+                  placeholder="e.g. year,month"
+                  onChange={(e) => updateConfig("PARQUET_PARTITION_COLS", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Comma-separated column names for Hive-style partitioned output.
+                </p>
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground block mb-1">Target table name</label>
-              <Input
-                value={data.config?.ICEBERG_TARGET_TABLE ?? ""}
-                placeholder="events_from_raw"
-                onChange={(e) => updateConfig("ICEBERG_TARGET_TABLE", e.target.value)}
-                className="h-8 text-sm font-mono"
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground font-mono break-all">
-              Spark catalog <span className="text-foreground">demoforge_rest</span> →{" "}
-              <span className="text-foreground">
-                {(data.config?.ICEBERG_TARGET_NAMESPACE || "analytics").trim() || "analytics"}.
-                {(data.config?.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw"}
-              </span>
-            </p>
-          </div>
+          )}
           <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
             <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
               MinIO buckets (S3A)
             </div>
             <p className="text-[10px] text-muted-foreground leading-snug">
-              Configure landing and warehouse buckets on the job — MinIO→job edges only set input vs output.
+              Configure landing{isParquetMode ? "" : " and warehouse"} buckets on the job — MinIO→job edges only set input vs output.
             </p>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Raw landing bucket</label>
@@ -461,15 +515,17 @@ export function ComponentNodePropertiesPanel({
                 className="h-8 text-sm font-mono"
               />
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground block mb-1">Warehouse bucket</label>
-              <Input
-                value={data.config?.WAREHOUSE_BUCKET ?? ""}
-                placeholder="warehouse"
-                onChange={(e) => updateConfig("WAREHOUSE_BUCKET", e.target.value)}
-                className="h-8 text-sm font-mono"
-              />
-            </div>
+            {!isParquetMode && (
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Warehouse bucket</label>
+                <Input
+                  value={data.config?.WAREHOUSE_BUCKET ?? ""}
+                  placeholder="warehouse"
+                  onChange={(e) => updateConfig("WAREHOUSE_BUCKET", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+              </div>
+            )}
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Object key prefix (optional)</label>
               <Input
@@ -537,7 +593,8 @@ export function ComponentNodePropertiesPanel({
             </label>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {data.componentId === "event-processor" && !isExperience && (
         <>

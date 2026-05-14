@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useDebugStore, type DebugEntry } from "../../stores/debugStore";
 import { fetchSystemHealth } from "../../api/client";
+import {
+  classifyIntegrationDomain,
+  parseIntegrationDetails,
+  stripInlineCmdFromMessage,
+} from "../../lib/integrationLogDisplay";
 
 const levelColors: Record<DebugEntry["level"], string> = {
   info: "text-blue-400",
@@ -171,6 +176,89 @@ function LogEntry({ entry }: { entry: DebugEntry }) {
   );
 }
 
+function IntegrationLogEntry({ entry }: { entry: DebugEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = stripInlineCmdFromMessage(entry.message);
+  const haystack = `${entry.message}\n${entry.details || ""}`;
+  const domain = classifyIntegrationDomain(haystack);
+  const parsed = parseIntegrationDetails(entry.details);
+  const hasBody = !!(parsed.command || parsed.output);
+  const isExpandable = hasBody || (!!entry.details && entry.level === "error");
+
+  const copyText = [entry.timestamp, `[${entry.level.toUpperCase()}]`, entry.message, entry.details].filter(Boolean).join("\n");
+
+  const expandHover = isExpandable
+    ? entry.level === "error"
+      ? "cursor-pointer hover:bg-red-950/50"
+      : "cursor-pointer hover:bg-muted/50"
+    : "hover:bg-muted/50";
+
+  const domainBadge =
+    domain === "site_replication" ? (
+      <span className="flex-shrink-0 px-1.5 py-0.5 rounded border border-fuchsia-500/45 bg-fuchsia-950/40 text-fuchsia-200 text-[10px] font-semibold">
+        Site replication
+      </span>
+    ) : domain === "ilm_tiering" ? (
+      <span className="flex-shrink-0 px-1.5 py-0.5 rounded border border-amber-500/45 bg-amber-950/40 text-amber-200 text-[10px] font-semibold">
+        ILM tiering
+      </span>
+    ) : (
+      <span className="flex-shrink-0 px-1.5 py-0.5 rounded border border-zinc-600 bg-zinc-900/70 text-zinc-400 text-[10px]">
+        Other
+      </span>
+    );
+
+  return (
+    <div
+      className={`group px-2 py-1 rounded-sm ${levelBg[entry.level]} ${expandHover}`}
+      onClick={isExpandable ? () => setExpanded((v) => !v) : undefined}
+    >
+      <div className="flex gap-2 items-start flex-wrap">
+        <span className="text-muted-foreground flex-shrink-0">{entry.timestamp}</span>
+        <span className={`flex-shrink-0 w-11 text-[10px] ${levelColors[entry.level]}`}>{entry.level.toUpperCase()}</span>
+        {domainBadge}
+        <span className="text-foreground flex-1 min-w-[100px] leading-snug">{summary}</span>
+        <span className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+          <CopyButton text={copyText} />
+          {isExpandable && <span className="text-muted-foreground text-[10px]">{expanded ? "▲" : "▼"}</span>}
+        </span>
+      </div>
+      {expanded && isExpandable && (
+        <div
+          className={`mt-2 space-y-2 border-l-2 pl-2 ml-1 ${
+            entry.level === "error" ? "border-red-500/40" : "border-primary/35"
+          }`}
+        >
+          {parsed.command ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Command</div>
+              <pre
+                className={`whitespace-pre-wrap break-all rounded px-2 py-1 text-[11px] max-h-40 overflow-y-auto border border-border ${
+                  entry.level === "error" ? "bg-red-950/35 text-red-100" : "bg-zinc-950/80 text-zinc-200"
+                }`}
+              >
+                {parsed.command}
+              </pre>
+            </div>
+          ) : null}
+          {parsed.output ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">Output</div>
+              <pre
+                className={`whitespace-pre-wrap break-all rounded px-2 py-1 text-[11px] max-h-56 overflow-y-auto border border-border ${
+                  entry.level === "error" ? "bg-red-950/30 text-red-200" : "bg-zinc-950/80 text-zinc-300"
+                }`}
+              >
+                {parsed.output}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DebugPanel() {
   const { entries, integrationBuffer, clear, clearIntegrationBuffer } = useDebugStore();
   const [tab, setTab] = useState<Tab>("health");
@@ -258,13 +346,13 @@ export default function DebugPanel() {
         ) : tab === "integrations" ? (
           <div className="font-mono text-xs p-1">
             {integrationEntriesView.length === 0 ? (
-              <div className="flex items-center justify-center h-32 text-muted-foreground">
-                No integration events yet. Deploy a demo to see init scripts (mc / buckets / ILM), edge activation
-                (replication, site replication, tiering), Admin mc / bucket API calls, webhooks, and Metabase-style audit
-                lines — each line shows the command and exit code when available (expand for stdout/stderr).
+              <div className="flex items-center justify-center h-32 text-muted-foreground px-4 text-center leading-relaxed">
+                No integration events yet. Deploy a demo to see mc / bucket / ILM init scripts, edge activation (site
+                replication vs ILM tiering — each row is labeled and expandable for command + output), webhooks, and audit
+                lines.
               </div>
             ) : (
-              integrationEntriesView.map((entry) => <LogEntry key={entry.id} entry={entry} />)
+              integrationEntriesView.map((entry) => <IntegrationLogEntry key={entry.id} entry={entry} />)
             )}
           </div>
         ) : (

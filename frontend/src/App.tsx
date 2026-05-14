@@ -3,6 +3,7 @@ import { useDemoStore } from "./stores/demoStore";
 import { useDiagramStore } from "./stores/diagramStore";
 import { useDebugStore } from "./stores/debugStore";
 import { DEBUG_LOG_TTL_MS } from "./lib/debugLogTtl";
+import { buildStructuredIntegrationDetails } from "./lib/integrationLogDisplay";
 import { fetchDemos, fetchInstances, getFailoverStatus, getResilienceStatus, fetchIdentity } from "./api/client";
 import { Toaster, toast } from "sonner";
 import Toolbar from "./components/toolbar/Toolbar";
@@ -30,7 +31,7 @@ import { ConnectivityPage } from "./pages/ConnectivityPage";
 import { copyDebugBundleToClipboard } from "./lib/copyDebugBundle";
 
 export default function App() {
-  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode } = useDemoStore();
+  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode, laserPointerMode } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const addDebugEntry = useDebugStore((s) => s.addEntry);
   const prevClusterHealth = useRef<Record<string, string>>({});
@@ -298,8 +299,16 @@ export default function App() {
             const script = String((result as any).script || (result as any).command || "").trim();
             addDebugEntry(level, "Provision", `${result.node_id}: init (exit ${result.exit_code})`, output || undefined);
             if (script && integScriptRe.test(script)) {
-              const details = `Command:\n${script}\n\n${output || "(no stdout/stderr)"}`;
-              addDebugEntry(level, "Integration", `${result.node_id}: init script (exit ${result.exit_code})`, details);
+              const details = buildStructuredIntegrationDetails(
+                script,
+                output || "(no stdout/stderr)",
+              );
+              addDebugEntry(
+                level,
+                "Integration",
+                `${result.node_id}: init script · exit ${result.exit_code}`,
+                details,
+              );
             }
           }
         }
@@ -323,20 +332,22 @@ export default function App() {
             const lvl = ev.level === "error" ? "error" : ev.level === "warn" ? "warn" : "info";
             const node = typeof ev.node_id === "string" && ev.node_id ? `${ev.node_id}: ` : "";
             const msg = typeof ev.message === "string" ? ev.message : String(ev.message ?? "");
-            const kind = typeof ev.kind === "string" && ev.kind ? `[${ev.kind}] ` : "";
-            const details =
-              typeof ev.details === "string" && ev.details.trim()
-                ? ev.details
-                : undefined;
-            const cmd =
+            const kind = typeof ev.kind === "string" && ev.kind ? `${ev.kind} · ` : "";
+            const outStr =
+              typeof ev.details === "string" && ev.details.trim() ? ev.details.trim() : "";
+            const cmdStr =
               typeof (ev as any).command === "string" && (ev as any).command.trim()
-                ? ` | cmd: ${String((ev as any).command).trim()}`
+                ? String((ev as any).command).trim()
                 : "";
+            const structured = buildStructuredIntegrationDetails(
+              cmdStr || undefined,
+              outStr || undefined,
+            );
             const ex =
               (ev as any).exit_code !== undefined && (ev as any).exit_code !== null
-                ? ` | exit ${String((ev as any).exit_code)}`
+                ? ` · exit ${String((ev as any).exit_code)}`
                 : "";
-            addDebugEntry(lvl, "Integration", `${node}${kind}${msg}${cmd}${ex}`, details);
+            addDebugEntry(lvl, "Integration", `${node}${kind}${msg}${ex}`, structured);
           }
         }
         // Update failover edge status
@@ -589,6 +600,54 @@ export default function App() {
         {currentPage === "connectivity" && <ConnectivityPage />}
         {currentPage === "settings" && <SettingsPage />}
       </main>
+      {laserPointerMode && <LaserPointerOverlay />}
     </div>
+  );
+}
+
+function LaserPointerOverlay() {
+  const dotRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (dotRef.current) {
+        dotRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+      }
+      if (!visible) setVisible(true);
+    };
+    const onLeave = () => setVisible(false);
+    const onEnter = () => setVisible(true);
+    window.addEventListener("mousemove", onMove);
+    document.documentElement.addEventListener("mouseleave", onLeave);
+    document.documentElement.addEventListener("mouseenter", onEnter);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      document.documentElement.removeEventListener("mouseleave", onLeave);
+      document.documentElement.removeEventListener("mouseenter", onEnter);
+    };
+  }, [visible]);
+
+  useEffect(() => {
+    document.documentElement.classList.add("laser-pointer-active");
+    return () => document.documentElement.classList.remove("laser-pointer-active");
+  }, []);
+
+  return (
+    <div
+      ref={dotRef}
+      className="fixed top-0 left-0 pointer-events-none z-[99999]"
+      style={{
+        width: 16,
+        height: 16,
+        marginLeft: -8,
+        marginTop: -8,
+        borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(239,68,68,0.95) 0%, rgba(239,68,68,0.6) 40%, rgba(239,68,68,0) 70%)",
+        boxShadow: "0 0 8px 2px rgba(239,68,68,0.5), 0 0 20px 4px rgba(239,68,68,0.2)",
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.1s",
+      }}
+    />
   );
 }

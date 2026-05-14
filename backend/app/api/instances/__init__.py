@@ -1,4 +1,7 @@
 """Demo/container instance API routes (core + pool decommission)."""
+
+from __future__ import annotations
+
 from fastapi import APIRouter
 
 from .core import router as core_router

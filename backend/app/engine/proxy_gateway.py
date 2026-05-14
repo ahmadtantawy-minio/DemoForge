@@ -5,6 +5,9 @@ internal port over the Docker network.
 The backend must be connected to the demo's Docker network for this to work.
 Container is reached by its Docker Compose service hostname (node_id).
 """
+
+from __future__ import annotations
+
 import httpx
 from fastapi import Request, Response
 from fastapi.responses import StreamingResponse

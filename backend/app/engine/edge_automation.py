@@ -4,6 +4,9 @@ Generates and executes init scripts derived from edge connections in a demo.
 Each connection type has a generator that produces shell commands to configure
 the relationship between source and target containers.
 """
+
+from __future__ import annotations
+
 import logging
 import shlex
 from dataclasses import dataclass
@@ -54,6 +57,26 @@ def _get_credential(node: DemoNode, manifest: ComponentManifest | None, key: str
 def _safe(value: str) -> str:
     """Sanitize a value for safe shell interpolation."""
     return shlex.quote(str(value))
+
+
+def _connection_bool(config: dict | None, key: str, default: bool = True) -> bool:
+    """Parse boolean edge ``connection_config`` values (YAML/JSON may use strings)."""
+    if not config or key not in config:
+        return default
+    v = config[key]
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in ("false", "0", "no", "off", ""):
+        return False
+    if s in ("true", "1", "yes", "on"):
+        return True
+    return default
+
+
+def _site_repl_ilm_flag(config: dict | None) -> str:
+    """Shell suffix for ``mc admin replicate add`` when ILM rule replication is enabled."""
+    return " --replicate-ilm-expiry" if _connection_bool(config, "replicate_ilm_rules", True) else ""
 
 
 def _tier_remote_bucket_and_prefix(config: dict | None) -> tuple[str, str]:
@@ -217,6 +240,9 @@ def _gen_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: st
     if source_user != target_user or source_pass != target_pass:
         logger.warning(f"site-replication edge {edge.id}: credentials differ between {source_node.id} and {target_node.id}. Site replication requires matching root credentials.")
 
+    config = edge.connection_config or {}
+    ilm = _site_repl_ilm_flag(config)
+
     # Use the same alias names as mc-shell init (based on display_name or node id)
     import re as _re
     source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_node.display_name) if source_node.display_name else source_node.id
@@ -232,12 +258,13 @@ def _gen_site_replication(edge: DemoEdge, demo: DemoDefinition, project_name: st
         f"else PRIMARY={source_alias}; SECOND={target_alias}; fi && "
         f"STATUS=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
-        f"*enabled\\ for*) echo \"Site replication already active\"; mc admin replicate info $PRIMARY;; "
+        f"*enabled\\ for*) echo \"Site replication health check: already enabled on $PRIMARY; skipping replicate add.\"; "
+        f"mc admin replicate info $PRIMARY && mc admin replicate info $SECOND 2>&1 || true;; "
         f"*) echo \"Setting up site replication...\"; "
         f"mc ls \"$SECOND/\" 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
         f"[ -n \"$b\" ] && echo \"Removing $SECOND/$b\" && mc rb --force \"$SECOND/$b\" 2>/dev/null; done; "
-        f"mc admin replicate add $PRIMARY $SECOND && "
+        f"mc admin replicate add $PRIMARY $SECOND{ilm} && "
         f"VERIFY=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "
@@ -552,6 +579,9 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
     if source_user != target_user or source_pass != target_pass:
         logger.warning(f"cluster-site-replication edge {edge.id}: credentials differ between {source_cluster.label} and {target_cluster.label}. Site replication requires matching root credentials.")
 
+    config = edge.connection_config or {}
+    ilm = _site_repl_ilm_flag(config)
+
     # Same sanitized alias names as compose_generator's mc-shell init (cluster LB targets).
     import re as _re
     source_alias = _re.sub(r"[^a-zA-Z0-9_]", "_", source_cluster.label)
@@ -568,14 +598,13 @@ def _gen_cluster_site_replication(edge: DemoEdge, demo: DemoDefinition, project_
         f"else PRIMARY={source_alias}; SECOND={target_alias}; fi && "
         f"STATUS=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$STATUS\" in "
-        f"*enabled\\ for*) echo \"Site replication active on primary, ensuring this edge's peer...\"; "
-        f"mc admin replicate add $PRIMARY $SECOND 2>&1 || true; "
-        f"mc admin replicate info $PRIMARY;; "
+        f"*enabled\\ for*) echo \"Site replication health check: already enabled on $PRIMARY; skipping replicate add.\"; "
+        f"mc admin replicate info $PRIMARY && mc admin replicate info $SECOND 2>&1 || true;; "
         f"*) echo \"Setting up site replication...\"; "
         f"mc ls \"$SECOND/\" 2>/dev/null | while read line; do "
         f"b=\"${{line##* }}\"; b=\"${{b%/}}\"; "
         f"[ -n \"$b\" ] && echo \"Removing $SECOND/$b\" && mc rb --force \"$SECOND/$b\" 2>/dev/null; done; "
-        f"mc admin replicate add $PRIMARY $SECOND && "
+        f"mc admin replicate add $PRIMARY $SECOND{ilm} && "
         f"VERIFY=$(mc admin replicate info $PRIMARY 2>&1 | head -1) && "
         f"case \"$VERIFY\" in *enabled\\ for*) echo \"Site replication verified active\";; "
         f"*) echo \"ERROR: Site replication failed to activate\" >&2; exit 1;; esac;; "

@@ -28,6 +28,9 @@ interface DemoState {
   layoutFocusMode: boolean;
   toggleLayoutFocus: () => void;
   setLayoutFocusMode: (on: boolean) => void;
+  /** Red laser-pointer dot replaces the cursor for demo presentations. */
+  laserPointerMode: boolean;
+  toggleLaserPointer: () => void;
   showFaNotes: boolean;
   setShowFaNotes: (v: boolean) => void;
   resilienceProbes: ResilienceProbe[];
@@ -97,6 +100,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   layoutFocusMode: false,
   toggleLayoutFocus: () => set({ layoutFocusMode: !get().layoutFocusMode }),
   setLayoutFocusMode: (on) => set({ layoutFocusMode: on }),
+  laserPointerMode: false,
+  toggleLaserPointer: () => set({ laserPointerMode: !get().laserPointerMode }),
   showFaNotes: false,
   setShowFaNotes: (v) => set({ showFaNotes: v }),
   resilienceProbes: [],

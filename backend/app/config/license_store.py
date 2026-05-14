@@ -1,4 +1,7 @@
 """License key storage — Hub HTTP API (via gateway) → local YAML fallback."""
+
+from __future__ import annotations
+
 import os
 import json
 import logging

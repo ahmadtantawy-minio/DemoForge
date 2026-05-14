@@ -1,4 +1,7 @@
 """Reverse proxy route: /proxy/{demo_id}/{node_id}/{ui_name}/{path:path}"""
+
+from __future__ import annotations
+
 # SPA recovery HTML — returned when the browser navigates to a Superset SPA path
 # directly (e.g. after React Router pushState strips the proxy prefix from the URL
 # and the user refreshes). Reads sessionStorage._dfproxy (set by the injected JS

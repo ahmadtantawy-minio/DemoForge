@@ -3,6 +3,9 @@ Fire-and-forget telemetry emitter.
 Sends events to the Hub API through the hub gateway.
 Never blocks or fails the calling operation.
 """
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import os

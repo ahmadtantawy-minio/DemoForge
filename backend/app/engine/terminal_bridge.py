@@ -3,6 +3,9 @@ WebSocket ↔ docker exec bridge with PTY via 'script' wrapper.
 Each WebSocket connection spawns a docker exec session with a PTY allocated
 by the 'script' command, giving full interactive shell behavior.
 """
+
+from __future__ import annotations
+
 import asyncio
 import logging
 from fastapi import WebSocket, WebSocketDisconnect

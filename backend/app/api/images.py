@@ -1,4 +1,7 @@
 """Image management API — status, pull, pre-cache."""
+
+from __future__ import annotations
+
 import asyncio
 import os
 import logging

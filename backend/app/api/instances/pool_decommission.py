@@ -1,4 +1,7 @@
 """Pool decommission and apply-topology endpoints for running MinIO clusters."""
+
+from __future__ import annotations
+
 import os
 import re
 

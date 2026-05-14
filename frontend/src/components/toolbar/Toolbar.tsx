@@ -20,7 +20,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, StickyNote, Bug, Clapperboard, Focus } from "lucide-react";
+import { ArrowRightLeft, Sun, Moon, FileCode, Settings, SlidersHorizontal, Gauge, Terminal, BookOpen, BookmarkPlus, Save, RefreshCw, StickyNote, Bug, Clapperboard, Focus, ChevronDown, Pointer } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SaveAsTemplateDialog } from "../templates/SaveAsTemplateDialog";
 import { Input } from "@/components/ui/input";
 import GeneratedConfigViewer from "../shared/GeneratedConfigViewer";
@@ -32,7 +38,7 @@ import DemoPresentationPresenter from "../demo-presentation/DemoPresentationPres
 import type { DemoSlidePayload } from "../../api/client";
 
 export default function Toolbar() {
-  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes, faMode, layoutFocusMode, toggleLayoutFocus } = useDemoStore();
+  const { demos, activeDemoId, activeView, setDemos, setActiveView, updateDemoStatus, cockpitEnabled, toggleCockpit, walkthroughOpen, toggleWalkthrough, setInstances, setClusterHealth, showFaNotes, setShowFaNotes, faMode, layoutFocusMode, toggleLayoutFocus, laserPointerMode, toggleLaserPointer } = useDemoStore();
   const debugStore = useDebugStore();
   const [loading, setLoading] = useState<"deploy" | "stop" | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -431,71 +437,79 @@ export default function Toolbar() {
           </div>
         )}
 
-        {/* Save - shown in design time and stopped state; hidden while running or transitioning */}
+        {/* Save (split button) — design time and stopped state; hidden while running or transitioning */}
         {activeDemoId && activeDemo?.status !== "running" && activeDemo?.status !== "deploying" && activeDemo?.status !== "stopping" && (
-          <button
-            onClick={handleSave}
-            disabled={!isDirty}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              isDirty
-                ? "bg-blue-600 text-white hover:bg-blue-500"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
-            }`}
-            title={isDirty ? "Save changes (Cmd+S)" : "No unsaved changes"}
-          >
-            <Save size={14} />
-            Save
-          </button>
+          <div className="flex items-center shrink-0 h-7 rounded-md overflow-hidden">
+            <button
+              onClick={handleSave}
+              disabled={!isDirty}
+              className={`flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-medium transition-colors ${
+                isDirty
+                  ? "bg-blue-600 text-white hover:bg-blue-500"
+                  : "bg-muted text-muted-foreground cursor-not-allowed"
+              }`}
+              title={isDirty ? "Save changes (Cmd+S)" : "No unsaved changes"}
+            >
+              <Save size={12} />
+              Save
+            </button>
+            {activeDemo &&
+              activeDemo.status !== "stopped" && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className={`flex items-center h-7 px-1 text-[11px] font-medium border-l transition-colors ${
+                      isDirty
+                        ? "bg-blue-600 text-white hover:bg-blue-500 border-blue-500/40"
+                        : "bg-muted text-muted-foreground border-border"
+                    }`}
+                  >
+                    <ChevronDown size={10} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[160px]">
+                  <DropdownMenuItem onClick={() => setSaveTemplateOpen(true)} className="gap-2 text-xs">
+                    <BookmarkPlus className="w-3.5 h-3.5" />
+                    Save as Template
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         )}
 
-        {/* Save as Template — after Save; design time only (not during transitions) */}
-        {activeDemoId &&
-          activeDemo &&
-          activeDemo.status !== "running" &&
-          activeDemo.status !== "stopped" &&
-          activeDemo.status !== "deploying" &&
-          activeDemo.status !== "stopping" && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={() => setSaveTemplateOpen(true)}
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs px-2 gap-1"
-                >
-                  <BookmarkPlus className="w-3.5 h-3.5" />
-                  Save as Template
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Save current demo as a reusable template</p></TooltipContent>
-            </Tooltip>
-          )}
-
-        {/* Deploy/Stop/Start/Destroy — state-driven, only when demo selected */}
+        {/* Deploy (split button) / Stop / Start / Destroy — state-driven */}
         {activeDemoId && (
           <>
-            {/* Deploy — shown when not running, not stopped, not transitioning */}
             {activeDemo?.status !== "running" && activeDemo?.status !== "stopped" && activeDemo?.status !== "stopping" && activeDemo?.status !== "deploying" && (
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
+              <div className="flex items-center shrink-0 h-7 rounded-md overflow-hidden">
+                <button
                   onClick={handleDeploy}
                   disabled={deployDisabled}
-                  size="sm"
-                  className="h-7 text-xs px-3 bg-green-600 hover:bg-green-500 text-white"
+                  className="flex items-center h-7 px-2.5 text-[11px] font-medium bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 disabled:pointer-events-none transition-colors"
                 >
                   Deploy
-                </Button>
+                </button>
                 {(activeDemo?.status === "not_deployed" || activeDemo?.status === "error") && (
-                  <Button
-                    onClick={handleCleanupAndDeploy}
-                    disabled={deployDisabled}
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs px-3 border-amber-600/50 text-amber-800 dark:text-amber-200 hover:bg-amber-500/10"
-                    title="Runs docker compose down -v for this demo before bring-up: empty MinIO disks and other named volumes (fixes stale erasure format)."
-                  >
-                    Cleanup & Deploy
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        disabled={deployDisabled}
+                        className="flex items-center h-7 px-1 bg-green-600 hover:bg-green-500 text-white border-l border-green-500/40 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                      >
+                        <ChevronDown size={10} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[160px]">
+                      <DropdownMenuItem
+                        onClick={handleCleanupAndDeploy}
+                        className="gap-2 text-xs text-amber-700 dark:text-amber-300 focus:text-amber-700 dark:focus:text-amber-300"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Cleanup & Deploy
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
             )}
@@ -581,6 +595,29 @@ export default function Toolbar() {
           <div className="flex items-center gap-1 shrink-0">
             {activeDemoId && (
               <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={() => toggleLaserPointer()}
+                    variant="ghost"
+                    size="sm"
+                    className={`h-7 w-7 p-0 shrink-0 ${laserPointerMode ? "text-red-500 bg-red-500/10" : "text-muted-foreground hover:text-foreground"}`}
+                    aria-pressed={laserPointerMode}
+                    aria-label={laserPointerMode ? "Turn off laser pointer" : "Laser pointer"}
+                  >
+                    <Pointer className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs font-medium">Laser Pointer</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 max-w-[220px]">
+                    {laserPointerMode
+                      ? "Turn off the laser pointer and restore the normal cursor."
+                      : "Replace the cursor with a red laser dot for demo presentations."}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

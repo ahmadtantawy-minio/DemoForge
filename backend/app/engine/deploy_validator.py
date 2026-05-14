@@ -5,6 +5,9 @@ Runs after containers start and init scripts complete.
 Validates buckets, Iceberg tables, and catalog connectivity.
 Cleans up stale config and creates missing resources.
 """
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import os

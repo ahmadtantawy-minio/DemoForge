@@ -1,4 +1,7 @@
 """Post-deploy init script runner."""
+
+from __future__ import annotations
+
 import asyncio
 import logging
 from ..registry.loader import get_component

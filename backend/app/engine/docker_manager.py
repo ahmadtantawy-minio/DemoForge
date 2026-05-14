@@ -1,4 +1,7 @@
 """Docker operations: compose up/down, container inspection."""
+
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -615,6 +618,26 @@ async def _deploy_demo_locked(
                 else:
                     ec.status = "applied"
                     ec.error = ""
+                    from ..api.instances.helpers import _expand_demo_for_edges
+                    from .site_replication_post import apply_site_replication_sync, resolve_site_replication_post_kwargs
+
+                    expanded_demo = _expand_demo_for_edges(demo.model_copy(deep=True))
+                    edge_obj = next((e for e in expanded_demo.edges if e.id == script.edge_id), None)
+                    if edge_obj and script.connection_type in ("site-replication", "cluster-site-replication"):
+                        post = resolve_site_replication_post_kwargs(edge_obj, expanded_demo, project_name)
+                        if post:
+                            try:
+                                await apply_site_replication_sync(
+                                    exec_in_container,
+                                    script.container_name,
+                                    **post,
+                                )
+                            except Exception as sync_err:
+                                logger.warning(
+                                    "Site replication sync follow-up failed for edge %s: %s",
+                                    script.edge_id,
+                                    sync_err,
+                                )
             except Exception as e:
                 short_node = script.container_name
                 if short_node.startswith(f"demoforge-{demo.id}-"):

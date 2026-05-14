@@ -95,8 +95,8 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
   const isExperience = activeDemo?.mode === "experience" && faMode !== "dev";
   const canMutateDiagram = !isExperience || faMode === "dev";
 
-  const rfNodeTypes = useMemo(() => DIAGRAM_NODE_TYPES, []);
-  const rfEdgeTypes = useMemo(() => DIAGRAM_EDGE_TYPES, []);
+  const rfNodeTypes = DIAGRAM_NODE_TYPES;
+  const rfEdgeTypes = DIAGRAM_EDGE_TYPES;
   const diagramEdgeIssues = useMemo(
     () => findInvalidDiagramEdges(nodes, edges),
     [nodes, edges],
@@ -472,7 +472,28 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       groupCounter = maxGroupId;
       // Auto-migrate legacy nginx edge types (failover/load-balance) to unified nginx-backend
       const allLoadedNodes = [...rfNodes, ...rfClusters, ...rfGroups, ...rfStickies, ...rfSchematics, ...rfAnnotations];
-      const migratedEdges = rfEdges.map((edge: any) => {
+
+      // Fix component edges with swapped handle polarity (target id used as sourceHandle or vice-versa)
+      const COMPONENT_SOURCE_HANDLES = new Set([undefined, "top-out", "bottom-out"]);
+      const COMPONENT_TARGET_HANDLES = new Set([undefined, "top", "bottom-in"]);
+      const sanitizedEdges = rfEdges.map((edge: any) => {
+        const srcNode = allLoadedNodes.find((n: any) => n.id === edge.source);
+        const tgtNode = allLoadedNodes.find((n: any) => n.id === edge.target);
+        if (srcNode?.type !== "component" || tgtNode?.type !== "component") return edge;
+        const sh = edge.sourceHandle as string | undefined;
+        const th = edge.targetHandle as string | undefined;
+        const srcBad = sh && !COMPONENT_SOURCE_HANDLES.has(sh) && COMPONENT_TARGET_HANDLES.has(sh);
+        const tgtBad = th && !COMPONENT_TARGET_HANDLES.has(th) && COMPONENT_SOURCE_HANDLES.has(th);
+        if (!srcBad && !tgtBad) return edge;
+        const HANDLE_FLIP: Record<string, string> = { "bottom-in": "bottom-out", "top": "top-out", "bottom-out": "bottom-in", "top-out": "top" };
+        return {
+          ...edge,
+          sourceHandle: srcBad ? (HANDLE_FLIP[sh!] ?? sh) : sh,
+          targetHandle: tgtBad ? (HANDLE_FLIP[th!] ?? th) : th,
+        };
+      });
+
+      const migratedEdges = sanitizedEdges.map((edge: any) => {
         if (edge.data?.connectionType === "failover" || edge.data?.connectionType === "load-balance") {
           const srcNode = allLoadedNodes.find((n: any) => n.id === edge.source);
           const tgtNode = allLoadedNodes.find((n: any) => n.id === edge.target);

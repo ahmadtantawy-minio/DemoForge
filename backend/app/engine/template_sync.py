@@ -10,6 +10,9 @@ Environment variables:
   DEMOFORGE_SYNCED_TEMPLATES_DIR=./synced-templates
 """
 
+from __future__ import annotations
+
+
 import os
 import json
 import logging

@@ -5,7 +5,7 @@ icon: spark
 version: "1.0"
 image: demoforge/spark-etl-job:latest
 build_context: .
-description: "Apache Spark job client: submits Raw → Iceberg (CSV or JSON globs on MinIO via S3A) to a Spark standalone master via spark-submit. Landing and warehouse bucket names live on the job node; MinIO→job edges only mark input vs output (S3 or AIStor Tables). ICEBERG_REST_URI comes from MinIO /_iceberg when AIStor Tables are enabled."
+description: "Apache Spark job client with two modes: Raw → Iceberg (CSV/JSON globs to Iceberg table via AIStor Tables REST catalog) or Raw → Parquet (CSV/JSON to Parquet files on S3). Submits to a Spark standalone master via spark-submit. Bucket names live on the job node; MinIO→job edges mark input vs output. Parquet mode does not require AIStor Tables."
 
 resources:
   memory: 1g

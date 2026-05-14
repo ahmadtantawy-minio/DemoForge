@@ -4,6 +4,9 @@ Wraps deploy/stop/start/destroy in asyncio background tasks with
 per-operation timeouts. HTTP handlers return task_id immediately;
 callers poll GET /api/demos/{id}/task/{task_id} for status/progress.
 """
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import uuid

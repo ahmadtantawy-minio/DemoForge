@@ -9,7 +9,28 @@ export const clusterConfigSchemas: Record<string, ConnectionConfigField[]> = {
     { key: "direction", label: "Direction", type: "select", default: "one-way", required: false, options: ["one-way", "bidirectional"], description: "" },
     { key: "bandwidth_limit", label: "Bandwidth Limit (MB/s)", type: "string", default: "0", required: false, options: [], description: "0 = unlimited" },
   ],
-  "cluster-site-replication": [],
+  "cluster-site-replication": [
+    {
+      key: "replicate_ilm_rules",
+      label: "Replicate ILM rules",
+      type: "boolean",
+      default: "true",
+      required: false,
+      options: [],
+      description:
+        "When enabled, pass --replicate-ilm-expiry to mc admin replicate add so ILM expiry rules replicate across clusters.",
+    },
+    {
+      key: "site_replication_sync",
+      label: "Synchronous replication",
+      type: "boolean",
+      default: "true",
+      required: false,
+      options: [],
+      description:
+        "When enabled, after the link is created run mc admin replicate update … --mode sync for each peer so replication is synchronous.",
+    },
+  ],
   "cluster-tiering": [
     {
       key: "source_bucket",

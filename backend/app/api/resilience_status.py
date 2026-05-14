@@ -1,4 +1,7 @@
 """Resilience tester status: reads the latest probe result from the container log."""
+
+from __future__ import annotations
+
 import re
 import logging
 import docker

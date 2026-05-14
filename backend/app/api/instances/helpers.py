@@ -1,4 +1,7 @@
 """Shared helpers for the instances API (audit, replication, edge expansion, Superset specs)."""
+
+from __future__ import annotations
+
 import asyncio
 import base64
 import json

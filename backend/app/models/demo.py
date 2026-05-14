@@ -1,4 +1,7 @@
 """Pydantic models for demo definitions (saved/loaded as YAML)."""
+
+from __future__ import annotations
+
 from typing import Any
 from pydantic import BaseModel
 

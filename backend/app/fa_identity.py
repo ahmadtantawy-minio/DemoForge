@@ -5,6 +5,9 @@ FA mode (any non-dev mode): DEMOFORGE_FA_ID should be set (email or username).
 Dev mode: tries DEMOFORGE_FA_ID first, then git config user.email, then falls back to "dev".
 """
 
+from __future__ import annotations
+
+
 import os
 import subprocess
 import logging

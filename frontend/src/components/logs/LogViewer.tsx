@@ -8,6 +8,11 @@ import {
   resolveIntegrationRunFingerprint,
   INTEGRATION_EVENTS_RETENTION_MS,
 } from "../../lib/integrationEventsCache";
+import {
+  classifyIntegrationDomain,
+  parseIntegrationDetails,
+  buildStructuredIntegrationDetails,
+} from "../../lib/integrationLogDisplay";
 
 const STORAGE_KEY = "demoforge:logViewer:bounds";
 const DEFAULT_WIDTH = 920;
@@ -126,6 +131,70 @@ const MINIO_CONFIG_TAB: LogTab = { name: "Integrations", kind: "minio-config" };
 /** Heuristic: MinIO process logs for the embedded browser console (port 9001 / WebUI). */
 function lineLooksMinioConsoleRelated(line: string): boolean {
   return /console|WebUI|web ui|9001|:9001|browser ui|MINIO_BROWSER|subnet.*console|Listen.*9001|Starting.*console/i.test(line);
+}
+
+function MinioIntegrationEventRow({ ev }: { ev: IntegrationEventRow }) {
+  const [open, setOpen] = useState(false);
+  const hay = [ev.node_id, ev.kind, ev.message, ev.details, ev.command].filter(Boolean).join("\n");
+  const domain = classifyIntegrationDomain(hay);
+  const merged = buildStructuredIntegrationDetails(
+    typeof ev.command === "string" ? ev.command : undefined,
+    typeof ev.details === "string" ? ev.details : undefined,
+  );
+  const parsed = parseIntegrationDetails(merged ?? (typeof ev.details === "string" ? ev.details : undefined));
+  const hasExpand = !!(parsed.command || parsed.output);
+  const exitStr =
+    ev.exit_code !== undefined && ev.exit_code !== null ? ` · exit ${ev.exit_code}` : "";
+  const summary = `${ev.node_id ? `${ev.node_id} · ` : ""}${ev.kind ? `${ev.kind} · ` : ""}${ev.message ?? ""}${exitStr}`;
+  const lvl = ev.level === "error" ? "text-red-400" : ev.level === "warn" ? "text-amber-400" : "text-zinc-300";
+  const domainBadge =
+    domain === "site_replication" ? (
+      <span className="px-1.5 py-0.5 rounded border border-fuchsia-500/45 bg-fuchsia-950/40 text-fuchsia-200 text-[10px] font-semibold shrink-0">
+        Site replication
+      </span>
+    ) : domain === "ilm_tiering" ? (
+      <span className="px-1.5 py-0.5 rounded border border-amber-500/45 bg-amber-950/40 text-amber-200 text-[10px] font-semibold shrink-0">
+        ILM tiering
+      </span>
+    ) : (
+      <span className="px-1.5 py-0.5 rounded border border-zinc-600 bg-zinc-900/70 text-zinc-400 text-[10px] shrink-0">
+        Other
+      </span>
+    );
+
+  return (
+    <li className="border border-zinc-800 rounded p-2 bg-zinc-900/50">
+      <div
+        className={`flex flex-wrap gap-x-2 gap-y-1 items-center text-[11px] ${hasExpand ? "cursor-pointer hover:opacity-90" : ""}`}
+        onClick={hasExpand ? () => setOpen((o) => !o) : undefined}
+        role={hasExpand ? "button" : undefined}
+      >
+        {domainBadge}
+        <span className={`${lvl} flex-1 min-w-0 leading-snug`}>{summary}</span>
+        {hasExpand ? <span className="text-zinc-500 text-[10px] shrink-0">{open ? "▲" : "▼"}</span> : null}
+      </div>
+      {open && hasExpand ? (
+        <div className="mt-2 space-y-2 border-l-2 border-cyan-700/40 pl-2">
+          {parsed.command ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-0.5">Command</div>
+              <pre className="text-zinc-300/95 whitespace-pre-wrap break-all text-[10px] max-h-32 overflow-y-auto border border-zinc-800/80 rounded p-1.5 bg-black/35">
+                {parsed.command}
+              </pre>
+            </div>
+          ) : null}
+          {parsed.output ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-0.5">Output</div>
+              <pre className="text-zinc-400/95 whitespace-pre-wrap break-all text-[10px] max-h-48 overflow-y-auto border border-zinc-800/80 rounded p-1.5 bg-black/25">
+                {parsed.output.length > 12000 ? `${parsed.output.slice(0, 12000)}\n…(truncated)` : parsed.output}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
 }
 
 export default function LogViewer({ demoId, nodeId, componentId, onClose }: Props) {
@@ -651,7 +720,8 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
                     </h3>
                     <p className="text-[10px] text-zinc-600 mb-2 leading-snug">
                       Merged with this browser&apos;s buffer: last {INTEGRATION_EVENTS_RETENTION_MS / 60_000} minutes of events
-                      persist across refresh while this demo stack is the same run (localStorage + session).
+                      persist across refresh while this demo stack is the same run (localStorage + session). Site replication
+                      vs ILM tiering is shown on each row; click the summary to expand commands and output.
                     </p>
                     {minioSnapshot.integration_events.length === 0 ? (
                       <div className="text-zinc-500 text-xs">
@@ -660,38 +730,9 @@ export default function LogViewer({ demoId, nodeId, componentId, onClose }: Prop
                       </div>
                     ) : (
                       <ul className="space-y-2">
-                        {minioSnapshot.integration_events.map((ev, idx) => {
-                          const lvl = ev.level === "error" ? "text-red-400" : ev.level === "warn" ? "text-amber-400" : "text-zinc-300";
-                          return (
-                            <li
-                              key={`${ev.id ?? idx}-${ev.ts_ms ?? idx}`}
-                              className="border border-zinc-800 rounded p-2 bg-zinc-900/50"
-                            >
-                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-baseline text-[10px] text-zinc-500">
-                                {ev.node_id ? (
-                                  <span className="text-cyan-400/90">{ev.node_id}</span>
-                                ) : null}
-                                {ev.kind ? <span className="text-violet-400/90">{ev.kind}</span> : null}
-                                <span className={lvl}>{ev.message ?? ""}</span>
-                                {ev.exit_code !== undefined && ev.exit_code !== null ? (
-                                  <span className={ev.exit_code === 0 ? "text-emerald-500" : "text-red-400"}>
-                                    exit {ev.exit_code}
-                                  </span>
-                                ) : null}
-                              </div>
-                              {ev.command ? (
-                                <pre className="text-zinc-400/90 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-28 overflow-y-auto border border-zinc-800/80 rounded p-1 bg-black/30">
-                                  {ev.command}
-                                </pre>
-                              ) : null}
-                              {ev.details ? (
-                                <pre className="text-zinc-400/90 mt-1 whitespace-pre-wrap break-all text-[10px] max-h-40 overflow-y-auto">
-                                  {ev.details}
-                                </pre>
-                              ) : null}
-                            </li>
-                          );
-                        })}
+                        {minioSnapshot.integration_events.map((ev, idx) => (
+                          <MinioIntegrationEventRow key={`${ev.id ?? idx}-${ev.ts_ms ?? idx}`} ev={ev} />
+                        ))}
                       </ul>
                     )}
                   </section>

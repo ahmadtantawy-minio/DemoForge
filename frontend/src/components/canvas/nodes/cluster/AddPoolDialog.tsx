@@ -119,16 +119,7 @@ export default function AddPoolDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {isRunning && (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90 leading-relaxed">
-            <p className="font-medium text-amber-50 mb-1">Why S3 access can pause briefly</p>
-            <p>
-              In distributed MinIO, every peer must run the same <code className="text-[10px] bg-black/30 px-1 rounded">server</code> command listing{" "}
-              <strong>all</strong> pools. Adding a pool changes that command for existing containers too, so Compose updates those services—not only the new pool.
-              Expect a short window where the API may be unavailable while containers restart. True online expansion without peer restarts is not supported in this Docker Compose path.
-            </p>
-          </div>
-        )}
+        {/* Expansion warning removed — brief S3 pause during pool add is expected behavior */}
 
         <div className="space-y-3 py-1">
           <div>

@@ -147,6 +147,38 @@
   .file-detail-age-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .file-detail-age-presets .age-preset { padding: 4px 10px; font-size: 11px; }
   .file-detail-age-presets .age-preset.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .file-detail-upload-editor {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid #3f3f46;
+  }
+  .file-detail-upload-editor h4 {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e4e4e7;
+    margin-bottom: 6px;
+  }
+  .file-detail-upload-editor .hint {
+    font-size: 11px;
+    color: #a1a1aa;
+    line-height: 1.45;
+    margin-bottom: 10px;
+  }
+  .file-detail-textarea {
+    width: 100%;
+    min-height: 140px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #3f3f46;
+    background: #18181b;
+    color: #e4e4e7;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    resize: vertical;
+    line-height: 1.4;
+  }
+  .file-detail-textarea::placeholder { color: #71717a; }
+  .badge-latest { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #1d4ed8; color: #fff; }
   .upload-progress.active { display: block; }
   .upload-progress-bar { height: 8px; background: #3f3f46; border-radius: 4px; overflow: hidden; margin-top: 6px; }
   .upload-progress-bar > div { height: 100%; background: #60a5fa; width: 0%; transition: width 0.1s; }
@@ -501,7 +533,37 @@
     <h3 style="margin-bottom:6px">Object detail</h3>
     <p id="fileDetailKey" style="font-size:11px;color:#a1a1aa;font-family:monospace;word-break:break-all;margin-bottom:8px"></p>
     <p id="fileDetailHint" style="font-size:11px;color:#a1a1aa;margin-bottom:10px;line-height:1.45"></p>
-    <div style="margin-bottom:10px">
+
+    <div class="file-detail-upload-editor">
+      <h4>Real upload — same object key</h4>
+      <p class="hint">
+        Replace this object in MinIO with new bytes (bucket versioning applies when enabled). Edit below, load the current object into the editor, or upload a tiny dummy placeholder — all use the same key as a new version.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <button type="button" class="btn" id="fileDetailLoadContentBtn">Load current content</button>
+        <button type="button" class="btn" id="fileDetailClearEditorBtn">Clear editor</button>
+      </div>
+      <textarea
+        id="fileDetailNewVersionText"
+        class="file-detail-textarea"
+        spellcheck="false"
+        wrap="off"
+        placeholder="Type or paste new file content, then “Upload text as new version”. For binary files, prefer “Upload dummy” or use the main Upload toolbar."
+      ></textarea>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center">
+        <button type="button" class="btn btn-primary" id="fileDetailUploadTextVersionBtn">Upload text as new version</button>
+        <button type="button" class="btn" id="fileDetailUploadDummyBtn" title="Writes a small UTF-8 placeholder with the same key">Upload dummy placeholder</button>
+        <label style="font-size:11px;color:#a1a1aa;display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
+          <input type="checkbox" id="fileDetailUploadAsOctet" />
+          Send as <code style="font-size:10px;color:#93c5fd">application/octet-stream</code> (no charset hint)
+        </label>
+      </div>
+      <p style="font-size:10px;color:#71717a;margin-top:8px;line-height:1.4">
+        “Load current content” fetches the object through this app; use only for text-like files. Large objects are truncated in the editor (first ~512&nbsp;KiB of text).
+      </p>
+    </div>
+
+    <div style="margin-bottom:10px;margin-top:14px;padding-top:12px;border-top:1px solid #3f3f46">
       <div style="font-size:11px;color:#a1a1aa;margin-bottom:6px">Backdate the new version row (in-app ledger only; MinIO write time is still “now”):</div>
       <div id="fileDetailAgePresets" class="file-detail-age-presets">
         <button type="button" class="btn age-preset active" data-age-days="0">Now</button>
@@ -512,7 +574,7 @@
     </div>
     <div id="fileDetailInfo" style="font-size:11px;color:#eab308;margin-bottom:8px;min-height:1.2em" role="status"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-      <button type="button" class="btn btn-primary" id="fileDetailUpdateBtn">Update File (simulate PUT)</button>
+      <button type="button" class="btn btn-primary" id="fileDetailUpdateBtn">Simulate PUT (JSON marker)</button>
       <input type="text" id="fileDetailUpdateNote" placeholder="Optional note (stored in JSON body)" style="flex:1;min-width:200px;padding:6px 10px;border-radius:6px;border:1px solid #3f3f46;background:#18181b;color:#fafafa;font-size:12px" />
       <button type="button" class="btn" id="fileDetailRefreshBtn">Refresh</button>
       <button type="button" class="btn" id="fileDetailCloseBtn">Close</button>
@@ -1404,6 +1466,13 @@ async function openFileDetail(key) {
   if (err) err.textContent = '';
   const host = document.getElementById('fileDetailVersions');
   if (host) host.innerHTML = '';
+  const ta = document.getElementById('fileDetailNewVersionText');
+  if (ta) {
+    ta.value = '';
+    ta.readOnly = false;
+  }
+  const oct = document.getElementById('fileDetailUploadAsOctet');
+  if (oct) oct.checked = false;
   if (m) m.classList.remove('hidden');
   await loadFileDetailVersions(true);
 }
@@ -1425,6 +1494,133 @@ async function simulateFileUpdate() {
     if (infoEl) infoEl.textContent = data.display_age_note || '';
     renderFileDetailVersions(data);
     loadObjects().catch(() => {});
+  } catch (e) {
+    if (err) err.textContent = e.message || String(e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+const FILE_DETAIL_EDITOR_MAX_BYTES = 512 * 1024;
+
+function objectKeyBasename(key) {
+  const parts = String(key || '').split('/');
+  const last = parts[parts.length - 1];
+  return last || 'object';
+}
+
+async function uploadFileDetailFromBlob(blob) {
+  const err = document.getElementById('fileDetailErr');
+  const infoEl = document.getElementById('fileDetailInfo');
+  if (err) err.textContent = '';
+  if (!currentBucket || !fileDetailKey) return;
+  const form = new FormData();
+  form.append('file', blob, objectKeyBasename(fileDetailKey));
+  const url = `${BASE}/api/upload?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(fileDetailKey)}`;
+  const disSel =
+    '#fileDetailUploadTextVersionBtn, #fileDetailUploadDummyBtn, #fileDetailLoadContentBtn, #fileDetailClearEditorBtn, #fileDetailUpdateBtn';
+  document.querySelectorAll(disSel).forEach((b) => {
+    if (b) b.disabled = true;
+  });
+  const ta = document.getElementById('fileDetailNewVersionText');
+  if (ta) ta.readOnly = true;
+  try {
+    const resp = await fetch(url, { method: 'POST', body: form });
+    const text = await resp.text();
+    let j = {};
+    try {
+      j = JSON.parse(text);
+    } catch (_) {}
+    if (!resp.ok) throw new Error(j.error || text || resp.statusText);
+    if (j.served_by !== undefined) updateServedBy(j.served_by);
+    if (infoEl) infoEl.textContent = 'Uploaded new bytes for this key.';
+    await loadFileDetailVersions(false);
+    loadObjects().catch(() => {});
+    updateHistogram();
+  } catch (e) {
+    if (err) err.textContent = e.message || String(e);
+  } finally {
+    document.querySelectorAll(disSel).forEach((b) => {
+      if (b) b.disabled = false;
+    });
+    if (ta) ta.readOnly = false;
+  }
+}
+
+async function fileDetailEditorUploadText() {
+  const ta = document.getElementById('fileDetailNewVersionText');
+  if (!ta || !fileDetailKey) return;
+  const octet = document.getElementById('fileDetailUploadAsOctet');
+  const mime =
+    octet && octet.checked ? 'application/octet-stream' : 'text/plain;charset=utf-8';
+  const b = new Blob([ta.value], { type: mime });
+  await uploadFileDetailFromBlob(b);
+}
+
+async function fileDetailEditorUploadDummy() {
+  if (!fileDetailKey) return;
+  const iso = new Date().toISOString();
+  const body =
+    '# DemoForge S3 browser — dummy new version\n' +
+    '# Key: ' +
+    fileDetailKey +
+    '\n' +
+    '# Generated (UTC): ' +
+    iso +
+    '\n';
+  const b = new Blob([body], { type: 'text/plain;charset=utf-8' });
+  await uploadFileDetailFromBlob(b);
+}
+
+async function fileDetailEditorLoadCurrent() {
+  const err = document.getElementById('fileDetailErr');
+  const infoEl = document.getElementById('fileDetailInfo');
+  const ta = document.getElementById('fileDetailNewVersionText');
+  if (err) err.textContent = '';
+  if (infoEl) infoEl.textContent = '';
+  if (!currentBucket || !fileDetailKey || !ta) return;
+  const url = `${BASE}/api/download?bucket=${encodeURIComponent(currentBucket)}&key=${encodeURIComponent(fileDetailKey)}`;
+  const btn = document.getElementById('fileDetailLoadContentBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const resp = await fetch(url, {
+      headers: { Range: `bytes=0-${FILE_DETAIL_EDITOR_MAX_BYTES - 1}` },
+    });
+    if (resp.status === 416) {
+      ta.value = '';
+      if (infoEl) infoEl.textContent = 'Object is empty.';
+      return;
+    }
+    if (!resp.ok) {
+      const t = await resp.text();
+      let j = {};
+      try {
+        j = JSON.parse(t);
+      } catch (_) {}
+      throw new Error(j.error || t || resp.statusText);
+    }
+    const buf = await resp.arrayBuffer();
+    const dec = new TextDecoder('utf-8', { fatal: false });
+    ta.value = dec.decode(buf);
+    const served = resp.headers.get('x-served-by-upstream');
+    if (served) updateServedBy(served);
+    const cr = resp.headers.get('content-range');
+    let note = 'Loaded into editor.';
+    if (cr) {
+      const m = /^bytes\s+[\d]+-[\d]+\/(\d+|\*)/i.exec(cr);
+      const total = m && m[1] !== '*' ? parseInt(m[1], 10) : NaN;
+      if (!Number.isNaN(total) && total > FILE_DETAIL_EDITOR_MAX_BYTES) {
+        note +=
+          ' Showing first ' +
+          formatSize(FILE_DETAIL_EDITOR_MAX_BYTES) +
+          ' only (' +
+          formatSize(total) +
+          ' total).';
+      }
+    } else if (resp.status === 200) {
+      note += ' Server returned full body (no partial response).';
+    }
+    if (infoEl) infoEl.textContent = note;
   } catch (e) {
     if (err) err.textContent = e.message || String(e);
   } finally {
@@ -2038,6 +2234,25 @@ const fileDetailRefreshBtn = document.getElementById('fileDetailRefreshBtn');
 if (fileDetailRefreshBtn) fileDetailRefreshBtn.addEventListener('click', () => loadFileDetailVersions(true));
 const fileDetailUpdateBtn = document.getElementById('fileDetailUpdateBtn');
 if (fileDetailUpdateBtn) fileDetailUpdateBtn.addEventListener('click', () => simulateFileUpdate());
+const fileDetailLoadContentBtn = document.getElementById('fileDetailLoadContentBtn');
+if (fileDetailLoadContentBtn) fileDetailLoadContentBtn.addEventListener('click', () => fileDetailEditorLoadCurrent());
+const fileDetailClearEditorBtn = document.getElementById('fileDetailClearEditorBtn');
+if (fileDetailClearEditorBtn) {
+  fileDetailClearEditorBtn.addEventListener('click', () => {
+    const ta = document.getElementById('fileDetailNewVersionText');
+    if (ta) ta.value = '';
+    const infoEl = document.getElementById('fileDetailInfo');
+    if (infoEl) infoEl.textContent = '';
+  });
+}
+const fileDetailUploadTextVersionBtn = document.getElementById('fileDetailUploadTextVersionBtn');
+if (fileDetailUploadTextVersionBtn) {
+  fileDetailUploadTextVersionBtn.addEventListener('click', () => fileDetailEditorUploadText());
+}
+const fileDetailUploadDummyBtn = document.getElementById('fileDetailUploadDummyBtn');
+if (fileDetailUploadDummyBtn) {
+  fileDetailUploadDummyBtn.addEventListener('click', () => fileDetailEditorUploadDummy());
+}
 
 const browseQuickSearch = document.getElementById('browseQuickSearch');
 if (browseQuickSearch) {

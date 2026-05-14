@@ -1,4 +1,7 @@
 """Cluster health endpoints — mc admin info, healing status, drive failure simulation."""
+
+from __future__ import annotations
+
 import re
 import json
 import shlex

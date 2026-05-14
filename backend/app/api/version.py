@@ -1,4 +1,7 @@
 """Expose local DemoForge version (from git tags)."""
+
+from __future__ import annotations
+
 import os
 import subprocess
 import logging

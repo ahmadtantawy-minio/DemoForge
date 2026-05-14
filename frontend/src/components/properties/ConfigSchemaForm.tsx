@@ -45,7 +45,12 @@ export default function ConfigSchemaForm({ fields, values, onChange, diagramCont
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={value === true || value === "true"}
+                  checked={
+                    value === true ||
+                    value === "true" ||
+                    ((value === undefined || value === null || value === "") &&
+                      String(field.default ?? "").toLowerCase() === "true")
+                  }
                   onChange={(e) => onChange(field.key, e.target.checked)}
                   className="rounded border-border"
                 />

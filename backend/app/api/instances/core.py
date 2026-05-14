@@ -1,4 +1,7 @@
 """Instances API: composable routers (list/lifecycle, edges, SQL setup, etc.)."""
+
+from __future__ import annotations
+
 from fastapi import APIRouter
 
 from .list_lifecycle import router as list_lifecycle_router

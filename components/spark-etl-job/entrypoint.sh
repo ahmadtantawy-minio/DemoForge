@@ -64,6 +64,30 @@ df_exec_raw_to_iceberg_submit() {
     /opt/demoforge/jobs/csv_glob_to_iceberg.py
 }
 
+df_exec_raw_to_parquet_submit() {
+  /opt/spark/bin/spark-submit \
+    --master "${SPARK_MASTER_URL}" \
+    --deploy-mode client \
+    --conf "spark.driver.memory=512m" \
+    --conf "spark.executor.memory=512m" \
+    --conf "spark.executor.cores=1" \
+    --conf "spark.cores.max=1" \
+    --jars "${_DF_SPARK_EXTRA_JARS}" \
+    --driver-class-path "${_DF_DRIVER_CP}" \
+    --conf "spark.executor.extraClassPath=${_DF_DRIVER_CP}" \
+    /opt/demoforge/jobs/raw_to_parquet.py
+}
+
+# Dispatch to the right submit function based on JOB_MODE
+df_exec_submit() {
+  local mode="${JOB_MODE:-raw_to_iceberg}"
+  if [[ "$mode" == "raw_to_parquet" ]]; then
+    df_exec_raw_to_parquet_submit
+  else
+    df_exec_raw_to_iceberg_submit
+  fi
+}
+
 # Append one NDJSON record (phase, optional exit_code, status/success for UI).
 spark_run_log() {
   local phase="$1"
@@ -97,26 +121,31 @@ print(json.dumps(row))' >>"$SPARK_RUN_LOG" 2>/dev/null || true
 
 sched="${JOB_SCHEDULE:-on_deploy_once}"
 
+job_mode="${JOB_MODE:-raw_to_iceberg}"
+
 if [[ "$sched" == "manual" ]]; then
-  echo "[spark-etl-job] JOB_SCHEDULE=manual — container idle. Example:"
+  echo "[spark-etl-job] JOB_SCHEDULE=manual, JOB_MODE=${job_mode} — container idle. Example:"
   echo "  spark-submit --master \"\$SPARK_MASTER_URL\" --deploy-mode client --jars \"${_DF_SPARK_EXTRA_JARS}\" \\"
   echo "    --driver-class-path \"${_DF_DRIVER_CP}\" --conf spark.executor.extraClassPath=${_DF_DRIVER_CP} \\"
-  echo "    /opt/demoforge/jobs/csv_glob_to_iceberg.py"
+  if [[ "$job_mode" == "raw_to_parquet" ]]; then
+    echo "    /opt/demoforge/jobs/raw_to_parquet.py"
+  else
+    echo "    /opt/demoforge/jobs/csv_glob_to_iceberg.py"
+  fi
   spark_run_log manual_idle ""
   exec tail -f /dev/null
 fi
 
 if [[ "$sched" == "interval" ]]; then
   interval="${JOB_INTERVAL_SEC:-300}"
-  echo "[spark-etl-job] JOB_SCHEDULE=interval — submitting every ${interval}s (Ctrl+C stops loop in dev)"
+  echo "[spark-etl-job] JOB_SCHEDULE=interval, JOB_MODE=${job_mode} — submitting every ${interval}s (Ctrl+C stops loop in dev)"
   echo "[spark-etl-job] Scheduling note: each iteration waits for spark-submit to exit before sleeping — no overlap within this container."
-  echo "[spark-etl-job] If you scale multiple replicas of this job, runs can overlap unless you coordinate externally."
   while true; do
     spark_run_log spark_submit_start ""
     df_spark_submit_preflight
     df_log_spark_submit_invocation
     set +e
-    df_exec_raw_to_iceberg_submit
+    df_exec_submit
     rc=$?
     set -e
     spark_run_log spark_submit_finished "$rc"
@@ -134,24 +163,27 @@ if [[ "$sched" != "on_deploy_once" ]]; then
   exec tail -f /dev/null
 fi
 
-tpl="${JOB_TEMPLATE:-raw_to_iceberg}"
-if [[ "$tpl" == "csv_glob_to_iceberg" ]]; then
-  tpl="raw_to_iceberg"
+# Legacy JOB_TEMPLATE compat: normalize to JOB_MODE
+tpl="${JOB_TEMPLATE:-}"
+if [[ -n "$tpl" && "$job_mode" == "raw_to_iceberg" ]]; then
+  if [[ "$tpl" == "csv_glob_to_iceberg" || "$tpl" == "raw_to_iceberg" ]]; then
+    job_mode="raw_to_iceberg"
+  fi
 fi
-if [[ "$tpl" != "raw_to_iceberg" ]]; then
-  echo "[spark-etl-job] Unknown JOB_TEMPLATE=$tpl — idling."
+if [[ "$job_mode" != "raw_to_iceberg" && "$job_mode" != "raw_to_parquet" ]]; then
+  echo "[spark-etl-job] Unknown JOB_MODE=$job_mode — idling."
   exec tail -f /dev/null
 fi
 
 : "${SPARK_MASTER_URL:?SPARK_MASTER_URL required}"
 
-echo "[spark-etl-job] Submitting $tpl to $SPARK_MASTER_URL (RAW_INPUT_FORMAT=${RAW_INPUT_FORMAT:-csv})"
+echo "[spark-etl-job] Submitting ${job_mode} to $SPARK_MASTER_URL (RAW_INPUT_FORMAT=${RAW_INPUT_FORMAT:-csv})"
 
 spark_run_log spark_submit_start ""
 df_spark_submit_preflight
 df_log_spark_submit_invocation
 set +e
-df_exec_raw_to_iceberg_submit
+df_exec_submit
 rc=$?
 set -e
 spark_run_log spark_submit_finished "$rc"

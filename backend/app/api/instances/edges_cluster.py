@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import asyncio
@@ -160,6 +162,24 @@ async def activate_edge_config(demo_id: str, edge_id: str):
             ec.previously_applied = True
             ec.error = ""
             state.set_demo(running)
+            edge_obj = next((e for e in expanded_demo.edges if e.id == edge_id), None)
+            if edge_obj and script.connection_type in ("site-replication", "cluster-site-replication"):
+                from ...engine.site_replication_post import apply_site_replication_sync, resolve_site_replication_post_kwargs
+
+                post = resolve_site_replication_post_kwargs(edge_obj, expanded_demo, project_name)
+                if post:
+                    try:
+                        await apply_site_replication_sync(
+                            exec_in_container,
+                            script.container_name,
+                            **post,
+                        )
+                    except Exception as sync_err:
+                        logger.warning(
+                            "Site replication sync follow-up failed for edge %s: %s",
+                            edge_id,
+                            sync_err,
+                        )
             return {"status": "applied", "edge_id": edge_id}
     except Exception as e:
         short_node = script.container_name

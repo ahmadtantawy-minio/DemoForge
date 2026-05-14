@@ -10,6 +10,9 @@ Routes:
   GET  /api/settings/llm                                   (get config)
   POST /api/settings/llm                                   (set config)
 """
+
+from __future__ import annotations
+
 import json
 import logging
 import os

@@ -10,6 +10,9 @@ Routes:
   POST /api/demos/{demo_id}/minio/{cluster_id}/mcp/tools/list
   POST /api/demos/{demo_id}/minio/{cluster_id}/mcp/tools/call
 """
+
+from __future__ import annotations
+
 import logging
 from typing import Any
 

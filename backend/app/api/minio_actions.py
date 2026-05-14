@@ -6,6 +6,9 @@ Phase 4 features:
   4.6 - IAM setup (pre-create demo users)
   4.7 - SSE-S3 encryption toggle per bucket
 """
+
+from __future__ import annotations
+
 import re
 import shlex
 import logging

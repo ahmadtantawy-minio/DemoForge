@@ -1,4 +1,7 @@
 """Load component manifests from YAML files on disk."""
+
+from __future__ import annotations
+
 import os
 import yaml
 from ..models.component import ComponentManifest

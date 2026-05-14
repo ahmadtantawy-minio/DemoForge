@@ -3,13 +3,21 @@
 Generates a complete shell script with mc commands that would recreate
 the current demo setup from scratch. Educational / documentation tool.
 """
+
+from __future__ import annotations
+
 import logging
 import shlex
 from dataclasses import dataclass, field
 from fastapi import APIRouter, HTTPException
 from ..models.demo import DemoDefinition, DemoEdge, DemoNode, DemoCluster
 from ..registry.loader import get_component
-from ..engine.edge_automation import _tier_prefix_mc_flag, _tier_remote_bucket_and_prefix
+from ..engine.edge_automation import (
+    _tier_prefix_mc_flag,
+    _tier_remote_bucket_and_prefix,
+    _site_repl_ilm_flag,
+    _connection_bool,
+)
 from ..models.component import ComponentManifest
 from .demos import _load_demo
 
@@ -222,8 +230,16 @@ def _gen_site_replication(demo: DemoDefinition, project_name: str) -> ScriptSect
         source_alias = _resolve_alias_for_node(demo, edge.source, project_name)
         target_alias = _resolve_alias_for_node(demo, edge.target, project_name)
 
+        cfg = edge.connection_config or {}
+        ilm = _site_repl_ilm_flag(cfg)
         section.comments.append(f"# Bidirectional site replication: {source_alias} <-> {target_alias}")
-        section.commands.append(f"mc admin replicate add {source_alias} {target_alias}")
+        section.commands.append(f"mc admin replicate add {source_alias} {target_alias}{ilm}")
+        if _connection_bool(cfg, "site_replication_sync", True):
+            section.comments.append(
+                f"# Enable synchronous replication after add (use deployment IDs from "
+                f"``mc admin replicate info {source_alias} --json``): "
+                f"``mc admin replicate update <alias> --deployment-id <peer-id> --mode sync`` for each direction."
+            )
 
     return section
 

@@ -4,6 +4,9 @@ Tracks which demos are deployed, their container names, and network memberships.
 No persistence needed — if backend restarts, demos are still running in Docker
 and we can re-discover them via labels.
 """
+
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from ..models.api_models import ContainerHealthStatus
