@@ -44,6 +44,8 @@ class RunningDemo:
     error_message: str = ""           # Error details if status == "error"
     edge_configs: dict[str, EdgeConfigResult] = field(default_factory=dict)  # edge_id → EdgeConfigResult
     stopped_drives: dict[str, list[int]] = field(default_factory=dict)  # node_id → list of stopped drive numbers
+    # Nodes the user stopped via UI/API; stay down across compose up until manually started or demo pause/destroy.
+    user_stopped_nodes: set[str] = field(default_factory=set)
 
 class DeployProgress:
     """Tracks deployment progress steps."""

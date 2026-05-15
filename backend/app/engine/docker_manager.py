@@ -154,6 +154,7 @@ async def _remove_cluster_volumes(
     return removed
 
 COMPOSE_TIMEOUT = 180  # seconds — max wait for compose up/down
+COMPOSE_RESTART_POLICY = "unless-stopped"
 # Must match scripts/hub-push.sh / hub-pull (default gcr.io/minio-demoforge; optional override for mirrors).
 GCR_PREFIX = os.environ.get("DEMOFORGE_GCR_HOST", "gcr.io/minio-demoforge").strip().rstrip("/")
 
@@ -717,6 +718,68 @@ async def stop_demo(demo_id: str, remove_volumes: bool = False):
     _demo_locks.pop(demo_id, None)
 
 
+async def _set_container_restart_policy(container_name: str, policy: str) -> None:
+    c = await asyncio.to_thread(docker_client.containers.get, container_name)
+    await asyncio.to_thread(c.update, restart_policy={"Name": policy})
+
+
+async def unpin_user_stopped_node(running, node_id: str) -> None:
+    """Clear user-stop pin and restore compose restart policy (does not start/restart)."""
+    running.user_stopped_nodes.discard(node_id)
+    if node_id not in running.containers:
+        return
+    container_name = running.containers[node_id].container_name
+    try:
+        await _set_container_restart_policy(container_name, COMPOSE_RESTART_POLICY)
+    except NotFound:
+        pass
+
+
+async def mark_node_user_stopped(running, node_id: str) -> None:
+    """Stop a node and keep it down across ``docker compose up`` until manually started."""
+    if node_id not in running.containers:
+        return
+    container_name = running.containers[node_id].container_name
+    try:
+        c = await asyncio.to_thread(docker_client.containers.get, container_name)
+        if c.status == "running":
+            await asyncio.to_thread(c.stop, timeout=15)
+        await _set_container_restart_policy(container_name, "no")
+    except NotFound:
+        pass
+    running.user_stopped_nodes.add(node_id)
+    running.containers[node_id].health = ContainerHealthStatus.STOPPED
+
+
+async def mark_node_user_started(running, node_id: str) -> None:
+    """Clear user-stop pin and start the container with normal restart policy."""
+    running.user_stopped_nodes.discard(node_id)
+    if node_id not in running.containers:
+        return
+    container_name = running.containers[node_id].container_name
+    try:
+        await _set_container_restart_policy(container_name, COMPOSE_RESTART_POLICY)
+        c = await asyncio.to_thread(docker_client.containers.get, container_name)
+        if c.status != "running":
+            await asyncio.to_thread(c.start)
+    except NotFound:
+        raise ValueError(f"Container {container_name} not found")
+
+
+async def enforce_user_stopped_nodes(running) -> None:
+    """Re-stop nodes the user pinned after compose up would have started them."""
+    for node_id in list(running.user_stopped_nodes):
+        try:
+            await mark_node_user_stopped(running, node_id)
+        except Exception as exc:
+            logger.warning("enforce_user_stopped_nodes %s: %s", node_id, exc)
+
+
+def clear_user_stopped_nodes(running) -> None:
+    """Forget user-stop pins (full demo stop / resume all)."""
+    running.user_stopped_nodes.clear()
+
+
 async def pause_demo(demo_id: str) -> None:
     """Stop containers without removing them or their volumes (docker compose stop)."""
     lock = _get_lock(demo_id)
@@ -724,6 +787,8 @@ async def pause_demo(demo_id: str) -> None:
         running = state.get_demo(demo_id)
         if not running or not running.compose_file_path:
             return
+
+        clear_user_stopped_nodes(running)
 
         compose_file = running.compose_file_path
         if not os.path.exists(compose_file):
@@ -752,6 +817,8 @@ async def resume_demo(demo_id: str) -> None:
         running = state.get_demo(demo_id)
         if not running or not running.compose_file_path:
             raise RuntimeError(f"No compose file found for demo {demo_id}")
+
+        clear_user_stopped_nodes(running)
 
         compose_file = running.compose_file_path
         if not os.path.exists(compose_file):
@@ -822,6 +889,33 @@ async def exec_in_container(container_name: str, command: str, timeout: int = 60
         raise ValueError(f"Container {container_name} not found")
 
 
+async def _refresh_running_containers_from_docker(
+    running: RunningDemo,
+    demo_id: str,
+    project_name: str,
+) -> None:
+    containers = await asyncio.to_thread(
+        docker_client.containers.list,
+        filters={"label": f"demoforge.demo={demo_id}"},
+    )
+    running.containers.clear()
+    for c in containers:
+        node_id = c.labels.get("demoforge.node", "")
+        if not node_id:
+            continue
+        container_nets = list(c.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
+        running.containers[node_id] = RunningContainer(
+            node_id=node_id,
+            component_id=c.labels.get("demoforge.component", ""),
+            container_name=c.name,
+            networks=container_nets,
+            is_sidecar=c.labels.get("demoforge.sidecar") == "true",
+        )
+        for net_key in container_nets:
+            if net_key.startswith(project_name) and net_key not in running.networks:
+                running.networks.append(net_key)
+
+
 async def apply_saved_demo_topology(
     demo_id: str,
     data_dir: str,
@@ -883,26 +977,8 @@ async def apply_saved_demo_topology(
             err = (stderr.decode(errors="replace") or stdout.decode(errors="replace"))[:4000]
             raise RuntimeError(f"docker compose up failed: {err}")
 
-        containers = await asyncio.to_thread(
-            docker_client.containers.list,
-            filters={"label": f"demoforge.demo={demo_id}"},
-        )
-        running.containers.clear()
-        for c in containers:
-            node_id = c.labels.get("demoforge.node", "")
-            if not node_id:
-                continue
-            container_nets = list(c.attrs.get("NetworkSettings", {}).get("Networks", {}).keys())
-            running.containers[node_id] = RunningContainer(
-                node_id=node_id,
-                component_id=c.labels.get("demoforge.component", ""),
-                container_name=c.name,
-                networks=container_nets,
-                is_sidecar=c.labels.get("demoforge.sidecar") == "true",
-            )
-            for net_key in container_nets:
-                if net_key.startswith(project_name) and net_key not in running.networks:
-                    running.networks.append(net_key)
+        await _refresh_running_containers_from_docker(running, demo_id, project_name)
+        await enforce_user_stopped_nodes(running)
 
         state.set_demo(running)
         if demo_out.clusters:

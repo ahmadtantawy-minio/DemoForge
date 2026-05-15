@@ -74,6 +74,94 @@ def minio_default_standard_parity(stripe_size: int) -> int:
     return opts[-1]
 
 
+def compute_write_quorum(stripe_size: int, ec_parity: int) -> int:
+    """MinIO write quorum for one erasure set (matches frontend ``computePoolErasureStats``)."""
+    data_shards = max(0, stripe_size - ec_parity)
+    if data_shards == ec_parity:
+        return data_shards + 1
+    return max(1, data_shards)
+
+
+def compute_pool_erasure_stats(
+    node_count: int,
+    drives_per_node: int,
+    ec_parity: int,
+    erasure_stripe_drives: int | None = None,
+) -> dict[str, int]:
+    """Stripe geometry for one server pool (mirrors frontend ``computePoolErasureStats``)."""
+    total_drives = node_count * drives_per_node
+    set_size = effective_stripe_drives(total_drives, erasure_stripe_drives)
+    num_sets = total_drives // set_size if set_size else 0
+    data_shards = max(0, set_size - ec_parity)
+    return {
+        "set_size": set_size,
+        "num_sets": num_sets,
+        "data_shards": data_shards,
+        "parity_shards": ec_parity,
+        "write_quorum": compute_write_quorum(set_size, ec_parity),
+        "total_drives": total_drives,
+    }
+
+
+def _cluster_ec_status_clusterwide(drives_online: int, drives_total: int, ec_parity: int) -> str:
+    """Fallback when stripe layout cannot be inferred from the drive matrix."""
+    if drives_total == 0:
+        return "unknown"
+    if drives_online >= drives_total:
+        return "healthy"
+    write_quorum = max(1, drives_total - ec_parity)
+    if drives_online >= write_quorum:
+        return "degraded"
+    return "quorum_lost"
+
+
+def cluster_ec_status_from_online_matrix(
+    online: list[list[bool]],
+    ec_parity: int,
+    erasure_stripe_drives: int | None = None,
+) -> str:
+    """Per-stripe quorum using MinIO-style round-robin placement across nodes."""
+    if not online:
+        return "unknown"
+    drives_per_node = len(online[0])
+    if drives_per_node == 0 or any(len(row) != drives_per_node for row in online):
+        flat = [d for row in online for d in row]
+        return _cluster_ec_status_clusterwide(sum(flat), len(flat), ec_parity)
+
+    num_nodes = len(online)
+    total_drives = num_nodes * drives_per_node
+    stats = compute_pool_erasure_stats(num_nodes, drives_per_node, ec_parity, erasure_stripe_drives)
+    set_size = stats["set_size"]
+    num_sets = stats["num_sets"]
+    write_quorum = stats["write_quorum"]
+
+    if num_sets < 1 or set_size * num_sets != total_drives:
+        return _cluster_ec_status_clusterwide(sum(cell for row in online for cell in row), total_drives, ec_parity)
+
+    if set_size % num_nodes != 0:
+        return _cluster_ec_status_clusterwide(sum(cell for row in online for cell in row), total_drives, ec_parity)
+
+    drives_per_node_per_set = set_size // num_nodes
+    overall = "healthy"
+    for set_idx in range(num_sets):
+        online_in_set = 0
+        for slot in range(set_size):
+            node_idx = slot % num_nodes
+            drive_slot = (slot // num_nodes) + drives_per_node_per_set * set_idx
+            if online[node_idx][drive_slot]:
+                online_in_set += 1
+        if online_in_set < write_quorum:
+            return "quorum_lost"
+        if online_in_set < set_size:
+            overall = "degraded"
+    return overall
+
+
+def worst_cluster_ec_status(statuses: list[str]) -> str:
+    order = {"healthy": 0, "degraded": 1, "quorum_lost": 2, "unknown": 3}
+    return max(statuses, key=lambda s: order.get(s, 3)) if statuses else "unknown"
+
+
 def clamp_ec_parity_for_stripe(stripe_size: int, parity: int) -> int:
     opts = valid_minio_standard_parities(stripe_size)
     if not opts:

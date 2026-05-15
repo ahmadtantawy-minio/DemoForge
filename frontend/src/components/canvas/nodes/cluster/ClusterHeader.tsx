@@ -1,17 +1,30 @@
 import ComponentIcon from "../../../shared/ComponentIcon";
 import type { MinioServerPool, ContainerInstance } from "../../../../types";
 import type { computeClusterAggregates } from "../../../../lib/clusterUtils";
+import { computeClusterDriveHealth } from "../../../../lib/clusterUtils";
 
 interface Props {
   label: string;
+  clusterId: string;
   pools: MinioServerPool[];
   aggregates: ReturnType<typeof computeClusterAggregates>;
   clusterInstances: ContainerInstance[];
   clusterStatus: string | null;
 }
 
-export default function ClusterHeader({ label, pools, aggregates, clusterInstances, clusterStatus }: Props) {
-  const healthyCount = clusterInstances.filter((i) => i.health === "healthy").length;
+export default function ClusterHeader({
+  label,
+  clusterId,
+  pools,
+  aggregates,
+  clusterInstances,
+  clusterStatus,
+}: Props) {
+  const { drivesOnline, drivesTotal, nodesUp, nodesTotal } = computeClusterDriveHealth(
+    pools,
+    clusterInstances,
+    clusterId,
+  );
 
   let subtitle: string;
   if (pools.length === 1) {
@@ -37,22 +50,45 @@ export default function ClusterHeader({ label, pools, aggregates, clusterInstanc
         {clusterInstances.length > 0 && (
           <div
             className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-              healthyCount === clusterInstances.length
+              drivesOnline === drivesTotal && nodesUp === nodesTotal
                 ? "bg-green-500/15 text-green-400"
-                : healthyCount > 0
+                : drivesOnline > 0
                 ? "bg-yellow-500/15 text-yellow-400"
                 : "bg-red-500/15 text-red-400"
             }`}
+            title={`${drivesOnline}/${drivesTotal} drives online · ${nodesUp}/${nodesTotal} nodes up`}
           >
-            {healthyCount}/{clusterInstances.length}
+            {drivesOnline}/{drivesTotal}
           </div>
         )}
         {clusterStatus && (() => {
           const isHealthy = clusterStatus === "healthy";
           const isDegraded = clusterStatus === "degraded";
-          const badgeColor = isHealthy ? "bg-green-500/15 text-green-400" : isDegraded ? "bg-orange-500/15 text-orange-400" : "bg-red-500/15 text-red-400";
-          const dotColor = isHealthy ? "bg-green-400" : isDegraded ? "bg-orange-400" : "bg-red-400";
-          const label = isHealthy ? "healthy" : isDegraded ? "degraded" : "no quorum";
+          const isQuorumLost = clusterStatus === "quorum_lost";
+          const isUnreachable = clusterStatus === "unreachable";
+          const badgeColor = isHealthy
+            ? "bg-green-500/15 text-green-400"
+            : isDegraded
+            ? "bg-orange-500/15 text-orange-400"
+            : isUnreachable
+            ? "bg-zinc-500/15 text-zinc-400"
+            : "bg-red-500/15 text-red-400";
+          const dotColor = isHealthy
+            ? "bg-green-400"
+            : isDegraded
+            ? "bg-orange-400"
+            : isUnreachable
+            ? "bg-zinc-400"
+            : "bg-red-400";
+          const label = isHealthy
+            ? "healthy"
+            : isDegraded
+            ? "degraded"
+            : isQuorumLost
+            ? "no quorum"
+            : isUnreachable
+            ? "unreachable"
+            : clusterStatus;
           return (
             <div className={`text-[9px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 ${badgeColor}`}>
               <span className={`w-1.5 h-1.5 rounded-full inline-block ${dotColor}`} />

@@ -75,6 +75,22 @@ def resolve_target(demo_id: str, node_id: str, ui_name: str) -> tuple[str, str]:
     base_url = f"http://{container_info.container_name}:{ui_def.port}"
     return base_url, ui_def.path
 
+
+def _normalize_proxy_subpath(ui_name: str, subpath: str) -> str:
+    """Drop a leading ``console/`` segment when the proxy ui_name is already ``console``.
+
+    MinIO Console's React Router uses ``/console/*`` client routes. Under DemoForge that
+    becomes ``/proxy/.../console/console/...`` unless we strip the duplicate segment
+    before forwarding to the container (which serves the SPA at ``/`` on port 9001).
+    """
+    if ui_name != "console" or not subpath:
+        return subpath
+    s = subpath.lstrip("/")
+    while s == "console" or s.startswith("console/"):
+        s = s[len("console") :].lstrip("/")
+    return s
+
+
 async def forward_request(
     request: Request,
     demo_id: str,
@@ -88,6 +104,7 @@ async def forward_request(
     Rewrites Location headers and Set-Cookie paths.
     """
     base_url, ui_base_path = resolve_target(demo_id, node_id, ui_name)
+    subpath = _normalize_proxy_subpath(ui_name, subpath)
 
     # Build target URL
     target_path = f"{ui_base_path.rstrip('/')}/{subpath}" if subpath else ui_base_path
@@ -145,7 +162,7 @@ async def forward_request(
             continue
         if lower == "location":
             # Rewrite redirects to go through proxy
-            value = _rewrite_location(value, base_url, proxy_prefix)
+            value = _rewrite_location(value, base_url, proxy_prefix, ui_name)
         if lower == "set-cookie":
             # Scope cookies to proxy path
             value = _rewrite_cookie_path(value, proxy_prefix)
@@ -159,14 +176,17 @@ async def forward_request(
 
     # For HTML responses, inject a <base> tag so relative asset paths resolve through proxy
     if "text/html" in content_type:
-        # Use the directory of the actual request path so relative assets resolve correctly
-        # e.g. for /ui/login.html → base should be /proxy/.../trino-ui/ui/
-        if subpath:
-            subdir = "/".join(subpath.split("/")[:-1])  # directory part
+        node_proxy_root = f"/proxy/{demo_id}/{node_id}/"
+        # MinIO Console navigates with relative "console/..." segments. If <base> ends in
+        # .../console/, the browser resolves console/browser → .../console/console/browser.
+        if ui_name == "console":
+            base_path = node_proxy_root
+        elif subpath:
+            subdir = "/".join(subpath.split("/")[:-1])
             base_path = f"{proxy_prefix}/{subdir}/" if subdir else f"{proxy_prefix}/"
         else:
             base_path = f"{proxy_prefix}/"
-        content = _inject_base_tag(content, base_path, proxy_prefix)
+        content = _inject_base_tag(content, base_path, proxy_prefix, ui_name=ui_name)
 
     elif "javascript" in content_type and proxy_prefix:
         # Rewrite hardcoded root paths inside JS bundles (Superset publicPath, MinIO Console
@@ -231,12 +251,21 @@ async def forward_request(
         media_type=content_type,
     )
 
-def _rewrite_location(location: str, base_url: str, proxy_prefix: str) -> str:
+def _rewrite_location(location: str, base_url: str, proxy_prefix: str, ui_name: str = "") -> str:
     """Rewrite an absolute Location header to route through the proxy."""
     if location.startswith(base_url):
-        return proxy_prefix + location[len(base_url):]
+        tail = location[len(base_url) :]
+        if ui_name == "console" and tail.startswith("/"):
+            tail = "/" + _normalize_proxy_subpath("console", tail.lstrip("/"))
+            if tail == "/":
+                tail = location[len(base_url) :]
+        return proxy_prefix + tail
     if location.startswith("/"):
-        return proxy_prefix + location
+        path = location
+        if ui_name == "console":
+            norm = _normalize_proxy_subpath("console", path.lstrip("/"))
+            path = f"/{norm}" if norm else "/"
+        return proxy_prefix + path
     return location
 
 def _rewrite_cookie_path(cookie: str, proxy_prefix: str) -> str:
@@ -246,7 +275,12 @@ def _rewrite_cookie_path(cookie: str, proxy_prefix: str) -> str:
         return re.sub(r'Path=/[^;]*', f'Path={proxy_prefix}/', cookie)
     return cookie + f"; Path={proxy_prefix}/"
 
-def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> bytes:
+def _inject_base_tag(
+    content: bytes,
+    base_href: str,
+    proxy_prefix: str = "",
+    ui_name: str = "",
+) -> bytes:
     """Inject a <base href> tag and fetch interceptor into HTML.
 
     The base tag fixes relative CSS/JS paths. The fetch interceptor rewrites
@@ -296,6 +330,21 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         f'+window.location.search+window.location.hash);}}catch(e){{}}'
     ) if not has_own_base else ""
 
+    # MinIO Console: collapse /proxy/.../console/console/ → /proxy/.../console/ (load + SPA nav).
+    minio_console_url_fixup = ""
+    if ui_name == "console" and proxy_base.rstrip("/").endswith("/console"):
+        minio_console_url_fixup = (
+            f'function _dfFixMinioConsoleUrl(){{try{{var p=window.location.pathname;var dup=pb+"/console/";'
+            f'if(p.indexOf(dup)>=0)window.history.replaceState(window.history.state,"",'
+            f'p.split(dup).join(pb+"/")+window.location.search+window.location.hash);}}catch(e){{}}}}'
+            f'_dfFixMinioConsoleUrl();'
+            f'var _ps=history.pushState,_rs=history.replaceState;'
+            f'history.pushState=function(s,t,u){{if(typeof u==="string"&&u.indexOf("console/console")>=0)'
+            f'u=u.split("console/console").join("console");return _ps.call(this,s,t,u);}};'
+            f'history.replaceState=function(s,t,u){{if(typeof u==="string"&&u.indexOf("console/console")>=0)'
+            f'u=u.split("console/console").join("console");var r=_rs.call(this,s,t,u);_dfFixMinioConsoleUrl();return r;}};'
+        )
+
     fetch_interceptor = (
         f'<script>'
         f'(function(){{'
@@ -303,6 +352,7 @@ def _inject_base_tag(content: bytes, base_href: str, proxy_prefix: str = "") -> 
         f'var pb="{proxy_base}";'
         # Persist proxy prefix in sessionStorage so refresh-recovery redirects work
         f'try{{sessionStorage.setItem("_dfproxy",pb);}}catch(e){{}}'
+        + minio_console_url_fixup
         + replace_state_block +
         # rewrite helper: "/path" and "http://origin/path" → proxy-prefixed URL
         f'function rw(u){{'

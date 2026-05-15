@@ -26,6 +26,32 @@ function _poolEcStripeLabel(p: MinioServerPool): string {
   return formatMinioEcStripeShort(stripe, par);
 }
 
+export function computeClusterDriveHealth(
+  pools: MinioServerPool[],
+  clusterInstances: ContainerInstance[],
+  clusterId: string,
+) {
+  let drivesOnline = 0;
+  let drivesTotal = 0;
+  let nodesUp = 0;
+  for (const inst of clusterInstances) {
+    const m = inst.node_id.match(new RegExp(`^${clusterId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-pool(\\d+)-node-\\d+$`));
+    if (!m) continue;
+    const poolIdx = parseInt(m[1], 10) - 1;
+    const dpn = pools[poolIdx]?.drivesPerNode ?? 0;
+    drivesTotal += dpn;
+    if (inst.health === "stopped") continue;
+    nodesUp += 1;
+    drivesOnline += Math.max(0, dpn - (inst.stopped_drives?.length ?? 0));
+  }
+  return {
+    drivesOnline,
+    drivesTotal,
+    nodesUp,
+    nodesTotal: clusterInstances.length,
+  };
+}
+
 export function computeClusterAggregates(pools: MinioServerPool[]) {
   const stats = pools.map((p) => {
     const td = p.nodeCount * p.drivesPerNode;

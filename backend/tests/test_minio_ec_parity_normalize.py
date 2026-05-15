@@ -2,7 +2,9 @@
 
 from app.engine.minio_ec_parity_normalize import (
     clamp_ec_parity_for_stripe,
+    cluster_ec_status_from_online_matrix,
     compute_erasure_set_size,
+    compute_write_quorum,
     effective_stripe_drives,
     normalize_demo_cluster,
     normalize_demo_definition,
@@ -95,6 +97,53 @@ def test_normalize_demo_cluster_multi_pool_syncs_top_level_ec() -> None:
     assert out.server_pools[0].ec_parity == 2
     assert out.server_pools[1].ec_parity == 3
     assert out.ec_parity == out.server_pools[0].ec_parity
+
+
+def test_compute_write_quorum_matches_frontend() -> None:
+    assert compute_write_quorum(12, 4) == 8
+    assert compute_write_quorum(16, 8) == 9
+
+
+def test_six_by_six_ec4_one_node_down_is_degraded_not_quorum_lost() -> None:
+    """6×6, EC:4 → 12-drive stripes; one node down loses 2 drives per stripe, not write quorum."""
+    online = [[node != 0 for _ in range(6)] for node in range(6)]
+    assert cluster_ec_status_from_online_matrix(online, 4, None) == "degraded"
+
+
+def test_six_by_six_ec4_one_stripe_below_write_quorum() -> None:
+    """Four nodes down → 4/12 drives online in each stripe (< write quorum 8)."""
+    online = [[node >= 4 for _ in range(6)] for node in range(6)]
+    assert cluster_ec_status_from_online_matrix(online, 4, None) == "quorum_lost"
+
+
+def test_stopped_drives_overlay_marks_drives_offline_for_quorum() -> None:
+    from app.engine.cluster_ec_health import cluster_ec_status_from_servers
+
+    servers = [
+        {
+            "endpoint": "http://minio-c1pool11:9000",
+            "drives": [{"path": "/data1", "state": "ok"}, {"path": "/data2", "state": "ok"}],
+        },
+        {
+            "endpoint": "http://minio-c1pool12:9000",
+            "drives": [{"path": "/data1", "state": "ok"}, {"path": "/data2", "state": "ok"}],
+        },
+    ]
+    from app.models.demo import DemoCluster, DemoServerPool, NodePosition
+
+    cluster = DemoCluster(
+        id="c1",
+        label="c1",
+        position=NodePosition(x=0, y=0),
+        ec_parity=2,
+        server_pools=[DemoServerPool(id="pool-1", node_count=2, drives_per_node=2, ec_parity=2)],
+    )
+    without, _ = cluster_ec_status_from_servers(servers, cluster, None)
+    with_stop, _ = cluster_ec_status_from_servers(
+        servers, cluster, {"c1-pool1-node-1": [1, 2]}
+    )
+    assert without == "healthy"
+    assert with_stop == "quorum_lost"
 
 
 def test_normalize_demo_definition_iterates_clusters() -> None:

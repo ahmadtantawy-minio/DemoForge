@@ -615,7 +615,7 @@ function StatsTabContent({
                     <span className={`w-1.5 h-1.5 rounded-full ${
                       status === "healthy" ? "bg-green-400" : status === "degraded" ? "bg-orange-400" : "bg-red-400"
                     }`} />
-                    {cluster.id}: {status === "healthy" ? "quorum OK" : status === "degraded" ? "degraded — quorum lost" : "unreachable"}
+                    {cluster.id}: {status === "healthy" ? "quorum OK" : status === "degraded" ? "degraded" : "unreachable"}
                   </div>
                 )}
                 <ClusterHealthPanel

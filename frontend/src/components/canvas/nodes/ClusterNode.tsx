@@ -446,6 +446,7 @@ export default function ClusterNode({ id, data }: NodeProps) {
       >
         <ClusterHeader
           label={nodeData.label || "MinIO Cluster"}
+          clusterId={id}
           pools={pools}
           aggregates={aggregates}
           clusterInstances={clusterInstances}

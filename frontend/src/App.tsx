@@ -197,15 +197,16 @@ export default function App() {
               const clusterNodes = res.instances.filter((i) => i.node_id.startsWith(`${id}-node-`));
               const healthyNodes = clusterNodes.filter((i) => i.health === "healthy").length;
               const statusMeaning: Record<string, string> = {
-                healthy: "Write quorum maintained — cluster fully operational.",
-                degraded: "HTTP non-200 from /minio/health/cluster — write quorum may be lost. Check container logs or redeploy.",
-                unreachable: "Load balancer not responding — LB container may be down or starting up.",
+                healthy: "mc admin info: all erasure stripes meet write quorum.",
+                degraded: "mc admin info: reduced redundancy; write quorum still met on all stripes.",
+                quorum_lost: "mc admin info: at least one erasure stripe below write quorum.",
+                unreachable: "mc admin info unavailable; L3 /minio/health/cluster check failed.",
               };
               const details = [
                 `Transition: ${prev} → ${status}`,
                 `Cluster: ${id} (demo: ${activeDemoId})`,
                 `Nodes up: ${healthyNodes}/${clusterNodes.length}`,
-                `Checked via: GET /minio/health/cluster through LB`,
+                `Checked via: mc admin info --json (per-stripe quorum); L3 HTTP fallback`,
                 `Meaning: ${statusMeaning[status] ?? status}`,
               ].join("\n");
               addDebugEntry(level, "ClusterHealth", `${id}: ${prev} → ${status}`, details);

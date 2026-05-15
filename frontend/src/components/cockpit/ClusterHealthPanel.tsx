@@ -243,10 +243,12 @@ export default function ClusterHealthPanel({ demoId, clusterId, drivesPerNode = 
 
   if (!health) return null;
 
-  // Polling /minio/health/cluster is authoritative for quorum — override mc admin info when they disagree
+  // Per-stripe status from mc admin is authoritative for quorum; L3 may flag degraded without quorum loss.
   const effectiveStatus: typeof health.status =
-    overrideStatus === "degraded" || overrideStatus === "unreachable"
+    overrideStatus === "unreachable"
       ? "quorum_lost"
+      : overrideStatus === "degraded" && health.status === "healthy"
+      ? "degraded"
       : health.status;
 
   const statusColor =

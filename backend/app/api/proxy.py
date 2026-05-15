@@ -33,13 +33,35 @@ import logging
 import httpx
 import websockets
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from ..engine.proxy_gateway import forward_request, resolve_target
+from fastapi.responses import RedirectResponse
+from ..engine.proxy_gateway import forward_request, resolve_target, _normalize_proxy_subpath
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _redirect_console_duplicate_path(
+    request: Request, demo_id: str, node_id: str, ui_name: str, subpath: str
+):
+    """If the browser requested .../console/console/..., redirect to a single console segment."""
+    if ui_name != "console" or not subpath:
+        return None
+    s = subpath.lstrip("/")
+    if s != "console" and not s.startswith("console/"):
+        return None
+    fixed = _normalize_proxy_subpath("console", s)
+    url = f"/proxy/{demo_id}/{node_id}/console"
+    if fixed:
+        url += f"/{fixed}"
+    if request.url.query:
+        url += f"?{request.url.query}"
+    return RedirectResponse(url=url, status_code=308)
+
+
 async def _forward_or_error(request: Request, demo_id: str, node_id: str, ui_name: str, subpath: str):
+    redirect = _redirect_console_duplicate_path(request, demo_id, node_id, ui_name, subpath)
+    if redirect is not None:
+        return redirect
     try:
         return await forward_request(request, demo_id, node_id, ui_name, subpath)
     except ValueError as e:
@@ -88,6 +110,7 @@ async def proxy_ws_handler(
     subpath: str = "",
 ):
     base_url, ui_base_path = resolve_target(demo_id, node_id, ui_name)
+    subpath = _normalize_proxy_subpath(ui_name, subpath)
     # Convert http:// to ws://
     ws_base = base_url.replace("http://", "ws://").replace("https://", "wss://")
     target_path = f"{ui_base_path.rstrip('/')}/{subpath}" if subpath else ui_base_path

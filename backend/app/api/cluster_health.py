@@ -7,12 +7,13 @@ import json
 import shlex
 import asyncio
 import logging
-from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from ..state.store import state
 from ..engine.docker_manager import exec_in_container, docker_client
+from ..engine.cluster_ec_health import cluster_alias, parse_mc_admin_info
+from ..models.demo import DemoCluster
 from .demos import _load_demo
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,7 @@ router = APIRouter()
 
 
 def _cluster_alias(cluster) -> str:
-    """Derive the mc alias name for a cluster (matches compose_generator init.sh logic)."""
-    return re.sub(r"[^a-zA-Z0-9_]", "_", cluster.label)
+    return cluster_alias(cluster)
 
 
 def _find_cluster_in_demo(demo, cluster_id: str):
@@ -29,79 +29,12 @@ def _find_cluster_in_demo(demo, cluster_id: str):
     return next((c for c in demo.clusters if c.id == cluster_id), None)
 
 
-def _parse_admin_info(stdout: str, cluster_id: str, ec_parity: int) -> dict:
-    """Parse mc admin info --json output into structured health data."""
-    servers = []
-    drives_online = 0
-    drives_total = 0
-
-    for line in stdout.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        # mc admin info --json wraps result in {"status":"success","info":{...}}
-        info = obj.get("info", obj)
-        raw_servers = info.get("servers", [])
-        for srv in raw_servers:
-            endpoint = srv.get("endpoint", "")
-            state_val = srv.get("state", "offline")
-            uptime = srv.get("uptime", 0)
-
-            raw_drives = srv.get("drives", [])
-            drive_list = []
-            for d in raw_drives:
-                d_state = d.get("state", "offline")
-                d_path = d.get("path", "")
-                d_used = d.get("usedSpace", 0)
-                d_total = d.get("totalSpace", 0)
-                drive_list.append({
-                    "path": d_path,
-                    "state": d_state,
-                    "used": d_used,
-                    "total": d_total,
-                })
-                drives_total += 1
-                if d_state == "ok":
-                    drives_online += 1
-
-            network_raw = srv.get("network", {})
-            online_peers = network_raw.get("online", 0)
-            total_peers = network_raw.get("total", 0)
-
-            servers.append({
-                "endpoint": endpoint,
-                "state": state_val,
-                "uptime": uptime,
-                "drives": drive_list,
-                "network": {"online": online_peers, "total": total_peers},
-            })
-
-    # Determine cluster status using write quorum logic
-    # write_quorum = total_drives - ec_parity (minimum drives needed to write)
-    write_quorum = max(1, drives_total - ec_parity)
-    if drives_total == 0:
-        status = "unknown"
-    elif drives_online >= drives_total:
-        status = "healthy"
-    elif drives_online >= write_quorum:
-        status = "degraded"
-    else:
-        status = "quorum_lost"
-
-    return {
-        "cluster_id": cluster_id,
-        "ec_parity": ec_parity,
-        "servers": servers,
-        "drives_online": drives_online,
-        "drives_total": drives_total,
-        "erasure_sets": max(1, len(servers)),
-        "status": status,
-    }
+def _parse_admin_info(
+    stdout: str,
+    cluster: DemoCluster,
+    stopped_drives: dict[str, list[int]] | None = None,
+) -> dict:
+    return parse_mc_admin_info(stdout, cluster, stopped_drives)
 
 
 def _error_response(cluster_id: str) -> dict:
@@ -149,7 +82,7 @@ async def get_cluster_health(demo_id: str, cluster_id: str) -> dict:
         logger.warning(f"mc admin info failed for {demo_id}/{cluster_id}: {stderr[:200]}")
         return _error_response(cluster_id)
 
-    return _parse_admin_info(stdout, cluster_id, cluster.ec_parity)
+    return _parse_admin_info(stdout, cluster, running.stopped_drives)
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +259,7 @@ async def _get_current_offline_drives(demo_id: str, cluster_id: str, ec_parity: 
         return 0, 0
     if exit_code != 0 or not stdout.strip():
         return 0, 0
-    health = _parse_admin_info(stdout, cluster_id, ec_parity)
+    health = _parse_admin_info(stdout, cluster, running.stopped_drives)
     offline = health["drives_total"] - health["drives_online"]
     return offline, health["drives_total"]
 
