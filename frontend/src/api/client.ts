@@ -360,6 +360,8 @@ export const fetchSparkEtlJobRuns = (demoId: string, nodeId: string) =>
     message: string;
     last_finished_exit_code: number | null;
     last_finished_success: boolean | null;
+    submit_log_path: string;
+    submit_log_tail: string;
   }>(`/api/demos/${demoId}/instances/${nodeId}/spark-etl-job/runs`);
 
 // Terminal WebSocket URL

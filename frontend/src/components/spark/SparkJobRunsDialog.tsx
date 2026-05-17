@@ -99,6 +99,16 @@ export default function SparkJobRunsDialog({
               Last spark-submit succeeded (exit {payload.last_finished_exit_code}).
             </p>
           )}
+        {payload?.submit_log_tail && !err && (
+          <div className="border border-border rounded-md overflow-hidden">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-2 py-1 bg-muted/50 border-b border-border">
+              Last spark-submit output
+            </div>
+            <pre className="text-[11px] font-mono p-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-foreground/90">
+              {payload.submit_log_tail}
+            </pre>
+          </div>
+        )}
         {payload && !err && (
           <div className="border border-border rounded-md overflow-auto max-h-[55vh]">
             <table className="w-full text-xs">

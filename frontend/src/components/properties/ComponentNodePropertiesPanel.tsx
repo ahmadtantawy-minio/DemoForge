@@ -22,6 +22,7 @@ import {
   AISTOR_TABLES_DEFAULT_CATALOG_NAME,
   AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE,
 } from "../../lib/aistorTablesDefaults";
+import { resolveSparkIcebergCatalogName } from "../../lib/sparkIcebergCatalog";
 import { DataGeneratorPanel } from "./DataGeneratorPanel";
 import { RagAppPanel } from "./RagAppPanel";
 import { OllamaPanel } from "./OllamaPanel";
@@ -380,6 +381,17 @@ export function ComponentNodePropertiesPanel({
       {data.componentId === "spark-etl-job" && !isExperience && (() => {
         const sparkJobMode = (data.config?.JOB_MODE || "raw_to_iceberg").toLowerCase();
         const isParquetMode = sparkJobMode === "raw_to_parquet";
+        const isCompactionMode = sparkJobMode === "iceberg_compaction";
+        const compactionBool = (key: string, defaultOn = true) => {
+          const raw = (data.config?.[key] ?? (defaultOn ? "true" : "false")).toString().toLowerCase();
+          return raw !== "false" && raw !== "0" && raw !== "no";
+        };
+        const sparkCatalogLabel = resolveSparkIcebergCatalogName(
+          selectedNodeId,
+          data.config,
+          nodes,
+          edges,
+        );
         return (
         <div className="mb-3 space-y-3">
           <div>
@@ -391,10 +403,13 @@ export function ComponentNodePropertiesPanel({
               <SelectContent>
                 <SelectItem value="raw_to_iceberg">Raw → Iceberg</SelectItem>
                 <SelectItem value="raw_to_parquet">Raw → Parquet</SelectItem>
+                <SelectItem value="iceberg_compaction">Iceberg catalog compaction</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
-              {isParquetMode
+              {isCompactionMode
+                ? "Maintenance on an existing Iceberg table via AIStor Tables REST catalog (v3). Connect MinIO with Tables enabled; no raw input bucket required."
+                : isParquetMode
                 ? "Read CSV/JSON from MinIO (S3A) and write Parquet files to an output bucket. No AIStor Tables required."
                 : <>Read CSV/JSON from MinIO (S3A) and write to an Iceberg table via the REST catalog (<code className="text-[10px]">/_iceberg</code> on AIStor Tables).</>}
             </p>
@@ -428,11 +443,51 @@ export function ComponentNodePropertiesPanel({
               />
             </div>
           )}
+          {isCompactionMode && (
+            <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
+              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Compaction steps (default on)
+              </div>
+              {(
+                [
+                  ["COMPACTION_REWRITE_DATA_FILES", "Rewrite data files"],
+                  ["COMPACTION_EXPIRE_SNAPSHOTS", "Expire snapshots"],
+                  ["COMPACTION_REMOVE_ORPHAN_FILES", "Remove orphan files"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between gap-2">
+                  <label className="text-xs text-muted-foreground">{label}</label>
+                  <Select
+                    value={compactionBool(key) ? "true" : "false"}
+                    onValueChange={(v) => updateConfig(key, v)}
+                  >
+                    <SelectTrigger className="w-24 h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">On</SelectItem>
+                      <SelectItem value="false">Off</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Expire snapshots older than</label>
+                <Input
+                  value={data.config?.COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN ?? "5d"}
+                  placeholder="5d"
+                  onChange={(e) => updateConfig("COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN", e.target.value)}
+                  className="h-8 text-sm font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">e.g. 5d, 24h</p>
+              </div>
+            </div>
+          )}
           {/* Iceberg-specific: target table */}
           {!isParquetMode && (
             <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
               <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                Target Iceberg table (catalog write)
+                {isCompactionMode ? "Target Iceberg table (catalog maintenance)" : "Target Iceberg table (catalog write)"}
               </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Namespace (schema)</label>
@@ -453,11 +508,14 @@ export function ComponentNodePropertiesPanel({
                 />
               </div>
               <p className="text-[10px] text-muted-foreground font-mono break-all">
-                Spark catalog <span className="text-foreground">demoforge_rest</span> →{" "}
+                Spark catalog <span className="text-foreground">{sparkCatalogLabel}</span> →{" "}
                 <span className="text-foreground">
                   {(data.config?.ICEBERG_TARGET_NAMESPACE || "analytics").trim() || "analytics"}.
                   {(data.config?.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw"}
                 </span>
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                Catalog name is resolved from the linked MinIO AIStor Tables config (SigV4 /_iceberg) unless overridden on this job.
               </p>
             </div>
           )}
@@ -499,6 +557,8 @@ export function ComponentNodePropertiesPanel({
               </div>
             </div>
           )}
+          {!isCompactionMode && (
+          <>
           <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
             <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
               MinIO buckets (S3A)
@@ -591,6 +651,8 @@ export function ComponentNodePropertiesPanel({
               />
               <span className="text-xs text-foreground">JSON: multi-line documents (Spark multiLine)</span>
             </label>
+          )}
+          </>
           )}
         </div>
         );

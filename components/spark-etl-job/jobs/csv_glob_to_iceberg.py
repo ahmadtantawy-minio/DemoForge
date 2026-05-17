@@ -336,7 +336,11 @@ def _parse_s3a_uri(uri: str) -> tuple[str, str]:
 
 
 def _resolved_spark_catalog_name() -> str:
-    raw = (os.environ.get("ICEBERG_SPARK_CATALOG_NAME") or "iceberg").strip()
+    raw = (
+        os.environ.get("ICEBERG_SPARK_CATALOG_NAME")
+        or os.environ.get("ICEBERG_CATALOG_NAME")
+        or "iceberg"
+    ).strip()
     if re.match(r"^[A-Za-z][A-Za-z0-9_]*$", raw):
         return raw
     print(f"[raw_to_iceberg] WARN invalid ICEBERG_SPARK_CATALOG_NAME={raw!r} — using 'iceberg'", flush=True)

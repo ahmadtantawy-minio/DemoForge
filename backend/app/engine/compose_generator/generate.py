@@ -286,8 +286,23 @@ def _spark_etl_job_s3_region_from_peer(demo: DemoDefinition, peer_id: str) -> st
     return "us-east-1"
 
 
-def _spark_etl_job_spark_catalog_name_from_peer(demo: DemoDefinition, peer_id: str) -> str:
-    """Spark Iceberg catalog name from MinIO node or cluster config (ICEBERG_SPARK_CATALOG_NAME)."""
+def _spark_etl_job_spark_catalog_name_from_peer(
+    demo: DemoDefinition,
+    peer_id: str,
+    job_cfg: dict | None = None,
+) -> str:
+    """Spark SQL catalog id for Iceberg REST + SigV4 on MinIO /_iceberg.
+
+    Precedence: spark-etl-job ``ICEBERG_SPARK_CATALOG_NAME`` → peer ``ICEBERG_SPARK_CATALOG_NAME`` →
+    peer ``AISTOR_TABLES_CATALOG_NAME`` (same as Trino/PyIceberg SigV4 wiring) → ``iceberg``.
+    """
+    from .helpers import resolve_minio_peer_aistor_catalog_name
+
+    job_cfg = job_cfg or {}
+    job_override = str(job_cfg.get("ICEBERG_SPARK_CATALOG_NAME") or "").strip()
+    if job_override:
+        return job_override
+
     raw = ""
     if peer_id.endswith("-lb"):
         cid = peer_id[:-3]
@@ -302,7 +317,13 @@ def _spark_etl_job_spark_catalog_name_from_peer(demo: DemoDefinition, peer_id: s
         nd = next((n for n in demo.nodes if n.id == peer_id), None)
         if nd:
             raw = str((nd.config or {}).get("ICEBERG_SPARK_CATALOG_NAME", "") or "").strip()
-    return raw or "iceberg"
+    if raw:
+        return raw
+
+    if _spark_etl_job_tables_enabled_for_minio_peer(demo, peer_id):
+        return resolve_minio_peer_aistor_catalog_name(demo, peer_id)
+
+    return "iceberg"
 
 
 def _spark_etl_job_iceberg_wh_from_peer(demo: DemoDefinition, peer_id: str) -> str:
@@ -327,9 +348,10 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
     job_mode = (cfg.get("JOB_MODE") or cfg.get("JOB_TEMPLATE") or "raw_to_iceberg").strip().lower()
     if job_mode == "csv_glob_to_iceberg":
         job_mode = "raw_to_iceberg"
-    if job_mode not in ("raw_to_iceberg", "raw_to_parquet"):
+    if job_mode not in ("raw_to_iceberg", "raw_to_parquet", "iceberg_compaction"):
         job_mode = "raw_to_iceberg"
     is_parquet_mode = job_mode == "raw_to_parquet"
+    is_compaction_mode = job_mode == "iceberg_compaction"
 
     env["JOB_MODE"] = job_mode
     env.setdefault("JOB_TEMPLATE", job_mode)
@@ -340,6 +362,26 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         _tbl = str(cfg.get("ICEBERG_TARGET_TABLE", "") or "").strip() or "events_from_raw"
         env["ICEBERG_TARGET_NAMESPACE"] = _ns
         env["ICEBERG_TARGET_TABLE"] = _tbl
+    if is_compaction_mode:
+        def _compaction_bool(key: str, default: str = "true") -> str:
+            raw = str(cfg.get(key, default)).strip().lower()
+            return "true" if raw in ("1", "true", "yes", "") else "false"
+
+        env["COMPACTION_REWRITE_DATA_FILES"] = _compaction_bool("COMPACTION_REWRITE_DATA_FILES", "true")
+        env["COMPACTION_EXPIRE_SNAPSHOTS"] = _compaction_bool("COMPACTION_EXPIRE_SNAPSHOTS", "true")
+        env["COMPACTION_REMOVE_ORPHAN_FILES"] = _compaction_bool("COMPACTION_REMOVE_ORPHAN_FILES", "true")
+        env.setdefault(
+            "COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN",
+            str(cfg.get("COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN", "5d")).strip() or "5d",
+        )
+        env.setdefault(
+            "COMPACTION_TARGET_FILE_SIZE_BYTES",
+            str(cfg.get("COMPACTION_TARGET_FILE_SIZE_BYTES", "134217728")).strip() or "134217728",
+        )
+        env.setdefault(
+            "COMPACTION_MIN_INPUT_FILES",
+            str(cfg.get("COMPACTION_MIN_INPUT_FILES", "5")).strip() or "5",
+        )
     fmt = (cfg.get("RAW_INPUT_FORMAT") or cfg.get("INPUT_FORMAT") or "csv").strip().lower()
     if fmt not in ("csv", "json"):
         fmt = "csv"
@@ -381,10 +423,15 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         if not resolved:
             continue
         saw_minio_data_edge = True
-        if not is_parquet_mode and not _spark_etl_job_tables_enabled_for_minio_peer(demo, peer_id):
+        if not is_parquet_mode and not is_compaction_mode and not _spark_etl_job_tables_enabled_for_minio_peer(demo, peer_id):
             raise ValueError(
                 f"Apache Spark job '{node.id}' edge '{e.id}' references MinIO peer '{peer_id}' without AIStor Tables. "
                 "Enable AIStor Tables on that MinIO node or cluster (Raw → Iceberg requires Tables)."
+            )
+        if is_compaction_mode and not _spark_etl_job_tables_enabled_for_minio_peer(demo, peer_id):
+            raise ValueError(
+                f"Apache Spark job '{node.id}' edge '{e.id}' references MinIO peer '{peer_id}' without AIStor Tables. "
+                "Iceberg catalog compaction requires AIStor Tables (REST catalog v3 at /_iceberg)."
             )
         endpoint, ak, sk = resolved
         cc = e.connection_config or {}
@@ -398,7 +445,7 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
             role = role_raw or "input"
         if role not in ("input", "output"):
             role = "input"
-        if role == "input":
+        if role == "input" and not is_compaction_mode:
             bucket = (
                 str(cfg.get("RAW_LANDING_BUCKET", "") or "").strip()
                 or str(cc.get("landing_bucket", "") or "").strip()
@@ -414,7 +461,7 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
             env["S3_ENDPOINT"] = endpoint
             env["S3_ACCESS_KEY"] = ak
             env["S3_SECRET_KEY"] = sk
-        elif role == "output":
+        elif role == "output" or is_compaction_mode:
             if is_parquet_mode:
                 ob = (
                     str(cfg.get("PARQUET_OUTPUT_BUCKET", "") or "").strip()
@@ -442,7 +489,9 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         if not is_parquet_mode:
             rest_from_minio = f"{endpoint.rstrip('/')}/_iceberg"
             rest_catalog_peer_id = peer_id
-            env["ICEBERG_SPARK_CATALOG_NAME"] = _spark_etl_job_spark_catalog_name_from_peer(demo, peer_id)
+            cat_name = _spark_etl_job_spark_catalog_name_from_peer(demo, peer_id, cfg)
+            env["ICEBERG_SPARK_CATALOG_NAME"] = cat_name
+            env.setdefault("ICEBERG_CATALOG_NAME", cat_name)
             env["ICEBERG_SIGV4"] = "true"
             wh_cat = _spark_etl_job_iceberg_wh_from_peer(demo, peer_id)
             if not str(env.get("ICEBERG_WAREHOUSE") or "").startswith("s3:"):
@@ -455,7 +504,12 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         env.setdefault("ICEBERG_REST_SIGNING_NAME", "s3tables")
 
     if not saw_minio_data_edge:
-        mode_label = "Raw → Parquet" if is_parquet_mode else "Raw → Iceberg"
+        if is_compaction_mode:
+            mode_label = "Iceberg catalog compaction"
+        elif is_parquet_mode:
+            mode_label = "Raw → Parquet"
+        else:
+            mode_label = "Raw → Iceberg"
         raise ValueError(
             f"Apache Spark job '{node.id}' must connect to a MinIO node or MinIO cluster (S3 or AIStor Tables edge) "
             f"for {mode_label}."
@@ -469,7 +523,7 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         env["WAREHOUSE_BUCKET"] = str(cfg.get("WAREHOUSE_BUCKET", "") or "").strip() or "warehouse"
     env["INPUT_OBJECT_PREFIX"] = str(cfg.get("INPUT_OBJECT_PREFIX", "") or "").strip()
 
-    if not env.get("INPUT_S3A_URI"):
+    if not is_compaction_mode and not env.get("INPUT_S3A_URI"):
         raise ValueError(
             f"Apache Spark job '{node.id}' needs an input MinIO edge (spark_sink_role or spark_bucket_role = input / raw). "
             "Set RAW_LANDING_BUCKET and INPUT_OBJECT_PREFIX on the job node."

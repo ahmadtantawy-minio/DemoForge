@@ -3,8 +3,9 @@ import { useDemoStore } from "../../stores/demoStore";
 import { useDebugStore } from "../../stores/debugStore";
 import {
   fetchDemos, fetchInventory, deleteDemo, deployDemo, stopDemo,
-  createDemo,
+  createDemo, updateDemo,
 } from "../../api/client";
+import { formatUpdatedLabel } from "../../lib/dateTime";
 import { toast } from "../../lib/toast";
 import { showIamReconcileToastIfApplicable } from "../../lib/iamReconcileToast";
 import { usePermissions } from "../../hooks/usePermissions";
@@ -19,23 +20,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import DeployProgress from "../deploy/DeployProgress";
 import TemplateGallery from "../templates/TemplateGallery";
-
-function relativeTime(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function formatLocalDateTime(iso: string | null | undefined): string {
-  if (!iso) return "Never";
-  return new Date(iso).toLocaleString();
-}
 
 interface InventoryContainer {
   id: string; name: string; image: string; status: string;
@@ -63,6 +47,8 @@ export default function DemoManager() {
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpts, setDeleteOpts] = useState({ destroyContainers: true, removeImages: false });
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const refreshDemos = useCallback(() => {
     fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
@@ -86,6 +72,22 @@ export default function DemoManager() {
     }, 5000);
     return () => clearInterval(interval);
   }, [refreshDemos, refreshInventory]);
+
+  const handleRename = async (id: string) => {
+    const name = renameValue.trim();
+    if (!name) {
+      setRenamingId(null);
+      return;
+    }
+    try {
+      await updateDemo(id, { name });
+      refreshDemos();
+      toast.success("Demo renamed");
+    } catch (err: unknown) {
+      toast.error("Rename failed", { description: err instanceof Error ? err.message : String(err) });
+    }
+    setRenamingId(null);
+  };
 
   const handleCreate = async () => {
     if (!newDemoName.trim()) return;
@@ -259,13 +261,33 @@ export default function DemoManager() {
                         <div className="flex items-center gap-4">
                           {/* Info */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => openDemo(demo.id)}
-                                className="font-medium text-sm text-foreground hover:text-primary transition-colors truncate"
-                              >
-                                {demo.name}
-                              </button>
+                            <div className="flex items-center gap-2 min-w-0">
+                              {renamingId === demo.id ? (
+                                <input
+                                  autoFocus
+                                  value={renameValue}
+                                  onChange={(e) => setRenameValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") void handleRename(demo.id);
+                                    if (e.key === "Escape") setRenamingId(null);
+                                  }}
+                                  onBlur={() => void handleRename(demo.id)}
+                                  className="font-medium text-sm text-foreground bg-transparent border-b border-primary outline-none flex-1 min-w-0"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => openDemo(demo.id)}
+                                  onDoubleClick={(e) => {
+                                    e.preventDefault();
+                                    setRenamingId(demo.id);
+                                    setRenameValue(demo.name);
+                                  }}
+                                  className="font-medium text-sm text-foreground hover:text-primary transition-colors truncate text-left"
+                                  title="Double-click to rename"
+                                >
+                                  {demo.name}
+                                </button>
+                              )}
                               {statusBadge(demo.status)}
                               {isActive && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">active</Badge>
@@ -281,8 +303,8 @@ export default function DemoManager() {
                                 <span className="truncate max-w-[200px]">{demo.description}</span>
                               )}
                               {demo.updated_at && (
-                                <span className="text-[11px] text-muted-foreground">
-                                  {formatLocalDateTime(demo.updated_at)}
+                                <span className="text-[11px] text-muted-foreground" title={formatUpdatedLabel(demo.updated_at)}>
+                                  {formatUpdatedLabel(demo.updated_at)}
                                 </span>
                               )}
                             </div>

@@ -7,6 +7,7 @@ _DF_SPARK_EXTRA_JARS="/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-j
 _DF_DRIVER_CP="/opt/spark/jars/hadoop-aws-3.3.4.jar:/opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar:/opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.5.0.jar:/opt/spark/jars/iceberg-aws-bundle-1.5.0.jar"
 
 SPARK_RUN_LOG="${SPARK_RUN_LOG:-/tmp/demoforge-spark-runs.ndjson}"
+SPARK_SUBMIT_LOG="${SPARK_SUBMIT_LOG:-/tmp/demoforge-spark-submit-last.log}"
 
 # Logs jar presence, paths, and spark-submit identity — copy into support tickets when S3A/Iceberg CNFE persists.
 df_spark_submit_preflight() {
@@ -78,14 +79,40 @@ df_exec_raw_to_parquet_submit() {
     /opt/demoforge/jobs/raw_to_parquet.py
 }
 
+df_exec_iceberg_compaction_submit() {
+  /opt/spark/bin/spark-submit \
+    --master "${SPARK_MASTER_URL}" \
+    --deploy-mode client \
+    --conf "spark.driver.memory=512m" \
+    --conf "spark.executor.memory=512m" \
+    --conf "spark.executor.cores=1" \
+    --conf "spark.cores.max=1" \
+    --jars "${_DF_SPARK_EXTRA_JARS}" \
+    --driver-class-path "${_DF_DRIVER_CP}" \
+    --conf "spark.executor.extraClassPath=${_DF_DRIVER_CP}" \
+    /opt/demoforge/jobs/iceberg_catalog_compaction.py
+}
+
 # Dispatch to the right submit function based on JOB_MODE
 df_exec_submit() {
   local mode="${JOB_MODE:-raw_to_iceberg}"
   if [[ "$mode" == "raw_to_parquet" ]]; then
     df_exec_raw_to_parquet_submit
+  elif [[ "$mode" == "iceberg_compaction" ]]; then
+    df_exec_iceberg_compaction_submit
   else
     df_exec_raw_to_iceberg_submit
   fi
+}
+
+# Run spark-submit and capture stdout/stderr for the Runs UI.
+df_exec_submit_logged() {
+  : >"$SPARK_SUBMIT_LOG" 2>/dev/null || true
+  set +e
+  df_exec_submit 2>&1 | tee -a "$SPARK_SUBMIT_LOG"
+  local rc=${PIPESTATUS[0]}
+  set -e
+  return "$rc"
 }
 
 # Append one NDJSON record (phase, optional exit_code, status/success for UI).
@@ -129,6 +156,8 @@ if [[ "$sched" == "manual" ]]; then
   echo "    --driver-class-path \"${_DF_DRIVER_CP}\" --conf spark.executor.extraClassPath=${_DF_DRIVER_CP} \\"
   if [[ "$job_mode" == "raw_to_parquet" ]]; then
     echo "    /opt/demoforge/jobs/raw_to_parquet.py"
+  elif [[ "$job_mode" == "iceberg_compaction" ]]; then
+    echo "    /opt/demoforge/jobs/iceberg_catalog_compaction.py"
   else
     echo "    /opt/demoforge/jobs/csv_glob_to_iceberg.py"
   fi
@@ -145,7 +174,7 @@ if [[ "$sched" == "interval" ]]; then
     df_spark_submit_preflight
     df_log_spark_submit_invocation
     set +e
-    df_exec_submit
+    df_exec_submit_logged
     rc=$?
     set -e
     spark_run_log spark_submit_finished "$rc"
@@ -170,20 +199,24 @@ if [[ -n "$tpl" && "$job_mode" == "raw_to_iceberg" ]]; then
     job_mode="raw_to_iceberg"
   fi
 fi
-if [[ "$job_mode" != "raw_to_iceberg" && "$job_mode" != "raw_to_parquet" ]]; then
+if [[ "$job_mode" != "raw_to_iceberg" && "$job_mode" != "raw_to_parquet" && "$job_mode" != "iceberg_compaction" ]]; then
   echo "[spark-etl-job] Unknown JOB_MODE=$job_mode — idling."
   exec tail -f /dev/null
 fi
 
 : "${SPARK_MASTER_URL:?SPARK_MASTER_URL required}"
 
-echo "[spark-etl-job] Submitting ${job_mode} to $SPARK_MASTER_URL (RAW_INPUT_FORMAT=${RAW_INPUT_FORMAT:-csv})"
+if [[ "$job_mode" == "iceberg_compaction" ]]; then
+  echo "[spark-etl-job] Submitting iceberg_compaction to $SPARK_MASTER_URL (REST catalog maintenance)"
+else
+  echo "[spark-etl-job] Submitting ${job_mode} to $SPARK_MASTER_URL (RAW_INPUT_FORMAT=${RAW_INPUT_FORMAT:-csv})"
+fi
 
 spark_run_log spark_submit_start ""
 df_spark_submit_preflight
 df_log_spark_submit_invocation
 set +e
-df_exec_submit
+df_exec_submit_logged
 rc=$?
 set -e
 spark_run_log spark_submit_finished "$rc"

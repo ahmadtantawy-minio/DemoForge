@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SPARK_RUN_LOG_PATH = "/tmp/demoforge-spark-runs.ndjson"
+SPARK_SUBMIT_LOG_PATH = "/tmp/demoforge-spark-submit-last.log"
+
+_SPARK_JOB_SCRIPTS: dict[str, str] = {
+    "raw_to_iceberg": "csv_glob_to_iceberg.py",
+    "raw_to_parquet": "raw_to_parquet.py",
+    "iceberg_compaction": "iceberg_catalog_compaction.py",
+}
 
 def _mask_env_for_preview(env: dict[str, Any]) -> dict[str, str]:
     """Return string env suitable for UI; redact credentials."""
@@ -60,8 +67,9 @@ def _normalize_compose_environment(raw: Any) -> dict[str, str]:
     return {}
 
 
-def _spark_submit_command() -> str:
+def _spark_submit_command(job_mode: str) -> str:
     # Matches components/spark-etl-job/entrypoint.sh — --jars + extraClassPath so Hadoop FileSystem sees S3A on driver + executors.
+    script = _SPARK_JOB_SCRIPTS.get(job_mode, _SPARK_JOB_SCRIPTS["raw_to_iceberg"])
     jars_csv = ",".join(
         [
             "/opt/spark/jars/hadoop-aws-3.3.4.jar",
@@ -85,7 +93,7 @@ def _spark_submit_command() -> str:
         f'  --jars "{jars_csv}" \\\n'
         f'  --driver-class-path "{driver_cp}" \\\n'
         f"  --conf spark.executor.extraClassPath={driver_cp} \\\n"
-        "  /opt/demoforge/jobs/csv_glob_to_iceberg.py"
+        f"  /opt/demoforge/jobs/{script}"
     )
 
 
@@ -115,6 +123,8 @@ class SparkEtlJobRunRecord(BaseModel):
 class SparkEtlJobRunsResponse(BaseModel):
     runs: list[SparkEtlJobRunRecord]
     log_path: str = SPARK_RUN_LOG_PATH
+    submit_log_path: str = SPARK_SUBMIT_LOG_PATH
+    submit_log_tail: str = ""
     container_running: bool = False
     message: str = ""
     last_finished_exit_code: int | None = None
@@ -177,8 +187,14 @@ async def spark_etl_job_preview(demo_id: str, node_id: str):
     if not node or node.component != "spark-etl-job":
         raise HTTPException(404, "Not an Apache Spark job node")
 
+    cfg = node.config or {}
+    job_mode = str(cfg.get("JOB_MODE") or cfg.get("JOB_TEMPLATE") or "raw_to_iceberg").strip().lower()
+    if job_mode == "csv_glob_to_iceberg":
+        job_mode = "raw_to_iceberg"
+    script_name = _SPARK_JOB_SCRIPTS.get(job_mode, _SPARK_JOB_SCRIPTS["raw_to_iceberg"])
+
     components_dir = _resolve_components_dir()
-    script_fs = os.path.join(components_dir, "spark-etl-job", "jobs", "csv_glob_to_iceberg.py")
+    script_fs = os.path.join(components_dir, "spark-etl-job", "jobs", script_name)
     try:
         with open(script_fs, encoding="utf-8") as f:
             job_script = f.read()
@@ -211,16 +227,16 @@ async def spark_etl_job_preview(demo_id: str, node_id: str):
     raw_env = svc.get("environment")
     env_flat = _normalize_compose_environment(raw_env)
     masked = _mask_env_for_preview(env_flat)
-    cfg = node.config or {}
     job_schedule = str(env_flat.get("JOB_SCHEDULE") or cfg.get("JOB_SCHEDULE") or "on_deploy_once")
-    tpl = str(env_flat.get("JOB_TEMPLATE") or cfg.get("JOB_TEMPLATE") or "raw_to_iceberg")
+    tpl = str(env_flat.get("JOB_MODE") or env_flat.get("JOB_TEMPLATE") or cfg.get("JOB_MODE") or cfg.get("JOB_TEMPLATE") or "raw_to_iceberg")
     if tpl == "csv_glob_to_iceberg":
         tpl = "raw_to_iceberg"
 
     return SparkEtlJobPreviewResponse(
         node_id=node_id,
+        job_script_path=f"jobs/{script_name}",
         job_script=job_script,
-        spark_submit_command=_spark_submit_command(),
+        spark_submit_command=_spark_submit_command(job_mode),
         environment=masked,
         job_schedule=job_schedule,
         job_template=tpl,
@@ -247,10 +263,15 @@ async def spark_etl_job_runs(demo_id: str, node_id: str):
             message="Demo is not running or this node has no container.",
             last_finished_exit_code=None,
             last_finished_success=None,
+            submit_log_tail="",
         )
 
     container_name = running.containers[node_id].container_name
-    inner = f"test -f {SPARK_RUN_LOG_PATH} && tail -n 500 {SPARK_RUN_LOG_PATH} || true"
+    inner = (
+        f"test -f {SPARK_RUN_LOG_PATH} && tail -n 500 {SPARK_RUN_LOG_PATH} || true; "
+        f"echo '---DF_SUBMIT_LOG---'; "
+        f"test -f {SPARK_SUBMIT_LOG_PATH} && tail -n 200 {SPARK_SUBMIT_LOG_PATH} || true"
+    )
     cmd = f"sh -c {shlex.quote(inner)}"
     try:
         exit_code, stdout, stderr = await exec_in_container(container_name, cmd)
@@ -262,9 +283,17 @@ async def spark_etl_job_runs(demo_id: str, node_id: str):
             message=f"Could not read run log: {e}",
             last_finished_exit_code=None,
             last_finished_success=None,
+            submit_log_tail="",
         )
 
-    text = (stdout or "") + (stderr or "")
+    raw_out = (stdout or "") + (stderr or "")
+    submit_log_tail = ""
+    if "---DF_SUBMIT_LOG---" in raw_out:
+        ndjson_part, submit_part = raw_out.split("---DF_SUBMIT_LOG---", 1)
+        text = ndjson_part
+        submit_log_tail = submit_part.strip()[:120_000]
+    else:
+        text = raw_out
     runs: list[SparkEtlJobRunRecord] = []
     for line in text.splitlines():
         line = line.strip()
@@ -284,6 +313,7 @@ async def spark_etl_job_runs(demo_id: str, node_id: str):
             message=(stderr or stdout or "").strip()[:500],
             last_finished_exit_code=None,
             last_finished_success=None,
+            submit_log_tail=submit_log_tail,
         )
 
     window = runs[-200:]
@@ -294,4 +324,5 @@ async def spark_etl_job_runs(demo_id: str, node_id: str):
         message="",
         last_finished_exit_code=last_ec,
         last_finished_success=last_ok,
+        submit_log_tail=submit_log_tail,
     )

@@ -25,4 +25,5 @@ RUN chmod +x /opt/demoforge/entrypoint.sh && chown -R spark:spark /opt/demoforge
         /opt/spark/jars/iceberg-aws-bundle-1.5.0.jar
 
 USER spark
+ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["/opt/demoforge/entrypoint.sh"]

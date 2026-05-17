@@ -143,7 +143,10 @@ export default function AnimatedDataEdge({
     const sr = (connConfig?.spark_sink_role as string | undefined)?.toLowerCase() || "";
     const isOut =
       sr === "output" || br === "warehouse" || br === "curated" || br === "output";
-    if (jobMode === "raw_to_parquet") {
+    if (jobMode === "iceberg_compaction") {
+      const table = String(jc.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw";
+      sparkJobS3Fallback = `Compaction · ${table}`;
+    } else if (jobMode === "raw_to_parquet") {
       sparkJobS3Fallback = isOut ? `${fileLabel} → Parquet` : `${fileLabel} (input)`;
     } else {
       const table = String(jc.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw";

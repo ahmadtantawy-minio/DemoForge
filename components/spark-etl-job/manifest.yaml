@@ -5,7 +5,7 @@ icon: spark
 version: "1.0"
 image: demoforge/spark-etl-job:latest
 build_context: .
-description: "Apache Spark job client with two modes: Raw → Iceberg (CSV/JSON globs to Iceberg table via AIStor Tables REST catalog) or Raw → Parquet (CSV/JSON to Parquet files on S3). Submits to a Spark standalone master via spark-submit. Bucket names live on the job node; MinIO→job edges mark input vs output. Parquet mode does not require AIStor Tables."
+description: "Apache Spark job client: Raw → Iceberg, Raw → Parquet, or Iceberg catalog compaction (rewrite data files, expire snapshots, remove orphan files via AIStor Tables REST catalog v3). Submits to a Spark standalone master via spark-submit. Bucket names live on the job node; MinIO→job edges mark input vs output. Parquet mode does not require AIStor Tables; compaction requires Tables on the MinIO peer."
 
 resources:
   memory: 1g
@@ -35,6 +35,11 @@ environment:
   SPARK_SQL_FILES_OPEN_COST_BYTES: "16777216"
   # Key prefix inside the raw bucket for processed objects (e.g. archive/ecommerce-orders). Empty = no archive move.
   RAW_TO_ICEBERG_ARCHIVE_PREFIX: ""
+  JOB_MODE: "raw_to_iceberg"
+  COMPACTION_REWRITE_DATA_FILES: "true"
+  COMPACTION_EXPIRE_SNAPSHOTS: "true"
+  COMPACTION_REMOVE_ORPHAN_FILES: "true"
+  COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN: "5d"
 
 secrets: []
 
@@ -43,7 +48,7 @@ properties:
     label: Spark Iceberg catalog name
     type: string
     default: "iceberg"
-    description: Overrides MinIO/cluster ICEBERG_SPARK_CATALOG_NAME when set. Spark identifier spark.sql.catalog.<name> for REST Iceberg.
+    description: Optional override for Spark spark.sql.catalog.<name>. When unset, compose uses MinIO ICEBERG_SPARK_CATALOG_NAME or AISTOR_TABLES_CATALOG_NAME (SigV4 /_iceberg), same as Trino/PyIceberg peers.
   - key: RAW_TO_ICEBERG_ARCHIVE_PREFIX
     label: Archive prefix (in raw bucket)
     type: string

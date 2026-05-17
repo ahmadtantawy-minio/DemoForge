@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useDemoStore } from "../stores/demoStore";
-import { apiFetch, deleteDemo } from "../api/client";
-import { AlertTriangle, HardDrive, Upload, Plus, Trash2 } from "lucide-react";
+import { apiFetch, deleteDemo, fetchDemos, updateDemo } from "../api/client";
+import { formatUpdatedLabel } from "../lib/dateTime";
+import { toast } from "../lib/toast";
+import { AlertTriangle, HardDrive, Upload, Plus, Trash2, Pencil } from "lucide-react";
 
 interface ImageStatusItem {
   component_name: string;
@@ -15,6 +17,7 @@ interface DemoItem {
   status: string;
   node_count: number;
   description: string;
+  updated_at?: string;
 }
 
 function getGreeting(): string {
@@ -32,6 +35,8 @@ export function HomePage() {
   const [loading, setLoading] = useState(true);
   const [dockerOk, setDockerOk] = useState(true);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -60,6 +65,23 @@ export function HomePage() {
   const handleDemoClick = (id: string) => {
     setActiveDemoId(id);
     setCurrentPage("designer");
+  };
+
+  const handleRenameDemo = async (id: string) => {
+    const name = renameValue.trim();
+    if (!name) {
+      setRenamingId(null);
+      return;
+    }
+    try {
+      await updateDemo(id, { name });
+      const res = await fetchDemos();
+      setDemos(res.demos);
+      toast.success("Demo renamed");
+    } catch (err: unknown) {
+      toast.error("Rename failed", { description: err instanceof Error ? err.message : String(err) });
+    }
+    setRenamingId(null);
   };
 
   const handleDeleteDemo = async (e: React.MouseEvent, id: string, status: string) => {
@@ -136,9 +158,54 @@ export function HomePage() {
                   onClick={() => handleDemoClick(demo.id)}
                 >
                   <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${demo.status === "running" ? "bg-green-500 animate-pulse shadow-[0_0_6px_2px_rgba(34,197,94,0.5)]" : "bg-muted-foreground/30"}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-foreground truncate">{demo.name}</div>
-                    <div className="text-xs text-muted-foreground">{demo.node_count} nodes · {demo.id.slice(0, 8)}</div>
+                  <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                    {renamingId === demo.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void handleRenameDemo(demo.id);
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        onBlur={() => void handleRenameDemo(demo.id)}
+                        className="text-sm font-medium text-foreground bg-transparent border-b border-primary outline-none w-full max-w-xs"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span
+                          className="text-sm font-medium text-foreground truncate"
+                          onDoubleClick={() => {
+                            setRenamingId(demo.id);
+                            setRenameValue(demo.name);
+                          }}
+                          title="Double-click to rename"
+                        >
+                          {demo.name}
+                        </span>
+                        <button
+                          type="button"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-foreground"
+                          title="Rename"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenamingId(demo.id);
+                            setRenameValue(demo.name);
+                          }}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground">
+                      {demo.node_count} nodes · {demo.id.slice(0, 8)}
+                      {demo.updated_at && (
+                        <span className="ml-2" title={formatUpdatedLabel(demo.updated_at)}>
+                          · {formatUpdatedLabel(demo.updated_at)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded ${demo.status === "running" ? "bg-green-900/50 text-green-400" : "bg-muted text-muted-foreground"}`}>
                     {demo.status}

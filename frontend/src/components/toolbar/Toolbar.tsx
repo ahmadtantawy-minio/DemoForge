@@ -4,6 +4,7 @@ import { useDebugStore } from "../../stores/debugStore";
 import { deployDemo, stopDemo, startDemo, destroyDemo, fetchDemos, updateDemo, saveDiagram, fetchInstances, fetchTaskStatus } from "../../api/client";
 import { useDiagramStore } from "../../stores/diagramStore";
 import { toast } from "../../lib/toast";
+import { formatUpdatedLabel } from "../../lib/dateTime";
 import DeployProgress from "../deploy/DeployProgress";
 import DemoSelectorModal from "../shared/DemoSelectorModal";
 import SettingsDialog from "../settings/SettingsDialog";
@@ -367,13 +368,20 @@ export default function Toolbar() {
                 className="text-sm font-medium text-foreground bg-transparent border-b border-primary outline-none w-32 px-0"
               />
             ) : (
-              <span
-                className="text-sm font-medium text-foreground cursor-pointer hover:underline"
-                onDoubleClick={() => { setRenaming(true); setRenameName(activeDemo.name); }}
-                title="Double-click to rename"
-              >
-                {activeDemo.name}
-              </span>
+              <div className="flex flex-col min-w-0">
+                <span
+                  className="text-sm font-medium text-foreground cursor-pointer hover:underline truncate"
+                  onDoubleClick={() => { setRenaming(true); setRenameName(activeDemo.name); }}
+                  title="Double-click to rename"
+                >
+                  {activeDemo.name}
+                </span>
+                {activeDemo.updated_at && (
+                  <span className="text-[10px] text-muted-foreground truncate" title={formatUpdatedLabel(activeDemo.updated_at)}>
+                    {formatUpdatedLabel(activeDemo.updated_at)}
+                  </span>
+                )}
+              </div>
             )}
             <span className={`inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded ${
               activeDemo.status === "running"
