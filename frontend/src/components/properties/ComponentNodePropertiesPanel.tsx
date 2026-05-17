@@ -471,6 +471,26 @@ export function ComponentNodePropertiesPanel({
                   </Select>
                 </div>
               ))}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Min data files to rewrite</label>
+                  <Input
+                    value={data.config?.COMPACTION_MIN_INPUT_FILES ?? "4"}
+                    placeholder="4"
+                    onChange={(e) => updateConfig("COMPACTION_MIN_INPUT_FILES", e.target.value)}
+                    className="h-8 text-sm font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Retain snapshots (max)</label>
+                  <Input
+                    value={data.config?.COMPACTION_RETAIN_SNAPSHOTS ?? "5"}
+                    placeholder="5"
+                    onChange={(e) => updateConfig("COMPACTION_RETAIN_SNAPSHOTS", e.target.value)}
+                    className="h-8 text-sm font-mono"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Expire snapshots older than</label>
                 <Input
@@ -479,7 +499,9 @@ export function ComponentNodePropertiesPanel({
                   onChange={(e) => updateConfig("COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN", e.target.value)}
                   className="h-8 text-sm font-mono"
                 />
-                <p className="text-[10px] text-muted-foreground mt-0.5">e.g. 5d, 24h</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Age cutoff (e.g. 5d, 1h). When snapshot count exceeds retain max, older snapshots expire regardless of age.
+                </p>
               </div>
             </div>
           )}
@@ -517,6 +539,26 @@ export function ComponentNodePropertiesPanel({
                   className="h-8 text-sm font-mono"
                 />
               </div>
+              {!isCompactionMode && sparkJobMode === "raw_to_iceberg" && (
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Iceberg write mode</label>
+                  <Select
+                    value={(data.config?.ICEBERG_WRITE_MODE || "append").toLowerCase() === "replace" ? "replace" : "append"}
+                    onValueChange={(v) => updateConfig("ICEBERG_WRITE_MODE", v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="append">Append (cumulative)</SelectItem>
+                      <SelectItem value="replace">Replace table each run</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                    First run creates the table if it is missing; later runs append. Use an archive prefix so interval jobs do not re-read the same raw files.
+                  </p>
+                </div>
+              )}
               {!isCompactionMode && (
                 <>
                   <p className="text-[10px] text-muted-foreground font-mono break-all">

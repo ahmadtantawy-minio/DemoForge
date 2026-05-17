@@ -22,6 +22,7 @@ environment:
   ICEBERG_WAREHOUSE: "warehouse"
   ICEBERG_TARGET_NAMESPACE: "analytics"
   ICEBERG_TARGET_TABLE: "events_from_raw"
+  ICEBERG_WRITE_MODE: "append"
   RAW_INPUT_FORMAT: "csv"
   JSON_MULTILINE: "false"
   RAW_LANDING_BUCKET: "raw-logs"
@@ -40,6 +41,8 @@ environment:
   COMPACTION_EXPIRE_SNAPSHOTS: "true"
   COMPACTION_REMOVE_ORPHAN_FILES: "true"
   COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN: "5d"
+  COMPACTION_MIN_INPUT_FILES: "4"
+  COMPACTION_RETAIN_SNAPSHOTS: "5"
 
 secrets: []
 
@@ -54,6 +57,11 @@ properties:
     type: string
     default: ""
     description: After a successful load, move each processed object under this key prefix in the same bucket (e.g. archive/ecommerce-orders). Leave empty to disable. Uses basename only; empty = no archive.
+  - key: ICEBERG_WRITE_MODE
+    label: Iceberg write mode
+    type: string
+    default: "append"
+    description: "append — create the table on the first run if missing, then append. replace — createOrReplace the full table each run."
 
 connections:
   provides: []

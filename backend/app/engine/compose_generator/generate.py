@@ -373,6 +373,12 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         else:
             env["ICEBERG_TARGET_NAMESPACE"] = _ns or "analytics"
             env["ICEBERG_TARGET_TABLE"] = _tbl or "events_from_raw"
+    if job_mode == "raw_to_iceberg":
+        write_mode = str(cfg.get("ICEBERG_WRITE_MODE", "append") or "append").strip().lower()
+        if write_mode in ("replace", "overwrite", "create_or_replace", "createorreplace"):
+            env["ICEBERG_WRITE_MODE"] = "replace"
+        else:
+            env["ICEBERG_WRITE_MODE"] = "append"
     if is_compaction_mode:
         def _compaction_bool(key: str, default: str = "true") -> str:
             raw = str(cfg.get(key, default)).strip().lower()
@@ -391,7 +397,11 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
         )
         env.setdefault(
             "COMPACTION_MIN_INPUT_FILES",
-            str(cfg.get("COMPACTION_MIN_INPUT_FILES", "5")).strip() or "5",
+            str(cfg.get("COMPACTION_MIN_INPUT_FILES", "4")).strip() or "4",
+        )
+        env.setdefault(
+            "COMPACTION_RETAIN_SNAPSHOTS",
+            str(cfg.get("COMPACTION_RETAIN_SNAPSHOTS", "5")).strip() or "5",
         )
     fmt = (cfg.get("RAW_INPUT_FORMAT") or cfg.get("INPUT_FORMAT") or "csv").strip().lower()
     if fmt not in ("csv", "json"):

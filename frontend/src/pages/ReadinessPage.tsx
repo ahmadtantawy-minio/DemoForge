@@ -12,6 +12,7 @@ import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { RefreshCw, Search, CheckCircle2, XCircle, ShieldCheck } from "lucide-react";
 import { cn } from "../lib/utils";
+import { EdgeInventoryTab } from "../components/readiness/EdgeInventoryTab";
 
 type FilterType = "all" | "ready" | "not_ready";
 
@@ -118,7 +119,7 @@ export function ReadinessPage() {
   if (loading) {
     return (
       <div data-testid="readiness-page" className="h-full overflow-auto bg-background">
-        <div className="max-w-5xl mx-auto px-8 py-8">
+        <div className="max-w-7xl mx-auto px-8 py-8">
           <div className="flex items-center justify-between mb-6">
             <div className="h-8 w-48 bg-muted rounded animate-pulse" />
             <div className="h-9 w-24 bg-muted rounded animate-pulse" />
@@ -137,7 +138,7 @@ export function ReadinessPage() {
   if (error) {
     return (
       <div data-testid="readiness-page" className="h-full overflow-auto bg-background">
-        <div className="max-w-5xl mx-auto px-8 py-8">
+        <div className="max-w-7xl mx-auto px-8 py-8">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-card-foreground">Readiness</h1>
           </div>
@@ -158,7 +159,7 @@ export function ReadinessPage() {
 
   return (
     <div data-testid="readiness-page" className="h-full overflow-auto bg-background">
-      <div className="max-w-5xl mx-auto px-8 py-8">
+      <div className="max-w-7xl mx-auto px-8 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -177,6 +178,7 @@ export function ReadinessPage() {
           <TabsList>
             <TabsTrigger value="components">Components</TabsTrigger>
             <TabsTrigger value="templates">Templates</TabsTrigger>
+            <TabsTrigger value="edges">Edge inventory</TabsTrigger>
           </TabsList>
 
           {/* Components Tab */}
@@ -399,6 +401,10 @@ export function ReadinessPage() {
                 </div>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="edges">
+            <EdgeInventoryTab />
           </TabsContent>
         </Tabs>
       </div>

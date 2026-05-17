@@ -1,5 +1,7 @@
 """
-PySpark driver: read CSV or JSON from S3A (MinIO) and create/replace an Iceberg table via REST catalog.
+PySpark driver: read CSV or JSON from S3A (MinIO) and write an Iceberg table via REST catalog.
+
+Default write mode is append (cumulative rows across runs). Set ICEBERG_WRITE_MODE=replace for createOrReplace.
 
 Environment (injected by DemoForge compose):
   SPARK_MASTER_URL, INPUT_S3A_URI, ICEBERG_REST_URI, ICEBERG_WAREHOUSE,
@@ -8,6 +10,7 @@ Environment (injected by DemoForge compose):
   S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT,
   RAW_LANDING_BUCKET, WAREHOUSE_BUCKET, INPUT_OBJECT_PREFIX (for log context)
   ICEBERG_SPARK_CATALOG_NAME — Spark catalog name for REST Iceberg (default iceberg; from MinIO/cluster or job override).
+  ICEBERG_WRITE_MODE — append (default) or replace (createOrReplace each run).
   RAW_TO_ICEBERG_ARCHIVE_PREFIX — key prefix in the same raw bucket to move processed objects after success (empty = off).
   RAW_TO_ICEBERG_VERBOSE_DIAG — set true/1/yes to print every java.class.path entry that mentions hadoop-aws / iceberg / aws-sdk.
   RAW_INPUT_GLOB_RECURSIVE — set true/1/yes to list/read CSV/JSON under subdirectories (pathGlobFilter + recursive listing).
@@ -90,8 +93,104 @@ def _spark_file_scan_conf_from_env() -> dict[str, str]:
     }
 
 
+def _resolve_iceberg_write_mode() -> str:
+    raw = (os.environ.get("ICEBERG_WRITE_MODE") or "append").strip().lower()
+    if raw in ("replace", "overwrite", "create_or_replace", "createorreplace"):
+        return "replace"
+    return "append"
+
+
+def _is_missing_table_error(exc: BaseException) -> bool:
+    """True when Spark/Iceberg reports the target table is not in the catalog."""
+    msg = f"{type(exc).__name__}: {exc}".lower()
+    needles = (
+        "not found",
+        "nosuchtable",
+        "no such table",
+        "does not exist",
+        "unknown table",
+        "table_or_view_not_found",
+        "cannot find",
+    )
+    return any(n in msg for n in needles)
+
+
+def _iceberg_table_exists(spark: SparkSession, catalog: str, ns: str, table: str) -> bool:
+    """Best-effort check against REST catalog before append (first run uses create only)."""
+    fq = f"{catalog}.{ns}.{table}"
+    try:
+        if spark.catalog.tableExists(fq):
+            return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"[raw_to_iceberg] DIAG tableExists({fq!r}) failed: {exc!r}", flush=True)
+
+    qualified = f"`{catalog}`.`{ns}`.`{table}`"
+    try:
+        spark.sql(f"DESCRIBE TABLE {qualified}").limit(1).collect()
+        return True
+    except Exception as exc:  # noqa: BLE001
+        if _is_missing_table_error(exc):
+            return False
+        print(f"[raw_to_iceberg] DIAG DESCRIBE TABLE {qualified} failed: {exc!r}", flush=True)
+
+    try:
+        spark.table(fq).schema
+        return True
+    except Exception as exc:  # noqa: BLE001
+        if _is_missing_table_error(exc):
+            return False
+        print(f"[raw_to_iceberg] DIAG spark.table({fq!r}) failed: {exc!r}", flush=True)
+    return False
+
+
+def _write_iceberg_table(
+    spark: SparkSession,
+    df,
+    *,
+    catalog: str,
+    ns: str,
+    table: str,
+) -> str:
+    """Commit DataFrame to Iceberg. Append mode: create on first run only, then append."""
+    fq = f"{catalog}.{ns}.{table}"
+    mode = _resolve_iceberg_write_mode()
+    writer = df.writeTo(fq).using("iceberg")
+
+    if mode == "replace":
+        print("[raw_to_iceberg] Iceberg write mode=replace (createOrReplace)", flush=True)
+        writer.createOrReplace()
+        return "createOrReplace"
+
+    exists = _iceberg_table_exists(spark, catalog, ns, table)
+    if not exists:
+        print(
+            f"[raw_to_iceberg] Iceberg write mode=append → create (first run; "
+            f"{catalog}.{ns}.{table} not in catalog)",
+            flush=True,
+        )
+        writer.create()
+        return "create"
+
+    print(
+        f"[raw_to_iceberg] Iceberg write mode=append → append ({catalog}.{ns}.{table} exists)",
+        flush=True,
+    )
+    try:
+        writer.append()
+        return "append"
+    except Exception as exc:
+        if not _is_missing_table_error(exc):
+            raise
+        print(
+            f"[raw_to_iceberg] append failed with missing-table error; creating table: {exc!r}",
+            flush=True,
+        )
+        writer.create()
+        return "create"
+
+
 def _ensure_iceberg_namespace(spark: SparkSession, catalog: str, ns: str) -> None:
-    """AIStor / REST catalogs require the namespace to exist before CTAS or DataFrameWriter createOrReplace."""
+    """AIStor / REST catalogs require the namespace to exist before create/append/replace."""
     try:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{catalog}`.`{ns}`")
         print(f"[raw_to_iceberg] CREATE NAMESPACE IF NOT EXISTS {catalog}.{ns} (ok)", flush=True)
@@ -566,6 +665,7 @@ def _main_impl(job_t0: float) -> None:
         f"RAW_INPUT_FORMAT={raw_fmt} JSON_MULTILINE={json_multiline} "
         f"ICEBERG_SPARK_CATALOG_NAME={catalog_name_preview!r} "
         f"ICEBERG_TARGET={ns}.{table} ICEBERG_WAREHOUSE={warehouse!r} "
+        f"ICEBERG_WRITE_MODE={_resolve_iceberg_write_mode()!r} "
         f"RAW_TO_ICEBERG_ARCHIVE_PREFIX={archive_prefix or '(off)'}",
         flush=True,
     )
@@ -690,12 +790,17 @@ def _main_impl(job_t0: float) -> None:
         print(f"[raw_to_iceberg] Writing Iceberg table {fq} (catalog warehouse={warehouse!r})", flush=True)
         _align_pyspark_thread_context_classloader(spark)
         _ensure_iceberg_namespace(spark, catalog, ns)
-        with _progress_heartbeat("Iceberg createOrReplace (commit may take minutes)"):
-            spark.sparkContext.setJobDescription("DemoForge: Iceberg createOrReplace")
+        write_label = f"Iceberg {_resolve_iceberg_write_mode()} (commit may take minutes)"
+        with _progress_heartbeat(write_label):
+            spark.sparkContext.setJobDescription(f"DemoForge: Iceberg write ({_resolve_iceberg_write_mode()})")
             t1 = time.perf_counter()
-            df.writeTo(fq).using("iceberg").createOrReplace()
+            write_action = _write_iceberg_table(spark, df, catalog=catalog, ns=ns, table=table)
             spark.sparkContext.setJobDescription(None)
-            print(f"[raw_to_iceberg] Write phase finished in {time.perf_counter() - t1:.1f}s", flush=True)
+            print(
+                f"[raw_to_iceberg] Write phase finished in {time.perf_counter() - t1:.1f}s "
+                f"(action={write_action})",
+                flush=True,
+            )
         _log_spark_executor_snapshot(spark, "after write")
         rows_part = f"rows={nrow}" if nrow >= 0 else "rows=(count failed)"
         print(
@@ -712,7 +817,7 @@ def _main_impl(job_t0: float) -> None:
                 flush=True,
             )
     print(
-        f"[raw_to_iceberg] Done (createOrReplace complete). Total wall time {time.perf_counter() - job_t0:.1f}s",
+        f"[raw_to_iceberg] Done (Iceberg write complete). Total wall time {time.perf_counter() - job_t0:.1f}s",
         flush=True,
     )
     spark.stop()

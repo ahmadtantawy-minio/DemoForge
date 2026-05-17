@@ -134,6 +134,28 @@ def test_catalog_inferred_from_aistor_tables_catalog_name() -> None:
     assert env["ICEBERG_CATALOG_NAME"] == "datalake"
 
 
+def test_raw_to_iceberg_defaults_append_write_mode() -> None:
+    demo, job = _spark_minio_job_demo(
+        job_mode="raw_to_iceberg",
+        job_config={"RAW_LANDING_BUCKET": "raw"},
+        edge_role="input",
+    )
+    env: dict[str, str] = {}
+    _inject_spark_etl_job_env(demo, job, env, "demoforge-d1")
+    assert env["ICEBERG_WRITE_MODE"] == "append"
+
+
+def test_raw_to_iceberg_replace_write_mode_from_config() -> None:
+    demo, job = _spark_minio_job_demo(
+        job_mode="raw_to_iceberg",
+        job_config={"ICEBERG_WRITE_MODE": "replace", "RAW_LANDING_BUCKET": "raw"},
+        edge_role="input",
+    )
+    env: dict[str, str] = {}
+    _inject_spark_etl_job_env(demo, job, env, "demoforge-d1")
+    assert env["ICEBERG_WRITE_MODE"] == "replace"
+
+
 def test_job_override_wins_over_minio_aistor_catalog() -> None:
     demo, job = _spark_minio_job_demo(
         job_config={

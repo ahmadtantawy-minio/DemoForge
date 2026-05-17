@@ -21,7 +21,14 @@ from dataclasses import dataclass
 
 from pyspark.sql import SparkSession
 
-from iceberg_compaction_util import TableRef, filter_tables, parse_scope_filters
+from iceberg_compaction_util import (
+    TableRef,
+    filter_tables,
+    format_maintenance_skip_reason,
+    parse_scope_filters,
+    should_expire_snapshots,
+    should_rewrite_data_files,
+)
 
 _LOG = "[iceberg_compaction]"
 
@@ -31,8 +38,11 @@ class TableMaintenancePlan:
     rewrite: bool
     expire: bool
     orphans: bool
+    expire_by_snapshot_count: bool = False
     data_file_count: int = -1
     expirable_snapshot_count: int = -1
+    total_snapshot_count: int = -1
+    retain_last: int = 5
 
 
 def _truthy(key: str, default: str = "true") -> bool:
@@ -90,6 +100,10 @@ def _optional_scope_filters() -> tuple[str | None, str | None]:
         os.environ.get("COMPACTION_NAMESPACE_FILTER", ""),
         os.environ.get("COMPACTION_TABLE_FILTER", ""),
     )
+
+
+def _now_timestamp_literal() -> str:
+    return time.strftime("TIMESTAMP '%Y-%m-%d %H:%M:%S.000'", time.gmtime())
 
 
 def _expire_snapshots_timestamp_literal() -> str:
@@ -243,6 +257,15 @@ def _count_data_files(spark: SparkSession, catalog: str, table: TableRef) -> int
         return None
 
 
+def _count_snapshots(spark: SparkSession, catalog: str, table: TableRef) -> int | None:
+    fq = f"`{catalog}`.`{table.namespace}`.`{table.name}`"
+    try:
+        row = spark.sql(f"SELECT COUNT(*) AS c FROM {fq}.snapshots").collect()[0]
+        return int(row.c)
+    except Exception:
+        return None
+
+
 def _count_expirable_snapshots(
     spark: SparkSession, catalog: str, table: TableRef, older_than_literal: str
 ) -> int | None:
@@ -275,23 +298,28 @@ def plan_table_maintenance(
     do_orphans: bool,
     min_input_files: int,
     older_than_literal: str,
+    retain_last: int,
 ) -> TableMaintenancePlan:
     data_files = _count_data_files(spark, catalog, table)
-    expirable = _count_expirable_snapshots(spark, catalog, table, older_than_literal) if do_expire else 0
+    total_snapshots = _count_snapshots(spark, catalog, table) if do_expire else None
+    expirable = (
+        _count_expirable_snapshots(spark, catalog, table, older_than_literal) if do_expire else 0
+    )
 
-    needs_rewrite = False
-    if do_rewrite:
-        if data_files is not None:
-            needs_rewrite = data_files >= min_input_files
-        else:
-            needs_rewrite = _table_is_readable(spark, catalog, table)
+    readable = _table_is_readable(spark, catalog, table)
+    needs_rewrite = do_rewrite and should_rewrite_data_files(
+        data_files, min_input_files, table_readable=readable
+    )
 
     needs_expire = False
+    expire_by_count = False
     if do_expire:
-        if expirable is not None:
-            needs_expire = expirable > 0
-        else:
-            needs_expire = _table_is_readable(spark, catalog, table)
+        needs_expire, expire_by_count = should_expire_snapshots(
+            expirable, total_snapshots, retain_last=retain_last
+        )
+        if not needs_expire and expirable is None and total_snapshots is None and readable:
+            needs_expire = True
+            expire_by_count = False
 
     needs_orphans = do_orphans and (needs_rewrite or needs_expire)
 
@@ -299,8 +327,52 @@ def plan_table_maintenance(
         rewrite=needs_rewrite,
         expire=needs_expire,
         orphans=needs_orphans,
+        expire_by_snapshot_count=expire_by_count,
         data_file_count=data_files if data_files is not None else -1,
         expirable_snapshot_count=expirable if expirable is not None else -1,
+        total_snapshot_count=total_snapshots if total_snapshots is not None else -1,
+        retain_last=retain_last,
+    )
+
+
+def _log_table_plan(
+    table: TableRef,
+    plan: TableMaintenancePlan,
+    *,
+    min_input_files: int,
+    expire_older_than: str,
+    do_rewrite: bool,
+    do_expire: bool,
+) -> None:
+    ref = table.dotted
+    if plan.rewrite or plan.expire or plan.orphans:
+        print(
+            f"{_LOG} PLAN {ref} MAINTAIN rewrite={plan.rewrite} expire={plan.expire} "
+            f"orphans={plan.orphans} expire_by_count={plan.expire_by_snapshot_count} "
+            f"data_files={plan.data_file_count} expirable_snapshots={plan.expirable_snapshot_count} "
+            f"total_snapshots={plan.total_snapshot_count} min_input_files={min_input_files} "
+            f"retain_last={plan.retain_last} expire_older_than={expire_older_than!r}",
+            flush=True,
+        )
+        return
+    reason = format_maintenance_skip_reason(
+        do_rewrite=do_rewrite,
+        do_expire=do_expire,
+        rewrite=plan.rewrite,
+        expire=plan.expire,
+        orphans=plan.orphans,
+        data_files=plan.data_file_count,
+        expirable_snapshots=plan.expirable_snapshot_count,
+        total_snapshots=plan.total_snapshot_count,
+        min_input_files=min_input_files,
+        retain_last=plan.retain_last,
+        expire_older_than=expire_older_than,
+    )
+    print(
+        f"{_LOG} PLAN {ref} SKIP data_files={plan.data_file_count} "
+        f"expirable_snapshots={plan.expirable_snapshot_count} "
+        f"total_snapshots={plan.total_snapshot_count} — {reason}",
+        flush=True,
     )
 
 
@@ -326,19 +398,7 @@ def _compact_table(
 ) -> None:
     ref = table.dotted
     if not plan.rewrite and not plan.expire and not plan.orphans:
-        print(
-            f"{_LOG} SKIP {ref} (data_files={plan.data_file_count} "
-            f"expirable_snapshots={plan.expirable_snapshot_count})",
-            flush=True,
-        )
         return
-
-    print(
-        f"{_LOG} MAINTAIN {ref} rewrite={plan.rewrite} expire={plan.expire} "
-        f"orphans={plan.orphans} data_files={plan.data_file_count} "
-        f"expirable_snapshots={plan.expirable_snapshot_count}",
-        flush=True,
-    )
 
     if plan.rewrite:
         _call_procedure(
@@ -353,10 +413,20 @@ def _compact_table(
         )
 
     if plan.expire:
-        _call_procedure(
-            spark,
-            f"CALL system.expire_snapshots(table => '{ref}', older_than => {older_than_literal})",
-        )
+        if plan.expire_by_snapshot_count:
+            _call_procedure(
+                spark,
+                "CALL system.expire_snapshots("
+                f"table => '{ref}', "
+                f"older_than => {_now_timestamp_literal()}, "
+                f"retain_last => {plan.retain_last}"
+                ")",
+            )
+        else:
+            _call_procedure(
+                spark,
+                f"CALL system.expire_snapshots(table => '{ref}', older_than => {older_than_literal})",
+            )
 
     if plan.orphans:
         _call_procedure(spark, f"CALL system.remove_orphan_files(table => '{ref}')")
@@ -376,7 +446,8 @@ def main() -> None:
 
 def _main_impl(job_t0: float) -> None:
     target_bytes = (os.environ.get("COMPACTION_TARGET_FILE_SIZE_BYTES") or "134217728").strip()
-    min_input = int((os.environ.get("COMPACTION_MIN_INPUT_FILES") or "5").strip() or "5")
+    min_input = int((os.environ.get("COMPACTION_MIN_INPUT_FILES") or "4").strip() or "4")
+    retain_last = int((os.environ.get("COMPACTION_RETAIN_SNAPSHOTS") or "5").strip() or "5")
 
     do_rewrite = _truthy("COMPACTION_REWRITE_DATA_FILES", "true")
     do_expire = _truthy("COMPACTION_EXPIRE_SNAPSHOTS", "true")
@@ -388,6 +459,7 @@ def _main_impl(job_t0: float) -> None:
     print(
         f"{_LOG} Catalog scan mode: rewrite={do_rewrite} expire={do_expire} "
         f"remove_orphans={do_orphans} min_input_files={min_input} "
+        f"retain_snapshots={retain_last} "
         f"namespace_filter={ns_filter!r} table_filter={tbl_filter!r}",
         flush=True,
     )
@@ -430,6 +502,15 @@ def _main_impl(job_t0: float) -> None:
                 do_orphans=do_orphans,
                 min_input_files=min_input,
                 older_than_literal=older_than,
+                retain_last=retain_last,
+            )
+            _log_table_plan(
+                table,
+                plan,
+                min_input_files=min_input,
+                expire_older_than=(os.environ.get("COMPACTION_EXPIRE_SNAPSHOTS_OLDER_THAN") or "5d").strip(),
+                do_rewrite=do_rewrite,
+                do_expire=do_expire,
             )
             if not plan.rewrite and not plan.expire and not plan.orphans:
                 skipped += 1
