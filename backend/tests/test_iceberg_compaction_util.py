@@ -10,6 +10,7 @@ sys.path.insert(0, str(JOBS_DIR))
 
 from iceberg_compaction_util import (  # noqa: E402
     TableRef,
+    coalesce_data_file_count,
     filter_tables,
     parse_scope_filters,
     should_expire_snapshots,
@@ -33,6 +34,12 @@ def test_filter_tables_namespace_and_table() -> None:
 def test_parse_scope_filters_empty_means_scan_all() -> None:
     assert parse_scope_filters("", "") == (None, None)
     assert parse_scope_filters("ecom", "orders") == ("ecom", "orders")
+
+
+def test_coalesce_data_file_count_prefers_summary_when_metadata_empty() -> None:
+    assert coalesce_data_file_count(0, 15) == 15
+    assert coalesce_data_file_count(4, 15) == 4
+    assert coalesce_data_file_count(None, 11) == 11
 
 
 def test_should_rewrite_respects_min_input_files() -> None:

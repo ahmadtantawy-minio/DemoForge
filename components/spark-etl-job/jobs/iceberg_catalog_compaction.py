@@ -23,6 +23,7 @@ from pyspark.sql import SparkSession
 
 from iceberg_compaction_util import (
     TableRef,
+    coalesce_data_file_count,
     filter_tables,
     format_maintenance_skip_reason,
     parse_scope_filters,
@@ -241,20 +242,61 @@ def discover_iceberg_tables(spark: SparkSession, catalog: str) -> list[TableRef]
     return sorted(found, key=lambda t: (t.namespace, t.name))
 
 
+def _qualified_table(catalog: str, table: TableRef) -> str:
+    return f"`{catalog}`.`{table.namespace}`.`{table.name}`"
+
+
+def _count_data_files_metadata_table(spark: SparkSession, catalog: str, table: TableRef) -> int | None:
+    fq = _qualified_table(catalog, table)
+    queries = (
+        f"SELECT COUNT(*) AS c FROM {fq}.files "
+        f"WHERE CAST(content AS STRING) IN ('0', 'DATA', 'data')",
+        f"SELECT COUNT(*) AS c FROM {fq}.files WHERE content = 'DATA'",
+        f"SELECT COUNT(*) AS c FROM {fq}.files",
+    )
+    for sql in queries:
+        try:
+            row = spark.sql(sql).collect()[0]
+            return int(row.c)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{_LOG} DIAG data file count query failed ({sql[:72]}…): {exc!r}", flush=True)
+    return None
+
+
+def _count_data_files_from_snapshot_summary(
+    spark: SparkSession, catalog: str, table: TableRef
+) -> int | None:
+    """Same signal as Iceberg browser snapshot compare (summary total-data-files on current snapshot)."""
+    fq = _qualified_table(catalog, table)
+    for key in ("total-data-files", "total_data_files"):
+        try:
+            row = spark.sql(
+                f"""
+                SELECT CAST(summary['{key}'] AS BIGINT) AS c
+                FROM {fq}.snapshots
+                WHERE summary['{key}'] IS NOT NULL
+                ORDER BY committed_at DESC
+                LIMIT 1
+                """
+            ).collect()[0]
+            if row.c is not None:
+                return int(row.c)
+        except Exception as exc:  # noqa: BLE001
+            print(f"{_LOG} DIAG snapshot summary[{key!r}]: {exc!r}", flush=True)
+    return None
+
+
 def _count_data_files(spark: SparkSession, catalog: str, table: TableRef) -> int | None:
-    fq = f"`{catalog}`.`{table.namespace}`.`{table.name}`"
-    try:
-        row = spark.sql(
-            f"SELECT COUNT(*) AS c FROM {fq}.files WHERE content = 'DATA'"
-        ).collect()[0]
-        return int(row.c)
-    except Exception:
-        pass
-    try:
-        row = spark.sql(f"SELECT COUNT(*) AS c FROM {fq}.files").collect()[0]
-        return int(row.c)
-    except Exception:
-        return None
+    meta_count = _count_data_files_metadata_table(spark, catalog, table)
+    summary_count = _count_data_files_from_snapshot_summary(spark, catalog, table)
+    resolved = coalesce_data_file_count(meta_count, summary_count)
+    if meta_count == 0 and summary_count and summary_count > 0:
+        print(
+            f"{_LOG} DIAG Spark .files metadata returned 0 rows; "
+            f"using latest snapshot summary total-data-files={summary_count}",
+            flush=True,
+        )
+    return resolved
 
 
 def _count_snapshots(spark: SparkSession, catalog: str, table: TableRef) -> int | None:

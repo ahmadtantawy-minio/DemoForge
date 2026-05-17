@@ -39,6 +39,18 @@ def parse_scope_filters(
     return ns, tbl
 
 
+def coalesce_data_file_count(
+    metadata_files_count: int | None,
+    snapshot_summary_count: int | None,
+) -> int | None:
+    """REST catalogs may return an empty Spark `.files` table; snapshot summary matches the Iceberg browser UI."""
+    if metadata_files_count is not None and metadata_files_count > 0:
+        return metadata_files_count
+    if snapshot_summary_count is not None and snapshot_summary_count >= 0:
+        return snapshot_summary_count
+    return metadata_files_count if metadata_files_count is not None else snapshot_summary_count
+
+
 def should_rewrite_data_files(
     data_files: int | None,
     min_input_files: int,
