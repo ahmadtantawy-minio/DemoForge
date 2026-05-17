@@ -10,6 +10,15 @@ import {
   sanitizeClusterEdgeHandlesForReactFlow,
 } from "../lib/clusterConnectionAnchors";
 import { findInvalidDiagramEdges } from "../lib/diagramEdgeIssues";
+import {
+  ICEBERG_BROWSER_ID,
+  SPARK_ETL_JOB_ID,
+  inferIcebergBrowserMinioConnectionType,
+  inferSparkEtlMinioConnectionType,
+  isMinioDiagramPeer,
+  minioPeerHasAistorTables,
+  sparkJobUsesAistorTables,
+} from "../lib/minioIcebergPeer";
 
 export interface DirectedOption {
   type: string;
@@ -388,35 +397,90 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       return;
     }
 
-    // MinIO / MinIO cluster ↔ Apache Spark Job (Raw → Iceberg requires AIStor Tables on the MinIO side)
-    const isMinioPeerNode = (n: (typeof state.nodes)[0] | undefined) =>
-      !!n && (n.type === "cluster" || (n.data as any)?.componentId === "minio");
-    const minioPeerHasTables = (n: (typeof state.nodes)[0] | undefined) =>
-      (n?.data as any)?.aistorTablesEnabled === true;
-    const sparkJobId = "spark-etl-job";
-    const towardSparkJob =
-      targetComponentId === sparkJobId && isMinioPeerNode(sourceNode);
-    const fromSparkJob =
-      sourceComponentId === sparkJobId && isMinioPeerNode(targetNode);
-    if (towardSparkJob || fromSparkJob) {
-      const minioSide = towardSparkJob ? sourceNode : targetNode;
-      if (!minioPeerHasTables(minioSide)) {
-        toast.warning("Enable AIStor Tables on this MinIO node or cluster to connect the Apache Spark job", {
-          description: "Raw → Iceberg is only wired when AIStor Tables is enabled in MinIO or cluster properties.",
+    // MinIO cluster / node ↔ Iceberg Browser — AIStor Tables only (no S3 vs Iceberg picker)
+    const towardIcebergBrowser =
+      targetComponentId === ICEBERG_BROWSER_ID && isMinioDiagramPeer(sourceNode);
+    const fromIcebergBrowser =
+      sourceComponentId === ICEBERG_BROWSER_ID && isMinioDiagramPeer(targetNode);
+    if (towardIcebergBrowser || fromIcebergBrowser) {
+      const minioSide = towardIcebergBrowser ? sourceNode : targetNode;
+      const browserNode = towardIcebergBrowser ? targetNode : sourceNode;
+      const connType = inferIcebergBrowserMinioConnectionType(minioSide);
+      if (!connType) {
+        toast.warning("Enable AIStor Tables on this MinIO node or cluster to connect the Iceberg browser", {
+          description: "Toggle 'Enable AIStor Tables' in the cluster or MinIO properties panel first.",
         });
         return;
       }
+      const oriented =
+        towardIcebergBrowser
+          ? connection
+          : {
+              ...connection,
+              source: connection.target,
+              target: connection.source,
+              sourceHandle: connection.targetHandle,
+              targetHandle: connection.sourceHandle,
+            };
       set({
-        pendingConnection: {
-          connection,
-          validTypes: ["s3", "aistor-tables"],
-          directedOptions: [
-            { type: "s3", direction: "forward", label: "S3 (raw + warehouse buckets)" },
-            { type: "aistor-tables", direction: "forward", label: "AIStor Tables (Iceberg catalog path)" },
-          ],
-          sourcePos: sourceNode.position,
-          targetPos: targetNode.position,
-        },
+        edges: addEdge(
+          {
+            ...oriented,
+            type: "animated",
+            data: {
+              connectionType: connType,
+              network: "default",
+              label: defaultEdgeLabelForTarget(browserNode.id, state.nodes),
+              status: "idle",
+            },
+          },
+          state.edges,
+        ),
+      });
+      return;
+    }
+
+    // MinIO cluster / node ↔ Spark ETL — type from JOB_MODE (no picker)
+    const towardSparkJob =
+      targetComponentId === SPARK_ETL_JOB_ID && isMinioDiagramPeer(sourceNode);
+    const fromSparkJob =
+      sourceComponentId === SPARK_ETL_JOB_ID && isMinioDiagramPeer(targetNode);
+    if (towardSparkJob || fromSparkJob) {
+      const minioSide = towardSparkJob ? sourceNode : targetNode;
+      const sparkNode = towardSparkJob ? targetNode : sourceNode;
+      const connType = inferSparkEtlMinioConnectionType(minioSide, sparkNode);
+      if (!connType) {
+        if (sparkJobUsesAistorTables(sparkNode) && !minioPeerHasAistorTables(minioSide)) {
+          toast.warning("Enable AIStor Tables on this MinIO node or cluster to connect the Apache Spark job", {
+            description: "Iceberg jobs need AIStor Tables enabled on the linked MinIO cluster or node.",
+          });
+        }
+        return;
+      }
+      const oriented =
+        towardSparkJob
+          ? connection
+          : {
+              ...connection,
+              source: connection.target,
+              target: connection.source,
+              sourceHandle: connection.targetHandle,
+              targetHandle: connection.sourceHandle,
+            };
+      set({
+        edges: addEdge(
+          {
+            ...oriented,
+            type: "animated",
+            data: {
+              connectionType: connType,
+              network: "default",
+              label: defaultEdgeLabelForTarget(sparkNode.id, state.nodes),
+              status: "idle",
+            },
+          },
+          state.edges,
+        ),
       });
       return;
     }

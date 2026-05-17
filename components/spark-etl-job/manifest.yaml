@@ -5,7 +5,7 @@ icon: spark
 version: "1.0"
 image: demoforge/spark-etl-job:latest
 build_context: .
-description: "Apache Spark job client: Raw → Iceberg, Raw → Parquet, or Iceberg catalog compaction (rewrite data files, expire snapshots, remove orphan files via AIStor Tables REST catalog v3). Submits to a Spark standalone master via spark-submit. Bucket names live on the job node; MinIO→job edges mark input vs output. Parquet mode does not require AIStor Tables; compaction requires Tables on the MinIO peer."
+description: "Apache Spark job client: Raw → Iceberg, Raw → Parquet, or Iceberg catalog compaction (discovers tables in the REST catalog and runs rewrite/expire/orphan maintenance where metadata indicates it is needed). Submits to a Spark standalone master via spark-submit. Bucket names live on the job node; MinIO→job edges mark input vs output. Parquet mode does not require AIStor Tables; compaction requires Tables on the MinIO peer."
 
 resources:
   memory: 1g

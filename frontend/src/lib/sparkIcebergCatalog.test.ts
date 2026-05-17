@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Edge, Node } from "@xyflow/react";
+import { catalogFromMinioPeerNode, resolveSparkIcebergCatalogFromDiagram } from "./minioIcebergPeer";
 import { resolveSparkIcebergCatalogName } from "./sparkIcebergCatalog";
 
-function node(id: string, componentId: string, extra: Record<string, unknown> = {}): Node {
+function node(id: string, kind: "component" | "cluster", extra: Record<string, unknown> = {}): Node {
   return {
     id,
-    type: "component",
+    type: kind,
     position: { x: 0, y: 0 },
-    data: { componentId, label: id, config: {}, ...extra },
+    data: { componentId: kind === "cluster" ? "minio" : "spark-etl-job", label: id, config: {}, ...extra },
   };
 }
 
@@ -20,36 +21,37 @@ function edge(id: string, source: string, target: string, connectionType: string
   } as Edge;
 }
 
+describe("catalogFromMinioPeerNode", () => {
+  it("reads AISTOR_TABLES_CATALOG_NAME from MinIO cluster", () => {
+    const cluster = node("minio-cluster-1", "cluster", {
+      aistorTablesEnabled: true,
+      config: { AISTOR_TABLES_CATALOG_NAME: "aistor" },
+    });
+    expect(catalogFromMinioPeerNode(cluster)).toBe("aistor");
+  });
+});
+
 describe("resolveSparkIcebergCatalogName", () => {
   it("uses job ICEBERG_SPARK_CATALOG_NAME override first", () => {
     const nodes = [
-      node("job", "spark-etl-job", { config: { ICEBERG_SPARK_CATALOG_NAME: "job_cat" } }),
-      node("m1", "minio", {
-        aistorTablesEnabled: true,
-        config: { AISTOR_TABLES_CATALOG_NAME: "peer_cat" },
-      }),
+      node("job", "component", { componentId: "spark-etl-job", config: { ICEBERG_SPARK_CATALOG_NAME: "job_cat" } }),
+      node("mc", "cluster", { aistorTablesEnabled: true, config: { AISTOR_TABLES_CATALOG_NAME: "peer_cat" } }),
     ];
-    const edges = [edge("e1", "job", "m1", "aistor-tables")];
+    const edges = [edge("e1", "mc", "job", "aistor-tables")];
     expect(resolveSparkIcebergCatalogName("job", { ICEBERG_SPARK_CATALOG_NAME: "job_cat" }, nodes, edges)).toBe(
       "job_cat",
     );
   });
 
-  it("infers from MinIO AISTOR_TABLES_CATALOG_NAME when Tables enabled", () => {
+  it("infers from MinIO cluster link when job override unset", () => {
     const nodes = [
-      node("job", "spark-etl-job"),
-      node("m1", "minio", {
+      node("job", "component", { componentId: "spark-etl-job" }),
+      node("mc", "cluster", {
         aistorTablesEnabled: true,
         config: { AISTOR_TABLES_CATALOG_NAME: "datalake" },
       }),
     ];
-    const edges = [edge("e1", "job", "m1", "aistor-tables")];
-    expect(resolveSparkIcebergCatalogName("job", {}, nodes, edges)).toBe("datalake");
-  });
-
-  it("defaults to aistor when Tables on but catalog name unset", () => {
-    const nodes = [node("job", "spark-etl-job"), node("m1", "minio", { aistorTablesEnabled: true })];
-    const edges = [edge("e1", "job", "m1", "s3")];
-    expect(resolveSparkIcebergCatalogName("job", {}, nodes, edges)).toBe("aistor");
+    const edges = [edge("e1", "job", "mc", "aistor-tables")];
+    expect(resolveSparkIcebergCatalogFromDiagram("job", {}, nodes, edges)).toBe("datalake");
   });
 });

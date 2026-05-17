@@ -17,6 +17,10 @@ import {
   AISTOR_TABLES_DEFAULT_ICEBERG_WAREHOUSE,
 } from "../../../lib/aistorTablesDefaults";
 import { IamSimSpecFormField } from "../MinioIamManagerModal";
+import {
+  inferIcebergBrowserMinioConnectionType,
+  inferSparkEtlMinioConnectionType,
+} from "../../../lib/minioIcebergPeer";
 
 interface Props {
   nodeId: string;
@@ -180,12 +184,34 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
                     : { aistorTablesEnabled: false }
                 );
                 // Auto-update existing edges from this cluster to Trino nodes
-                const trinoNodeIds = nodes.filter((n) => (n.data as any)?.componentId === "trino").map((n) => n.id);
-                if (trinoNodeIds.length > 0) {
+                const downstreamIds = nodes
+                  .filter((n) => {
+                    const cid = (n.data as { componentId?: string })?.componentId;
+                    return cid === "trino" || cid === "spark-etl-job" || cid === "iceberg-browser";
+                  })
+                  .map((n) => n.id);
+                if (downstreamIds.length > 0) {
+                  const clusterNode = nodes.find((n) => n.id === nodeId);
+                  const minioPeer = clusterNode
+                    ? ({
+                        ...clusterNode,
+                        data: { ...clusterNode.data, aistorTablesEnabled: enabled },
+                      } as Node)
+                    : undefined;
                   const updatedEdges = edges.map((edge) => {
-                    if (edge.source === nodeId && trinoNodeIds.includes(edge.target)) {
+                    if (edge.source === nodeId && downstreamIds.includes(edge.target)) {
                       const ed = edge.data as any;
-                      const newType = enabled ? "aistor-tables" : "s3";
+                      const targetNode = nodes.find((n) => n.id === edge.target);
+                      const cid = (targetNode?.data as { componentId?: string })?.componentId;
+                      let newType = enabled ? "aistor-tables" : "s3";
+                      if (cid === "spark-etl-job") {
+                        newType =
+                          inferSparkEtlMinioConnectionType(minioPeer, targetNode) ??
+                          (enabled ? "aistor-tables" : "s3");
+                      } else if (cid === "iceberg-browser") {
+                        newType =
+                          inferIcebergBrowserMinioConnectionType(minioPeer) ?? (enabled ? "aistor-tables" : "s3");
+                      }
                       if (ed?.connectionType === "s3" || ed?.connectionType === "aistor-tables") {
                         const prevCfg = (ed.connectionConfig || {}) as Record<string, unknown>;
                         const { catalog_name: _omit, ...restCfg } = prevCfg;

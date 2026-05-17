@@ -487,36 +487,50 @@ export function ComponentNodePropertiesPanel({
           {!isParquetMode && (
             <div className="border border-border rounded-md p-2 space-y-2 bg-muted/15">
               <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                {isCompactionMode ? "Target Iceberg table (catalog maintenance)" : "Target Iceberg table (catalog write)"}
+                {isCompactionMode ? "Compaction scope (optional)" : "Target Iceberg table (catalog write)"}
               </div>
+              {isCompactionMode && (
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Discovers all tables in catalog <span className="font-mono text-foreground">{sparkCatalogLabel}</span> and
+                  compacts those that need it (from Iceberg metadata). Leave filters empty for the full catalog.
+                </p>
+              )}
               <div>
-                <label className="text-xs text-muted-foreground block mb-1">Namespace (schema)</label>
+                <label className="text-xs text-muted-foreground block mb-1">
+                  {isCompactionMode ? "Namespace filter (optional)" : "Namespace (schema)"}
+                </label>
                 <Input
                   value={data.config?.ICEBERG_TARGET_NAMESPACE ?? ""}
-                  placeholder="analytics"
+                  placeholder={isCompactionMode ? "all namespaces" : "analytics"}
                   onChange={(e) => updateConfig("ICEBERG_TARGET_NAMESPACE", e.target.value)}
                   className="h-8 text-sm font-mono"
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground block mb-1">Target table name</label>
+                <label className="text-xs text-muted-foreground block mb-1">
+                  {isCompactionMode ? "Table filter (optional)" : "Target table name"}
+                </label>
                 <Input
                   value={data.config?.ICEBERG_TARGET_TABLE ?? ""}
-                  placeholder="events_from_raw"
+                  placeholder={isCompactionMode ? "all tables" : "events_from_raw"}
                   onChange={(e) => updateConfig("ICEBERG_TARGET_TABLE", e.target.value)}
                   className="h-8 text-sm font-mono"
                 />
               </div>
-              <p className="text-[10px] text-muted-foreground font-mono break-all">
-                Spark catalog <span className="text-foreground">{sparkCatalogLabel}</span> →{" "}
-                <span className="text-foreground">
-                  {(data.config?.ICEBERG_TARGET_NAMESPACE || "analytics").trim() || "analytics"}.
-                  {(data.config?.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw"}
-                </span>
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
-                Catalog name is resolved from the linked MinIO AIStor Tables config (SigV4 /_iceberg) unless overridden on this job.
-              </p>
+              {!isCompactionMode && (
+                <>
+                  <p className="text-[10px] text-muted-foreground font-mono break-all">
+                    Spark catalog <span className="text-foreground">{sparkCatalogLabel}</span> →{" "}
+                    <span className="text-foreground">
+                      {(data.config?.ICEBERG_TARGET_NAMESPACE || "analytics").trim() || "analytics"}.
+                      {(data.config?.ICEBERG_TARGET_TABLE || "events_from_raw").trim() || "events_from_raw"}
+                    </span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                    Catalog name is resolved from the linked MinIO AIStor Tables config (SigV4 /_iceberg) unless overridden on this job.
+                  </p>
+                </>
+              )}
             </div>
           )}
           {/* Parquet-specific: output bucket + partition columns */}

@@ -22,6 +22,7 @@ import { migrateClusterData } from "../../lib/clusterMigration";
 import { migrateStxInferenceDemoGraphics } from "../../utils/migrateStxInferenceDemoGraphics";
 import { canonicalHandlesForClusterEdge, CLUSTER_EDGE_TYPES, sanitizeClusterEdgeHandlesForReactFlow } from "../../lib/clusterConnectionAnchors";
 import { findInvalidDiagramEdges } from "../../lib/diagramEdgeIssues";
+import { normalizeMinioIcebergEdges } from "../../lib/normalizeMinioIcebergEdges";
 import { CANVAS_IMAGE_PRESETS } from "../../lib/canvasImagePresets";
 import { DIAGRAM_EDGE_TYPES, DIAGRAM_NODE_TYPES } from "./diagramReactFlowRegistry";
 import ConnectionTypePicker from "./ConnectionTypePicker";
@@ -382,7 +383,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           data: n.data ?? {},
         })),
       ] as unknown as Node[];
-      const rfEdges = (migrated.edges || []).map((e: any) => {
+      const rfEdgesMapped = (migrated.edges || []).map((e: any) => {
         let sourceHandle = e.source_handle || undefined;
         // Group nodes had no handles until GroupNode added anchors; default S3 egress from group frame
         if (e.connection_type === "s3" && groupIds.has(e.source) && !sourceHandle) {
@@ -452,6 +453,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           },
         };
       });
+      const rfEdges = normalizeMinioIcebergEdges(
+        [...rfClusters, ...rfNodes] as unknown as Node[],
+        rfEdgesMapped as Edge[],
+      );
       // Derive nodeCounter from all node/cluster/group IDs to avoid collisions
       const trailingNum = (id: string): number => {
         const m = id.match(/(\d+)$/);

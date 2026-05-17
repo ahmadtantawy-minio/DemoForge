@@ -81,6 +81,37 @@ def test_compaction_env_defaults_and_skips_input_uri() -> None:
     _inject_spark_etl_job_env(demo, job, env, "demoforge-d1")
 
     assert env["JOB_MODE"] == "iceberg_compaction"
+    assert "ICEBERG_TARGET_NAMESPACE" not in env
+    assert "ICEBERG_TARGET_TABLE" not in env
+
+
+def test_compaction_strips_manifest_target_defaults_from_env() -> None:
+    """Compose merges manifest env before _inject_spark_etl_job_env; compaction must not inherit load-job targets."""
+    demo, job = _spark_minio_job_demo(
+        minio_config={"AISTOR_TABLES_CATALOG_NAME": "datalake"},
+    )
+    env = {
+        "ICEBERG_TARGET_NAMESPACE": "analytics",
+        "ICEBERG_TARGET_TABLE": "events_from_raw",
+        "JOB_MODE": "iceberg_compaction",
+    }
+    _inject_spark_etl_job_env(demo, job, env, "demoforge-d1")
+    assert "ICEBERG_TARGET_NAMESPACE" not in env
+    assert "ICEBERG_TARGET_TABLE" not in env
+
+
+def test_compaction_honors_optional_scope_filters() -> None:
+    demo, job = _spark_minio_job_demo(
+        job_config={"ICEBERG_TARGET_NAMESPACE": "ecom", "ICEBERG_TARGET_TABLE": "orders"},
+        minio_config={"AISTOR_TABLES_CATALOG_NAME": "datalake"},
+    )
+    env = {
+        "ICEBERG_TARGET_NAMESPACE": "analytics",
+        "ICEBERG_TARGET_TABLE": "events_from_raw",
+    }
+    _inject_spark_etl_job_env(demo, job, env, "demoforge-d1")
+    assert env["ICEBERG_TARGET_NAMESPACE"] == "ecom"
+    assert env["ICEBERG_TARGET_TABLE"] == "orders"
     assert env["COMPACTION_REWRITE_DATA_FILES"] == "true"
     assert env["COMPACTION_EXPIRE_SNAPSHOTS"] == "true"
     assert env["COMPACTION_REMOVE_ORPHAN_FILES"] == "true"

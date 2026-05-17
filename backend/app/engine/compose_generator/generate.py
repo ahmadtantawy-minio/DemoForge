@@ -358,10 +358,21 @@ def _inject_spark_etl_job_env(demo: DemoDefinition, node: DemoNode, env: dict, p
     env.setdefault("JOB_SCHEDULE", cfg.get("JOB_SCHEDULE", "on_deploy_once"))
     env.setdefault("JOB_INTERVAL_SEC", str(cfg.get("JOB_INTERVAL_SEC", "300")))
     if not is_parquet_mode:
-        _ns = str(cfg.get("ICEBERG_TARGET_NAMESPACE", "") or "").strip() or "analytics"
-        _tbl = str(cfg.get("ICEBERG_TARGET_TABLE", "") or "").strip() or "events_from_raw"
-        env["ICEBERG_TARGET_NAMESPACE"] = _ns
-        env["ICEBERG_TARGET_TABLE"] = _tbl
+        _ns = str(cfg.get("ICEBERG_TARGET_NAMESPACE", "") or "").strip()
+        _tbl = str(cfg.get("ICEBERG_TARGET_TABLE", "") or "").strip()
+        if is_compaction_mode:
+            # Manifest defaults (analytics.events_from_raw) are for load jobs only — omit unless set on the node.
+            if _ns:
+                env["ICEBERG_TARGET_NAMESPACE"] = _ns
+            else:
+                env.pop("ICEBERG_TARGET_NAMESPACE", None)
+            if _tbl:
+                env["ICEBERG_TARGET_TABLE"] = _tbl
+            else:
+                env.pop("ICEBERG_TARGET_TABLE", None)
+        else:
+            env["ICEBERG_TARGET_NAMESPACE"] = _ns or "analytics"
+            env["ICEBERG_TARGET_TABLE"] = _tbl or "events_from_raw"
     if is_compaction_mode:
         def _compaction_bool(key: str, default: str = "true") -> str:
             raw = str(cfg.get(key, default)).strip().lower()
