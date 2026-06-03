@@ -46,16 +46,44 @@ def _load_demo(demo_id: str) -> DemoDefinition | None:
         logger.warning("Demo %r: failed to parse %s — %s", demo_id, path, e)
         return None
 
-def _save_demo(demo: DemoDefinition):
+def _save_demo(demo: DemoDefinition, *, touch_updated: bool = True):
     os.makedirs(DEMOS_DIR, exist_ok=True)
-    demo.updated_at = datetime.now(timezone.utc).isoformat()
+    if touch_updated:
+        demo.updated_at = datetime.now(timezone.utc).isoformat()
     path = os.path.join(DEMOS_DIR, f"{demo.id}.yaml")
     with open(path, "w") as f:
         yaml.dump(demo.model_dump(), f, default_flow_style=False, sort_keys=False)
 
+
+def _parse_iso_ts(iso: str | None) -> float:
+    if not iso:
+        return 0.0
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _demo_activity_ts(d: DemoDefinition, updated_at: str | None) -> float:
+    """Most recent of last save or last open — used for list sort order."""
+    return max(
+        _parse_iso_ts(updated_at or d.updated_at),
+        _parse_iso_ts(d.last_accessed_at),
+        _parse_iso_ts(d.created_at),
+    )
+
+
+def _touch_demo_access(demo_id: str) -> DemoDefinition | None:
+    demo = _load_demo(demo_id)
+    if not demo:
+        return None
+    demo.last_accessed_at = datetime.now(timezone.utc).isoformat()
+    _save_demo(demo, touch_updated=False)
+    return demo
+
 @router.get("/api/demos", response_model=DemoListResponse)
 async def list_demos():
-    demos = []
+    summaries: list[tuple[float, DemoSummary]] = []
     if os.path.isdir(DEMOS_DIR):
         for fname in os.listdir(DEMOS_DIR):
             if fname.endswith(".yaml"):
@@ -70,16 +98,21 @@ async def list_demos():
                             updated_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
                         except OSError:
                             pass
-                    demos.append(DemoSummary(
-                        id=d.id,
-                        name=d.name,
-                        description=d.description,
-                        node_count=len(d.nodes),
-                        status=running.status if running else "not_deployed",
-                        mode=d.mode,
-                        updated_at=updated_at,
+                    summaries.append((
+                        _demo_activity_ts(d, updated_at),
+                        DemoSummary(
+                            id=d.id,
+                            name=d.name,
+                            description=d.description,
+                            node_count=len(d.nodes),
+                            status=running.status if running else "not_deployed",
+                            mode=d.mode,
+                            updated_at=updated_at,
+                            last_accessed_at=d.last_accessed_at,
+                        ),
                     ))
-    return DemoListResponse(demos=demos)
+    summaries.sort(key=lambda item: item[0], reverse=True)
+    return DemoListResponse(demos=[s for _, s in summaries])
 
 @router.post("/api/demos", response_model=DemoSummary)
 async def create_demo(req: CreateDemoRequest):
@@ -91,6 +124,7 @@ async def create_demo(req: CreateDemoRequest):
         networks=[DemoNetwork(name="default")],
     )
     demo.created_at = datetime.now(timezone.utc).isoformat()
+    demo.last_accessed_at = demo.created_at
     _save_demo(demo)
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description, node_count=0, status="not_deployed", mode=demo.mode)
 
@@ -100,6 +134,25 @@ async def get_demo(demo_id: str):
     if not demo:
         raise HTTPException(404, "Demo not found")
     return demo.model_dump()
+
+
+@router.post("/api/demos/{demo_id}/touch")
+async def touch_demo(demo_id: str):
+    """Record that the demo was opened in the UI (updates last_accessed_at)."""
+    demo = _touch_demo_access(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+    running = state.get_demo(demo_id)
+    return DemoSummary(
+        id=demo.id,
+        name=demo.name,
+        description=demo.description,
+        node_count=len(demo.nodes),
+        status=running.status if running else "not_deployed",
+        mode=demo.mode,
+        updated_at=demo.updated_at,
+        last_accessed_at=demo.last_accessed_at,
+    )
 
 @router.patch("/api/demos/{demo_id}")
 async def update_demo(demo_id: str, req: dict):
@@ -118,7 +171,7 @@ async def update_demo(demo_id: str, req: dict):
     status = running.status if running else "not_deployed"
     return DemoSummary(id=demo.id, name=demo.name, description=demo.description,
                        node_count=len(demo.nodes), status=status, mode=demo.mode,
-                       updated_at=demo.updated_at)
+                       updated_at=demo.updated_at, last_accessed_at=demo.last_accessed_at)
 
 @router.put("/api/demos/{demo_id}/diagram")
 async def save_diagram(demo_id: str, req: SaveDiagramRequest):

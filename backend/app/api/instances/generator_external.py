@@ -37,7 +37,6 @@ from ...models.api_models import (
 from ..demos import _load_demo, _save_demo
 from ...engine import task_manager
 from .helpers import (
-    _repl_cache,
     _resolve_components_dir,
     append_demo_integration_audit,
     _load_demo_integration_audit,

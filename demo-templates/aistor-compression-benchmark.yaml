@@ -1,0 +1,318 @@
+_template:
+  name: AIStor compression benchmark
+  tier: essentials
+  category: infrastructure
+  tags:
+  - compression
+  - aistor
+  - parquet
+  - benchmark
+  - multi-cluster
+  - footprint
+  description: >-
+    Same e-commerce Parquet stream fan-out to three buckets on two 4×4 AIStor clusters
+    (EC 8:3) — compare uncompressed Parquet, server-side compression only, and both.
+    Use the session cockpit to compare per-bucket object counts and on-disk size.
+  objective: >-
+    Show how AIStoR transparent compression and Parquet codec choice affect storage
+    footprint when ingesting the same logical dataset
+  minio_value: >-
+    AIStor server-side compression is configured per cluster (deployment-wide). Pair
+    it with client-side Parquet compression on the data generator to quantify each
+    layer — cockpit bucket stats make the difference visible side by side.
+  estimated_resources:
+    memory: 8GB
+    cpu: 8
+    containers: 12
+  external_dependencies: []
+  walkthrough:
+  - step: Deploy the demo
+    description: >-
+      Click Deploy. Two AIStor clusters start (4 nodes × 4 drives each, EC 8:3).
+      External System and Data Generator containers start after MinIO is healthy.
+  - step: Enable session cockpit
+    description: >-
+      In the toolbar, turn on Session cockpit. After ~1–2 minutes of ingest, open
+      the Stats tab and compare bucket size for parquet-raw, parquet-server, and
+      parquet-snappy.
+  - step: Baseline — no compression
+    description: >-
+      Cluster "Compression off" / bucket parquet-raw receives uncompressed Parquet
+      (DG_PARQUET_COMPRESSION=none, MINIO_COMPRESSION_ENABLE=off). Expect the largest
+      footprint per object count.
+  - step: Server compression only
+    description: >-
+      Cluster "Compression on" / bucket parquet-server receives the same uncompressed
+      Parquet stream via a second S3 edge — only AIStor compression is enabled on
+      that cluster.
+  - step: Parquet Snappy + server compression
+    description: >-
+      Same cluster, bucket parquet-snappy — Data Generator writes Snappy-compressed
+      Parquet (DG_PARQUET_COMPRESSION=snappy) with server compression still on.
+      Typically the smallest footprint.
+  - step: Inspect in MinIO Console
+    description: >-
+      Open each cluster console → Buckets. Confirm three bucket names and object
+      counts track together while total size differs.
+  se_guide:
+    pitch: >-
+      One dataset, three storage outcomes — prove AIStor compression and Parquet
+      codec savings without changing application code, using live bucket metrics.
+    audience: >-
+      Storage architects and platform engineers evaluating AIStor TCO and compression
+      policies.
+    talking_points:
+    - MinIO / AIStor object compression is global per cluster — this demo uses two
+      clusters so you can compare off vs on fairly.
+    - Parquet compression is a separate knob on the writer (Data Generator / External
+      System) — Snappy reduces bytes before data hits the wire.
+    - Multi-sink wiring is edge-driven — existing single-edge demos are unchanged;
+      only this template uses multiple outgoing S3 edges.
+    - Session cockpit reads real bucket usage via mc-shell — object count should
+      stay aligned; size columns show the compression story.
+    demo_flow:
+    - step: 1
+      action: Deploy and enable session cockpit.
+      say: >-
+        Three benchmark arms share the same ecommerce-orders schema — we only change
+        compression settings and target bucket.
+    - step: 2
+      action: Wait for ingest, then compare cockpit bucket sizes.
+      say: >-
+        parquet-raw is the baseline; parquet-server shows server-side savings;
+        parquet-snappy adds client-side Snappy on top.
+    common_questions:
+    - q: Can I enable compression on one bucket only?
+      a: >-
+        No — AIStor compression applies to the whole deployment. Use separate clusters
+        (as here) or separate MinIO instances to compare.
+    - q: Why two writers?
+      a: >-
+        External System runs with Parquet codec none to both clusters; Data Generator
+        adds the third arm with Snappy without changing the first two streams.
+  fa_ready: true
+  updated_at: '2026-05-20'
+id: template-aistor-compression-benchmark
+name: AIStor Compression Benchmark
+description: >-
+  Two 4×4 AIStor clusters (EC 8:3) — same Parquet workload to parquet-raw (no compression),
+  parquet-server (AIStor on), parquet-snappy (Snappy + AIStor). Compare footprint in cockpit.
+mode: standard
+networks:
+- name: default
+  subnet: 172.22.0.0/16
+  dns_suffix: demo.local
+  driver: bridge
+nodes:
+- id: es-benchmark
+  component: external-system
+  variant: default
+  position:
+    x: -320
+    y: 120
+  display_name: External System (uncompressed Parquet)
+  config:
+    ES_SCENARIO: ecommerce-orders
+    ES_SINK_MODE: files_only
+    ES_DG_FORMAT: parquet
+    DG_PARQUET_COMPRESSION: none
+    DG_RATE_PROFILE: medium
+- id: dg-snappy
+  component: data-generator
+  variant: default
+  position:
+    x: -320
+    y: 320
+  display_name: Data Generator (Snappy Parquet)
+  config:
+    DG_SCENARIO: ecommerce-orders
+    DG_FORMAT: parquet
+    DG_WRITE_MODE: raw
+    DG_PARQUET_COMPRESSION: snappy
+    DG_RATE_PROFILE: medium
+- id: prometheus
+  component: prometheus
+  variant: single
+  position:
+    x: 720
+    y: 200
+  display_name: Prometheus
+  config: {}
+- id: grafana
+  component: grafana
+  variant: single
+  position:
+    x: 960
+    y: 200
+  display_name: Grafana
+  config: {}
+edges:
+- id: e-es-off
+  source: es-benchmark
+  target: minio-cluster-off
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: Parquet → parquet-raw
+  connection_config:
+    format: parquet
+    target_bucket: parquet-raw
+    rate_profile: medium
+- id: e-es-on
+  source: es-benchmark
+  target: minio-cluster-on
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: Parquet → parquet-server
+  connection_config:
+    format: parquet
+    target_bucket: parquet-server
+    rate_profile: medium
+- id: e-dg-on
+  source: dg-snappy
+  target: minio-cluster-on
+  connection_type: structured-data
+  network: default
+  auto_configure: true
+  label: Snappy → parquet-snappy
+  connection_config:
+    format: parquet
+    target_bucket: parquet-snappy
+    rate_profile: medium
+- id: e-metrics-off
+  source: minio-cluster-off
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: ''
+  connection_config: {}
+- id: e-metrics-on
+  source: minio-cluster-on
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: ''
+  connection_config: {}
+- id: e-prom-grafana
+  source: prometheus
+  target: grafana
+  connection_type: metrics-query
+  network: default
+  auto_configure: true
+  label: ''
+  connection_config: {}
+clusters:
+- id: minio-cluster-off
+  component: minio
+  label: Compression off
+  position:
+    x: 280
+    y: 80
+  node_count: 4
+  drives_per_node: 4
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config:
+    MINIO_EDITION: aistor
+    MINIO_COMPRESSION_ENABLE: 'off'
+  width: 380
+  height: 200
+  mcp_enabled: true
+  aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 4
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 4
+    disk_size_tb: 1
+    disk_type: nvme
+    ec_parity: 3
+    erasure_stripe_drives: 8
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
+- id: minio-cluster-on
+  component: minio
+  label: Compression on
+  position:
+    x: 280
+    y: 360
+  node_count: 4
+  drives_per_node: 4
+  credentials:
+    root_user: minioadmin
+    root_password: minioadmin
+  config:
+    MINIO_EDITION: aistor
+    MINIO_COMPRESSION_ENABLE: 'on'
+    MINIO_COMPRESSION_EXTENSIONS: .parquet
+  width: 380
+  height: 200
+  mcp_enabled: true
+  aistor_tables_enabled: false
+  ec_parity: 3
+  ec_parity_upgrade_policy: upgrade
+  disk_size_tb: 4
+  server_pools:
+  - id: pool-1
+    node_count: 4
+    drives_per_node: 4
+    disk_size_tb: 1
+    disk_type: nvme
+    ec_parity: 3
+    erasure_stripe_drives: 8
+    ec_parity_upgrade_policy: upgrade
+    volume_path: /data
+groups: []
+sticky_notes:
+- id: note-cockpit
+  position:
+    x: -80
+    y: -40
+  width: 280
+  title: Cockpit
+  body: >-
+    Enable Session cockpit in the toolbar → Stats tab. Compare parquet-raw,
+    parquet-server, and parquet-snappy sizes on the two clusters.
+  color: '#22c55e'
+  visibility: customer
+annotations:
+- id: ann-off
+  position:
+    x: 300
+    y: 20
+  width: 200
+  title: Arm 1
+  body: Uncompressed Parquet · AIStor compression OFF · bucket parquet-raw
+  style: step
+  step_number: 1
+  collapsed: false
+- id: ann-server
+  position:
+    x: 300
+    y: 300
+  width: 220
+  title: Arm 2
+  body: Uncompressed Parquet · AIStor compression ON · bucket parquet-server
+  style: step
+  step_number: 2
+  collapsed: false
+- id: ann-both
+  position:
+    x: 520
+    y: 420
+  width: 240
+  title: Arm 3
+  body: Snappy Parquet · AIStor compression ON · bucket parquet-snappy
+  style: step
+  step_number: 3
+  collapsed: false
+schematics: []
+resources:
+  default_memory: 256m
+  default_cpu: 0.25

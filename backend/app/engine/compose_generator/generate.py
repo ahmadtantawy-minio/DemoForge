@@ -20,6 +20,17 @@ from ..minio_iam_sim import (
     write_policy_files_for_spec,
 )
 
+from .generator_s3 import (
+    apply_minio_compression_env_guard,
+    inject_generator_s3_from_edges,
+)
+from .minio_s3_wiring import (
+    buckets_from_edge_config,
+    collect_mc_buckets_for_edge,
+    normalize_minio_peer_id,
+    resolve_minio_s3_endpoint,
+    s3_bucket_object_name,
+)
 from .helpers import (
     HOST_COMPONENTS_DIR,
     HOST_DATA_DIR,
@@ -623,11 +634,13 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             drives = pool.drives_per_node
             total_drives = pool.node_count * drives
             if total_drives < 4:
-                drives = max(drives, 4 // pool.node_count)
+                min_dpn = (4 + pool.node_count - 1) // pool.node_count
+                drives = max(drives, min_dpn)
                 total_drives = pool.node_count * drives
                 if total_drives < 4:
                     raise ValueError(
-                        f"Cluster '{cluster.id}' pool {p_idx} needs at least 2 nodes for erasure coding."
+                        f"Cluster '{cluster.id}' pool {p_idx} needs at least {min_dpn} drive(s) per node "
+                        f"({pool.node_count} nodes) for erasure coding (minimum 4 drives per pool)."
                     )
                 logger.info(f"Cluster '{cluster.id}' pool {p_idx}: auto-adjusted to {drives} drives/node for EC minimum")
                 # Update the pool drives reference for later use
@@ -920,6 +933,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
         # stays consistent across standalone and distributed topologies.
         if node.component == "minio":
             env.update(_MINIO_LICENSE_GUARD_ENV)
+            apply_minio_compression_env_guard(env, node_edition)
 
         if node.component == "spark-etl-job":
             _inject_spark_etl_job_env(demo, node, env, project_name)
@@ -971,37 +985,26 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 peer_id = edge.target if edge.source == node.group_id else edge.source
             else:
                 continue
-            # Check nodes first, then clusters, then cluster LBs
-            peer_component = next((n.component for n in demo.nodes if n.id == peer_id), "")
-            peer_cluster = next((c for c in demo.clusters if c.id == peer_id), None)
-            if peer_cluster:
-                peer_component = peer_cluster.component
-            # Also detect cluster LB nodes (e.g. minio-cluster-3-lb → nginx, but backed by MinIO cluster)
-            is_cluster_lb = peer_id.endswith("-lb") and peer_component == "nginx"
-            if is_cluster_lb:
-                cluster_id_from_lb = peer_id[:-3]  # strip "-lb"
-                lb_cluster = next((c for c in demo.clusters if c.id == cluster_id_from_lb), None)
-                if lb_cluster:
-                    peer_component = lb_cluster.component
-            if peer_component != "minio":
+            peer_id = normalize_minio_peer_id(demo, peer_id)
+            resolved = resolve_minio_s3_endpoint(demo, peer_id, project_name)
+            if not resolved:
                 continue
-            # Use the full container name (project_name-peer_id) for Docker DNS
-            if peer_cluster:
-                s3_service_name = f"{project_name}-{peer_id}-lb"
-                s3_port = 80
-            elif is_cluster_lb:
-                s3_service_name = f"{project_name}-{peer_id}"
-                s3_port = 80
-            else:
-                s3_service_name = f"{project_name}-{peer_id}"
-                s3_port = 9000
-            s3_endpoint_host = f"{s3_service_name}:{s3_port}"
-            s3_endpoint_url = f"http://{s3_service_name}:{s3_port}"
+            s3_endpoint_url, s3_access_key, s3_secret_key = resolved
+            cluster_id = peer_id[:-3] if peer_id.endswith("-lb") else peer_id
+            peer_cluster = next((c for c in demo.clusters if c.id == cluster_id), None)
+            peer_node_obj = next(
+                (n for n in demo.nodes if n.id == peer_id and n.component == "minio"),
+                None,
+            )
             # Inject S3 endpoint for known env var patterns (some need http:// prefix)
             if "CATALOG_S3_ENDPOINT" in env:
                 env["CATALOG_S3_ENDPOINT"] = s3_endpoint_url
             if "S3_ENDPOINT" in env:
                 env["S3_ENDPOINT"] = s3_endpoint_url
+
+            if node.component == "kafka-connect-s3":
+                env["S3_ACCESS_KEY"] = s3_access_key
+                env["S3_SECRET_KEY"] = s3_secret_key
 
             # S3 File Browser: plain S3 only — always use MinIO root creds from the peer (no AIStor Tables / Iceberg).
             if node.component == "s3-file-browser":
@@ -1072,6 +1075,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     "dag_bucket": "AIRFLOW_DAG_BUCKET",
                     "log_bucket": "AIRFLOW_LOG_BUCKET",
                     "sink_bucket": "S3_BUCKET",
+                    "prefix": "S3_PREFIX",
                     "sink_format": "S3_SINK_FORMAT",
                     "flush_size": "S3_FLUSH_SIZE",
                     "source_name": "DREMIO_SOURCE_NAME",
@@ -1081,11 +1085,27 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 }
                 for cfg_key, env_key in _edge_env_map.items():
                     if cfg_key in edge_cfg and edge_cfg[cfg_key]:
-                        env[env_key] = str(edge_cfg[cfg_key])
+                        val = str(edge_cfg[cfg_key])
+                        if env_key == "S3_BUCKET":
+                            val = s3_bucket_object_name(val)
+                        env[env_key] = val
+
+            if node.component == "kafka-connect-s3":
+                if not str(env.get("S3_BUCKET") or "").strip():
+                    defaults = buckets_from_edge_config(
+                        edge_cfg,
+                        connection_type=edge.connection_type,
+                        consumer_component="kafka-connect-s3",
+                    )
+                    if defaults:
+                        env["S3_BUCKET"] = defaults[0]
 
             # inference-sim needs multiple S3 edges (G3.5 + G4 tiers)
             if node.component != "inference-sim":
                 break  # Use first s3 edge for other components
+
+        if node.component in ("data-generator", "external-system"):
+            inject_generator_s3_from_edges(demo, node, env, project_name)
 
         # Auto-inject ICEBERG_CATALOG_URI for data generators
         # Strategy: follow the generator's edge to its target MinIO cluster, then:
@@ -1174,7 +1194,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 env["ES_STARTUP_DELAY"] = node.config["ES_STARTUP_DELAY"]
             env["ES_SINK_MODE"] = (node.config or {}).get("ES_SINK_MODE") or "files_and_iceberg"
 
-            # Inject S3/AIStor env vars from s3 or aistor-tables edges to a MinIO node
+            # Iceberg catalog from aistor-tables edges (S3 endpoint/credentials come from inject_generator_s3_from_edges)
             es_s3_edge_types = ("s3", "aistor-tables")
             for edge in demo.edges:
                 if edge.connection_type not in es_s3_edge_types:
@@ -1185,7 +1205,6 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                     peer_id = edge.source
                 else:
                     continue
-                # Resolve peer as cluster or standalone node
                 peer_cluster = next((c for c in demo.clusters if c.id == peer_id), None)
                 peer_node_obj = next((n for n in demo.nodes if n.id == peer_id), None)
                 is_cluster_lb = peer_id.endswith("-lb")
@@ -1205,15 +1224,6 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 else:
                     continue
 
-                env["S3_ENDPOINT"] = f"http://{svc}:{port}"
-                if peer_cluster:
-                    env["S3_ACCESS_KEY"] = peer_cluster.credentials.get("root_user", "minioadmin")
-                    env["S3_SECRET_KEY"] = peer_cluster.credentials.get("root_password", "minioadmin")
-                elif peer_node_obj:
-                    env["S3_ACCESS_KEY"] = peer_node_obj.config.get("MINIO_ROOT_USER", "minioadmin")
-                    env["S3_SECRET_KEY"] = peer_node_obj.config.get("MINIO_ROOT_PASSWORD", "minioadmin")
-
-                # aistor-tables edge: inject Iceberg catalog URI + warehouse
                 if edge.connection_type == "aistor-tables":
                     env["ICEBERG_CATALOG_URI"] = f"http://{svc}:{port}/_iceberg"
                     env["ICEBERG_SIGV4"] = "true"
@@ -1235,7 +1245,6 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                         env["ICEBERG_WAREHOUSE"] = peer_cluster.config.get("ICEBERG_WAREHOUSE", "analytics")
                 if env.get("ICEBERG_SIGV4") == "true":
                     env["ICEBERG_CATALOG_NAME"] = resolve_minio_peer_aistor_catalog_name(demo, peer_id)
-                break
 
             # Inject TRINO_HOST and TRINO_CATALOG if a Trino node exists
             trino_node = next((n for n in demo.nodes if n.component == "trino"), None)
@@ -1703,7 +1712,12 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             # Cluster nodes need a longer start period — forming quorum across N nodes
             # takes more time than a single node starting. 15s is not enough on dev machines.
             is_cluster_node = node.id in cluster_health_override
-            start_period = "90s" if is_cluster_node else (hc.start_period if hasattr(hc, 'start_period') else "15s")
+            dpn = cluster_drives.get(node.id, 1)
+            # 3+ drives/node across 3+ nodes takes longer to reach /minio/health/cluster quorum.
+            cluster_start_s = 90 + (15 if is_cluster_node and dpn >= 3 else 0)
+            start_period = f"{cluster_start_s}s" if is_cluster_node else (
+                hc.start_period if hasattr(hc, "start_period") else "15s"
+            )
             service["healthcheck"] = {
                 "test": ["CMD-SHELL", hc_test],
                 "interval": hc.interval,
@@ -1954,59 +1968,27 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 lines.append(f"# Setup AIStor Tables warehouse for standalone {alias_name}")
                 lines.append(f"mc table warehouse create '{alias_name}' {warehouse} --ignore-existing 2>/dev/null || echo 'Warehouse setup skipped (mc table not available)'")
 
-        # Comprehensive bucket auto-creation for all S3-connected edges
+        # Comprehensive bucket auto-creation for all S3-connected edges (via cluster LB aliases)
         _s3_edge_types = {"s3", "structured-data", "file-push", "aistor-tables"}
-        _bucket_cfg_keys = [
-            "target_bucket", "bucket", "sink_bucket", "documents_bucket", "audit_bucket",
-            "snapshot_bucket", "artifact_bucket", "training_bucket", "source_bucket",
-            "output_bucket", "milvus_bucket", "dag_bucket", "log_bucket",
-        ]
-
-        def _cluster_alias_for_node(node_id: str) -> str | None:
-            """Return the mc alias name for a cluster LB or standalone MinIO node, or None."""
-            if node_id.endswith("-lb"):
-                cid = node_id[:-3]
-                c = next((x for x in demo.clusters if x.id == cid), None)
-                if c:
-                    return re.sub(r"[^a-zA-Z0-9_]", "_", c.label)
-            n = next((x for x in standalone_minio if x.id == node_id), None)
-            if n:
-                return re.sub(r"[^a-zA-Z0-9_]", "_", n.display_name) if n.display_name else n.id
-            return None
-
         seen_mc_buckets: set[tuple[str, str]] = set()
         for edge in demo.edges:
             if edge.connection_type not in _s3_edge_types:
                 continue
-            cfg = edge.connection_config or {}
-
-            # Resolve MinIO alias(es) for this edge
-            minio_aliases: list[str] = []
-            for node_id in (edge.target, edge.source):
-                a = _cluster_alias_for_node(node_id)
-                if a:
-                    minio_aliases.append(a)
-            # For user-placed nginx intermediaries: follow their load-balance edges
-            target_node = next((n for n in demo.nodes if n.id == edge.target), None)
-            if target_node and target_node.component == "nginx":
-                for e2 in demo.edges:
-                    if e2.source == edge.target and e2.connection_type in ("load-balance", "nginx-backend"):
-                        a = _cluster_alias_for_node(e2.target)
-                        if a:
-                            minio_aliases.append(a)
-
-            # Collect bucket names from edge config
-            edge_buckets: list[str] = [cfg[k] for k in _bucket_cfg_keys if cfg.get(k)]
-            # Default bucket for file-push with no explicit config
-            if edge.connection_type == "file-push" and not edge_buckets:
-                edge_buckets.append("demo-bucket")
-
-            for alias in minio_aliases:
-                for bucket in edge_buckets:
-                    key = (alias, bucket)
-                    if key not in seen_mc_buckets:
-                        seen_mc_buckets.add(key)
-                        lines.append(f"mc mb '{alias}/{bucket}' --ignore-existing 2>/dev/null || true")
+            consumer: str | None = None
+            for nid in (edge.source, edge.target):
+                n = next((x for x in demo.nodes if x.id == nid), None)
+                if n and n.component not in ("minio", "nginx"):
+                    consumer = n.component
+                    break
+            for alias, bucket in collect_mc_buckets_for_edge(
+                demo,
+                edge,
+                consumer_component=consumer,
+            ):
+                key = (alias, bucket)
+                if key not in seen_mc_buckets:
+                    seen_mc_buckets.add(key)
+                    lines.append(f"mc mb '{alias}/{bucket}' --ignore-existing 2>/dev/null || true")
 
         lines.append("echo 'mc aliases configured.'")
 

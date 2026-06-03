@@ -31,7 +31,7 @@ import { ConnectivityPage } from "./pages/ConnectivityPage";
 import { copyDebugBundleToClipboard } from "./lib/copyDebugBundle";
 
 export default function App() {
-  const { setDemos, setInstances, setClusterHealth, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode, laserPointerMode } = useDemoStore();
+  const { setDemos, setInstances, setClusterHealth, updateDemoStatus, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode, laserPointerMode } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const addDebugEntry = useDebugStore((s) => s.addEntry);
   const prevClusterHealth = useRef<Record<string, string>>({});
@@ -187,6 +187,15 @@ export default function App() {
     const syncInstances = () =>
       fetchInstances(activeDemoId).then((res) => {
         setInstances(res.instances);
+        // Reconcile toolbar status with runtime (avoids stale local "running" when backend differs).
+        const stableStatuses = new Set(["running", "stopped", "error", "not_deployed"]);
+        if (res.status && stableStatuses.has(res.status)) {
+          const local = useDemoStore.getState().demos.find((d) => d.id === activeDemoId);
+          if (local && local.status !== res.status && local.status !== "deploying" && local.status !== "stopping") {
+            updateDemoStatus(activeDemoId, res.status as typeof local.status);
+          }
+        }
+        useDiagramStore.getState().syncInstancesHealth(res.instances);
         if (res.cluster_health) {
           setClusterHealth(res.cluster_health);
           // Log cluster health changes with context
@@ -242,11 +251,6 @@ export default function App() {
           }
         }
 
-        // Push health updates to diagram nodes
-        const { updateNodeHealth } = useDiagramStore.getState();
-        for (const inst of res.instances) {
-          updateNodeHealth(inst.node_id, inst.health);
-        }
         // Log errored containers
         for (const inst of res.instances) {
           if (inst.health === "error") {
@@ -385,7 +389,7 @@ export default function App() {
     syncInstances();
     const interval = setInterval(syncInstances, 5000);
     return () => clearInterval(interval);
-  }, [activeDemoId, activeDemo?.status, setInstances]);
+  }, [activeDemoId, activeDemo?.status, setInstances, updateDemoStatus]);
 
   // Fetch walkthrough steps when panel opens
   useEffect(() => {

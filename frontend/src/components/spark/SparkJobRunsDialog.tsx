@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchSparkEtlJobRuns } from "@/api/client";
+import { fetchSparkEtlJobRuns, triggerSparkEtlJobRun } from "@/api/client";
+import { toast } from "@/lib/toast";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ export default function SparkJobRunsDialog({
   onViewContainerLogs,
 }: Props) {
   const [loading, setLoading] = useState(false);
+  const [triggering, setTriggering] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [payload, setPayload] = useState<Awaited<ReturnType<typeof fetchSparkEtlJobRuns>> | null>(null);
 
@@ -57,7 +59,32 @@ export default function SparkJobRunsDialog({
             For driver/executor output, open container logs.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            size="sm"
+            disabled={triggering || !payload?.container_running}
+            onClick={() => {
+              setTriggering(true);
+              triggerSparkEtlJobRun(demoId, nodeId)
+                .then((r) => {
+                  if (r.status === "already_running") {
+                    toast.warning("Spark job already running", { description: r.message });
+                  } else {
+                    toast.success("Spark job started", {
+                      description: "Refresh run history after it finishes; check container logs for driver output.",
+                    });
+                  }
+                  load();
+                })
+                .catch((e: Error) =>
+                  toast.error("Could not start Spark job", { description: e.message || String(e) })
+                )
+                .finally(() => setTriggering(false));
+            }}
+          >
+            {triggering ? "Starting…" : "Run job now"}
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={load} disabled={loading}>
             Refresh
           </Button>

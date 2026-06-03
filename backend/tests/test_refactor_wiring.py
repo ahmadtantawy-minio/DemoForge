@@ -34,6 +34,7 @@ def test_effective_standard_ec_parity_clamps_for_small_clusters() -> None:
     assert _effective_standard_ec_parity(2, 4) == 2
     assert _effective_standard_ec_parity(4, 8) == 4
     assert _effective_standard_ec_parity(3, 6) == 3
+    assert _effective_standard_ec_parity(3, 12) == 3
 
     assert _minio_parity_failure_env_pair("upgrade") == ("upgrade", "availability")
     assert _minio_parity_failure_env_pair("ignore") == ("ignore", "capacity")

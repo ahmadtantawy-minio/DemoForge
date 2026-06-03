@@ -8,9 +8,9 @@ ADD https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_
 ADD https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1.5.0/iceberg-aws-bundle-1.5.0.jar /opt/spark/jars/
 
 COPY jobs/ /opt/demoforge/jobs/
-COPY entrypoint.sh /opt/demoforge/entrypoint.sh
+COPY df-spark-common.sh df-run-spark-submit.sh entrypoint.sh /opt/demoforge/
 # ADD leaves these jars root-owned; the driver runs as USER spark — without chown/chmod, bash -r fails and Java URLClassLoader cannot read bytes → S3A CNFE.
-RUN chmod +x /opt/demoforge/entrypoint.sh && chown -R spark:spark /opt/demoforge \
+RUN chmod +x /opt/demoforge/entrypoint.sh /opt/demoforge/df-run-spark-submit.sh && chown -R spark:spark /opt/demoforge \
     && mkdir -p /home/spark/.ivy2/cache /home/spark/.ivy2/jars \
     && chown -R spark:spark /home/spark \
     && chown spark:spark \

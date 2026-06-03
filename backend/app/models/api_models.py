@@ -32,6 +32,7 @@ class DemoSummary(BaseModel):
     status: str                   # "stopped", "deploying", "running", "error"
     mode: str = "standard"        # "standard" | "experience"
     updated_at: str | None = None # ISO-8601 UTC timestamp of last save
+    last_accessed_at: str | None = None  # ISO-8601 UTC timestamp of last open in UI
 
 class DemoListResponse(BaseModel):
     demos: list[DemoSummary]

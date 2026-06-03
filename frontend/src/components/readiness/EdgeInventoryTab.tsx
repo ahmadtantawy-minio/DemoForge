@@ -113,7 +113,10 @@ export function EdgeInventoryTab() {
   return (
     <div data-testid="edge-inventory-tab">
       <p className="text-sm text-muted-foreground mb-4">
-        Supported diagram edges from designer wiring rules and component manifest provides/accepts.{" "}
+        Supported diagram edges from designer hardcoded rules (MinIO, Spark, streaming/Kafka) and component
+        manifest provides/accepts. Search{" "}
+        <span className="font-mono text-foreground">redpanda</span> or{" "}
+        <span className="font-mono text-foreground">kafka-connect</span> for the streaming lakehouse path.{" "}
         <span className="text-foreground">{filtered.length}</span> of {inventory.length} rows shown.
       </p>
 

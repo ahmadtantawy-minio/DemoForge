@@ -44,6 +44,28 @@ def test_normalize_clears_invalid_erasure_stripe_pref() -> None:
     assert out.server_pools[0].ec_parity == 2
 
 
+def test_normalize_three_node_pool_keeps_ec_parity_three() -> None:
+    """3 nodes × 4 drives = 12-drive stripe supports STANDARD EC:3."""
+    c = DemoCluster(
+        id="c1",
+        position=NodePosition(x=0, y=0),
+        ec_parity=3,
+        server_pools=[
+            DemoServerPool(
+                id="pool-1",
+                node_count=3,
+                drives_per_node=4,
+                ec_parity=3,
+            ),
+        ],
+    )
+    out = normalize_demo_cluster(c)
+    assert out.server_pools[0].node_count == 3
+    assert out.server_pools[0].ec_parity == 3
+    assert effective_stripe_drives(12, None) == 12
+    assert clamp_ec_parity_for_stripe(12, 3) == 3
+
+
 def test_normalize_keeps_valid_eight_drive_stripe_on_sixteen_disks() -> None:
     c = DemoCluster(
         id="c1",

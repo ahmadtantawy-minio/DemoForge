@@ -11,7 +11,7 @@ interface Props {
 
 export default function ControlPlane({ onOpenTerminal }: Props) {
   const { activeDemoId, demos, instances, setInstances } = useDemoStore();
-  const updateNodeHealth = useDiagramStore((s) => s.updateNodeHealth);
+  const syncInstancesHealth = useDiagramStore((s) => s.syncInstancesHealth);
 
   const activeDemo = demos.find((d) => d.id === activeDemoId);
 
@@ -24,10 +24,10 @@ export default function ControlPlane({ onOpenTerminal }: Props) {
     fetchInstances(activeDemoId)
       .then((res) => {
         setInstances(res.instances);
-        res.instances.forEach((inst) => updateNodeHealth(inst.node_id, inst.health));
+        syncInstancesHealth(res.instances);
       })
       .catch(() => {});
-  }, [activeDemoId, activeDemo?.status, setInstances, updateNodeHealth]);
+  }, [activeDemoId, activeDemo?.status, setInstances, syncInstancesHealth]);
 
   useEffect(() => {
     loadInstances();

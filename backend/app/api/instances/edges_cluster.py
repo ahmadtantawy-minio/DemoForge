@@ -37,7 +37,8 @@ from ...models.api_models import (
 from ..demos import _load_demo, _save_demo
 from ...engine import task_manager
 from .helpers import (
-    _repl_cache,
+    clear_replication_edge_cache,
+    _find_demo_edge_for_ec,
     _resolve_components_dir,
     append_demo_integration_audit,
     _load_demo_integration_audit,
@@ -228,15 +229,17 @@ async def pause_edge_config(demo_id: str, edge_id: str):
     if not ec:
         raise HTTPException(404, f"Edge config '{edge_id}' not found")
 
-    # For site-replication: remove via mc admin replicate remove
+    # For site-replication: remove via mc admin replicate remove (this edge's cluster aliases)
     if ec.connection_type in ("site-replication", "cluster-site-replication") and ec.status == "applied":
         _demo = _load_demo(demo_id)
         if _demo:
-            expanded = _expand_demo_for_edges(_demo)
             project_name = f"demoforge-{demo_id}"
-            edge = next((e for e in expanded.edges if e.id == edge_id), None)
+            edge = _find_demo_edge_for_ec(_demo, edge_id)
             if edge:
-                alias = _get_first_cluster_alias(expanded)
+                from ...engine.site_replication_post import resolve_site_replication_post_kwargs
+
+                post = resolve_site_replication_post_kwargs(edge, _demo, project_name)
+                alias = post["alias_a"] if post else _get_first_cluster_alias(_demo)
                 if alias:
                     cmd = f"mc admin replicate remove {alias} --all --force"
                     try:
@@ -315,8 +318,7 @@ async def pause_edge_config(demo_id: str, edge_id: str):
 
     ec.status = "paused"
     state.set_demo(running)
-    # Clear replication cache
-    _repl_cache.pop(demo_id, None)
+    clear_replication_edge_cache(edge_id=edge_id)
     return {"status": "paused", "edge_id": edge_id}
 
 
@@ -383,7 +385,7 @@ async def resync_edge(demo_id: str, edge_id: str):
         if exit_code != 0:
             return {"status": "failed", "edge_id": edge_id, "error": (stderr or stdout)[:500]}
         # Clear replication cache to force refresh
-        _repl_cache.pop(demo_id, None)
+        clear_replication_edge_cache(edge_id=edge_id)
         return {"status": "resync_started", "edge_id": edge_id, "output": stdout[:500]}
     except Exception as e:
         _audit_edge_exec(

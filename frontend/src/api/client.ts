@@ -72,6 +72,9 @@ export const updateDemo = (id: string, patch: { name?: string; description?: str
     body: JSON.stringify(patch),
   });
 
+export const touchDemo = (id: string) =>
+  apiFetch<import("../types").DemoSummary>(`/api/demos/${id}/touch`, { method: "POST" });
+
 export const fetchGeneratedConfig = (id: string) =>
   apiFetch<{ demo_id: string; configs: Record<string, string> }>(`/api/demos/${id}/generated-config`);
 
@@ -363,6 +366,13 @@ export const fetchSparkEtlJobRuns = (demoId: string, nodeId: string) =>
     submit_log_path: string;
     submit_log_tail: string;
   }>(`/api/demos/${demoId}/instances/${nodeId}/spark-etl-job/runs`);
+
+/** Start one spark-submit in the job container (background). */
+export const triggerSparkEtlJobRun = (demoId: string, nodeId: string) =>
+  apiFetch<{ ok: boolean; status: string; message: string }>(
+    `/api/demos/${demoId}/instances/${nodeId}/spark-etl-job/run`,
+    { method: "POST" }
+  );
 
 // Terminal WebSocket URL
 export const terminalWsUrl = (demoId: string, nodeId: string) =>

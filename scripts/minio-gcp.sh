@@ -55,6 +55,13 @@ GATEWAY_API_KEY=""
 
 ENV_FILE="${SCRIPT_DIR}/../.env.hub"
 
+# Cloud Run min instances: 0 = scale to zero when idle (lower cost, cold starts on first request);
+# 1 = always warm (~$3–5/mo per service). Override via env or CLOUD_RUN_MIN_INSTANCES= in .env.hub
+if [[ -z "${CLOUD_RUN_MIN_INSTANCES:-}" && -f "${ENV_FILE}" ]]; then
+  CLOUD_RUN_MIN_INSTANCES=$(grep "^CLOUD_RUN_MIN_INSTANCES=" "${ENV_FILE}" 2>/dev/null | cut -d= -f2- || echo "")
+fi
+CLOUD_RUN_MIN_INSTANCES="${CLOUD_RUN_MIN_INSTANCES:-0}"
+
 # ─────────────────────────── Helpers ─────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -174,7 +181,10 @@ deploy_hub_api_cloudrun() {
     --tag="${HUB_API_IMAGE}" \
     --quiet
 
-  ok "Deploying hub-api to Cloud Run..."
+  ok "Deploying hub-api to Cloud Run (min-instances=${CLOUD_RUN_MIN_INSTANCES})..."
+  if [[ "${CLOUD_RUN_MIN_INSTANCES}" == "0" ]]; then
+    warn "Scale-to-zero enabled — first request after idle may take 10–30s (Litestream restore)."
+  fi
   gcloud run deploy "${HUB_API_SERVICE}" \
     --project="${PROJECT_ID}" \
     --region="${CLOUD_RUN_REGION}" \
@@ -183,7 +193,7 @@ deploy_hub_api_cloudrun() {
     --port=8000 \
     --allow-unauthenticated \
     --service-account="${sa}" \
-    --min-instances=1 \
+    --min-instances="${CLOUD_RUN_MIN_INSTANCES}" \
     --max-instances=1 \
     --cpu=1 --memory=512Mi \
     --cpu-boost \
@@ -319,6 +329,7 @@ GWDOCKERFILE
 
   ok "Gateway image built: ${GATEWAY_IMAGE}"
 
+  ok "Deploying gateway (min-instances=${CLOUD_RUN_MIN_INSTANCES})..."
   gcloud run deploy "${CLOUD_RUN_SERVICE}" \
     --project="${PROJECT_ID}" \
     --region="${CLOUD_RUN_REGION}" \
@@ -326,7 +337,7 @@ GWDOCKERFILE
     --platform=managed \
     --port=8080 \
     --allow-unauthenticated \
-    --min-instances=1 \
+    --min-instances="${CLOUD_RUN_MIN_INSTANCES}" \
     --max-instances=5 \
     --memory=256Mi \
     --cpu=1 \
@@ -460,6 +471,9 @@ DEMOFORGE_SYNC_SECRET_KEY=
 
 # ── Registry (via hub-connector on localhost) ──
 DEMOFORGE_REGISTRY_HOST=localhost:5000
+
+# ── Cloud Run (0 = scale to zero / lower cost; 1 = always warm) ──
+CLOUD_RUN_MIN_INSTANCES=${CLOUD_RUN_MIN_INSTANCES}
 ENV_EOF
   chmod 600 "${ENV_FILE}"
   ok "Written to ${ENV_FILE}"

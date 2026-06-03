@@ -43,12 +43,11 @@ from ..demos import _load_demo, _save_demo
 from ..iam_reconcile_report import mc_shell_iam_integration_events_from_logs
 from ...engine import task_manager
 from .helpers import (
-    _repl_cache,
     _resolve_components_dir,
     append_demo_integration_audit,
     _load_demo_integration_audit,
     _metabase_dashboard_rows,
-    _check_live_replication_status,
+    _resolve_site_replication_edge_status,
     _build_replication_state_cmd,
     _expand_demo_for_edges,
     _get_first_cluster_alias,
@@ -320,15 +319,13 @@ async def list_instances(demo_id: str):
     for ec in running.edge_configs.values():
         status = ec.status
         error = ec.error
-        # For site-replication edges, verify actual status from MinIO
-        if ec.connection_type in ("site-replication", "cluster-site-replication"):
-            live = await _check_live_replication_status(running, demo_id)
-            if live is not None:
-                status = "applied" if live else ("failed" if ec.status == "applied" else ec.status)
-                if not live and ec.status == "applied":
-                    error = "Site replication not active on cluster"
-                elif live and ec.status in ("paused", "failed"):
-                    error = ""
+        # Site replication: per-edge live check (peer deployed, LB up, mc admin replicate info)
+        if demo and ec.connection_type in ("site-replication", "cluster-site-replication"):
+            live_status, live_error = await _resolve_site_replication_edge_status(
+                running, demo_id, demo, ec, async_client
+            )
+            status = live_status
+            error = live_error
         edge_configs.append(EdgeConfigStatus(
             edge_id=ec.edge_id,
             connection_type=ec.connection_type,

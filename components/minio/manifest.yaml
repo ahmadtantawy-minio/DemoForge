@@ -250,6 +250,28 @@ config:
     type: string
     default: iceberg
     description: Spark SQL catalog name registered for Iceberg REST (/_iceberg). Wired automatically to Spark job containers linked to this MinIO or cluster (job node can override).
+  MINIO_COMPRESSION_ENABLE:
+    label: Server-side compression
+    type: select
+    options:
+      - "off"
+      - "on"
+    default: "off"
+    description: >-
+      AIStor only. Enables transparent object compression for this deployment
+      (cluster-wide). Ignored on Community Edition.
+  MINIO_COMPRESSION_EXTENSIONS:
+    label: Compression file extensions
+    type: string
+    default: ""
+    description: >-
+      Optional comma-separated extensions (e.g. .parquet,.csv). Empty uses AIStor defaults when compression is on.
+  MINIO_COMPRESSION_MIME_TYPES:
+    label: Compression MIME types
+    type: string
+    default: ""
+    description: >-
+      Optional comma-separated MIME types. Empty uses AIStor defaults when compression is on.
 init_scripts:
 - command: sh -c 'until mc alias set local http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD 2>/dev/null; do sleep 2; done && mc mb local/demo-bucket --ignore-existing && mc mb local/data --ignore-existing'
   wait_for_healthy: true

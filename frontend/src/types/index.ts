@@ -119,6 +119,7 @@ export interface DemoSummary {
   status: "not_deployed" | "stopped" | "deploying" | "running" | "stopping" | "error";
   mode?: "standard" | "experience";
   updated_at?: string;
+  last_accessed_at?: string;
   source_template_id?: string;
 }
 

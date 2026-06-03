@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import { Node, Edge, OnNodesChange, OnEdgesChange, applyNodeChanges, applyEdgeChanges, Connection, addEdge } from "@xyflow/react";
 import { toast } from "../lib/toast";
-import type { ComponentSummary, ConnectionsDef } from "../types";
+import type { ComponentEdgeData, ComponentSummary, ConnectionsDef } from "../types";
 import {
   canonicalHandlesForClusterEdge,
   CLUSTER_EDGE_TYPES,
   reanchorClusterEdgesTouching,
   reanchorAllClusterPairEdges,
-  sanitizeClusterEdgeHandlesForReactFlow,
+  prepareConnectionForReactFlow,
 } from "../lib/clusterConnectionAnchors";
 import { findInvalidDiagramEdges } from "../lib/diagramEdgeIssues";
 import {
@@ -19,6 +19,14 @@ import {
   minioPeerHasAistorTables,
   sparkJobUsesAistorTables,
 } from "../lib/minioIcebergPeer";
+import {
+  defaultStreamingConnectionConfig,
+  inferStreamingEdgeKind,
+  preserveStreamingConnection,
+  streamingConfigSourceNode,
+  streamingConnectionType,
+  streamingEdgeLabel,
+} from "../lib/streamingConnectionRouting";
 
 export interface DirectedOption {
   type: string;
@@ -39,6 +47,35 @@ export interface PendingConnection {
 }
 
 /** Default edge pill label when the connection targets Iceberg browser or S3 file browser. */
+function appendPreparedEdge(
+  edges: Edge[],
+  connection: Connection,
+  nodes: Node[],
+  connectionType: string,
+  data: Omit<ComponentEdgeData, "connectionType" | "network" | "status"> &
+    Partial<Pick<ComponentEdgeData, "network" | "status">>,
+): Edge[] {
+  const prepared = prepareConnectionForReactFlow(connection, nodes, connectionType);
+  const edgeId = `e-${prepared.source}-${prepared.target}-${connectionType}-${Date.now()}`;
+  return [
+    ...edges,
+    {
+      id: edgeId,
+      source: prepared.source!,
+      target: prepared.target!,
+      sourceHandle: prepared.sourceHandle,
+      targetHandle: prepared.targetHandle,
+      type: "animated",
+      data: {
+        connectionType,
+        network: "default",
+        status: "idle",
+        ...data,
+      },
+    },
+  ];
+}
+
 function defaultEdgeLabelForTarget(targetId: string | null | undefined, nodes: Node[]): string {
   if (!targetId) return "";
   const node = nodes.find((n) => n.id === targetId);
@@ -71,6 +108,8 @@ interface DiagramState {
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;
   updateNodeHealth: (nodeId: string, health: string) => void;
+  /** Apply Docker health from /instances poll to all matching diagram nodes in one update. */
+  syncInstancesHealth: (instances: Array<{ node_id: string; health: string }>) => void;
   setComponentManifests: (manifests: Record<string, ConnectionsDef>) => void;
   setPendingConnection: (pending: PendingConnection | null) => void;
   /** Swap source/target on the in-progress cluster wire (same handles swapped). */
@@ -93,6 +132,8 @@ interface DiagramState {
   reanchorAllClusterToClusterEdges: () => void;
   /** Fix cluster replication / site / tiering edges whose handles violate React Flow (stops error spam). */
   repairClusterEdgeHandles: () => boolean;
+  /** Fix repairable handle polarity issues (cluster/component); returns count fixed. */
+  repairDiagramEdgeIssues: () => number;
   /** Remove edges by id (e.g. orphaned connections). Returns how many were removed. */
   removeDiagramEdgesByIds: (ids: string[]) => number;
   /** Remove every edge whose source or target node is not on the canvas. Returns how many were removed. */
@@ -142,16 +183,35 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   repairClusterEdgeHandles: () => {
     const state = get();
     const next = state.edges.map((e) => {
-      const ct = (e.data as { connectionType?: string } | undefined)?.connectionType;
-      if (!ct || !CLUSTER_EDGE_TYPES.has(ct)) return e;
-      const h = sanitizeClusterEdgeHandlesForReactFlow(
-        ct,
-        { source: e.source, target: e.target },
+      const ct = (e.data as { connectionType?: string } | undefined)?.connectionType ?? "data";
+      const src = state.nodes.find((n) => n.id === e.source);
+      const tgt = state.nodes.find((n) => n.id === e.target);
+      if (src?.type !== "cluster" && tgt?.type !== "cluster") return e;
+      const prepared = prepareConnectionForReactFlow(
+        {
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? null,
+          targetHandle: e.targetHandle ?? null,
+        },
         state.nodes,
-        { sourceHandle: e.sourceHandle ?? undefined, targetHandle: e.targetHandle ?? undefined }
+        ct,
       );
-      if (e.sourceHandle === h.sourceHandle && e.targetHandle === h.targetHandle) return e;
-      return { ...e, sourceHandle: h.sourceHandle, targetHandle: h.targetHandle };
+      if (
+        prepared.source === e.source &&
+        prepared.target === e.target &&
+        prepared.sourceHandle === (e.sourceHandle ?? null) &&
+        prepared.targetHandle === (e.targetHandle ?? null)
+      ) {
+        return e;
+      }
+      return {
+        ...e,
+        source: prepared.source!,
+        target: prepared.target!,
+        sourceHandle: prepared.sourceHandle,
+        targetHandle: prepared.targetHandle,
+      };
     });
     let changed = false;
     for (let i = 0; i < next.length; i++) {
@@ -166,6 +226,37 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       set({ edges: next, isDirty: true });
     }
     return changed;
+  },
+
+  repairDiagramEdgeIssues: () => {
+    const state = get();
+    const invalid = findInvalidDiagramEdges(state.nodes, state.edges);
+    const repairableIds = new Set(invalid.filter((i) => i.repairable).map((i) => i.edgeId));
+    if (repairableIds.size === 0) return 0;
+
+    const next = state.edges.map((e) => {
+      if (!repairableIds.has(e.id)) return e;
+      const ct = (e.data as { connectionType?: string } | undefined)?.connectionType ?? "data";
+      const prepared = prepareConnectionForReactFlow(
+        {
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? null,
+          targetHandle: e.targetHandle ?? null,
+        },
+        state.nodes,
+        ct,
+      );
+      return {
+        ...e,
+        source: prepared.source!,
+        target: prepared.target!,
+        sourceHandle: prepared.sourceHandle,
+        targetHandle: prepared.targetHandle,
+      };
+    });
+    set({ edges: next, isDirty: true });
+    return repairableIds.size;
   },
 
   removeDiagramEdgesByIds: (ids) => {
@@ -263,6 +354,61 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     const sourceComponentId = (sourceNode.data as any)?.componentId;
     const targetComponentId = (targetNode.data as any)?.componentId;
 
+    // Streaming stack: Data Generator / Kafka Connect / Console ↔ Redpanda / MinIO
+    const streamingKind = inferStreamingEdgeKind(sourceNode, targetNode);
+    if (streamingKind) {
+      let connType = streamingConnectionType(streamingKind);
+      const conn = prepareConnectionForReactFlow(
+        preserveStreamingConnection(connection),
+        state.nodes,
+        connType,
+      );
+      const pairIds = new Set([conn.source, conn.target]);
+      const existingBetween = state.edges.filter(
+        (e) => pairIds.has(e.source) && pairIds.has(e.target),
+      );
+      let label = streamingEdgeLabel(streamingKind);
+      if (streamingKind === "console-to-broker") {
+        const hasKafka = existingBetween.some(
+          (e) => (e.data as { connectionType?: string })?.connectionType === "kafka",
+        );
+        const hasSchemaRegistry = existingBetween.some(
+          (e) => (e.data as { connectionType?: string })?.connectionType === "schema-registry",
+        );
+        if (hasKafka && !hasSchemaRegistry) {
+          connType = "schema-registry";
+          label = "";
+        } else if (hasKafka && hasSchemaRegistry) {
+          toast.warning("Redpanda Console is already linked to this broker", {
+            description: "Kafka and schema-registry edges are already configured.",
+          });
+          return;
+        }
+      }
+      if (existingBetween.some((e) => (e.data as { connectionType?: string })?.connectionType === connType)) {
+        toast.warning("Connection already exists", {
+          description: `A ${connType} edge is already configured between these nodes.`,
+        });
+        return;
+      }
+      const preparedSource = state.nodes.find((n) => n.id === conn.source) ?? sourceNode;
+      const preparedTarget = state.nodes.find((n) => n.id === conn.target) ?? targetNode;
+      const configNode = streamingConfigSourceNode(streamingKind, preparedSource, preparedTarget);
+      set({
+        edges: appendPreparedEdge(
+          state.edges,
+          conn,
+          state.nodes,
+          connType,
+          {
+            label,
+            connectionConfig: defaultStreamingConnectionConfig(streamingKind, configNode),
+          },
+        ),
+      });
+      return;
+    }
+
     // MinIO (cluster or standalone) ↔ S3 File Browser — always plain `s3`.
     // Handled before Trino / Spark / generator paths so it never depends on AIStor Tables, MCP, or edition.
     const isS3FileBrowser = (cid: string | undefined) => cid === "s3-file-browser";
@@ -285,19 +431,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
             targetHandle: connection.sourceHandle,
           };
       set({
-        edges: addEdge(
-          {
-            ...conn,
-            type: "animated",
-            data: {
-              connectionType: "s3",
-              network: "default",
-              label: defaultEdgeLabelForTarget(browserNode.id, state.nodes),
-              status: "idle",
-            },
-          },
-          state.edges
-        ),
+        edges: appendPreparedEdge(state.edges, conn, state.nodes, "s3", {
+          label: defaultEdgeLabelForTarget(browserNode.id, state.nodes),
+        }),
       });
       return;
     }
@@ -313,19 +449,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       }
       // Add aistor-tables edge directly
       set({
-        edges: addEdge(
-          {
-            ...connection,
-            type: "animated",
-            data: {
-              connectionType: "aistor-tables",
-              network: "default",
-              label: defaultEdgeLabelForTarget(connection.target, state.nodes),
-              status: "idle",
-            },
-          },
-          state.edges
-        ),
+        edges: appendPreparedEdge(state.edges, connection, state.nodes, "aistor-tables", {
+          label: defaultEdgeLabelForTarget(connection.target, state.nodes),
+        }),
       });
       return;
     }
@@ -547,19 +673,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
         targetHandle: connection.sourceHandle,
       };
       set({
-        edges: addEdge(
-          {
-            ...conn,
-            type: "animated",
-            data: {
-              connectionType: opt.type,
-              network: "default",
-              label: defaultEdgeLabelForTarget(conn.target, state.nodes),
-              status: "idle",
-            },
-          },
-          state.edges
-        ),
+        edges: appendPreparedEdge(state.edges, conn, state.nodes, opt.type, {
+          label: defaultEdgeLabelForTarget(conn.target, state.nodes),
+        }),
       });
       return;
     }
@@ -613,6 +729,19 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
         n.id === nodeId ? { ...n, data: { ...n.data, health } } : n
       ),
     }),
+
+  syncInstancesHealth: (instances) => {
+    const healthByNode = new Map(instances.map((i) => [i.node_id, i.health]));
+    let changed = false;
+    const next = get().nodes.map((n) => {
+      const h = healthByNode.get(n.id);
+      if (h === undefined) return n;
+      if ((n.data as { health?: string })?.health === h) return n;
+      changed = true;
+      return { ...n, data: { ...n.data, health: h } };
+    });
+    if (changed) set({ nodes: next });
+  },
 
   setComponentManifests: (manifests) => set({ componentManifests: manifests }),
 
@@ -694,32 +823,41 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       CLUSTER_EDGE_TYPES.has(connectionType) && conn.sourceHandle && conn.targetHandle
         ? { sourceHandle: conn.sourceHandle, targetHandle: conn.targetHandle }
         : canonicalHandlesForClusterEdge(connectionType, conn, state.nodes);
-    const handles = sanitizeClusterEdgeHandlesForReactFlow(
-      connectionType,
-      { source: conn.source, target: conn.target },
+    const prepared = prepareConnectionForReactFlow(
+      {
+        source: conn.source,
+        target: conn.target,
+        sourceHandle:
+          CLUSTER_EDGE_TYPES.has(connectionType) && conn.sourceHandle && conn.targetHandle
+            ? conn.sourceHandle
+            : handlesRaw.sourceHandle ?? conn.sourceHandle,
+        targetHandle:
+          CLUSTER_EDGE_TYPES.has(connectionType) && conn.sourceHandle && conn.targetHandle
+            ? conn.targetHandle
+            : handlesRaw.targetHandle ?? conn.targetHandle,
+      },
       state.nodes,
-      handlesRaw
+      connectionType,
     );
 
-    const srcNode = state.nodes.find((n) => n.id === conn.source);
-    const tgtNode = state.nodes.find((n) => n.id === conn.target);
-    const srcL = String((srcNode?.data as { label?: string }).label || conn.source).trim();
-    const tgtL = String((tgtNode?.data as { label?: string }).label || conn.target).trim();
+    const srcNode = state.nodes.find((n) => n.id === prepared.source);
+    const tgtNode = state.nodes.find((n) => n.id === prepared.target);
+    const srcL = String((srcNode?.data as { label?: string }).label || prepared.source).trim();
+    const tgtL = String((tgtNode?.data as { label?: string }).label || prepared.target).trim();
     const clusterFlowLabel = CLUSTER_EDGE_TYPES.has(connectionType) ? `${srcL} → ${tgtL}` : "";
 
-    // Create edge directly with unique ID (avoids addEdge dedup issues)
-    const edgeId = `e-${conn.source}-${conn.target}-${connectionType}-${Date.now()}`;
+    const edgeId = `e-${prepared.source}-${prepared.target}-${connectionType}-${Date.now()}`;
     const newEdge: Edge = {
       id: edgeId,
-      source: conn.source!,
-      target: conn.target!,
-      sourceHandle: handles.sourceHandle,
-      targetHandle: handles.targetHandle,
+      source: prepared.source!,
+      target: prepared.target!,
+      sourceHandle: prepared.sourceHandle,
+      targetHandle: prepared.targetHandle,
       type: "animated",
       data: {
         connectionType,
         network: "default",
-        label: clusterFlowLabel || defaultEdgeLabelForTarget(conn.target, state.nodes),
+        label: clusterFlowLabel || defaultEdgeLabelForTarget(prepared.target, state.nodes),
         status: "idle",
       },
     };

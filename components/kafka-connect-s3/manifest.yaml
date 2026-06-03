@@ -64,7 +64,7 @@ connections:
     - key: bucket
       label: Target S3 Bucket
       type: string
-      default: kafka-sink
+      default: streaming-data
     - key: prefix
       label: Object Prefix
       type: string

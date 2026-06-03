@@ -34,6 +34,14 @@ export function isHardcodedManifestPair(from: string, to: string): boolean {
   if (from === "iceberg-browser" && isMinioPeer(to)) return true;
   if (isMinioPeer(from) && to === "spark-etl-job") return true;
   if (from === "spark-etl-job" && isMinioPeer(to)) return true;
+  if (from === "data-generator" && to === "redpanda") return true;
+  if (from === "redpanda" && to === "data-generator") return true;
+  if (from === "kafka-connect-s3" && to === "redpanda") return true;
+  if (from === "redpanda" && to === "kafka-connect-s3") return true;
+  if (from === "kafka-connect-s3" && isMinioPeer(to)) return true;
+  if (isMinioPeer(from) && to === "kafka-connect-s3") return true;
+  if (from === "redpanda-console" && to === "redpanda") return true;
+  if (from === "redpanda" && to === "redpanda-console") return true;
   return false;
 }
 
@@ -51,6 +59,8 @@ function hardcodedRules(): DiagramEdgeInventoryRow[] {
   const minioSparkPointer =
     "MinIO → Spark (edge flipped if drawn Spark → MinIO); rendered bidirectional for s3 / aistor-tables";
   const minioBrowserPointer = "MinIO → browser (edge flipped if drawn browser → MinIO)";
+  const streamingHandles =
+    "Preserves handles you drag; either direction; compose resolves peers bidirectionally";
 
   return [
     row({
@@ -141,6 +151,61 @@ function hardcodedRules(): DiagramEdgeInventoryRow[] {
       pointerDirection: "source → target",
       dynamic: true,
       notes: "Picker when AIStor Tables enabled on target",
+      ruleSource: "hardcoded",
+    }),
+    row({
+      from: "data-generator",
+      to: "redpanda",
+      edgeType: "kafka",
+      pointerDirection: streamingHandles,
+      dynamic: false,
+      notes:
+        "Producer (DG_FORMAT=kafka). Edge label “Produce events”; topic in connectionConfig. Not used with DG→MinIO s3 path.",
+      ruleSource: "hardcoded",
+    }),
+    row({
+      from: "kafka-connect-s3",
+      to: "redpanda",
+      edgeType: "kafka",
+      pointerDirection: streamingHandles,
+      dynamic: false,
+      notes: "Connect worker reads broker (CONNECT_BOOTSTRAP_SERVERS). Edge label “Consume”.",
+      ruleSource: "hardcoded",
+    }),
+    row({
+      from: "kafka-connect-s3",
+      to: CLUSTER_NODE_ID,
+      edgeType: "s3",
+      pointerDirection: streamingHandles,
+      dynamic: false,
+      notes: "S3 sink to object storage (not Kafka). Edge label “S3 Sink”; sink_bucket in connectionConfig.",
+      ruleSource: "hardcoded",
+    }),
+    row({
+      from: "kafka-connect-s3",
+      to: "minio",
+      edgeType: "s3",
+      pointerDirection: streamingHandles,
+      dynamic: false,
+      notes: "Same as cluster row for standalone MinIO node",
+      ruleSource: "hardcoded",
+    }),
+    row({
+      from: "redpanda-console",
+      to: "redpanda",
+      edgeType: "kafka",
+      pointerDirection: streamingHandles,
+      dynamic: false,
+      notes: "First connect: kafka (UI broker). Edge label “Manage”.",
+      ruleSource: "hardcoded",
+    }),
+    row({
+      from: "redpanda-console",
+      to: "redpanda",
+      edgeType: "schema-registry",
+      pointerDirection: streamingHandles,
+      dynamic: false,
+      notes: "Second connect between same pair (after kafka edge exists): schema-registry for Console SR UI",
       ruleSource: "hardcoded",
     }),
     row({

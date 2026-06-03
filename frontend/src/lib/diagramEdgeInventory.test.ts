@@ -27,6 +27,13 @@ describe("isHardcodedManifestPair", () => {
     expect(isHardcodedManifestPair("__cluster__", "spark-etl-job")).toBe(true);
   });
 
+  it("treats streaming pairs as hardcoded (no duplicate manifest rows)", () => {
+    expect(isHardcodedManifestPair("data-generator", "redpanda")).toBe(true);
+    expect(isHardcodedManifestPair("kafka-connect-s3", "redpanda")).toBe(true);
+    expect(isHardcodedManifestPair("kafka-connect-s3", "__cluster__")).toBe(true);
+    expect(isHardcodedManifestPair("redpanda-console", "redpanda")).toBe(true);
+  });
+
   it("allows manifest pairing for unrelated components", () => {
     expect(isHardcodedManifestPair("spark", "trino")).toBe(false);
   });
@@ -36,6 +43,43 @@ describe("buildDiagramEdgeInventory", () => {
   it("includes hardcoded minio spark rows", () => {
     const rows = buildDiagramEdgeInventory([]);
     expect(rows.some((r) => r.from === "__cluster__" && r.to === "spark-etl-job" && r.edgeType === "s3")).toBe(true);
+  });
+
+  it("includes hardcoded streaming kafka / s3 rows", () => {
+    const rows = buildDiagramEdgeInventory([]);
+    expect(
+      rows.some((r) => r.from === "data-generator" && r.to === "redpanda" && r.edgeType === "kafka" && r.ruleSource === "hardcoded"),
+    ).toBe(true);
+    expect(
+      rows.some((r) => r.from === "kafka-connect-s3" && r.to === "redpanda" && r.edgeType === "kafka"),
+    ).toBe(true);
+    expect(
+      rows.some((r) => r.from === "kafka-connect-s3" && r.to === "__cluster__" && r.edgeType === "s3"),
+    ).toBe(true);
+    expect(
+      rows.some((r) => r.from === "kafka-connect-s3" && r.to === "minio" && r.edgeType === "s3"),
+    ).toBe(true);
+    expect(
+      rows.some(
+        (r) => r.from === "redpanda-console" && r.to === "redpanda" && r.edgeType === "schema-registry",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not duplicate streaming pairs from manifest intersection", () => {
+    const components = [
+      minimalComponent("data-generator", ["kafka", "structured-data"], ["kafka", "s3"]),
+      minimalComponent("redpanda", ["kafka"], ["kafka"]),
+      minimalComponent("kafka-connect-s3", ["kafka-connect"], ["kafka", "s3"]),
+      minimalComponent("minio", ["s3"], []),
+    ];
+    const rows = buildDiagramEdgeInventory(components);
+    const dgRp = rows.filter((r) => r.from === "data-generator" && r.to === "redpanda");
+    expect(dgRp.length).toBe(1);
+    expect(dgRp[0]?.ruleSource).toBe("hardcoded");
+    const kcRp = rows.filter((r) => r.from === "kafka-connect-s3" && r.to === "redpanda");
+    expect(kcRp.length).toBe(1);
+    expect(kcRp[0]?.ruleSource).toBe("hardcoded");
   });
 
   it("expands manifest provides/accepts", () => {

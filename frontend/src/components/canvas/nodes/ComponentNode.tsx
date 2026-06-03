@@ -140,6 +140,7 @@ export default function ComponentNode({ id, data }: NodeProps) {
   };
 
   const instance = instances.find((i) => i.node_id === id);
+  const displayHealth = instance?.health ?? nodeData.health;
   const nodeIp = instance?.networks?.find((n) => n.ip_address)?.ip_address ?? null;
   const initStatus = (instance as any)?.init_status as string | undefined;
 
@@ -182,14 +183,14 @@ export default function ComponentNode({ id, data }: NodeProps) {
           )}
         </div>
         {(isRunning || isDeploying) && (
-          nodeData.health === "degraded" ? (
+          displayHealth === "degraded" ? (
             <span className="ml-auto shrink-0" title="Tables not ready — start data generation to create them">
               <AlertTriangle className="w-4 h-4 text-orange-400" />
             </span>
-          ) : nodeData.health ? (
+          ) : displayHealth ? (
             <span
-              className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[nodeData.health] ?? "bg-muted-foreground"} ${nodeData.health === "starting" || isDeploying && nodeData.health !== "healthy" ? "animate-pulse" : ""}`}
-              title={nodeData.health}
+              className={`ml-auto w-2.5 h-2.5 rounded-full transition-colors duration-300 ${healthColors[displayHealth] ?? "bg-muted-foreground"} ${displayHealth === "starting" || isDeploying && displayHealth !== "healthy" ? "animate-pulse" : ""}`}
+              title={displayHealth}
             />
           ) : isDeploying ? (
             <span

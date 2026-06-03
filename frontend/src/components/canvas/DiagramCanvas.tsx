@@ -86,6 +86,7 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     openEditorDeleteDialog,
     closeEditorDeleteDialog,
     pruneInvalidDiagramEdges,
+    repairDiagramEdgeIssues,
     removeDiagramEdgesByIds,
   } = useDiagramStore();
   const { activeDemoId, instances, demos, faMode, showFaNotes } = useDemoStore();
@@ -155,9 +156,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     connectionWireRef.current = { active: false, completed: false };
   }, []);
 
-  /** Proactively fix cluster replication/site/tiering handles so React Flow does not re-fire onError in a loop. */
+  /** Proactively fix invalid cluster / MinIO link handles so React Flow does not re-fire onError in a loop. */
   useLayoutEffect(() => {
-    useDiagramStore.getState().repairClusterEdgeHandles();
+    const store = useDiagramStore.getState();
+    store.repairClusterEdgeHandles();
+    store.repairDiagramEdgeIssues();
   }, [nodes, edges]);
 
   const reactFlowErrorRef = useRef({ key: "", at: 0 });
@@ -169,9 +172,11 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     }
     reactFlowErrorRef.current = { key, at: now };
     if (/couldn't create edge|couldn't remove edge|create edge|handle id|invalid handle|source handle|target handle/i.test(message)) {
-      const fixed = useDiagramStore.getState().repairClusterEdgeHandles();
-      if (fixed) {
-        toast.info("Adjusted invalid connection handles on the diagram.", { duration: 4500 });
+      const store = useDiagramStore.getState();
+      store.repairClusterEdgeHandles();
+      const n = store.repairDiagramEdgeIssues();
+      if (n > 0) {
+        toast.info(`Adjusted ${n} invalid connection handle(s) on the diagram.`, { duration: 4500 });
         return;
       }
     }
@@ -527,6 +532,10 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
       setNodes([...rfGroups, ...rfClusters, ...rfStickies, ...rfCanvasImages, ...rfAnnotations, ...rfSchematics, ...migratedNodes]);
       setEdges([...migratedEdges, ...rfAnnotationEdges]);
       setDirty(false);
+      const liveInstances = useDemoStore.getState().instances;
+      if (liveInstances.length > 0) {
+        useDiagramStore.getState().syncInstancesHealth(liveInstances);
+      }
     }).catch(() => {});
   }, [activeDemoId, setNodes, setEdges, setDirty]);
 
@@ -1172,6 +1181,22 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
     }
   }, [pruneInvalidDiagramEdges]);
 
+  const handleRepairDiagramEdges = useCallback(() => {
+    useDiagramStore.getState().repairClusterEdgeHandles();
+    const n = repairDiagramEdgeIssues();
+    if (n > 0) {
+      toast.success(`Repaired ${n} connection handle(s)`);
+    } else {
+      toast.message("No repairable handle issues found");
+    }
+  }, [repairDiagramEdgeIssues]);
+
+  const repairableIssueCount = useMemo(
+    () => diagramEdgeIssues.filter((i) => i.repairable).length,
+    [diagramEdgeIssues],
+  );
+  const orphanIssueCount = diagramEdgeIssues.length - repairableIssueCount;
+
   const handleRemoveOneInvalidEdge = useCallback(
     (edgeId: string) => {
       const removed = removeDiagramEdgesByIds([edgeId]);
@@ -1533,12 +1558,19 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
           <DialogHeader>
             <DialogTitle>Diagram connection issues</DialogTitle>
             <DialogDescription>
-              These connections point to a source or target node that is not on the canvas. Removing them can clear React Flow errors after refreshes or template changes.
+              Orphaned connections reference missing nodes. Invalid handles (e.g. cluster{" "}
+              <span className="font-mono">data-in</span> used as a source) break new wires — use Repair
+              handles or remove the edge.
             </DialogDescription>
           </DialogHeader>
           {diagramEdgeIssues.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">No orphaned or invalid connections found.</p>
-          ) : (
+          ) : repairableIssueCount > 0 && orphanIssueCount === 0 ? (
+            <p className="text-sm text-muted-foreground py-2 mb-2">
+              {repairableIssueCount} connection(s) have invalid handles and can be fixed in place.
+            </p>
+          ) : null}
+          {diagramEdgeIssues.length === 0 ? null : (
             <ul className="max-h-64 overflow-y-auto rounded-md border border-border text-sm divide-y divide-border">
               {diagramEdgeIssues.map((issue) => (
                 <li key={issue.edgeId} className="px-3 py-2 flex gap-2 items-start">
@@ -1584,15 +1616,26 @@ function DiagramCanvasInner({ onOpenTerminal }: DiagramCanvasProps) {
                 Close
               </Button>
               {canMutateDiagram ? (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={diagramEdgeIssues.length === 0}
-                  onClick={handlePruneInvalidDiagramEdges}
-                >
-                  Remove all invalid
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={repairableIssueCount === 0}
+                    onClick={handleRepairDiagramEdges}
+                  >
+                    Repair handles
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={orphanIssueCount === 0}
+                    onClick={handlePruneInvalidDiagramEdges}
+                  >
+                    Remove orphaned
+                  </Button>
+                </>
               ) : null}
             </div>
           </DialogFooter>

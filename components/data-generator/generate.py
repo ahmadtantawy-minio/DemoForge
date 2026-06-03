@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 import boto3
 import requests
 from botocore.exceptions import ClientError, EndpointResolutionError, NoCredentialsError
+from src.kafka_tunables import apply_kafka_tunables
 
 # --- Config from environment ---
 S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "localhost:9000")
@@ -29,6 +30,10 @@ DG_BATCH_SIZE = int(os.environ.get("DG_BATCH_SIZE", "10"))            # files pe
 # Scenario controls
 DG_SCENARIO = os.environ.get("DG_SCENARIO", "")                       # e.g. ecommerce-orders
 DG_RATE_PROFILE = os.environ.get("DG_RATE_PROFILE", "medium").lower() # low | medium | high
+DG_NULL_RATE_PCT = float(os.environ.get("DG_NULL_RATE_PCT", "0"))
+DG_DUPLICATE_RATE_PCT = float(os.environ.get("DG_DUPLICATE_RATE_PCT", "0"))
+DG_LATE_EVENT_RATE_PCT = float(os.environ.get("DG_LATE_EVENT_RATE_PCT", "0"))
+DG_MAX_LATENESS_SEC = int(os.environ.get("DG_MAX_LATENESS_SEC", "300"))
 
 # Backward-compatible: legacy env vars still honoured if new ones are absent and legacy are set
 if "BATCH_SIZE" in os.environ and "DG_FILE_SIZE_ROWS" not in os.environ:
@@ -391,15 +396,23 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
         )
         print(f"[scenario] Using Kafka writer → kafka://{kafka_topic}")
     else:
+        from src.s3_fanout import parse_s3_sinks_from_env, write_parquet_batch_to_sinks
+
+        s3_sinks = parse_s3_sinks_from_env()
+        multi_s3 = len(s3_sinks) > 1
+
         client = wait_for_minio(timeout=180)
 
-        # Ensure bucket exists
-        try:
-            client.head_bucket(Bucket=bucket)
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] in ("404", "NoSuchBucket"):
-                client.create_bucket(Bucket=bucket)
-                print(f"[scenario] Created bucket '{bucket}'.")
+        buckets_to_ensure = {bucket}
+        if s3_sinks:
+            buckets_to_ensure = {s["bucket"] for s in s3_sinks}
+        for b in buckets_to_ensure:
+            try:
+                client.head_bucket(Bucket=b)
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] in ("404", "NoSuchBucket"):
+                    client.create_bucket(Bucket=b)
+                    print(f"[scenario] Created bucket '{b}'.")
 
         if write_mode == "raw":
             # Raw file mode — write directly to S3, skip Iceberg catalog writes
@@ -510,6 +523,15 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
 
         try:
             rows = generate_batch(columns, effective_rows)
+            if use_kafka:
+                rows = apply_kafka_tunables(
+                    rows=rows,
+                    columns=columns,
+                    null_rate_pct=DG_NULL_RATE_PCT,
+                    duplicate_rate_pct=DG_DUPLICATE_RATE_PCT,
+                    late_event_rate_pct=DG_LATE_EVENT_RATE_PCT,
+                    max_lateness_sec=DG_MAX_LATENESS_SEC,
+                )
 
             if use_kafka:
                 kafka_writer_instance.write_batch(rows, columns)
@@ -517,6 +539,15 @@ def main_scenario(scenario_id: str, fmt: str, rate_profile: str):
             elif use_iceberg:
                 count = iceberg_writer.write_batch(rows, columns, ice_ns, ice_table)
                 key = f"iceberg/{ice_ns}.{ice_table}"
+            elif write_mode == "raw" and fmt == "parquet" and multi_s3:
+                keys = write_parquet_batch_to_sinks(
+                    rows=rows,
+                    columns=columns,
+                    partition_cfg=partition_cfg,
+                    key_prefix=s3_key_prefix,
+                    sinks=s3_sinks,
+                )
+                key = keys[0] if keys else ""
             else:
                 key = writer.write_batch(
                     rows=rows,

@@ -8,6 +8,39 @@
 
 const MAX_AUTO_STRIPE = 16;
 
+/** MinIO erasure pools need at least four drives total (matches compose generator). */
+export const MIN_ERASURE_DRIVES_PER_POOL = 4;
+
+/** Node counts offered in pool / cluster property pickers. */
+export const MINIO_POOL_NODE_COUNT_OPTIONS = [2, 3, 4, 6, 8, 16] as const;
+
+/** Drives-per-node values offered in pool property pickers. */
+export const MINIO_POOL_DRIVES_PER_NODE_OPTIONS = [1, 2, 3, 4, 6, 8, 12, 16] as const;
+
+/** Planning-only disk sizes (TB) shown in pool properties. */
+export const MINIO_POOL_DISK_SIZE_TB_OPTIONS = [
+  1, 1.92, 2, 3.84, 4, 7.68, 8, 15.36, 16, 32,
+] as const;
+
+export function formatDiskSizeTbLabel(tb: number): string {
+  for (const k of MINIO_POOL_DISK_SIZE_TB_OPTIONS) {
+    if (Math.abs(tb - k) < 0.01) return `${k} TB`;
+  }
+  return `${tb} TB`;
+}
+
+/** Minimum drives per node so `nodeCount * drivesPerNode >= MIN_ERASURE_DRIVES_PER_POOL`. */
+export function minDrivesPerNodeForEc(nodeCount: number): number {
+  const n = Math.max(1, nodeCount);
+  return Math.max(1, Math.ceil(MIN_ERASURE_DRIVES_PER_POOL / n));
+}
+
+/** Drives-per-node choices valid for the given node count (respects EC minimum). */
+export function drivesPerNodeOptionsForPool(nodeCount: number): number[] {
+  const min = minDrivesPerNodeForEc(nodeCount);
+  return MINIO_POOL_DRIVES_PER_NODE_OPTIONS.filter((d) => d >= min);
+}
+
 export function computeErasureSetSize(totalDrives: number): number {
   for (let d = MAX_AUTO_STRIPE; d >= 2; d--) {
     if (totalDrives % d === 0) return d;

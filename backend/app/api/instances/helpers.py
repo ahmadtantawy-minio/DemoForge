@@ -106,56 +106,222 @@ def _metabase_dashboard_rows(body: object) -> list:
     return []
 
 
-# Cache for live replication checks (avoid hammering mc on every poll)
-_repl_cache: dict[str, tuple[float, bool]] = {}
+# Cache per-edge site replication status (avoid hammering mc on every poll)
+_repl_edge_cache: dict[str, tuple[float, str, str]] = {}
+
+
+def _find_demo_edge_for_ec(demo, ec_edge_id: str):
+    """Resolve diagram or expanded edge id to a DemoEdge."""
+    for e in demo.edges:
+        if e.id == ec_edge_id or ec_edge_id.startswith(f"{e.id}-"):
+            return e
+    try:
+        expanded = _expand_demo_for_edges(demo)
+    except Exception:
+        expanded = demo
+    for e in expanded.edges:
+        if e.id == ec_edge_id:
+            return e
+        orig = (e.connection_config or {}).get("_original_edge_id")
+        if orig and (ec_edge_id == orig or ec_edge_id.startswith(f"{orig}-")):
+            return e
+        if ec_edge_id.startswith(f"{e.id}-"):
+            return e
+    return None
+
+
+def _cluster_lb_node_id(cluster_id: str) -> str:
+    return f"{cluster_id}-lb"
+
+
+def _cluster_is_deployed(running, cluster_id: str) -> bool:
+    lb = _cluster_lb_node_id(cluster_id)
+    if lb in running.containers:
+        return True
+    prefix = f"{cluster_id}-pool"
+    return any(nid.startswith(prefix) for nid in running.containers)
+
+
+def _cluster_ids_for_site_edge(edge, demo) -> tuple[str, str]:
+    """Return (source_cluster_id, target_cluster_id) for cluster-site-replication."""
+    cfg = edge.connection_config or {}
+    source_id = cfg.get("_source_cluster_id", "")
+    target_id = cfg.get("_target_cluster_id", "")
+    if not source_id:
+        for c in demo.clusters:
+            if edge.source.startswith(f"{c.id}-") or edge.source == c.id:
+                source_id = c.id
+                break
+    if not target_id:
+        for c in demo.clusters:
+            if edge.target.startswith(f"{c.id}-") or edge.target == c.id:
+                target_id = c.id
+                break
+    return source_id, target_id
+
+
+async def _lb_health_ok(http_client: httpx.AsyncClient, project_name: str, cluster_id: str) -> bool:
+    host = f"{project_name}-{cluster_id}-lb"
+    try:
+        resp = await http_client.get(
+            f"http://{host}:80/minio/health/live",
+            timeout=httpx.Timeout(2.0),
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+async def _resolve_site_replication_edge_status(
+    running,
+    demo_id: str,
+    demo,
+    ec: EdgeConfigResult,
+    http_client: httpx.AsyncClient | None,
+) -> tuple[str, str]:
+    """Per-edge site replication status for the canvas (not demo-global)."""
+    import time
+
+    now = time.time()
+    cached = _repl_edge_cache.get(ec.edge_id)
+    if cached and now - cached[0] < 10:
+        return cached[1], cached[2]
+
+    base_status = ec.status
+    base_error = ec.error or ""
+
+    edge = _find_demo_edge_for_ec(demo, ec.edge_id)
+    if not edge:
+        out = (
+            ("failed", "Replication edge removed from diagram — pause or redeploy to clear")
+            if base_status == "applied"
+            else (base_status, base_error)
+        )
+        _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+        return out
+
+    project_name = f"demoforge-{demo_id}"
+    from ...engine.site_replication_post import resolve_site_replication_post_kwargs
+
+    post = resolve_site_replication_post_kwargs(edge, demo, project_name)
+    if not post:
+        out = (base_status, base_error)
+        _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+        return out
+
+    src_c, tgt_c = _cluster_ids_for_site_edge(edge, demo)
+    if edge.connection_type == "cluster-site-replication":
+        missing = [cid for cid in (src_c, tgt_c) if cid and not _cluster_is_deployed(running, cid)]
+        if missing:
+            out = (
+                "failed",
+                f"Peer cluster not running ({', '.join(missing)}) — remove site replication or start peer",
+            )
+            _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+            return out
+        if http_client:
+            for cid in (src_c, tgt_c):
+                if cid and not await _lb_health_ok(http_client, project_name, cid):
+                    out = (
+                        "failed",
+                        f"Peer cluster unreachable ({cid}) — replication link is down",
+                    )
+                    _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+                    return out
+
+    mc_shell = f"{project_name}-mc-shell"
+    if mc_shell not in [c.container_name for c in running.containers.values()]:
+        out = (base_status, base_error)
+        _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+        return out
+
+    alias_a = post["alias_a"]
+    host_a = post["host_a"].split(":")[0].lower()
+    host_b = post["host_b"].split(":")[0].lower()
+    try:
+        exit_code, stdout, _stderr = await exec_in_container(
+            mc_shell,
+            f"sh -c {shlex.quote(f'mc admin replicate info {alias_a} 2>&1')}",
+        )
+    except Exception as exc:
+        out = (base_status, base_error or str(exc)[:200])
+        _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+        return out
+
+    if exit_code != 0 or "enabled for" not in stdout.lower():
+        out = (
+            ("failed", "Site replication not active on cluster")
+            if base_status == "applied"
+            else (base_status, base_error or "Site replication not active")
+        )
+        _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+        return out
+
+    # Stale link: SR still lists a peer host that is not a deployed cluster LB in this demo.
+    if edge.connection_type == "cluster-site-replication" and http_client:
+        live_hosts = {
+            f"{project_name}-{c.id}-lb".lower()
+            for c in demo.clusters
+            if _cluster_is_deployed(running, c.id)
+        }
+        expected = {host_a, host_b}
+        if not expected.issubset(live_hosts):
+            out = (
+                "failed",
+                "Site replication references a peer that is not running in this demo",
+            )
+            _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+            return out
+        for line in stdout.splitlines():
+            if "http://" not in line.lower():
+                continue
+            for token in line.split():
+                if not token.lower().startswith("http://"):
+                    continue
+                peer_host = token.lower().replace("http://", "").split("/")[0].split(":")[0]
+                if peer_host and peer_host not in live_hosts:
+                    out = (
+                        "failed",
+                        f"Stale replication peer ({peer_host}) — not deployed; use Remove Site Replication",
+                    )
+                    _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+                    return out
+
+    out = ("applied", "")
+    _repl_edge_cache[ec.edge_id] = (now, out[0], out[1])
+    return out
 
 
 async def _check_live_replication_status(running, demo_id: str) -> bool | None:
-    """Check if site replication is actually enabled by querying mc-shell.
-
-    Returns True if enabled, False if not, None if we can't determine.
-    Caches result for 10 seconds to avoid excessive Docker exec calls.
-    """
-    import time
-    now = time.time()
-    cached = _repl_cache.get(demo_id)
-    if cached and now - cached[0] < 10:
-        return cached[1]
-
-    mc_shell_name = f"demoforge-{demo_id}-mc-shell"
-    if mc_shell_name not in [c.container_name for c in running.containers.values()]:
+    """Legacy demo-wide check. True only if every site-replication edge reports applied."""
+    demo = _load_demo(demo_id)
+    if not demo or not running:
         return None
-
-    try:
-        # Compute the alias name from demo definition (same as compose_generator)
-        import re as _re
-        demo_def = None
-        try:
-            from ..demos import _load_demo
-            demo_def = _load_demo(demo_id)
-        except Exception:
-            pass
-        if demo_def and demo_def.clusters:
-            alias = _re.sub(r"[^a-zA-Z0-9_]", "_", demo_def.clusters[0].label)
-        elif demo_def:
-            # Standalone MinIO nodes — site-replication uses "site1" alias
-            minio_nodes = [n for n in demo_def.nodes if n.component == "minio"]
-            if minio_nodes:
-                alias = _re.sub(r"[^a-zA-Z0-9_]", "_", minio_nodes[0].display_name) if minio_nodes[0].display_name else minio_nodes[0].id
-            else:
-                return None
-        else:
-            return None
-        exit_code, stdout, stderr = await exec_in_container(
-            mc_shell_name,
-            f"sh -c 'mc admin replicate info {alias} 2>&1 | head -1'",
+    saw = False
+    for ec in running.edge_configs.values():
+        if ec.connection_type not in ("site-replication", "cluster-site-replication"):
+            continue
+        saw = True
+        status, _ = await _resolve_site_replication_edge_status(
+            running, demo_id, demo, ec, None
         )
-        # "SiteReplication enabled for:" vs "SiteReplication is not enabled"
-        enabled = "enabled for" in stdout.lower() if exit_code == 0 else False
-        _repl_cache[demo_id] = (now, enabled)
-        return enabled
-    except Exception:
-        return None
+        if status != "applied":
+            return False
+    return True if saw else None
+
+
+def clear_replication_edge_cache(demo_id: str | None = None, edge_id: str | None = None) -> None:
+    """Invalidate cached per-edge replication status after pause/activate."""
+    if edge_id:
+        _repl_edge_cache.pop(edge_id, None)
+        return
+    if demo_id:
+        prefix = demo_id
+        for key in list(_repl_edge_cache):
+            if prefix in key:
+                _repl_edge_cache.pop(key, None)
+        return
+    _repl_edge_cache.clear()
 
 
 def _build_replication_state_cmd(
@@ -218,7 +384,14 @@ def _expand_demo_for_edges(demo):
     from ...models.demo import DemoNode, DemoEdge, NodePosition
     demo = demo.model_copy(deep=True)
     for cluster in demo.clusters:
-        generated_ids = [f"{cluster.id}-node-{i}" for i in range(1, cluster.node_count + 1)]
+        pools = cluster.get_pools()
+        pool = pools[0] if pools else None
+        if pool:
+            generated_ids = [
+                f"{cluster.id}-pool1-node-{i}" for i in range(1, pool.node_count + 1)
+            ]
+        else:
+            generated_ids = [f"{cluster.id}-node-{i}" for i in range(1, cluster.node_count + 1)]
         lb_node_id = f"{cluster.id}-lb"
         # Add synthetic nodes
         for i, node_id in enumerate(generated_ids):

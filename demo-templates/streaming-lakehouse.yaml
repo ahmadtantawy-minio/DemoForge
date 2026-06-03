@@ -141,7 +141,7 @@ edges:
   auto_configure: true
   label: S3 Sink
   connection_config:
-    sink_bucket: streaming-data
+    bucket: streaming-data
 - id: e-trino-minio
   source: trino-1
   target: minio-1

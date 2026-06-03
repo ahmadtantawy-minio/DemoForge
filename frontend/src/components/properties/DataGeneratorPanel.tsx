@@ -70,6 +70,10 @@ const DG_FORMATS = [
   { id: "kafka", name: "Kafka (streaming)" },
 ] as const;
 
+export function shouldShowKafkaTunables(format: string): boolean {
+  return format === "kafka";
+}
+
 function rowsPerSec(scenario: string, profile: string): string {
   const s = DG_SCENARIOS.find((x) => x.id === scenario);
   if (!s) return "";
@@ -100,6 +104,10 @@ export function DataGeneratorPanel({
   const writeMode = config["DG_WRITE_MODE"] ?? "iceberg";
   const format = config["DG_FORMAT"] ?? "parquet";
   const rateProfile = config["DG_RATE_PROFILE"] ?? "medium";
+  const nullRatePct = config["DG_NULL_RATE_PCT"] ?? "0";
+  const duplicateRatePct = config["DG_DUPLICATE_RATE_PCT"] ?? "0";
+  const lateEventRatePct = config["DG_LATE_EVENT_RATE_PCT"] ?? "0";
+  const maxLatenessSec = config["DG_MAX_LATENESS_SEC"] ?? "300";
 
   const scenarioMeta = DG_SCENARIOS.find((s) => s.id === scenario);
 
@@ -257,6 +265,62 @@ export function DataGeneratorPanel({
         </div>
         <p className="text-[10px] text-muted-foreground mt-1">{rowsPerSec(scenario, rateProfile)}</p>
       </div>
+
+      {/* Kafka-only data tunables */}
+      {shouldShowKafkaTunables(format) && (
+        <div className="mb-3 pt-3 border-t border-border">
+          <label className="text-xs text-muted-foreground block mb-2">Kafka Data Tunables</label>
+          <div className="space-y-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Null Rate %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={nullRatePct}
+                onChange={(e) => updateConfig("DG_NULL_RATE_PCT", e.target.value)}
+                className="w-full h-8 px-2 text-xs rounded border border-border bg-background"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Duplicate Rate %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={duplicateRatePct}
+                onChange={(e) => updateConfig("DG_DUPLICATE_RATE_PCT", e.target.value)}
+                className="w-full h-8 px-2 text-xs rounded border border-border bg-background"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Late Event Rate %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={lateEventRatePct}
+                onChange={(e) => updateConfig("DG_LATE_EVENT_RATE_PCT", e.target.value)}
+                className="w-full h-8 px-2 text-xs rounded border border-border bg-background"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1">Max Lateness (sec)</label>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={maxLatenessSec}
+                onChange={(e) => updateConfig("DG_MAX_LATENESS_SEC", e.target.value)}
+                className="w-full h-8 px-2 text-xs rounded border border-border bg-background"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Live status — only show when demo is running */}
       {isRunning && genStatus && (

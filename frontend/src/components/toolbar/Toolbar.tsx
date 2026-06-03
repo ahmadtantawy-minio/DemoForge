@@ -71,8 +71,7 @@ export default function Toolbar() {
         const res = await fetchInstances(activeDemoId);
         setInstances(res.instances);
         if (res.cluster_health) setClusterHealth(res.cluster_health);
-        const { updateNodeHealth } = useDiagramStore.getState();
-        for (const inst of res.instances) updateNodeHealth(inst.node_id, inst.health);
+        useDiagramStore.getState().syncInstancesHealth(res.instances);
       } catch {
         // Destroyed / not in runtime state — clear canvas badges; demo list still refreshes below.
         setInstances([]);

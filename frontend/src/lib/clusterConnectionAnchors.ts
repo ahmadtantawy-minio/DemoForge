@@ -1,4 +1,4 @@
-import type { Edge, Node } from "@xyflow/react";
+import type { Connection, Edge, Node } from "@xyflow/react";
 
 export const CLUSTER_EDGE_TYPES = new Set([
   "cluster-replication",
@@ -31,11 +31,13 @@ export function sanitizeClusterEdgeHandlesForReactFlow(
   connectionType: string,
   conn: { source: string; target: string },
   nodes: Node[],
-  handles: { sourceHandle?: string; targetHandle?: string }
+  handles: { sourceHandle?: string; targetHandle?: string },
 ): { sourceHandle?: string; targetHandle?: string } {
-  if (!CLUSTER_EDGE_TYPES.has(connectionType)) return handles;
   const src = nodes.find((n) => n.id === conn.source);
   const tgt = nodes.find((n) => n.id === conn.target);
+  const involvesCluster = src?.type === "cluster" || tgt?.type === "cluster";
+  if (!involvesCluster) return handles;
+
   let sourceHandle = handles.sourceHandle;
   let targetHandle = handles.targetHandle;
   const bothCluster = src?.type === "cluster" && tgt?.type === "cluster";
@@ -44,19 +46,31 @@ export function sanitizeClusterEdgeHandlesForReactFlow(
     canonicalHandlesForClusterEdge(
       connectionType,
       { source: conn.source, target: conn.target, sourceHandle: null, targetHandle: null },
-      nodes
+      nodes,
     );
 
+  if (CLUSTER_EDGE_TYPES.has(connectionType) && bothCluster) {
+    if (src?.type === "cluster") {
+      if (!sourceHandle || !CLUSTER_SOURCE_HANDLE_IDS.has(sourceHandle)) {
+        sourceHandle = canon().sourceHandle;
+      }
+    }
+    if (tgt?.type === "cluster") {
+      if (!targetHandle || !CLUSTER_TARGET_HANDLE_IDS.has(targetHandle)) {
+        targetHandle = canon().targetHandle;
+      }
+    }
+    return { sourceHandle, targetHandle };
+  }
+
   if (src?.type === "cluster") {
-    if (!sourceHandle || !CLUSTER_SOURCE_HANDLE_IDS.has(sourceHandle)) {
-      const c = canon();
-      sourceHandle = bothCluster ? c.sourceHandle : "data-out";
+    if (!sourceHandle || CLUSTER_TARGET_HANDLE_IDS.has(sourceHandle) || !CLUSTER_SOURCE_HANDLE_IDS.has(sourceHandle)) {
+      sourceHandle = "data-out";
     }
   }
   if (tgt?.type === "cluster") {
-    if (!targetHandle || !CLUSTER_TARGET_HANDLE_IDS.has(targetHandle)) {
-      const c = canon();
-      targetHandle = bothCluster ? c.targetHandle : "data-in";
+    if (!targetHandle || CLUSTER_SOURCE_HANDLE_IDS.has(targetHandle) || !CLUSTER_TARGET_HANDLE_IDS.has(targetHandle)) {
+      targetHandle = "data-in";
     }
   }
 
@@ -75,11 +89,88 @@ export function sanitizeClusterEdgeHandlesForReactFlow(
       sourceHandle &&
       (CLUSTER_TARGET_HANDLE_IDS.has(sourceHandle) || CLUSTER_SOURCE_HANDLE_IDS.has(sourceHandle))
     ) {
-      sourceHandle = cid === "minio" ? "bottom-out" : undefined;
+      sourceHandle = undefined;
+      if (cid === "minio") {
+        sourceHandle = "bottom-out";
+      }
+    }
+    if (!sourceHandle || CLUSTER_TARGET_HANDLE_IDS.has(sourceHandle)) {
+      sourceHandle = undefined;
     }
   }
 
   return { sourceHandle, targetHandle };
+}
+
+/**
+ * When a wire starts on a cluster target handle (e.g. data-in) but React Flow marks the cluster
+ * as source, swap endpoints so handles match source/target roles.
+ */
+export function normalizeClusterComponentConnection(
+  connection: Connection,
+  nodes: Node[],
+): Connection {
+  const src = nodes.find((n) => n.id === connection.source);
+  const tgt = nodes.find((n) => n.id === connection.target);
+  if (!src || !tgt) return connection;
+
+  const sourceHandle = connection.sourceHandle ?? null;
+  const targetHandle = connection.targetHandle ?? null;
+
+  if (
+    src.type === "cluster" &&
+    sourceHandle &&
+    CLUSTER_TARGET_HANDLE_IDS.has(sourceHandle) &&
+    tgt.type === "component"
+  ) {
+    return {
+      ...connection,
+      source: connection.target,
+      target: connection.source,
+      sourceHandle: targetHandle,
+      targetHandle: sourceHandle,
+    };
+  }
+
+  if (
+    tgt.type === "cluster" &&
+    targetHandle &&
+    CLUSTER_SOURCE_HANDLE_IDS.has(targetHandle) &&
+    src.type === "component"
+  ) {
+    return {
+      ...connection,
+      source: connection.target,
+      target: connection.source,
+      sourceHandle: targetHandle,
+      targetHandle: sourceHandle,
+    };
+  }
+
+  return connection;
+}
+
+/** Normalize cluster↔component polarity, then assign valid handle ids for React Flow. */
+export function prepareConnectionForReactFlow(
+  connection: Connection,
+  nodes: Node[],
+  connectionType: string,
+): Connection {
+  const norm = normalizeClusterComponentConnection(connection, nodes);
+  const h = sanitizeClusterEdgeHandlesForReactFlow(
+    connectionType,
+    { source: norm.source!, target: norm.target! },
+    nodes,
+    {
+      sourceHandle: norm.sourceHandle ?? undefined,
+      targetHandle: norm.targetHandle ?? undefined,
+    },
+  );
+  return {
+    ...norm,
+    sourceHandle: h.sourceHandle ?? null,
+    targetHandle: h.targetHandle ?? null,
+  };
 }
 
 /**

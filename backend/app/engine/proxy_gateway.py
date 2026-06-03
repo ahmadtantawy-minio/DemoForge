@@ -32,10 +32,15 @@ _STRIP_PROXY_HEADERS_TO_UPSTREAM = frozenset({
 def get_http_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None:
+        # trust_env=False: OrbStack/Docker Desktop inject NO_PROXY with IPv6 CIDRs
+        # (e.g. fd07:b51a:cc66:f0::/64). httpx parses each entry as a URL and raises
+        # InvalidURL on the bare address, breaking GET /api/demos/{id}/instances.
+        # This client only talks to demo containers on the Docker network — no proxy.
         _http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=5.0),
             follow_redirects=False,          # We handle redirects ourselves
             limits=httpx.Limits(max_connections=100),
+            trust_env=False,
         )
     return _http_client
 
@@ -177,10 +182,10 @@ async def forward_request(
     # For HTML responses, inject a <base> tag so relative asset paths resolve through proxy
     if "text/html" in content_type:
         node_proxy_root = f"/proxy/{demo_id}/{node_id}/"
-        # MinIO Console navigates with relative "console/..." segments. If <base> ends in
-        # .../console/, the browser resolves console/browser → .../console/console/browser.
+        # MinIO Console HTML uses relative ./static/... assets under /console/. <base> must end
+        # in .../console/ so those resolve; SPA nav duplicates are fixed in _inject_base_tag.
         if ui_name == "console":
-            base_path = node_proxy_root
+            base_path = f"{proxy_prefix}/"
         elif subpath:
             subdir = "/".join(subpath.split("/")[:-1])
             base_path = f"{proxy_prefix}/{subdir}/" if subdir else f"{proxy_prefix}/"
@@ -410,22 +415,10 @@ def _inject_base_tag(
         f'</script>'
     )
 
-    inject = base_tag + fetch_interceptor
-
-    # Insert after <head> if present
-    if "<head>" in html:
-        html = html.replace("<head>", f"<head>{inject}", 1)
-    elif "<HEAD>" in html:
-        html = html.replace("<HEAD>", f"<HEAD>{inject}", 1)
-    elif "<html" in html.lower():
-        # Fallback: insert at the start of body or after first tag
-        html = base_tag + html
-    else:
-        return content
-
     # Rewrite absolute paths in HTML attributes (href, src, action) so that
     # <link>, <script>, <img> etc. with hardcoded /static/... paths are proxied.
-    # Skip protocol-relative URLs (//) and paths already going through the proxy.
+    # Must run before injecting <base href> — otherwise the rewriter matches the
+    # injected base tag and double-prefixes (e.g. MinIO console under /console/).
     if proxy_base:
         def _rewrite_attr(m: re.Match) -> str:
             attr, quote, path = m.group(1), m.group(2), m.group(3)
@@ -439,5 +432,18 @@ def _inject_base_tag(
             _rewrite_attr,
             html,
         )
+
+    inject = base_tag + fetch_interceptor
+
+    # Insert after <head> if present
+    if "<head>" in html:
+        html = html.replace("<head>", f"<head>{inject}", 1)
+    elif "<HEAD>" in html:
+        html = html.replace("<HEAD>", f"<HEAD>{inject}", 1)
+    elif "<html" in html.lower():
+        # Fallback: insert at the start of body or after first tag
+        html = base_tag + html
+    else:
+        return content
 
     return html.encode("utf-8")

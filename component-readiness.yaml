@@ -10,8 +10,8 @@ components:
   nginx:
     fa_ready: true
   redpanda:
-    fa_ready: false
-    updated_at: '2026-04-03T03:37:00.948673+00:00'
+    fa_ready: true
+    updated_at: '2026-06-02T13:02:48.215882+00:00'
   clickhouse:
     fa_ready: false
     updated_at: '2026-04-13T06:01:03.190074+00:00'
@@ -64,8 +64,8 @@ components:
   data-generator:
     fa_ready: true
   redpanda-console:
-    fa_ready: false
-    updated_at: '2026-04-03T03:37:01.561799+00:00'
+    fa_ready: true
+    updated_at: '2026-06-02T13:02:48.753364+00:00'
   inference-sim:
     fa_ready: true
   inference-client:
@@ -89,7 +89,8 @@ components:
   label-studio:
     fa_ready: false
   kafka-connect-s3:
-    fa_ready: false
+    fa_ready: true
+    updated_at: '2026-06-02T13:01:53.148008+00:00'
   resilience-tester:
     fa_ready: true
     updated_at: '2026-04-03T03:36:45.560576+00:00'

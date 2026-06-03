@@ -22,6 +22,10 @@ environment:
   DG_BATCH_SIZE: '10'
   DG_SCENARIO: ecommerce-orders
   DG_RATE_PROFILE: medium
+  DG_NULL_RATE_PCT: '0'
+  DG_DUPLICATE_RATE_PCT: '0'
+  DG_LATE_EVENT_RATE_PCT: '0'
+  DG_MAX_LATENESS_SEC: '300'
   PARTITION_BY_DATE: 'true'
   KAFKA_BOOTSTRAP_SERVERS: ''
   KAFKA_TOPIC: ''
@@ -106,3 +110,25 @@ variants:
 template_mounts: []
 static_mounts: []
 init_scripts: []
+properties:
+  - key: DG_PARQUET_COMPRESSION
+    label: Parquet compression
+    type: select
+    options:
+      - snappy
+      - none
+      - zstd
+      - gzip
+      - lz4
+      - brotli
+    default: snappy
+    description: >-
+      Codec for Parquet files written by this generator (component-level).
+      Default snappy matches existing demos; use none for uncompressed Parquet.
+  - key: DG_DEFAULT_TARGET_BUCKET
+    label: Default target bucket
+    type: string
+    default: ""
+    description: >-
+      Used when an outgoing S3 edge has no target_bucket. Leave empty to use
+      the scenario bucket name (existing behavior).

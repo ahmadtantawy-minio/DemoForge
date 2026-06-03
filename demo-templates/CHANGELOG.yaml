@@ -10,6 +10,15 @@
 #     changed_by: <email>
 
 entries:
+  # ── AIStor Compression Benchmark ─────────────────────────────────────
+  - template_id: aistor-compression-benchmark
+    date: "2026-05-20"
+    summary: >-
+      New template — dual 4×4 AIStor clusters (EC 8:3), multi-sink Parquet ingest
+      (parquet-raw / parquet-server / parquet-snappy) with component-level compression
+      tunables and cockpit footprint comparison.
+    changed_by: ahmad.tantawy@min.io
+
   # ── Active-Active Replication ────────────────────────────────────────
   - template_id: active-active-replication
     date: "2026-04-13"

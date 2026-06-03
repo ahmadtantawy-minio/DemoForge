@@ -26,6 +26,7 @@ router = APIRouter()
 
 SPARK_RUN_LOG_PATH = "/tmp/demoforge-spark-runs.ndjson"
 SPARK_SUBMIT_LOG_PATH = "/tmp/demoforge-spark-submit-last.log"
+SPARK_ON_DEMAND_RUNNER = "/opt/demoforge/df-run-spark-submit.sh"
 
 _SPARK_JOB_SCRIPTS: dict[str, str] = {
     "raw_to_iceberg": "csv_glob_to_iceberg.py",
@@ -129,6 +130,12 @@ class SparkEtlJobRunsResponse(BaseModel):
     message: str = ""
     last_finished_exit_code: int | None = None
     last_finished_success: bool | None = None
+
+
+class SparkEtlJobRunTriggerResponse(BaseModel):
+    ok: bool
+    status: str = Field(description="started | already_running")
+    message: str = ""
 
 
 def _spark_run_record_from_ndjson(obj: dict[str, Any]) -> SparkEtlJobRunRecord:
@@ -240,6 +247,60 @@ async def spark_etl_job_preview(demo_id: str, node_id: str):
         environment=masked,
         job_schedule=job_schedule,
         job_template=tpl,
+    )
+
+
+@router.post(
+    "/api/demos/{demo_id}/instances/{node_id}/spark-etl-job/run",
+    response_model=SparkEtlJobRunTriggerResponse,
+)
+async def spark_etl_job_run(demo_id: str, node_id: str):
+    """Trigger one spark-submit in the job container (on-demand / manual schedule, or re-run anytime)."""
+    demo = _load_demo(demo_id)
+    if not demo:
+        raise HTTPException(404, "Demo not found")
+    node = next((n for n in demo.nodes if n.id == node_id), None)
+    if not node or node.component != "spark-etl-job":
+        raise HTTPException(404, "Not an Apache Spark job node")
+
+    running = state.get_demo(demo_id)
+    if not running or node_id not in running.containers:
+        raise HTTPException(409, "Demo is not running or this node has no container.")
+
+    container_name = running.containers[node_id].container_name
+    inner = (
+        f"test -x {SPARK_ON_DEMAND_RUNNER} || exit 127; "
+        f"{SPARK_ON_DEMAND_RUNNER} --background"
+    )
+    cmd = f"sh -c {shlex.quote(inner)}"
+    try:
+        exit_code, stdout, stderr = await exec_in_container(container_name, cmd)
+    except Exception as e:
+        logger.warning("spark-etl-job run trigger failed: %s", e)
+        raise HTTPException(500, f"Could not trigger spark-submit: {e}") from e
+
+    out = ((stdout or "") + (stderr or "")).strip()
+    if exit_code == 127:
+        raise HTTPException(
+            503,
+            "On-demand runner missing in this image. Rebuild demoforge/spark-etl-job and redeploy the demo.",
+        )
+    if exit_code == 2:
+        return SparkEtlJobRunTriggerResponse(
+            ok=False,
+            status="already_running",
+            message=out or "Another spark-submit is already running in this container.",
+        )
+    if exit_code != 0:
+        raise HTTPException(
+            500,
+            f"Could not start spark-submit (exit {exit_code}): {(out or stderr or 'unknown error')[:500]}",
+        )
+
+    return SparkEtlJobRunTriggerResponse(
+        ok=True,
+        status="started",
+        message=out or "spark-submit started in background",
     )
 
 

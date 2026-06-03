@@ -463,10 +463,14 @@ make seed-licenses  # Seed licenses to GCS
 
 ## Cost Estimate (GCP Hub)
 
-| Component | Monthly |
-|---|---|
-| Cloud Run gateway (1 min instance) | ~$3–5 |
-| Cloud Run hub-api (1 min instance) | ~$3–5 |
-| GCS bucket (templates + licenses + SQLite replica) | ~$1–2 |
-| Egress | ~$1–3 |
-| **Total** | **~$8–15** |
+Cloud Run defaults to **scale-to-zero** (`CLOUD_RUN_MIN_INSTANCES=0` in `scripts/minio-gcp.sh`). Set `CLOUD_RUN_MIN_INSTANCES=1` in `.env.hub` or the environment before `make hub-deploy` for always-warm services (faster first request, ~$3–5/mo per service).
+
+| Component | Monthly (scale-to-zero) | Monthly (min-instances=1) |
+|---|---|---|
+| Cloud Run gateway | ~$0–2 (request-based) | ~$3–5 |
+| Cloud Run hub-api | ~$0–2 (request-based) | ~$3–5 |
+| GCS bucket (templates + licenses + SQLite replica) | ~$1–2 | ~$1–2 |
+| Egress | ~$1–3 | ~$1–3 |
+| **Total** | **~$2–7** | **~$8–15** |
+
+First hub request after idle may take 10–30 seconds while Cloud Run cold-starts and hub-api restores SQLite from Litestream.

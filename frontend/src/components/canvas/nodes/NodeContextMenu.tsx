@@ -10,6 +10,7 @@ import {
   stopGenerator,
   fetchExternalSystemOnDemandMeta,
   triggerExternalSystemOnDemand,
+  triggerSparkEtlJobRun,
 } from "../../../api/client";
 import { useDiagramStore } from "../../../stores/diagramStore";
 import { apiUrl } from "../../../lib/apiBase";
@@ -275,6 +276,39 @@ export default function NodeContextMenu({
             }}
           >
             Setup Dashboards
+          </button>
+        </>
+      )}
+      {componentId === "spark-etl-job" &&
+        isRunning &&
+        instance &&
+        instance.health !== "stopped" &&
+        instance.health !== "error" && (
+        <>
+          <div className="border-t border-border my-1" />
+          <button
+            className="w-full text-left px-3 py-1.5 text-sm text-orange-400 hover:bg-orange-500/10 transition-colors"
+            onClick={() => {
+              toast.info("Starting Spark job…");
+              triggerSparkEtlJobRun(demoId, nodeId)
+                .then((r) => {
+                  if (r.status === "already_running") {
+                    toast.warning("Spark job already running", { description: r.message });
+                  } else {
+                    toast.success("Spark job started", {
+                      description: "Open Job run history to track progress.",
+                    });
+                  }
+                })
+                .catch((err: unknown) =>
+                  toast.error("Spark job failed to start", {
+                    description: err instanceof Error ? err.message : String(err),
+                  })
+                );
+              onClose();
+            }}
+          >
+            Run Spark job now
           </button>
         </>
       )}

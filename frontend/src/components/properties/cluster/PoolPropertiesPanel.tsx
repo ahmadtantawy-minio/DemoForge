@@ -16,6 +16,11 @@ import {
   clampParityToValidStripe,
   minioDefaultStandardParity,
   formatMinioEcStripeShort,
+  MINIO_POOL_NODE_COUNT_OPTIONS,
+  minDrivesPerNodeForEc,
+  drivesPerNodeOptionsForPool,
+  MINIO_POOL_DISK_SIZE_TB_OPTIONS,
+  formatDiskSizeTbLabel,
 } from "../../../lib/erasure";
 
 interface Props {
@@ -64,7 +69,7 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
           value={String(nodeCount)}
           onValueChange={(v) => {
             const newNodeCount = parseInt(v, 10);
-            const minDrives = newNodeCount === 2 ? 2 : 1;
+            const minDrives = minDrivesPerNodeForEc(newNodeCount);
             const newDrivesPerNode = Math.max(drivesPerNode, minDrives);
             const newTotal = newNodeCount * newDrivesPerNode;
             const keepStripe =
@@ -89,11 +94,11 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="2">2 nodes</SelectItem>
-            <SelectItem value="4">4 nodes</SelectItem>
-            <SelectItem value="6">6 nodes</SelectItem>
-            <SelectItem value="8">8 nodes</SelectItem>
-            <SelectItem value="16">16 nodes</SelectItem>
+            {MINIO_POOL_NODE_COUNT_OPTIONS.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n} nodes
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -126,13 +131,11 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {nodeCount > 2 && <SelectItem value="1">1 drive</SelectItem>}
-            <SelectItem value="2">2 drives</SelectItem>
-            <SelectItem value="4">4 drives</SelectItem>
-            <SelectItem value="6">6 drives</SelectItem>
-            <SelectItem value="8">8 drives</SelectItem>
-            <SelectItem value="12">12 drives</SelectItem>
-            <SelectItem value="16">16 drives</SelectItem>
+            {drivesPerNodeOptionsForPool(nodeCount).map((d) => (
+              <SelectItem key={d} value={String(d)}>
+                {d} drive{d !== 1 ? "s" : ""}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <p className="text-[10px] text-muted-foreground mt-0.5">
@@ -212,15 +215,15 @@ export default function PoolPropertiesPanel({ pool, poolIndex, totalPools, onUpd
         <label className="text-xs text-muted-foreground block mb-1">Disk size per node</label>
         <Select
           value={String(pool.diskSizeTb ?? 1)}
-          onValueChange={(v) => onUpdate({ diskSizeTb: parseInt(v) })}
+          onValueChange={(v) => onUpdate({ diskSizeTb: parseFloat(v) })}
         >
           <SelectTrigger className="w-full h-8 text-sm">
-            <SelectValue />
+            <SelectValue>{formatDiskSizeTbLabel(pool.diskSizeTb ?? 1)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {[1, 2, 4, 8, 16, 32].map((n) => (
+            {MINIO_POOL_DISK_SIZE_TB_OPTIONS.map((n) => (
               <SelectItem key={n} value={String(n)}>
-                {n} TB
+                {formatDiskSizeTbLabel(n)}
               </SelectItem>
             ))}
           </SelectContent>

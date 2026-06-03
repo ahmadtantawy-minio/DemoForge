@@ -57,7 +57,7 @@ class DemoServerPool(BaseModel):
     id: str = "pool-1"
     node_count: int = 4
     drives_per_node: int = 4
-    disk_size_tb: int = 1
+    disk_size_tb: float = 1.0
     disk_type: str = "nvme"             # "nvme" | "ssd" | "hdd" — display only
     ec_parity: int = 3
     ec_parity_upgrade_policy: str = "upgrade"
@@ -72,8 +72,8 @@ class DemoCluster(BaseModel):
     component: str = "minio"          # "minio" (CE or AIStor edition via config)
     label: str = "MinIO Cluster"
     position: NodePosition
-    node_count: int = 4               # Valid values: 4, 6, 8, 16
-    drives_per_node: int = 4          # Valid values: 1, 4, 6, 8, 12, 16
+    node_count: int = 4               # Typical: 2, 3, 4, 6, 8, 16 (see pool UI)
+    drives_per_node: int = 4          # Must satisfy node_count * drives_per_node >= 4 for EC
     credentials: dict[str, str] = {}  # root_user, root_password
     config: dict[str, str] = {}
     width: float = 280
@@ -82,7 +82,7 @@ class DemoCluster(BaseModel):
     aistor_tables_enabled: bool = False  # Enable AIStor Tables (direct Trino connection)
     ec_parity: int = 3                         # EC parity shards (EC:N)
     ec_parity_upgrade_policy: str = "upgrade"  # "upgrade" or "ignore"
-    disk_size_tb: int = 1                      # Planning display only, not used in containers
+    disk_size_tb: float = 1.0                      # Planning display only, not used in containers
     server_pools: list[DemoServerPool] = []
     # Runtime UX: per-pool lifecycle (idle | decommissioning | decommissioned), persisted in demo YAML
     pool_lifecycle: dict[str, str] = {}
@@ -203,5 +203,6 @@ class DemoDefinition(BaseModel):
     deploy_timeout_seconds: int | None = None  # None = use global default (180s)
     created_at: str | None = None   # ISO-8601 UTC — set once on create
     updated_at: str | None = None   # ISO-8601 UTC — refreshed on every save
+    last_accessed_at: str | None = None  # ISO-8601 UTC — refreshed when demo is opened
     source_template_id: str | None = None  # template this demo was created from
     presentation: DemoPresentation | None = None  # intro/outro slides; not part of diagram save

@@ -31,12 +31,13 @@ export default function SparkJobCodeDialog({ open, onOpenChange, demoId, nodeId 
       .finally(() => setLoading(false));
   }, [open, demoId, nodeId]);
 
+  const sched = data?.job_schedule === "manual" ? "on_demand" : data?.job_schedule;
   const scheduleNote =
-    data?.job_schedule === "manual"
-      ? "JOB_SCHEDULE=manual: the container stays idle until you run spark-submit yourself (Open Terminal). No automatic run history."
-      : data?.job_schedule === "interval"
-        ? "JOB_SCHEDULE=interval: spark-submit repeats every JOB_INTERVAL_SEC; each run is logged below in Run history."
-        : "JOB_SCHEDULE=on_deploy_once: one spark-submit at container start, then the process stays up for logs.";
+    sched === "on_demand"
+      ? "JOB_SCHEDULE=on_demand: the container stays idle until you use Run Spark job now (context menu or Run history). Each run is logged in Job run history."
+      : sched === "interval"
+        ? "JOB_SCHEDULE=interval: spark-submit repeats every JOB_INTERVAL_SEC; each run is logged in Job run history."
+        : "JOB_SCHEDULE=on_deploy_once: one spark-submit at container start. Use Run Spark job now to run again without redeploying.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

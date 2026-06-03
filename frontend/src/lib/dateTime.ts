@@ -35,3 +35,35 @@ export function formatUpdatedLabel(iso: string | null | undefined): string {
   const local = formatLocalDateTime(iso);
   return rel ? `Updated ${rel} · ${local}` : `Updated ${local}`;
 }
+
+/** Label for demo list rows: prefers last opened when newer than last save. */
+export function formatDemoActivityLabel(
+  updatedAt?: string | null,
+  lastAccessedAt?: string | null,
+): string {
+  const updatedMs = updatedAt ? new Date(updatedAt).getTime() : 0;
+  const accessedMs = lastAccessedAt ? new Date(lastAccessedAt).getTime() : 0;
+  const useAccess = accessedMs > 0 && accessedMs >= updatedMs;
+  const iso = useAccess ? lastAccessedAt : updatedAt;
+  if (!iso) return "Never opened";
+  const rel = timeAgo(iso);
+  const local = formatLocalDateTime(iso);
+  const verb = useAccess ? "Opened" : "Updated";
+  return rel ? `${verb} ${rel} · ${local}` : `${verb} ${local}`;
+}
+
+export function demoActivityMs(d: {
+  updated_at?: string | null;
+  last_accessed_at?: string | null;
+}): number {
+  const updated = d.updated_at ? new Date(d.updated_at).getTime() : 0;
+  const accessed = d.last_accessed_at ? new Date(d.last_accessed_at).getTime() : 0;
+  return Math.max(updated, accessed);
+}
+
+export function sortDemosByActivity<T extends {
+  updated_at?: string | null;
+  last_accessed_at?: string | null;
+}>(demos: T[]): T[] {
+  return [...demos].sort((a, b) => demoActivityMs(b) - demoActivityMs(a));
+}

@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useDemoStore } from "../../stores/demoStore";
-import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo, exportDemo, importDemo } from "../../api/client";
+import { createDemo, fetchDemos, deployDemo, stopDemo, deleteDemo, exportDemo, importDemo, touchDemo } from "../../api/client";
 import { toast } from "../../lib/toast";
+import { formatDemoActivityLabel, sortDemosByActivity } from "../../lib/dateTime";
 import { usePermissions } from "../../hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,7 +67,21 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
     }
   }, [open]);
 
+  const sortedDemos = useMemo(() => sortDemosByActivity(demos), [demos]);
+
+  const recordAccessAndRefresh = async (demoId: string) => {
+    try {
+      const touched = await touchDemo(demoId);
+      setDemos(sortDemosByActivity(
+        demos.map((d) => (d.id === demoId ? { ...d, ...touched } : d)),
+      ));
+    } catch {
+      /* non-fatal */
+    }
+  };
+
   const handleSelect = (demoId: string) => {
+    void recordAccessAndRefresh(demoId);
     setActiveDemoId(demoId);
     setActiveView("diagram");
     onOpenChange(false);
@@ -90,6 +105,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
   };
 
   const handleCreateFromTemplate = (demoId: string) => {
+    void recordAccessAndRefresh(demoId);
     fetchDemos().then((res) => setDemos(res.demos)).catch(() => {});
     setActiveDemoId(demoId);
     setActiveView("diagram");
@@ -237,7 +253,7 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-2 py-2">
-                    {demos.map((demo) => (
+                    {sortedDemos.map((demo) => (
                       <button
                         key={demo.id}
                         onClick={() => handleSelect(demo.id)}
@@ -262,9 +278,17 @@ export default function DemoSelectorModal({ open, onOpenChange }: Props) {
                             {demo.description && (
                               <p className="text-xs text-muted-foreground mt-0.5 truncate">{demo.description}</p>
                             )}
-                            <div className="flex items-center gap-3 text-[10px] text-zinc-500 mt-1">
+                            <div className="flex items-center gap-3 text-[10px] text-zinc-500 mt-1 flex-wrap">
                               <span>{demo.node_count} node{demo.node_count !== 1 ? "s" : ""}</span>
                               <span className="font-mono">{demo.id}</span>
+                              {(demo.updated_at || demo.last_accessed_at) && (
+                                <span
+                                  className="text-muted-foreground truncate max-w-[min(100%,280px)]"
+                                  title={formatDemoActivityLabel(demo.updated_at, demo.last_accessed_at)}
+                                >
+                                  {formatDemoActivityLabel(demo.updated_at, demo.last_accessed_at)}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>

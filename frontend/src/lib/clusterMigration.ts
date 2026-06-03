@@ -30,10 +30,14 @@ export function normalizeClusterPoolsEc(data: ClusterNodeData): ClusterNodeData 
     }
     return { ...p, ecParity: clamped };
   });
+  const p0 = nextPools[0];
   return {
     ...data,
     serverPools: nextPools,
-    ecParity: nextPools[0].ecParity,
+    ecParity: p0.ecParity,
+    nodeCount: p0.nodeCount,
+    drivesPerNode: p0.drivesPerNode,
+    diskSizeTb: p0.diskSizeTb,
   };
 }
 

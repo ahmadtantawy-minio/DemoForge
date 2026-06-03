@@ -88,3 +88,24 @@ static_mounts:
     mount_path: "/scenarios"
 
 health_check: null
+properties:
+  - key: DG_PARQUET_COMPRESSION
+    label: Parquet compression
+    type: select
+    options:
+      - snappy
+      - none
+      - zstd
+      - gzip
+      - lz4
+      - brotli
+    default: snappy
+    description: >-
+      Codec when this node runs a Data Generator scenario in Parquet mode.
+      Default snappy preserves behavior for existing demos.
+  - key: DG_DEFAULT_TARGET_BUCKET
+    label: Default target bucket
+    type: string
+    default: ""
+    description: >-
+      Fallback bucket when an outgoing S3 edge has no target_bucket configured.

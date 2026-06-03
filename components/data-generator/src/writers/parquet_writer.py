@@ -7,11 +7,30 @@ e.g. region=US-East/year=2026/month=03/day=24/<timestamp_ms>.parquet
 
 import io
 import datetime
+import os
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import boto3
 from botocore.exceptions import ClientError
+
+_PARQUET_COMPRESSION_ALIASES = {
+    "none": "none",
+    "uncompressed": "none",
+    "snappy": "snappy",
+    "zstd": "zstd",
+    "gzip": "gzip",
+    "lz4": "lz4",
+    "brotli": "brotli",
+}
+
+
+def resolve_parquet_compression() -> str | None:
+    """Component-level DG_PARQUET_COMPRESSION (default snappy — matches historical behavior)."""
+    raw = (os.environ.get("DG_PARQUET_COMPRESSION") or "snappy").strip().lower()
+    if raw in ("none", "uncompressed"):
+        return None
+    return _PARQUET_COMPRESSION_ALIASES.get(raw, "snappy")
 
 
 # PyArrow type mapping from scenario column type strings
@@ -94,6 +113,7 @@ def write_batch(
     s3_client,
     bucket: str,
     key_prefix: str = "",
+    compression: str | None = None,
 ) -> str:
     """
     Serialize rows to Parquet and upload to S3.
@@ -115,10 +135,11 @@ def write_batch(
     table = pa.table(arrays, schema=schema)
 
     buf = io.BytesIO()
+    codec = compression if compression is not None else resolve_parquet_compression()
     pq.write_table(
         table,
         buf,
-        compression="snappy",
+        compression=codec,
         row_group_size=min(len(rows), 10000),
         write_statistics=True,
     )

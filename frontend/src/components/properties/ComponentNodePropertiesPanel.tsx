@@ -417,16 +417,24 @@ export function ComponentNodePropertiesPanel({
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Schedule</label>
             <p className="text-[10px] text-muted-foreground/90 mb-1 leading-snug">
-              on_deploy_once runs spark-submit once after Spark is healthy. interval re-runs on a timer. manual idles the container for a narrated demo.
+              On deploy runs once at start. Interval repeats on a timer. On demand stays idle until you use{" "}
+              <span className="text-foreground/80">Run Spark job now</span> on the canvas (good for compaction demos).
             </p>
-            <Select value={data.config?.JOB_SCHEDULE ?? "on_deploy_once"} onValueChange={(v) => updateConfig("JOB_SCHEDULE", v)}>
+            <Select
+              value={
+                (data.config?.JOB_SCHEDULE ?? "on_deploy_once") === "manual"
+                  ? "on_demand"
+                  : (data.config?.JOB_SCHEDULE ?? "on_deploy_once")
+              }
+              onValueChange={(v) => updateConfig("JOB_SCHEDULE", v)}
+            >
               <SelectTrigger className="w-full h-8 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="on_deploy_once">On deploy (once)</SelectItem>
                 <SelectItem value="interval">Interval (repeat)</SelectItem>
-                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="on_demand">On demand</SelectItem>
               </SelectContent>
             </Select>
           </div>

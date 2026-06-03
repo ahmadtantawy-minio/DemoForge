@@ -142,6 +142,61 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
       </div>
 
       {isAIStor && (
+        <>
+        <div className="mb-3">
+          <label className="text-xs text-muted-foreground block mb-1">Server-side compression</label>
+          <Select
+            value={data.config?.MINIO_COMPRESSION_ENABLE === "on" ? "on" : "off"}
+            onValueChange={(v) =>
+              onUpdate({
+                config: { ...data.config, MINIO_COMPRESSION_ENABLE: v },
+              })
+            }
+          >
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off</SelectItem>
+              <SelectItem value="on">On</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-1 leading-snug">
+            Applies to every node in this cluster (AIStor transparent compression).
+          </p>
+        </div>
+        {data.config?.MINIO_COMPRESSION_ENABLE === "on" && (
+          <>
+            <div className="mb-3">
+              <label className="text-xs text-muted-foreground block mb-1">Compression extensions</label>
+              <Input
+                type="text"
+                placeholder=".parquet,.csv,.json"
+                value={data.config?.MINIO_COMPRESSION_EXTENSIONS ?? ""}
+                onChange={(e) =>
+                  onUpdate({
+                    config: { ...data.config, MINIO_COMPRESSION_EXTENSIONS: e.target.value },
+                  })
+                }
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+            <div className="mb-3">
+              <label className="text-xs text-muted-foreground block mb-1">Compression MIME types</label>
+              <Input
+                type="text"
+                placeholder="application/parquet,text/csv"
+                value={data.config?.MINIO_COMPRESSION_MIME_TYPES ?? ""}
+                onChange={(e) =>
+                  onUpdate({
+                    config: { ...data.config, MINIO_COMPRESSION_MIME_TYPES: e.target.value },
+                  })
+                }
+                className="h-8 text-sm font-mono"
+              />
+            </div>
+          </>
+        )}
         <div className="mb-3">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -156,9 +211,6 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
             )}
           </label>
         </div>
-      )}
-
-      {isAIStor && (
         <div className="mb-3">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -280,6 +332,7 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
             </div>
           )}
         </div>
+        </>
       )}
 
       {/* Aggregate Capacity & resilience info card */}

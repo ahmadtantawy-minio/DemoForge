@@ -4,7 +4,7 @@ import type { ContainerInstance, MinioServerPool } from "../../types";
 import ClusterPropertiesPanel from "./cluster/ClusterPropertiesPanel";
 import PoolPropertiesPanel from "./cluster/PoolPropertiesPanel";
 import NodePropertiesPanel from "./cluster/NodePropertiesPanel";
-import { migrateClusterData } from "../../lib/clusterMigration";
+import { migrateClusterData, normalizeClusterPoolsEc } from "../../lib/clusterMigration";
 import { clusterDataPatchAffectsCompose } from "../../lib/persistClusterTopology";
 
 interface ClusterPropertiesRouterProps {
@@ -43,7 +43,7 @@ export function ClusterPropertiesRouter({
   };
   const updatePool = (poolId: string, patch: Partial<MinioServerPool>) => {
     const newPools = pools.map((p) => (p.id === poolId ? { ...p, ...patch } : p));
-    updateCluster({ serverPools: newPools });
+    updateCluster(normalizeClusterPoolsEc({ ...cData, serverPools: newPools }));
   };
 
   const element = selectedClusterElement;

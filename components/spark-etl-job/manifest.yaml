@@ -12,7 +12,7 @@ resources:
   cpu: 0.75
 
 environment:
-  JOB_SCHEDULE: "on_deploy_once"
+  JOB_SCHEDULE: "on_deploy_once"  # on_deploy_once | interval | on_demand (alias: manual)
   JOB_INTERVAL_SEC: "300"
   JOB_TEMPLATE: "raw_to_iceberg"
   SPARK_MASTER_URL: ""
