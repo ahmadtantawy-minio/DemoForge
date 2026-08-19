@@ -20,12 +20,21 @@ def load_manifests(components_dir="components"):
             continue
         with open(manifest_path) as f:
             data = yaml.safe_load(f)
-        if data and data.get("image"):
+        if not data or not data.get("image"):
+            continue
+        manifests.append({
+            "component": name,
+            "image": data["image"],
+            "size_mb": data.get("image_size_mb"),
+            "build_context": data.get("build_context", ""),
+        })
+        for ref in data.get("image_extra_refs") or []:
+            tag = ref.rsplit(":", 1)[-1] if ":" in ref else ref.rsplit("/", 1)[-1]
             manifests.append({
-                "component": name,
-                "image": data["image"],
+                "component": f"{name} ({tag})",
+                "image": ref,
                 "size_mb": data.get("image_size_mb"),
-                "build_context": data.get("build_context", ""),
+                "build_context": "",
             })
     return manifests
 

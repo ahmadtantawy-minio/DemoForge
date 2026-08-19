@@ -15,6 +15,7 @@ from .compose_generator import generate_compose
 from .compose_generator.generate import MINIO_SUBNET_REGISTRATION_SKIP_ENV
 from .network_manager import join_network, leave_all_networks
 from ..registry.loader import get_component
+from .minio_images import MINIO_EDGE_IMAGE, minio_image_for_edition
 
 logger = logging.getLogger(__name__)
 docker_client = docker.from_env()
@@ -286,14 +287,33 @@ async def _build_custom_images(demo: DemoDefinition, components_dir: str, progre
     return len(built)
 
 
+def collect_demo_image_refs(demo: DemoDefinition) -> set[str]:
+    """Docker image refs required to deploy this demo (edition-aware for MinIO)."""
+    refs: set[str] = set()
+    for node in demo.nodes:
+        manifest = get_component(node.component)
+        if not manifest or not manifest.image:
+            continue
+        if node.component == "minio":
+            refs.add(minio_image_for_edition(node.config.get("MINIO_EDITION", "ce")))
+        else:
+            refs.add(manifest.image)
+    for cluster in demo.clusters or []:
+        if cluster.component != "minio":
+            continue
+        edition = (cluster.config or {}).get("MINIO_EDITION", "ce")
+        refs.add(minio_image_for_edition(edition))
+    if demo_includes_minio(demo):
+        refs.add(MINIO_EDGE_IMAGE)
+    return refs
+
+
 async def _pull_missing_images(demo: DemoDefinition, progress) -> int:
     """Pull any missing component images from GCR before compose up."""
     pulled: set[str] = set()
-    for node in demo.nodes:
-        manifest = get_component(node.component)
-        if not manifest or not manifest.image or manifest.image in pulled:
+    for image_ref in sorted(collect_demo_image_refs(demo)):
+        if image_ref in pulled:
             continue
-        image_ref = manifest.image
         try:
             docker_client.images.get(image_ref)
             continue  # already cached
