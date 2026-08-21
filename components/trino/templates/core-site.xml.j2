@@ -1,0 +1,35 @@
+{#- Minimal Hadoop client config so Trino Hive connector can reach DemoForge HDFS. -#}
+{%- set ns = namespace(hdfs='') %}
+{%- for edge in edges %}
+{%- if edge.connection_type == 'hdfs' %}
+{%- set hdfs_node = nodes | selectattr('id', 'equalto', edge.source) | selectattr('component', 'equalto', 'hdfs') | list %}
+{%- if not hdfs_node %}
+{%- set hdfs_node = nodes | selectattr('id', 'equalto', edge.target) | selectattr('component', 'equalto', 'hdfs') | list %}
+{%- endif %}
+{%- if hdfs_node %}
+{%- set ns.hdfs = project_name ~ '-' ~ hdfs_node[0].id %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{#- Also discover HDFS via hive-metastore → hdfs edges in the demo -#}
+{%- if not ns.hdfs %}
+{%- for n in nodes if n.component == 'hdfs' %}
+{%- set ns.hdfs = project_name ~ '-' ~ n.id %}
+{%- endfor %}
+{%- endif %}
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://{{ ns.hdfs or 'hdfs' }}:8020</value>
+  </property>
+  <property>
+    <name>dfs.client.use.datanode.hostname</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+</configuration>

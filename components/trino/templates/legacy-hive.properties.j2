@@ -1,0 +1,43 @@
+{#- Trino catalog for legacy Hive Metastore + HDFS warehouse.
+    Activated when this Trino node has a hive-metastore edge; otherwise memory stub. -#}
+{%- set ns = namespace(hms='', hdfs='', catalog='legacy') %}
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type == 'hive-metastore' %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node %}
+{%- set ns.hms = project_name ~ '-' ~ source_node.id %}
+{%- set cc = edge.connection_config or {} %}
+{%- set ns.catalog = cc.get('catalog_name') or 'legacy' %}
+{%- endif %}
+{%- elif edge.source == node.id and edge.connection_type == 'hive-metastore' %}
+{%- set target_node = nodes | selectattr('id', 'equalto', edge.target) | first %}
+{%- if target_node %}
+{%- set ns.hms = project_name ~ '-' ~ target_node.id %}
+{%- set cc = edge.connection_config or {} %}
+{%- set ns.catalog = cc.get('catalog_name') or 'legacy' %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- for edge in edges %}
+{%- if edge.connection_type == 'hdfs' %}
+{%- set hdfs_node = nodes | selectattr('id', 'equalto', edge.source) | selectattr('component', 'equalto', 'hdfs') | list %}
+{%- if not hdfs_node %}
+{%- set hdfs_node = nodes | selectattr('id', 'equalto', edge.target) | selectattr('component', 'equalto', 'hdfs') | list %}
+{%- endif %}
+{%- if hdfs_node %}
+{%- set ns.hdfs = project_name ~ '-' ~ hdfs_node[0].id %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- if ns.hms %}
+connector.name=hive
+hive.metastore.uri=thrift://{{ ns.hms }}:9083
+hive.non-managed-table-writes-enabled=true
+hive.non-managed-table-creates-enabled=true
+hive.allow-drop-table=true
+{%- if ns.hdfs %}
+hive.config.resources=/etc/trino/hdfs/core-site.xml
+{%- endif %}
+{%- else %}
+connector.name=memory
+{%- endif %}

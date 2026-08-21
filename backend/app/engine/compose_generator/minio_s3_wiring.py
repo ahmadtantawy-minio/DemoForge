@@ -22,6 +22,7 @@ S3_BUCKET_CONFIG_KEYS = (
     "milvus_bucket",
     "dag_bucket",
     "log_bucket",
+    "warehouse_bucket",
 )
 
 KAFKA_CONNECT_S3_DEFAULT_BUCKET = "streaming-data"

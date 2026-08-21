@@ -967,7 +967,7 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
                 # Volume added later after service_volumes is built
 
         # Auto-resolve S3 endpoint from s3/structured-data/file-push edges
-        s3_edge_types = ("s3", "structured-data", "file-push", "aistor-tables")
+        s3_edge_types = ("s3", "structured-data", "file-push", "aistor-tables", "s3-queue")
         for edge in demo.edges:
             # event-processor: S3/Iceberg/credentials come from the dedicated block (external-system parity)
             if node.component == "event-processor":
@@ -1008,6 +1008,21 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
             if node.component == "kafka-connect-s3":
                 env["S3_ACCESS_KEY"] = s3_access_key
                 env["S3_SECRET_KEY"] = s3_secret_key
+
+            if node.component == "clickhouse":
+                env["S3_ACCESS_KEY"] = s3_access_key
+                env["S3_SECRET_KEY"] = s3_secret_key
+                edge_cfg = edge.connection_config or {}
+                bucket = str(edge_cfg.get("source_bucket") or env.get("S3_BUCKET") or "demo-bucket")
+                env["S3_BUCKET"] = bucket
+
+            if node.component == "opensearch":
+                env["S3_ACCESS_KEY"] = s3_access_key
+                env["S3_SECRET_KEY"] = s3_secret_key
+                edge_cfg = edge.connection_config or {}
+                env["OPENSEARCH_SNAPSHOT_BUCKET"] = str(
+                    edge_cfg.get("snapshot_bucket") or edge_cfg.get("source_bucket") or "opensearch-snapshots"
+                )
 
             # S3 File Browser: plain S3 only — always use MinIO root creds from the peer (no AIStor Tables / Iceberg).
             if node.component == "s3-file-browser":
@@ -1109,6 +1124,25 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         if node.component in ("data-generator", "external-system"):
             inject_generator_s3_from_edges(demo, node, env, project_name)
+
+        # Hive Metastore: resolve HDFS namenode from hdfs edges
+        if node.component == "hive-metastore":
+            for edge in demo.edges:
+                if edge.connection_type != "hdfs":
+                    continue
+                if edge.target == node.id:
+                    peer_id = edge.source
+                elif edge.source == node.id:
+                    peer_id = edge.target
+                else:
+                    continue
+                peer = next((n for n in demo.nodes if n.id == peer_id and n.component == "hdfs"), None)
+                if not peer:
+                    continue
+                env["HDFS_NAMENODE"] = f"{project_name}-{peer.id}"
+                wh = str((edge.connection_config or {}).get("warehouse_path") or "/user/hive/warehouse")
+                env["HIVE_WAREHOUSE_PATH"] = wh
+                break
 
         # Auto-inject ICEBERG_CATALOG_URI for data generators
         # Strategy: follow the generator's edge to its target MinIO cluster, then:

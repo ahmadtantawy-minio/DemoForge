@@ -1,0 +1,100 @@
+id: opensearch
+name: OpenSearch
+category: analytics
+icon: opensearch
+version: "2.19.1"
+image: opensearchproject/opensearch:2.19.1
+image_size_mb: 900
+description: >-
+  Apache-2.0 search and analytics engine. DemoForge wires MinIO/AIStor as an S3
+  snapshot repository for durable backups and searchable-snapshot demos.
+
+resources:
+  memory: "1536m"
+  cpu: 1.0
+
+ports:
+  - name: http
+    container: 9200
+    protocol: tcp
+  - name: transport
+    container: 9600
+    protocol: tcp
+
+environment:
+  discovery.type: single-node
+  plugins.security.disabled: "true"
+  DISABLE_SECURITY_PLUGIN: "true"
+  OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+  DISABLE_INSTALL_DEMO_CONFIG: "true"
+  # Injected from MinIO s3 edges
+  S3_ENDPOINT: ""
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  OPENSEARCH_SNAPSHOT_BUCKET: opensearch-snapshots
+  OPENSEARCH_SNAPSHOT_REPO: demoforge-s3
+
+health_check:
+  endpoint: /_cluster/health
+  port: 9200
+  interval: 15s
+  timeout: 10s
+  start_period: 60s
+
+secrets: []
+
+web_ui:
+  - name: api
+    port: 9200
+    path: /
+    description: OpenSearch REST API (cluster health, indices, snapshots)
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "OpenSearch. Snapshot repo uses MinIO via $S3_ENDPOINT."
+  quick_actions:
+    - label: "Cluster health"
+      command: "curl -s http://localhost:9200/_cluster/health?pretty"
+    - label: "List repos"
+      command: "curl -s http://localhost:9200/_snapshot?pretty"
+    - label: "List indices"
+      command: "curl -s http://localhost:9200/_cat/indices?v"
+
+connections:
+  provides:
+    - type: http
+      port: 9200
+      description: OpenSearch REST API
+      config_schema: []
+    - type: metrics
+      port: 9600
+      path: /_prometheus/metrics
+      description: Prometheus metrics (plugin may vary by image)
+      config_schema: []
+  accepts:
+    - type: s3
+      config_schema:
+        - key: snapshot_bucket
+          label: Snapshot Bucket
+          type: string
+          default: opensearch-snapshots
+        - key: repository_name
+          label: Repository Name
+          type: string
+          default: demoforge-s3
+
+variants:
+  default:
+    description: Single-node OpenSearch with security plugin disabled (demo only)
+
+template_mounts: []
+static_mounts:
+  - host_path: "scripts/register-s3-repo.sh"
+    mount_path: "/opt/demoforge/register-s3-repo.sh"
+
+init_scripts:
+  - command: "bash /opt/demoforge/register-s3-repo.sh"
+    wait_for_healthy: true
+    timeout: 180
+    order: 1
+    description: "Register MinIO/AIStor S3 snapshot repository"

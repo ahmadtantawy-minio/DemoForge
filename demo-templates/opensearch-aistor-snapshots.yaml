@@ -1,0 +1,75 @@
+_template:
+  name: OpenSearch snapshots on AIStor
+  tier: essentials
+  category: analytics
+  tags:
+  - opensearch
+  - snapshots
+  - aistor
+  - search
+  description: >-
+    OpenSearch uses MinIO/AIStor as an S3 snapshot repository. Demonstrates durable
+    search-index backups on AIStor without a proprietary Elasticsearch stack.
+  objective: Show AIStor as the durable snapshot tier for open-source OpenSearch
+  minio_value: AIStor holds OpenSearch snapshot repositories with path-style S3 access
+  estimated_resources:
+    memory: 3GB
+    cpu: 3
+    containers: 3
+  external_dependencies: []
+  walkthrough:
+  - step: Deploy
+    description: Deploy AIStor and OpenSearch. Init registers the demoforge-s3 snapshot repo.
+  - step: Verify repo
+    description: "OpenSearch terminal → List repos, or curl /_snapshot?pretty"
+  - step: Index sample docs
+    description: "curl -X PUT localhost:9200/demo/_doc/1 -H 'Content-Type: application/json' -d '{\"msg\":\"hello aistor\"}'"
+  - step: Take a snapshot
+    description: "curl -X PUT localhost:9200/_snapshot/demoforge-s3/snap1?wait_for_completion=true"
+  - step: Inspect bucket
+    description: Open MinIO Console → opensearch-snapshots bucket to see snapshot objects.
+  fa_ready: false
+  updated_at: "2026-08-21"
+id: template-opensearch-aistor-snapshots
+name: OpenSearch Snapshots on AIStor
+description: OpenSearch S3 snapshot repository backed by MinIO/AIStor
+networks:
+- name: default
+  subnet: 172.21.0.0/16
+  driver: bridge
+nodes:
+- id: minio
+  component: minio
+  position: {x: 200, y: 180}
+  display_name: AIStor
+  config:
+    MINIO_EDITION: aistor
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: opensearch
+  component: opensearch
+  variant: default
+  position: {x: 520, y: 180}
+  display_name: OpenSearch
+  config: {}
+clusters: []
+edges:
+- id: e-minio-os
+  source: minio
+  target: opensearch
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: Snapshot repo
+  connection_config:
+    snapshot_bucket: opensearch-snapshots
+    repository_name: demoforge-s3
+groups: []
+sticky_notes: []
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 4g
+  total_cpu: 3.0

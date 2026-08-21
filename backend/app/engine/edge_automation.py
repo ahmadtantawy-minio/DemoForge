@@ -382,7 +382,11 @@ def _gen_spark_submit(edge: DemoEdge, demo: DemoDefinition, project_name: str) -
 
 @_register("hdfs")
 def _gen_hdfs(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
-    return []  # Template-driven
+    return []  # Template-driven (Spark defaults + Hive Metastore warehouse)
+
+@_register("hive-metastore")
+def _gen_hive_metastore(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:
+    return []  # Template-driven (Trino legacy catalog via thrift URI)
 
 @_register("failover")
 def _gen_failover(edge: DemoEdge, demo: DemoDefinition, project_name: str) -> list[EdgeInitScript]:

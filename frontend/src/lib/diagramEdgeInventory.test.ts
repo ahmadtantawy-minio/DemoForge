@@ -37,6 +37,13 @@ describe("isHardcodedManifestPair", () => {
   it("allows manifest pairing for unrelated components", () => {
     expect(isHardcodedManifestPair("spark", "trino")).toBe(false);
   });
+
+  it("leaves analytics pairs to manifest intersection", () => {
+    expect(isHardcodedManifestPair("minio", "clickhouse")).toBe(false);
+    expect(isHardcodedManifestPair("minio", "opensearch")).toBe(false);
+    expect(isHardcodedManifestPair("hive-metastore", "trino")).toBe(false);
+    expect(isHardcodedManifestPair("hdfs", "hive-metastore")).toBe(false);
+  });
 });
 
 describe("buildDiagramEdgeInventory", () => {
@@ -91,6 +98,25 @@ describe("buildDiagramEdgeInventory", () => {
     expect(rows.some((r) => r.from === "spark" && r.to === "spark-etl-job" && r.edgeType === "spark-submit")).toBe(
       true,
     );
+  });
+
+  it("includes manifest rows for ClickHouse S3/S3Queue and Hive Metastore", () => {
+    const components = [
+      minimalComponent("minio", ["s3", "s3-queue"], []),
+      minimalComponent("clickhouse", ["sql-query"], ["s3", "s3-queue"]),
+      minimalComponent("opensearch", ["http"], ["s3"]),
+      minimalComponent("hive-metastore", ["hive-metastore"], ["hdfs"]),
+      minimalComponent("hdfs", ["hdfs"], []),
+      minimalComponent("trino", ["sql-query"], ["s3", "hive-metastore", "hdfs"]),
+    ];
+    const rows = buildDiagramEdgeInventory(components);
+    expect(rows.some((r) => r.from === "minio" && r.to === "clickhouse" && r.edgeType === "s3")).toBe(true);
+    expect(rows.some((r) => r.from === "minio" && r.to === "clickhouse" && r.edgeType === "s3-queue")).toBe(true);
+    expect(rows.some((r) => r.from === "minio" && r.to === "opensearch" && r.edgeType === "s3")).toBe(true);
+    expect(
+      rows.some((r) => r.from === "hive-metastore" && r.to === "trino" && r.edgeType === "hive-metastore"),
+    ).toBe(true);
+    expect(rows.some((r) => r.from === "hdfs" && r.to === "hive-metastore" && r.edgeType === "hdfs")).toBe(true);
   });
 });
 

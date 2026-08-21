@@ -100,6 +100,27 @@ connections:
   - type: tiering
     port: 9000
     description: ILM tiering source (hot tier)
+  - type: s3-queue
+    port: 9000
+    description: S3Queue ingest source for ClickHouse continuous reads
+    config_schema:
+      - key: source_bucket
+        label: Source Bucket
+        type: string
+        default: demo-bucket
+      - key: file_pattern
+        label: File Pattern
+        type: string
+        default: "*.csv"
+      - key: format
+        label: Data Format
+        type: select
+        options: ["CSVWithNames", "JSONEachRow", "Parquet"]
+        default: CSVWithNames
+      - key: table_name
+        label: Target Table Name
+        type: string
+        default: s3queue_ingest
   - type: aistor-tables
     port: 9000
     description: AIStor Tables — direct Trino connection (requires aistor_tables_enabled)

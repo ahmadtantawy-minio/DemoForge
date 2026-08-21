@@ -1,0 +1,101 @@
+_template:
+  name: ClickHouse OLAP on AIStor
+  tier: essentials
+  category: lakehouse
+  tags:
+  - clickhouse
+  - aistor
+  - olap
+  - s3-query
+  - zero-etl
+  description: >-
+    ClickHouse queries objects on AIStor via auto-wired S3 endpoints. Named collection
+    and demoforge_s3_files view are created at deploy time from the MinIO→ClickHouse edge.
+  objective: Show AIStor as the live data lake for real-time ClickHouse OLAP with zero ETL
+  minio_value: AIStor stores the source of truth; ClickHouse reads in place via S3 table functions
+  estimated_resources:
+    memory: 3GB
+    cpu: 3
+    containers: 4
+  external_dependencies: []
+  walkthrough:
+  - step: Deploy
+    description: Deploy MinIO (AIStor edition), file generator, and ClickHouse. Wait for green health.
+  - step: Generate data
+    description: Right-click Data Generator → Start Generating to push CSV into demo-bucket.
+  - step: Query the auto view
+    description: "Open ClickHouse Play and run: SELECT count() FROM demoforge_s3_files"
+  - step: Ad-hoc s3()
+    description: Use $S3_ENDPOINT from the ClickHouse terminal quick action for raw s3() queries.
+  fa_ready: false
+  updated_at: "2026-08-21"
+id: template-clickhouse-aistor-olap
+name: ClickHouse OLAP on AIStor
+description: ClickHouse reads AIStor objects in place via auto-wired S3 named collection
+networks:
+- name: default
+  subnet: 172.20.0.0/16
+  driver: bridge
+nodes:
+- id: file-gen
+  component: file-generator
+  variant: burst
+  position: {x: 50, y: 150}
+  display_name: Data Generator
+  config: {}
+- id: minio
+  component: minio
+  position: {x: 320, y: 150}
+  display_name: AIStor
+  config:
+    MINIO_EDITION: aistor
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: clickhouse
+  component: clickhouse
+  variant: default
+  position: {x: 600, y: 150}
+  display_name: ClickHouse
+  config: {}
+- id: prometheus
+  component: prometheus
+  variant: default
+  position: {x: 320, y: 360}
+  display_name: Prometheus
+  config: {}
+clusters: []
+edges:
+- id: e-gen-minio
+  source: file-gen
+  target: minio
+  connection_type: file-push
+  network: default
+  auto_configure: true
+  label: File push
+- id: e-minio-ch
+  source: minio
+  target: clickhouse
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3 query
+  connection_config:
+    source_bucket: demo-bucket
+    file_pattern: "*.csv"
+    format: CSVWithNames
+- id: e-minio-prom
+  source: minio
+  target: prometheus
+  connection_type: metrics
+  network: default
+  auto_configure: true
+  label: Metrics
+groups: []
+sticky_notes: []
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 4g
+  total_cpu: 4.0

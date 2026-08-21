@@ -1,0 +1,131 @@
+_template:
+  name: HDFS Hive to MinIO transparent SQL
+  tier: advanced
+  category: infrastructure
+  tags:
+  - migration
+  - hdfs
+  - hive
+  - trino
+  - transparent
+  - modernization
+  description: >-
+    Dual Trino catalogs over the same logical schema — legacy Hive Metastore on HDFS
+    and Hive/S3 on MinIO — to demonstrate transparent migration without Impala branding.
+  objective: >-
+    Query HDFS-backed and MinIO-backed tables from one SQL engine; migrate by copying
+    data and pointing consumers at the MinIO catalog.
+  minio_value: MinIO becomes the S3-native warehouse while Trino keeps a stable SQL surface
+  estimated_resources:
+    memory: 6GB
+    cpu: 5
+    containers: 6
+  external_dependencies: []
+  walkthrough:
+  - step: Deploy
+    description: Start HDFS, Hive Metastore, MinIO, Trino, and Spark. Wait for green health.
+  - step: Seed HDFS
+    description: "HDFS terminal: echo 'id,city,temp\n1,NYC,72\n2,LA,85' | hdfs dfs -put - /user/hive/warehouse/weather/data.csv"
+  - step: Register legacy table
+    description: "Trino: CREATE SCHEMA IF NOT EXISTS legacy.default; CREATE TABLE legacy.default.weather (id int, city varchar, temp int) WITH (external_location='hdfs://…/weather', format='CSV');"
+  - step: Migrate with Spark
+    description: Spark job reads HDFS CSV and writes Parquet to s3a://warehouse/weather/
+  - step: Query MinIO catalog
+    description: "Trino: SELECT * FROM hive.default.weather — same shape, MinIO location"
+  - step: Cut over
+    description: Point BI / apps at hive.* (MinIO) instead of legacy.* (HDFS) — transparent SQL migration.
+  fa_ready: false
+  updated_at: "2026-08-21"
+id: template-hdfs-hive-minio-sql
+name: HDFS + Hive + MinIO Dual Catalog Migration
+description: Trino queries HDFS (Hive Metastore) and MinIO side-by-side for transparent migration demos
+networks:
+- name: default
+  subnet: 172.22.0.0/16
+  driver: bridge
+nodes:
+- id: hdfs
+  component: hdfs
+  variant: pseudo-distributed
+  position: {x: 80, y: 200}
+  display_name: HDFS (Legacy)
+  config: {}
+- id: hive-ms
+  component: hive-metastore
+  variant: default
+  position: {x: 320, y: 80}
+  display_name: Hive Metastore
+  config: {}
+- id: minio-1
+  component: minio
+  position: {x: 560, y: 200}
+  display_name: MinIO
+  config:
+    MINIO_ROOT_USER: minioadmin
+    MINIO_ROOT_PASSWORD: minioadmin
+- id: trino
+  component: trino
+  variant: default
+  position: {x: 320, y: 320}
+  display_name: Trino
+  config: {}
+- id: spark
+  component: spark
+  variant: standalone
+  position: {x: 560, y: 360}
+  display_name: Spark
+  config: {}
+clusters: []
+edges:
+- id: e-hdfs-hive
+  source: hdfs
+  target: hive-ms
+  connection_type: hdfs
+  network: default
+  auto_configure: true
+  label: Warehouse on HDFS
+  connection_config:
+    warehouse_path: /user/hive/warehouse
+- id: e-hive-trino
+  source: hive-ms
+  target: trino
+  connection_type: hive-metastore
+  network: default
+  auto_configure: true
+  label: Legacy catalog
+  connection_config:
+    catalog_name: legacy
+- id: e-minio-trino
+  source: minio-1
+  target: trino
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: MinIO Hive/S3
+  connection_config:
+    catalog_name: minio
+- id: e-hdfs-spark
+  source: hdfs
+  target: spark
+  connection_type: hdfs
+  network: default
+  auto_configure: true
+  label: HDFS read
+- id: e-minio-spark
+  source: minio-1
+  target: spark
+  connection_type: s3
+  network: default
+  auto_configure: true
+  label: S3A write
+  connection_config:
+    warehouse_bucket: warehouse
+groups: []
+sticky_notes: []
+resources:
+  default_memory: 512m
+  default_cpu: 0.5
+  max_memory: 2g
+  max_cpu: 2.0
+  total_memory: 7g
+  total_cpu: 6.0

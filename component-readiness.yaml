@@ -14,7 +14,8 @@ components:
     updated_at: '2026-06-02T13:02:48.215882+00:00'
   clickhouse:
     fa_ready: false
-    updated_at: '2026-04-13T06:01:03.190074+00:00'
+    updated_at: '2026-08-21T05:36:29.968200+00:00'
+    notes: S3/S3Queue edge wiring + demoforge_s3_files init
   trino:
     fa_ready: true
     updated_at: '2026-04-13T06:01:22.807227+00:00'
@@ -26,7 +27,7 @@ components:
     updated_at: '2026-05-09T13:23:09.020328+00:00'
   hdfs:
     fa_ready: false
-    updated_at: '2026-05-09T13:45:51.709379+00:00'
+    updated_at: '2026-08-21T05:36:29.968200+00:00'
   nessie:
     fa_ready: false
     updated_at: '2026-04-03T03:36:39.110812+00:00'
@@ -110,3 +111,11 @@ components:
   event-processor:
     fa_ready: true
     updated_at: '2026-04-15T12:00:00+00:00'
+  opensearch:
+    fa_ready: false
+    updated_at: '2026-08-21T05:36:29.968200+00:00'
+    notes: S3 snapshot repository on MinIO/AIStor
+  hive-metastore:
+    fa_ready: false
+    updated_at: '2026-08-21T05:36:29.968200+00:00'
+    notes: Thrift HMS for Trino legacy catalog + HDFS warehouse

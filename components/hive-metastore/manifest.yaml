@@ -1,0 +1,82 @@
+id: hive-metastore
+name: Hive Metastore
+category: analytics
+icon: hive
+version: "3.1.3"
+image: apache/hive:3.1.3
+image_size_mb: 700
+description: >-
+  Apache Hive Metastore (Thrift) for dual-location SQL demos. Warehouse can sit
+  on HDFS (legacy) while Trino also catalogs tables on MinIO/AIStor.
+
+resources:
+  memory: "1g"
+  cpu: 0.5
+
+ports:
+  - name: thrift
+    container: 9083
+    protocol: tcp
+
+environment:
+  SERVICE_NAME: metastore
+  DB_DRIVER: derby
+  # Injected when HDFS edge present
+  HDFS_NAMENODE: ""
+  SERVICE_OPTS: "-Xmx512m -Dhive.metastore.warehouse.dir=file:///opt/hive/data/warehouse"
+
+health_check:
+  endpoint: /
+  port: 9083
+  interval: 20s
+  timeout: 10s
+  start_period: 90s
+
+secrets: []
+
+web_ui: []
+
+terminal:
+  shell: /bin/bash
+  welcome_message: "Hive Metastore (Thrift :9083). Pair with Trino catalogs for HDFS vs MinIO tables."
+  quick_actions:
+    - label: "Show warehouse env"
+      command: "env | grep -E 'HDFS_|SERVICE_|WAREHOUSE' | sort"
+
+connections:
+  provides:
+    - type: hive-metastore
+      port: 9083
+      description: Hive Metastore Thrift URI for Trino/Spark
+      config_schema:
+        - key: catalog_name
+          label: Trino Catalog Name
+          type: string
+          default: legacy
+  accepts:
+    - type: hdfs
+      config_schema:
+        - key: warehouse_path
+          label: HDFS Warehouse Path
+          type: string
+          default: /user/hive/warehouse
+
+variants:
+  default:
+    description: Embedded Derby metastore (demo). Point warehouse at HDFS when edged.
+    # entrypoint.sh from apache/hive image; SERVICE_OPTS set when HDFS_NAMENODE is injected
+    command: []
+
+template_mounts: []
+static_mounts:
+  - host_path: "scripts/entrypoint-wrapper.sh"
+    mount_path: "/opt/demoforge/entrypoint-wrapper.sh"
+entrypoint:
+  - /bin/bash
+  - /opt/demoforge/entrypoint-wrapper.sh
+init_scripts:
+  - command: "bash -c 'for i in $(seq 1 40); do (echo > /dev/tcp/127.0.0.1/9083) >/dev/null 2>&1 && echo metastore-ready && exit 0; sleep 3; done; echo metastore-timeout; exit 0'"
+    wait_for_healthy: false
+    timeout: 150
+    order: 1
+    description: "Wait for Hive Metastore Thrift port"

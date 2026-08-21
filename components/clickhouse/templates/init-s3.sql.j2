@@ -1,0 +1,58 @@
+{# DemoForge: ClickHouse named collection + optional S3Queue from MinIO edges. #}
+{%- set ns = namespace(endpoint='', access_key='minioadmin', secret_key='minioadmin', bucket='demo-bucket', pattern='*.csv', fmt='CSVWithNames', queue_table='', queue_bucket='', queue_pattern='*.csv', queue_fmt='CSVWithNames') %}
+{%- for edge in edges %}
+{%- if edge.target == node.id and edge.connection_type in ['s3', 's3-queue'] %}
+{%- set cc = edge.connection_config or {} %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node and not ns.endpoint %}
+{%- if source_node.component == 'nginx' %}
+{%- set ns.endpoint = 'http://' ~ project_name ~ '-' ~ source_node.id ~ ':80' %}
+{%- else %}
+{%- set ns.endpoint = 'http://' ~ project_name ~ '-' ~ source_node.id ~ ':9000' %}
+{%- endif %}
+{%- endif %}
+{%- if edge.connection_type == 's3' %}
+{%- set ns.bucket = cc.get('source_bucket') or 'demo-bucket' %}
+{%- set ns.pattern = cc.get('file_pattern') or '*.csv' %}
+{%- set ns.fmt = cc.get('format') or 'CSVWithNames' %}
+{%- elif edge.connection_type == 's3-queue' %}
+{%- set ns.queue_table = cc.get('table_name') or 's3queue_ingest' %}
+{%- set ns.queue_bucket = cc.get('source_bucket') or 'demo-bucket' %}
+{%- set ns.queue_pattern = cc.get('file_pattern') or '*.csv' %}
+{%- set ns.queue_fmt = cc.get('format') or 'CSVWithNames' %}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- if ns.endpoint %}
+CREATE NAMED COLLECTION IF NOT EXISTS minio_s3 AS
+    url = '{{ ns.endpoint }}/',
+    access_key_id = '{{ ns.access_key }}',
+    secret_access_key = '{{ ns.secret_key }}';
+
+CREATE OR REPLACE VIEW demoforge_s3_files AS
+SELECT *
+FROM s3(
+    '{{ ns.endpoint }}/{{ ns.bucket }}/{{ ns.pattern }}',
+    '{{ ns.access_key }}',
+    '{{ ns.secret_key }}',
+    '{{ ns.fmt }}'
+);
+
+{%- if ns.queue_table %}
+-- Continuous ingest from bucket prefix (ClickHouse S3Queue)
+CREATE TABLE IF NOT EXISTS {{ ns.queue_table }}
+(
+    raw String
+)
+ENGINE = S3Queue(
+    '{{ ns.endpoint }}/{{ ns.queue_bucket }}/{{ ns.queue_pattern }}',
+    '{{ ns.access_key }}',
+    '{{ ns.secret_key }}',
+    '{{ ns.queue_fmt }}'
+)
+SETTINGS mode = 'unordered';
+{%- endif %}
+{%- else %}
+-- named collection skipped (no MinIO S3 edge)
+SELECT 1;
+{%- endif %}

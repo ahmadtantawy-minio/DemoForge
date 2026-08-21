@@ -197,6 +197,30 @@ def _render_templates(template_dir, node, demo, output_dir, project_name, manife
             cat = resolve_trino_aistor_catalog_name(demo, node.id)
             mount_path = f"/etc/trino/catalog/{cat}.properties"
             host_path = os.path.join(output_dir, project_name, node.id, f"aistor-iceberg-{cat}.properties")
+        # Trino: legacy Hive Metastore catalog name from edge config (default legacy).
+        if getattr(node, "component", None) == "trino" and tm.template == "legacy-hive.properties.j2":
+            cat = "legacy"
+            for edge in demo.edges:
+                if edge.connection_type != "hive-metastore":
+                    continue
+                if edge.target != node.id and edge.source != node.id:
+                    continue
+                cat = str((edge.connection_config or {}).get("catalog_name") or "legacy")
+                break
+            mount_path = f"/etc/trino/catalog/{cat}.properties"
+            host_path = os.path.join(output_dir, project_name, node.id, f"legacy-hive-{cat}.properties")
+        # Trino: S3 Hive file-metastore catalog name from s3 edge (default hive).
+        if getattr(node, "component", None) == "trino" and tm.template == "hive.properties.j2":
+            cat = "hive"
+            for edge in demo.edges:
+                if edge.connection_type not in ("s3", "structured-data"):
+                    continue
+                if edge.target != node.id and edge.source != node.id:
+                    continue
+                cat = str((edge.connection_config or {}).get("catalog_name") or "hive")
+                break
+            mount_path = f"/etc/trino/catalog/{cat}.properties"
+            host_path = os.path.join(output_dir, project_name, node.id, f"hive-{cat}.properties")
         os.makedirs(os.path.dirname(host_path), exist_ok=True)
         with open(host_path, "w") as f:
             f.write(rendered)

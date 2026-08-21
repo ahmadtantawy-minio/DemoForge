@@ -14,7 +14,11 @@ spark.ui.host                    0.0.0.0
 {%- set wh = cc.get('warehouse_bucket') or 'warehouse' %}
 {%- set raw = (cc.raw_bucket | default('', true)) | trim %}
 {%- set svc = project_name ~ '-' ~ source_node.id %}
+{%- if source_node.component == 'nginx' %}
+{%- set ep = 'http://' ~ svc ~ ':80' %}
+{%- else %}
 {%- set ep = 'http://' ~ svc ~ ':9000' %}
+{%- endif %}
 {%- if loop.first %}
 spark.hadoop.fs.s3a.endpoint              {{ ep }}
 spark.hadoop.fs.s3a.access.key          minioadmin
@@ -33,5 +37,17 @@ spark.hadoop.fs.s3a.bucket.{{ wh }}.endpoint         {{ ep }}
 spark.hadoop.fs.s3a.bucket.{{ wh }}.access.key       minioadmin
 spark.hadoop.fs.s3a.bucket.{{ wh }}.secret.key       minioadmin
 spark.hadoop.fs.s3a.bucket.{{ wh }}.path.style.access true
+{%- endif %}
+{%- endfor %}
+
+{# HDFS edges: NameNode → Spark #}
+{%- set spark_hdfs_edges = edges | selectattr('target', 'equalto', node.id) | selectattr('connection_type', 'equalto', 'hdfs') | list %}
+{%- for edge in spark_hdfs_edges %}
+{%- set source_node = nodes | selectattr('id', 'equalto', edge.source) | first %}
+{%- if source_node and source_node.component == 'hdfs' %}
+{%- set nn = project_name ~ '-' ~ source_node.id %}
+spark.hadoop.fs.defaultFS                 hdfs://{{ nn }}:8020
+spark.hadoop.dfs.client.use.datanode.hostname true
+spark.hadoop.dfs.replication              1
 {%- endif %}
 {%- endfor %}
