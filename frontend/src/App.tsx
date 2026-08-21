@@ -31,7 +31,7 @@ import { ConnectivityPage } from "./pages/ConnectivityPage";
 import { copyDebugBundleToClipboard } from "./lib/copyDebugBundle";
 
 export default function App() {
-  const { setDemos, setInstances, setClusterHealth, updateDemoStatus, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode, laserPointerMode } = useDemoStore();
+  const { setDemos, setInstances, setClusterS3Endpoints, setClusterHealth, updateDemoStatus, activeDemoId, demos, activeView, cockpitEnabled, walkthroughOpen, setWalkthroughOpen, setResilienceProbes, currentPage, faMode, layoutFocusMode, setLayoutFocusMode, laserPointerMode } = useDemoStore();
   const debugOpen = useDebugStore((s) => s.isOpen);
   const addDebugEntry = useDebugStore((s) => s.addEntry);
   const prevClusterHealth = useRef<Record<string, string>>({});
@@ -182,11 +182,13 @@ export default function App() {
   useEffect(() => {
     if (!activeDemoId || !["running", "deploying"].includes(activeDemo?.status || "")) {
       setInstances([]);
+      setClusterS3Endpoints([]);
       return;
     }
     const syncInstances = () =>
       fetchInstances(activeDemoId).then((res) => {
         setInstances(res.instances);
+        setClusterS3Endpoints(res.cluster_s3_endpoints ?? []);
         // Reconcile toolbar status with runtime (avoids stale local "running" when backend differs).
         const stableStatuses = new Set(["running", "stopped", "error", "not_deployed"]);
         if (res.status && stableStatuses.has(res.status)) {
@@ -389,7 +391,7 @@ export default function App() {
     syncInstances();
     const interval = setInterval(syncInstances, 5000);
     return () => clearInterval(interval);
-  }, [activeDemoId, activeDemo?.status, setInstances, updateDemoStatus]);
+  }, [activeDemoId, activeDemo?.status, setInstances, setClusterS3Endpoints, updateDemoStatus]);
 
   // Fetch walkthrough steps when panel opens
   useEffect(() => {

@@ -11,8 +11,8 @@ const MAX_AUTO_STRIPE = 16;
 /** MinIO erasure pools need at least four drives total (matches compose generator). */
 export const MIN_ERASURE_DRIVES_PER_POOL = 4;
 
-/** Node counts offered in pool / cluster property pickers. */
-export const MINIO_POOL_NODE_COUNT_OPTIONS = [2, 3, 4, 6, 8, 16] as const;
+/** Node counts offered in pool / cluster property pickers (1 = single host, multi-disk). */
+export const MINIO_POOL_NODE_COUNT_OPTIONS = [1, 2, 3, 4, 6, 8, 16] as const;
 
 /** Drives-per-node values offered in pool property pickers. */
 export const MINIO_POOL_DRIVES_PER_NODE_OPTIONS = [1, 2, 3, 4, 6, 8, 12, 16] as const;

@@ -24,6 +24,7 @@ from .generator_s3 import (
     apply_minio_compression_env_guard,
     inject_generator_s3_from_edges,
 )
+from ..s3_host_ports import assign_minio_cluster_s3_host_ports, cluster_id_for_lb_node
 from .minio_s3_wiring import (
     buckets_from_edge_config,
     collect_mc_buckets_for_edge,
@@ -606,6 +607,8 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
     """
     demo = demo.model_copy(deep=True)
     project_name = f"demoforge-{demo.id}"
+
+    assign_minio_cluster_s3_host_ports(demo)
 
     # Build network map from demo.networks list
     network_map = {net.name: f"{project_name}-{net.name}" for net in demo.networks}
@@ -1692,6 +1695,17 @@ def generate_compose(demo: DemoDefinition, output_dir: str, components_dir: str 
 
         # Host port mappings for ports with explicit host overrides
         host_ports = [f"{p.host}:{p.container}" for p in manifest.ports if p.host]
+        if node.component == "nginx" and node.id.endswith("-lb"):
+            cluster_id = cluster_id_for_lb_node(node.id)
+            lb_cluster = next(
+                (c for c in demo.clusters if c.id == cluster_id and c.component == "minio"),
+                None,
+            )
+            if lb_cluster:
+                s3_port = (lb_cluster.config or {}).get("S3_HOST_PORT", "").strip()
+                if s3_port:
+                    host_ports.append(f"{s3_port}:80")
+                    service["labels"]["demoforge.s3_host_port"] = s3_port
         if host_ports:
             service["ports"] = host_ports
 

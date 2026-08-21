@@ -84,9 +84,13 @@ def resolve_target(demo_id: str, node_id: str, ui_name: str) -> tuple[str, str]:
 def _normalize_proxy_subpath(ui_name: str, subpath: str) -> str:
     """Drop a leading ``console/`` segment when the proxy ui_name is already ``console``.
 
-    MinIO Console's React Router uses ``/console/*`` client routes. Under DemoForge that
-    becomes ``/proxy/.../console/console/...`` unless we strip the duplicate segment
-    before forwarding to the container (which serves the SPA at ``/`` on port 9001).
+    MinIO AIStor Console registers legacy pages (buckets, identity, browser, …) under
+    ``/console/*`` in React Router. DemoForge exposes the UI at
+    ``/proxy/{demo}/{node}/console/…``, so the browser URL must be
+    ``…/console/console/buckets`` for the SPA to match ``/console/buckets``.
+
+    Upstream nginx still serves the SPA at ``/`` on port 9001, so we strip the inner
+    ``console/`` segment before forwarding while keeping it in the browser URL.
     """
     if ui_name != "console" or not subpath:
         return subpath
@@ -94,6 +98,52 @@ def _normalize_proxy_subpath(ui_name: str, subpath: str) -> str:
     while s == "console" or s.startswith("console/"):
         s = s[len("console") :].lstrip("/")
     return s
+
+
+# First path segment after /proxy/.../console/ that does not need an extra /console/
+# prefix in the browser URL (object-store overview, auth, static assets, API, WS).
+_CONSOLE_PROXY_EXEMPT_PREFIXES = (
+    "console/",
+    "object-store/",
+    "static/",
+    "api/",
+    "ws/",
+    "images/",
+)
+_CONSOLE_PROXY_EXEMPT_EXACT = frozenset({
+    "",
+    "console",
+    "login",
+    "logout",
+    "oauth_callback",
+    "favicon.ico",
+})
+
+
+def console_legacy_subpath_redirect(
+    demo_id: str,
+    node_id: str,
+    ui_name: str,
+    subpath: str,
+    *,
+    query: str = "",
+) -> str | None:
+    """Return a redirect target for legacy MinIO Console routes missing the inner ``console/`` segment.
+
+    ``/proxy/…/console/identity`` must become ``/proxy/…/console/console/identity`` so
+    React Router (basename ``/proxy/…/console``) matches the ``/console/identity`` route.
+    """
+    if ui_name != "console" or subpath is None:
+        return None
+    s = subpath.lstrip("/")
+    if s in _CONSOLE_PROXY_EXEMPT_EXACT:
+        return None
+    if any(s.startswith(prefix) for prefix in _CONSOLE_PROXY_EXEMPT_PREFIXES):
+        return None
+    url = f"/proxy/{demo_id}/{node_id}/console/console/{s}"
+    if query:
+        url += f"?{query}"
+    return url
 
 
 async def forward_request(
@@ -335,21 +385,6 @@ def _inject_base_tag(
         f'+window.location.search+window.location.hash);}}catch(e){{}}'
     ) if not has_own_base else ""
 
-    # MinIO Console: collapse /proxy/.../console/console/ → /proxy/.../console/ (load + SPA nav).
-    minio_console_url_fixup = ""
-    if ui_name == "console" and proxy_base.rstrip("/").endswith("/console"):
-        minio_console_url_fixup = (
-            f'function _dfFixMinioConsoleUrl(){{try{{var p=window.location.pathname;var dup=pb+"/console/";'
-            f'if(p.indexOf(dup)>=0)window.history.replaceState(window.history.state,"",'
-            f'p.split(dup).join(pb+"/")+window.location.search+window.location.hash);}}catch(e){{}}}}'
-            f'_dfFixMinioConsoleUrl();'
-            f'var _ps=history.pushState,_rs=history.replaceState;'
-            f'history.pushState=function(s,t,u){{if(typeof u==="string"&&u.indexOf("console/console")>=0)'
-            f'u=u.split("console/console").join("console");return _ps.call(this,s,t,u);}};'
-            f'history.replaceState=function(s,t,u){{if(typeof u==="string"&&u.indexOf("console/console")>=0)'
-            f'u=u.split("console/console").join("console");var r=_rs.call(this,s,t,u);_dfFixMinioConsoleUrl();return r;}};'
-        )
-
     fetch_interceptor = (
         f'<script>'
         f'(function(){{'
@@ -357,7 +392,6 @@ def _inject_base_tag(
         f'var pb="{proxy_base}";'
         # Persist proxy prefix in sessionStorage so refresh-recovery redirects work
         f'try{{sessionStorage.setItem("_dfproxy",pb);}}catch(e){{}}'
-        + minio_console_url_fixup
         + replace_state_block +
         # rewrite helper: "/path" and "http://origin/path" → proxy-prefixed URL
         f'function rw(u){{'

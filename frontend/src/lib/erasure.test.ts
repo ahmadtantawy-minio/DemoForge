@@ -11,6 +11,12 @@ import {
 describe("MinIO pool topology helpers", () => {
   it("offers 3-node pools in the node count picker", () => {
     expect(MINIO_POOL_NODE_COUNT_OPTIONS).toContain(3);
+    expect(MINIO_POOL_NODE_COUNT_OPTIONS).toContain(1);
+  });
+
+  it("requires 4 drives per node for single-node EC pools", () => {
+    expect(minDrivesPerNodeForEc(1)).toBe(4);
+    expect(drivesPerNodeOptionsForPool(1)).toEqual([4, 6, 8, 12, 16]);
   });
 
   it("requires 2 drives per node for 3-node EC pools", () => {

@@ -25,6 +25,7 @@ from ...engine.docker_manager import (
     unpin_user_stopped_node,
 )
 from ...engine.proxy_gateway import get_http_client
+from ...engine.s3_host_ports import localhost_s3_url, s3_host_port_for_cluster
 from ...engine.cluster_ec_health import resolve_cluster_health_for_instances
 from ...engine.edge_automation import (
     generate_edge_scripts, _get_credential, _safe, _find_cluster,
@@ -37,7 +38,7 @@ from ...models.api_models import (
     EdgeConfigStatus, ExecLogRequest, LogResponse,
     ExternalSystemOnDemandMetaResponse, ExternalSystemOnDemandDataset,
     ExternalSystemOnDemandTriggerRequest,
-    ContainerHealthStatus,
+    ContainerHealthStatus, ClusterS3Endpoint,
 )
 from ..demos import _load_demo, _save_demo
 from ..iam_reconcile_report import mc_shell_iam_integration_events_from_logs
@@ -334,10 +335,32 @@ async def list_instances(demo_id: str):
             error=error,
         ))
 
+    cluster_s3_endpoints: list[ClusterS3Endpoint] = []
+    if demo:
+        for cluster in demo.clusters or []:
+            if cluster.component != "minio":
+                continue
+            host_port = s3_host_port_for_cluster(cluster)
+            if not host_port:
+                continue
+            creds = cluster.credentials or {}
+            cluster_s3_endpoints.append(
+                ClusterS3Endpoint(
+                    cluster_id=cluster.id,
+                    cluster_label=cluster.label or cluster.id,
+                    lb_node_id=f"{cluster.id}-lb",
+                    host_port=host_port,
+                    url=localhost_s3_url(host_port),
+                    access_key=str(creds.get("root_user", "minioadmin")),
+                    secret_key=str(creds.get("root_password", "minioadmin")),
+                )
+            )
+
     return InstancesResponse(
         demo_id=demo_id, status=running.status, instances=instances,
         init_results=running.init_results, edge_configs=edge_configs,
         cluster_health=cluster_health,
+        cluster_s3_endpoints=cluster_s3_endpoints,
         integration_events=integration_events,
     )
 

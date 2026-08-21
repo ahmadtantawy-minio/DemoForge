@@ -12,6 +12,7 @@ from ..models.demo import DemoDefinition
 from ..state.store import state, RunningDemo, RunningContainer
 from ..models.api_models import ContainerHealthStatus
 from .compose_generator import generate_compose
+from .s3_host_ports import persist_cluster_s3_host_ports
 from .compose_generator.generate import MINIO_SUBNET_REGISTRATION_SKIP_ENV
 from .network_manager import join_network, leave_all_networks
 from ..registry.loader import get_component
@@ -401,6 +402,7 @@ async def _deploy_demo_locked(
     await progress("compose", "running", compose_running)
     try:
         compose_path, demo = generate_compose(demo, data_dir, components_dir)
+        persist_cluster_s3_host_ports(demo.id, demo.clusters or [])
     except Exception as exc:
         msg = str(exc)
         if "[MINIO-LICENSE-BLOCK]" in msg:
@@ -972,6 +974,7 @@ async def apply_saved_demo_topology(
         compose_path, demo_out = await asyncio.to_thread(
             generate_compose, demo, data_dir, components_dir
         )
+        persist_cluster_s3_host_ports(demo_id, demo_out.clusters or [])
         running.compose_file_path = compose_path
 
         timeout = int(getattr(demo_out, "deploy_timeout_seconds", None) or COMPOSE_TIMEOUT)

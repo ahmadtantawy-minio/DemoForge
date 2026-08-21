@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { DemoSummary, ContainerInstance } from "../types";
+import type { DemoSummary, ContainerInstance, ClusterS3Endpoint } from "../types";
 
 type ViewType = "diagram" | "control-plane";
 export type PageKey = "home" | "designer" | "templates" | "images" | "readiness" | "fa-management" | "connectivity" | "settings";
@@ -19,6 +19,7 @@ interface DemoState {
   demos: DemoSummary[];
   activeDemoId: string | null;
   instances: ContainerInstance[];
+  clusterS3Endpoints: ClusterS3Endpoint[];
   clusterHealth: Record<string, string>;
   activeView: ViewType;
   currentPage: PageKey;
@@ -43,6 +44,7 @@ interface DemoState {
   setDemos: (demos: DemoSummary[]) => void;
   setActiveDemoId: (id: string | null) => void;
   setInstances: (instances: ContainerInstance[]) => void;
+  setClusterS3Endpoints: (endpoints: ClusterS3Endpoint[]) => void;
   setClusterHealth: (health: Record<string, string>) => void;
   setActiveView: (view: ViewType) => void;
   setCurrentPage: (page: PageKey) => void;
@@ -92,6 +94,7 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   demos: [],
   activeDemoId: initial.demoId,
   instances: [],
+  clusterS3Endpoints: [],
   clusterHealth: {},
   activeView: initial.view,
   currentPage: initial.page,
@@ -120,6 +123,8 @@ export const useDemoStore = create<DemoState>((set, get) => ({
   },
 
   setInstances: (instances) => set({ instances }),
+
+  setClusterS3Endpoints: (endpoints) => set({ clusterS3Endpoints: endpoints }),
 
   setClusterHealth: (health) => set({ clusterHealth: health }),
 

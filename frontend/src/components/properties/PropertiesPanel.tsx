@@ -33,7 +33,7 @@ export default function PropertiesPanel() {
     _setNodes(ns);
     setDirty(true);
   };
-  const { instances, activeDemoId, demos } = useDemoStore();
+  const { instances, clusterS3Endpoints, activeDemoId, demos } = useDemoStore();
   const [components, setComponents] = useState<ComponentSummary[]>([]);
   const [sqlEditorOpen, setSqlEditorOpen] = useState(false);
   const [sqlEditorScenarioId, setSqlEditorScenarioId] = useState("ecommerce-orders");
@@ -148,6 +148,7 @@ export default function PropertiesPanel() {
         setNodes={setNodes}
         setEdges={setEdges}
         instances={instances}
+        clusterS3Endpoints={clusterS3Endpoints}
         demos={demos}
         activeDemoId={activeDemoId}
         scheduleClusterTopoApply={scheduleClusterTopoApply}

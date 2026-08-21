@@ -85,6 +85,15 @@ class WebUILink(BaseModel):
     proxy_url: str                # "/proxy/{demo}/{node}/{ui_name}/"
     description: str
 
+class ClusterS3Endpoint(BaseModel):
+    cluster_id: str
+    cluster_label: str
+    lb_node_id: str
+    host_port: int
+    url: str                      # http://localhost:{host_port}
+    access_key: str = "minioadmin"
+    secret_key: str = "minioadmin"
+
 class ContainerInstance(BaseModel):
     node_id: str                  # Matches DemoNode.id
     component_id: str             # Manifest ID
@@ -114,6 +123,7 @@ class InstancesResponse(BaseModel):
     init_results: list[dict] = []
     edge_configs: list[EdgeConfigStatus] = []
     cluster_health: dict[str, str] = {}  # cluster_id → healthy | degraded | quorum_lost | unreachable
+    cluster_s3_endpoints: list[ClusterS3Endpoint] = []
     # event-processor JSONL at /tmp/demoforge_integration.jsonl (webhook registration, receive, report)
     integration_events: list[dict] = []
 

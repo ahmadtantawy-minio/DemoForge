@@ -1,6 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { SelectedClusterElement } from "../../stores/diagramStore";
-import type { ContainerInstance, MinioServerPool } from "../../types";
+import type { ContainerInstance, MinioServerPool, ClusterS3Endpoint } from "../../types";
 import ClusterPropertiesPanel from "./cluster/ClusterPropertiesPanel";
 import PoolPropertiesPanel from "./cluster/PoolPropertiesPanel";
 import NodePropertiesPanel from "./cluster/NodePropertiesPanel";
@@ -16,6 +16,7 @@ interface ClusterPropertiesRouterProps {
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;
   instances: ContainerInstance[];
+  clusterS3Endpoints: ClusterS3Endpoint[];
   demos: { id: string; status?: string }[];
   activeDemoId: string | null;
   scheduleClusterTopoApply: () => void;
@@ -30,6 +31,7 @@ export function ClusterPropertiesRouter({
   setNodes,
   setEdges,
   instances,
+  clusterS3Endpoints,
   demos,
   activeDemoId,
   scheduleClusterTopoApply,
@@ -56,6 +58,7 @@ export function ClusterPropertiesRouter({
         nodes={nodes}
         edges={edges}
         instances={instances}
+        clusterS3Endpoint={clusterS3Endpoints.find((e) => e.cluster_id === selectedNodeId) ?? null}
         onUpdate={updateCluster}
         setEdges={setEdges}
       />
@@ -73,6 +76,7 @@ export function ClusterPropertiesRouter({
           nodes={nodes}
           edges={edges}
           instances={instances}
+          clusterS3Endpoint={clusterS3Endpoints.find((e) => e.cluster_id === selectedNodeId) ?? null}
           onUpdate={updateCluster}
           setEdges={setEdges}
         />
@@ -115,6 +119,7 @@ export function ClusterPropertiesRouter({
       nodes={nodes}
       edges={edges}
       instances={instances}
+      clusterS3Endpoint={clusterS3Endpoints.find((e) => e.cluster_id === selectedNodeId) ?? null}
       onUpdate={updateCluster}
       setEdges={setEdges}
     />

@@ -160,7 +160,7 @@ export default function AddPoolDialog({
               <SelectContent>
                 {MINIO_POOL_NODE_COUNT_OPTIONS.map((n) => (
                   <SelectItem key={n} value={String(n)}>
-                    {n} nodes
+                    {n === 1 ? "1 node (single host, multi-disk)" : `${n} nodes`}
                   </SelectItem>
                 ))}
               </SelectContent>

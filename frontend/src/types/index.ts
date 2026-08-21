@@ -156,6 +156,16 @@ export interface QuickAction {
 
 export type HealthStatus = "healthy" | "starting" | "degraded" | "error" | "stopped";
 
+export interface ClusterS3Endpoint {
+  cluster_id: string;
+  cluster_label: string;
+  lb_node_id: string;
+  host_port: number;
+  url: string;
+  access_key: string;
+  secret_key: string;
+}
+
 export interface ContainerInstance {
   node_id: string;
   component_id: string;

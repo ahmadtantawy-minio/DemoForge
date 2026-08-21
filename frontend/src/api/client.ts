@@ -174,6 +174,7 @@ export const fetchInstances = (demoId: string) =>
     instances: import("../types").ContainerInstance[];
     edge_configs?: { edge_id: string; connection_type: string; status: string; description: string; error: string }[];
     cluster_health?: Record<string, string>;
+    cluster_s3_endpoints?: import("../types").ClusterS3Endpoint[];
     init_results?: { node_id: string; script: string; exit_code: number; stdout: string; stderr: string }[];
     integration_events?: {
       id?: string;

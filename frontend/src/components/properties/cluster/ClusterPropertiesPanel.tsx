@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ClusterNodeData, ContainerInstance } from "../../../types";
+import type { ClusterNodeData, ContainerInstance, ClusterS3Endpoint } from "../../../types";
 import { computeClusterAggregates } from "../../../lib/clusterUtils";
 import { proxyUrl } from "../../../api/client";
 import {
@@ -28,6 +28,7 @@ interface Props {
   nodes: Node[];
   edges: Edge[];
   instances: ContainerInstance[];
+  clusterS3Endpoint: ClusterS3Endpoint | null;
   onUpdate: (patch: Record<string, any>) => void;
   setEdges: (edges: Edge[]) => void;
 }
@@ -54,7 +55,7 @@ function PasswordInput({ value, onChange, className }: { value: string; onChange
   );
 }
 
-export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, instances, onUpdate, setEdges }: Props) {
+export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, instances, clusterS3Endpoint, onUpdate, setEdges }: Props) {
   const pools = data.serverPools || [];
   const aggregates = computeClusterAggregates(pools);
   const edition = data.config?.MINIO_EDITION || "ce";
@@ -355,6 +356,36 @@ export default function ClusterPropertiesPanel({ nodeId, data, nodes, edges, ins
               <span className="text-[11px] text-foreground font-mono">{value}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* S3 API on localhost (host port from deploy) */}
+      {(clusterS3Endpoint || data.config?.S3_HOST_PORT) && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="text-xs text-muted-foreground mb-1">S3 API (localhost)</div>
+          {clusterS3Endpoint ? (
+            <>
+              <div className="text-xs font-mono bg-muted px-2 py-1.5 rounded break-all">
+                {clusterS3Endpoint.url}
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                Port {clusterS3Endpoint.host_port} → cluster load balancer :80
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                Access key: <span className="font-mono">{clusterS3Endpoint.access_key}</span>
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">
+                Example:{" "}
+                <span className="font-mono break-all">
+                  aws --endpoint-url {clusterS3Endpoint.url} s3 ls
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="text-[11px] text-muted-foreground">
+              Assigned port <span className="font-mono">{data.config?.S3_HOST_PORT}</span> — redeploy to publish on localhost.
+            </div>
+          )}
         </div>
       )}
 
