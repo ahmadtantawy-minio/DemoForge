@@ -28,7 +28,7 @@ _template:
     description: "curl -X PUT localhost:9200/_snapshot/demoforge-s3/snap1?wait_for_completion=true"
   - step: Inspect bucket
     description: Open MinIO Console → opensearch-snapshots bucket to see snapshot objects.
-  fa_ready: false
+  fa_ready: true
   updated_at: "2026-08-21"
 id: template-opensearch-aistor-snapshots
 name: OpenSearch Snapshots on AIStor

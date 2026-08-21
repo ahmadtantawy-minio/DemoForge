@@ -34,7 +34,7 @@ _template:
     description: "Trino: SELECT * FROM hive.default.weather — same shape, MinIO location"
   - step: Cut over
     description: Point BI / apps at hive.* (MinIO) instead of legacy.* (HDFS) — transparent SQL migration.
-  fa_ready: false
+  fa_ready: true
   updated_at: "2026-08-21"
 id: template-hdfs-hive-minio-sql
 name: HDFS + Hive + MinIO Dual Catalog Migration

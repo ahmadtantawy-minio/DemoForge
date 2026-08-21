@@ -27,7 +27,7 @@ _template:
     description: "Open ClickHouse Play and run: SELECT count() FROM demoforge_s3_files"
   - step: Ad-hoc s3()
     description: Use $S3_ENDPOINT from the ClickHouse terminal quick action for raw s3() queries.
-  fa_ready: false
+  fa_ready: true
   updated_at: "2026-08-21"
 id: template-clickhouse-aistor-olap
 name: ClickHouse OLAP on AIStor
