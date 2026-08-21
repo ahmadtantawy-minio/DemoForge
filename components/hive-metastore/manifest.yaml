@@ -75,8 +75,8 @@ entrypoint:
   - /bin/bash
   - /opt/demoforge/entrypoint-wrapper.sh
 init_scripts:
-  - command: "bash -c 'for i in $(seq 1 40); do (echo > /dev/tcp/127.0.0.1/9083) >/dev/null 2>&1 && echo metastore-ready && exit 0; sleep 3; done; echo metastore-timeout; exit 0'"
+  - command: "true"
     wait_for_healthy: false
-    timeout: 150
+    timeout: 30
     order: 1
-    description: "Wait for Hive Metastore Thrift port"
+    description: "Hive Metastore readiness is covered by compose healthcheck"

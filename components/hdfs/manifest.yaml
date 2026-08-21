@@ -8,7 +8,7 @@ image_size_mb: 450
 description: "Hadoop Distributed File System for legacy data storage. Used in migration demos showing data moving from HDFS to MinIO."
 
 resources:
-  memory: "512m"
+  memory: "768m"
   cpu: 0.5
 
 ports:
@@ -23,17 +23,22 @@ environment:
   HADOOP_HOME: "/opt/hadoop"
   CLUSTER_NAME: "demoforge"
   ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
-  CORE-SITE.XML_fs.defaultFS: "hdfs://0.0.0.0:8020"
+  # Must be localhost (not 0.0.0.0) so DataNode + clients can reach the NameNode
+  CORE-SITE.XML_fs.defaultFS: "hdfs://localhost:8020"
   HDFS-SITE.XML_dfs.replication: "1"
   HDFS-SITE.XML_dfs.namenode.name.dir: "/tmp/hadoop-root/dfs/name"
   HDFS-SITE.XML_dfs.datanode.data.dir: "/tmp/hadoop-root/dfs/data"
   HDFS-SITE.XML_dfs.permissions.enabled: "false"
+  HDFS-SITE.XML_dfs.namenode.rpc-bind-host: "0.0.0.0"
+  HDFS-SITE.XML_dfs.namenode.http-bind-host: "0.0.0.0"
+  HDFS-SITE.XML_dfs.client.use.datanode.hostname: "true"
 
 health_check:
   endpoint: /
   port: 9870
   interval: 15s
   timeout: 10s
+  start_period: 90s
 
 secrets: []
 
@@ -65,13 +70,10 @@ connections:
 variants:
   pseudo-distributed:
     description: "Single-node NameNode + DataNode (pseudo-distributed mode)"
-    command: ["bash", "-c", "hdfs namenode & sleep 15 && hdfs datanode & wait"]
+    command: ["bash", "/opt/demoforge/start-pseudo.sh"]
 
 template_mounts: []
-static_mounts: []
-init_scripts:
-  - command: "bash -c 'hdfs dfs -mkdir -p /user/hive/warehouse /data/demo && hdfs dfs -chmod -R 777 /user /data || true'"
-    wait_for_healthy: true
-    timeout: 120
-    order: 1
-    description: "Create Hive warehouse and demo paths on HDFS"
+static_mounts:
+  - host_path: "scripts/start-pseudo.sh"
+    mount_path: "/opt/demoforge/start-pseudo.sh"
+init_scripts: []

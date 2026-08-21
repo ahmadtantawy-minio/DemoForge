@@ -44,7 +44,15 @@ async def _run_node_scripts(node_id: str, container_name: str, scripts: list, on
                 continue
         if on_progress:
             await on_progress("init_scripts", "running", f"{node_id}: {desc}")
-        exit_code, stdout, stderr = await exec_in_container(container_name, script.command)
+        try:
+            exit_code, stdout, stderr = await exec_in_container(container_name, script.command)
+        except Exception as e:
+            logger.warning("Init script exec failed on %s: %s", node_id, e)
+            results.append({
+                "node_id": node_id, "script": script.command,
+                "exit_code": -1, "stdout": "", "stderr": str(e)[:500],
+            })
+            continue
         logger.info(f"Init script on {node_id}: exit={exit_code}")
         results.append({
             "node_id": node_id, "script": script.command,
